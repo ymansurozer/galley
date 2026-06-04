@@ -122,7 +122,10 @@ the guided review, then UI work, then distribution.
 - [x] **Markdown comments** — comment bodies render as markdown via **markdown-it** with
       Shiki-highlighted code blocks. Output is sanitized (`html: false` + DOMPurify)
       because agent replies are rendered too.
-- [ ] **Settings** — font, diff-view options, file-tree options, diff theme, code-highlight theme.
+- [x] **Settings** — a gear-triggered panel (persisted to localStorage): diff options
+      (layout, intra-line, indicators, hunk separators, wrapping), a shared code-highlight
+      theme (diff + comment code), mono font + size, show-unchanged-files, and a
+      stage-on-accept toggle (off = verdict-only; PR mode is always verdict-only).
 
 ### Distribution
 

@@ -3,6 +3,23 @@ import type { ReviewState, ReviewComment, ChangeState, Decision } from "../types
 export type Side = "additions" | "deletions";
 export type DiffStyle = "split" | "unified";
 
+// User preferences (persisted to localStorage), applied live. diffStyle stays separate
+// (its own toolbar toggle); these are the rest of the settings panel.
+export type Settings = {
+  lineDiffType: "word-alt" | "word" | "char" | "none";
+  diffIndicators: "bars" | "classic" | "none";
+  hunkSeparators: "line-info" | "simple" | "metadata" | "line-info-basic";
+  overflow: "scroll" | "wrap";
+  // Row add/remove tint emphasis: full (default), subtle (faint row + stronger word
+  // emphasis), off (no row tint — focus entirely on the word diff).
+  lineHighlight: "full" | "subtle" | "off";
+  theme: string;      // Shiki bundled dark theme — applies to the diff AND comment code
+  font: string;       // key into the FONTS map
+  fontSize: number;   // px
+  showUnchanged: boolean;
+  stageOnAccept: boolean;
+};
+
 // The line/range the action popover + composer currently target.
 export type Selection = { side: Side; lineNumber: number; endLine?: number };
 
@@ -91,6 +108,8 @@ export interface Store {
   composerTitle: string;
   composerBody: string;
   editingCommentId: string | null;
+  settings: Settings;
+  settingsOpen: boolean;
   // file mode: how a markdown file is shown — "rendered" (comark/markdown-it preview,
   // comment on blocks) or "source" (@pierre/diffs raw/diff).
   fileView: "rendered" | "source";
@@ -105,6 +124,9 @@ export interface Store {
   setStyle?: (style: DiffStyle) => void;
   setFileView?: (view: "rendered" | "source") => void;
   isMarkdownFile?: () => boolean;
+  applySettings?: () => void;
+  openSettings?: () => void;
+  closeSettings?: () => void;
   saveComment?: () => void;
   ask?: () => void;
   requestChange?: () => void;

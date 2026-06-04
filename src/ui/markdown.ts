@@ -9,12 +9,21 @@ import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import DOMPurify from "dompurify";
 import { S, esc } from "./store";
 import { render } from "./render";
+import { loadSettings } from "./settings";
 import type { ReviewComment } from "./types";
 
-// Curated Shiki theme + languages, deep-imported so only these are bundled (using
+// Curated Shiki themes + languages, deep-imported so only these are bundled (using
 // shiki's full createHighlighter would pull ~200 unused grammars). The JS regex
-// engine avoids a second oniguruma wasm.
+// engine avoids a second oniguruma wasm. The theme set matches the settings picker
+// (and @pierre/diffs loads the same names for the diff), so one theme styles both.
 import palenight from "shiki/dist/themes/material-theme-palenight.mjs";
+import materialDarker from "shiki/dist/themes/material-theme-darker.mjs";
+import githubDark from "shiki/dist/themes/github-dark.mjs";
+import dracula from "shiki/dist/themes/dracula.mjs";
+import ayuDark from "shiki/dist/themes/ayu-dark.mjs";
+import gruvbox from "shiki/dist/themes/gruvbox-dark-medium.mjs";
+import everforest from "shiki/dist/themes/everforest-dark.mjs";
+import darkPlus from "shiki/dist/themes/dark-plus.mjs";
 import javascript from "shiki/dist/langs/javascript.mjs";
 import typescript from "shiki/dist/langs/typescript.mjs";
 import tsx from "shiki/dist/langs/tsx.mjs";
@@ -41,10 +50,15 @@ import dockerfile from "shiki/dist/langs/dockerfile.mjs";
 // markdown-it gives exact per-block source lines (token.map) — see sourceLine below —
 // which is why we use it over comark; html:false drops raw HTML at the source, and
 // DOMPurify is the final gate before anything is innerHTML'd (incl. agent-authored).
-const THEME = "material-theme-palenight";
+const THEMES: Record<string, unknown> = {
+  "material-theme-palenight": palenight, "material-theme-darker": materialDarker,
+  "github-dark": githubDark, "dracula": dracula, "ayu-dark": ayuDark,
+  "gruvbox-dark-medium": gruvbox, "everforest-dark": everforest, "dark-plus": darkPlus,
+};
 const LANGS = [javascript, typescript, tsx, json, html, css, python, go, rust, c, cpp, java, bash, sql, yaml, markdownLang, diff, toml, ruby, php, dockerfile];
 
 let md: MarkdownIt | null = null;
+let hl: Awaited<ReturnType<typeof createHighlighterCore>> | null = null;
 const cache = new Map<string, string>();
 
 // Stamp each commentable block-open token with its 1-based source line (1-based
@@ -60,16 +74,29 @@ function sourceLine(mdi: MarkdownIt) {
 // Shiki's highlighter loads async (wasm + grammars); markdown-it render is sync once
 // ready. Until then renderMarkdown returns an escaped-text fallback; on ready we
 // repaint once so any fallbacks upgrade to rendered markdown.
-void (async () => {
-  const hl = await createHighlighterCore({ themes: [palenight] as never, langs: LANGS as never, engine: createJavaScriptRegexEngine() });
-  const instance = new MarkdownIt({ html: false, linkify: true })
+function buildMd(theme: string): MarkdownIt {
+  return new MarkdownIt({ html: false, linkify: true })
     .use(footnote)
     .use(taskLists, { label: true })
-    .use(fromHighlighter(hl, { theme: THEME, fallbackLanguage: "text" as never })) // unknown fences → plain
+    .use(fromHighlighter(hl as never, { theme, fallbackLanguage: "text" as never })) // unknown fences → plain
     .use(sourceLine);
-  md = instance;
+}
+
+// All curated themes preload into one highlighter, so switching is instant.
+void (async () => {
+  hl = await createHighlighterCore({ themes: Object.values(THEMES) as never, langs: LANGS as never, engine: createJavaScriptRegexEngine() });
+  const want = loadSettings().theme;
+  md = buildMd(THEMES[want] ? want : "material-theme-palenight");
   if (S.state) render();
 })();
+
+// Switch the comment-code theme (settings) — rebuild the renderer + drop the cache;
+// the caller re-renders. @pierre/diffs handles the diff side with the same theme name.
+export function setMarkdownTheme(name: string) {
+  if (!hl) return;
+  md = buildMd(THEMES[name] ? name : "material-theme-palenight");
+  cache.clear();
+}
 
 // Render arbitrary markdown to sanitized HTML (data-* attributes, incl. data-line,
 // are preserved by DOMPurify). Synchronous once the highlighter is ready.

@@ -1,5 +1,6 @@
 import Alpine from "alpinejs";
 import type { Store, DiffHolder, DiffStyle } from "./types";
+import { loadSettings } from "./settings";
 
 // Single reactive source of truth: the imperative diff island mutates it directly,
 // and the Alpine-driven chrome (tree, toolbar, composer, modals, toast) renders from it.
@@ -23,6 +24,8 @@ export const S: Store = Alpine.reactive<Store>({
   composerTitle: "New line",
   composerBody: "",
   editingCommentId: null,
+  settings: loadSettings(),
+  settingsOpen: false,
   fileView: "rendered",
 });
 

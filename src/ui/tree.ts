@@ -7,7 +7,7 @@ export function treeRows(): TreeRow[] {
   if (!S.state) return []; // template may evaluate before the initial fetch
   const root: TreeNode = { name: "", full: "", dirs: new Map(), files: [], changed: false };
   const changed = new Map(S.state.files.map((f, i) => [f.path, i]));
-  const all = S.projectFiles.length ? S.projectFiles : S.state.files.map((f) => f.path);
+  const all = S.settings.showUnchanged && S.projectFiles.length ? S.projectFiles : S.state.files.map((f) => f.path);
   all.forEach((path) => {
     const parts = path.split("/").filter(Boolean);
     let node = root;

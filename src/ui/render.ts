@@ -29,7 +29,7 @@ export async function render() {
   D.fileDiff = fd;
   applyLayoutClasses();
   const inst = new D.FileDiff({
-    theme: { dark: "pierre-dark", light: "pierre-light" }, themeType: "dark", diffStyle: S.diffStyle, diffIndicators: "bars", overflow: "scroll", hunkSeparators: "line-info", lineDiffType: "word-alt", enableLineSelection: true,
+    theme: { dark: S.settings.theme, light: "pierre-light" }, themeType: "dark", diffStyle: S.diffStyle, diffIndicators: S.settings.diffIndicators, overflow: S.settings.overflow, hunkSeparators: S.settings.hunkSeparators, lineDiffType: S.settings.lineDiffType, enableLineSelection: true,
     renderAnnotation, onLineNumberClick: handleLineNumberClick, onLineSelectionStart: handleDiffSelection, onLineSelectionChange: handleDiffSelection, onLineSelected: handleDiffSelection, onLineSelectionEnd: handleDiffSelection,
     renderHeaderMetadata: () => {
       const wrap = document.createElement("span");

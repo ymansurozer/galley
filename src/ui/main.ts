@@ -9,6 +9,8 @@ import { treeRows } from "./tree";
 import { render } from "./render";
 import { pollState } from "./poll";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
+import { applyAppearance, persistSettings } from "./settings";
+import { setMarkdownTheme } from "./markdown";
 import type { ReviewState } from "./types";
 
 // Close the composer when clicking outside it (unless it has unsaved text).
@@ -38,7 +40,7 @@ document.querySelectorAll<HTMLElement>("[data-resize]").forEach((handle) => {
 
 // Keyboard shortcuts
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { S.composerOpen = false; S.popoverOpen = false; S.editingCommentId = null; return; }
+  if (e.key === "Escape") { S.composerOpen = false; S.popoverOpen = false; S.editingCommentId = null; S.settingsOpen = false; return; }
   if (e.key === "c" && S.composerOpen) { e.preventDefault(); S.saveComment?.(); }
   if (e.key === "v") S.setStyle?.(S.diffStyle === "split" ? "unified" : "split");
 });
@@ -53,6 +55,11 @@ S.rowClick = (r) => { if (r.kind === "dir") S.toggleDir?.(r.full); else if (r.fi
 S.openComposer = openCommentComposer;
 S.setStyle = (style) => { S.diffStyle = style; localStorage.setItem("galley.diffStyle", style); render(); };
 S.setFileView = (view) => { S.fileView = view; D.fileDiff = null; render(); };
+// Apply + persist all settings: CSS vars (font/size), comment-code theme, and a re-render
+// (the diff reads S.settings.* in render()). Bound to every control's @change.
+S.applySettings = () => { persistSettings(S.settings); applyAppearance(S.settings); setMarkdownTheme(S.settings.theme); render(); };
+S.openSettings = () => { S.settingsOpen = true; };
+S.closeSettings = () => { S.settingsOpen = false; };
 S.isMarkdownFile = () => { const f = S.state && S.state.mode === "file" && S.state.files[S.fileIndex]; return !!f && isMarkdownPath(f.path); };
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
@@ -89,6 +96,7 @@ Alpine.store("g", S);
 Alpine.start();
 
 // Init
+applyAppearance(S.settings); // persisted font + size before first paint
 await loadDiffLib();
 S.state = await api<ReviewState>("/api/state");
 S.projectFiles = (await api<{ files?: string[] }>("/api/tree")).files || [];

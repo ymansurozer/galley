@@ -45,10 +45,12 @@ export async function keepAllCurrentFile() {
   S.state.changes.filter((c) => c.path === path && c.status === "pending").forEach((c) => { c.status = "accepted"; c.reviewedHash = c.contentHash; recordDecision(c, "accepted"); });
   S.state.decisionFiles = S.state.decisionFiles || [];
   if (!S.state.decisionFiles.includes(path)) S.state.decisionFiles.push(path);
-  await api("/api/stage", { method: "POST", body: JSON.stringify({ path }) });
-  S.state.stagedFiles = S.state.stagedFiles || [];
-  if (!S.state.stagedFiles.includes(path)) S.state.stagedFiles.push(path);
-  render(); toast("Kept and staged file"); persist();
+  if (S.settings.stageOnAccept) { // verdict-only when off
+    await api("/api/stage", { method: "POST", body: JSON.stringify({ path }) });
+    S.state.stagedFiles = S.state.stagedFiles || [];
+    if (!S.state.stagedFiles.includes(path)) S.state.stagedFiles.push(path);
+  }
+  render(); toast(S.settings.stageOnAccept ? "Kept and staged file" : "Kept file"); persist();
 }
 
 export async function stageFile(path: string, force = false) {
@@ -72,7 +74,7 @@ export async function unstageFile(path: string) {
 export async function acceptChange(id: string, status: Decision["status"]) {
   const change = S.state.changes.find((c) => c.id === id);
   if (!change || change.status === status) return;
-  if (status === "accepted" && change.stageable) {
+  if (status === "accepted" && change.stageable && S.settings.stageOnAccept) {
     const result = await api<{ error?: string }>("/api/stage-change", { method: "POST", body: JSON.stringify({ path: change.path, stableKey: change.stableKey }) });
     if (result.error) { toast(`Could not stage change: ${result.error}`); return; }
     S.state.stagedChangeKeys = S.state.stagedChangeKeys || [];
@@ -85,6 +87,6 @@ export async function acceptChange(id: string, status: Decision["status"]) {
   S.state.decisionFiles = S.state.decisionFiles || [];
   if (!S.state.decisionFiles.includes(change.path)) S.state.decisionFiles.push(change.path);
   if (D.fileDiff) D.fileDiff = applyDecisionToDiff(D.fileDiff, change, status);
-  toast(status === "accepted" ? "Accepted and staged" : "Rejected");
+  toast(status === "rejected" ? "Rejected" : (change.stageable && S.settings.stageOnAccept) ? "Accepted and staged" : "Accepted");
   render(); persist();
 }
