@@ -106,6 +106,8 @@ export interface Store {
   setFileView?: (view: "rendered" | "source") => void;
   isMarkdownFile?: () => boolean;
   saveComment?: () => void;
+  ask?: () => void;
+  requestChange?: () => void;
   reset?: () => Promise<void>;
   send?: () => Promise<void>;
   cancelStage?: () => void;

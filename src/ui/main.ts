@@ -54,7 +54,10 @@ S.openComposer = openCommentComposer;
 S.setStyle = (style) => { S.diffStyle = style; localStorage.setItem("galley.diffStyle", style); render(); };
 S.setFileView = (view) => { S.fileView = view; D.fileDiff = null; render(); };
 S.isMarkdownFile = () => { const f = S.state && S.state.mode === "file" && S.state.files[S.fileIndex]; return !!f && isMarkdownPath(f.path); };
-S.saveComment = () => {
+// New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
+// answered live) or "action" (Request change — goes back on Send). Editing just updates the
+// body and keeps the existing intent.
+const submitComment = (intent: "question" | "action") => {
   const body = (S.composerBody || "").trim();
   if (!body) return;
   if (S.editingCommentId) {
@@ -65,9 +68,15 @@ S.saveComment = () => {
     return;
   }
   const now = new Date().toISOString();
-  S.state.comments.push({ id: crypto.randomUUID(), path: currentFile().path, side: S.selected.side, lineNumber: S.selected.lineNumber, endLine: S.selected.endLine, createdAt: now, updatedAt: now, status: "open", role: "user", body, intent: "action" });
-  S.composerOpen = false; render(); persist(); toast("Comment saved");
+  const c = { id: crypto.randomUUID(), path: currentFile().path, side: S.selected.side, lineNumber: S.selected.lineNumber, endLine: S.selected.endLine, createdAt: now, updatedAt: now, status: "open" as const, role: "user" as const, body, intent };
+  S.state.comments.push(c);
+  S.composerOpen = false; render(); persist();
+  if (intent === "question") { api("/api/ask", { method: "POST", body: JSON.stringify({ path: c.path, lineNumber: c.lineNumber, side: c.side, body }) }); toast("Asked — waiting for answer"); }
+  else toast("Comment saved");
 };
+S.saveComment = () => submitComment("action"); // editing Save + the `c` shortcut default
+S.ask = () => submitComment("question");
+S.requestChange = () => submitComment("action");
 S.reset = async () => { const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" }); if (r.state) { S.state = r.state; D.fileDiff = null; render(); } toast("Reset review"); };
 S.send = async () => { const r = await api<{ sent?: boolean }>("/api/send", { method: "POST", body: JSON.stringify(S.state) }); if (r && r.sent) { S.awaitingAgent = true; toast("Sent to agent"); } else toast("Could not send review"); };
 S.cancelStage = () => { S.pendingStagePath = null; S.modalOpen = false; };

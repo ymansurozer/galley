@@ -39,8 +39,12 @@ export function buildCommentThread(c: ThreadMeta): HTMLElement {
     : c.comments.map((m) => {
         const own = m.role !== "agent";
         const edited = m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
+        const badge = own && m.intent === "question" ? '<span class="intent-badge q">Question</span>'
+          : own && m.intent === "action" ? '<span class="intent-badge a">Change requested</span>' : "";
+        // A question is "answered" once an agent reply lands after it in this thread.
+        const awaiting = own && m.intent === "question" && !c.comments.some((x) => x.role === "agent" && +new Date(x.createdAt) > +new Date(m.createdAt));
         const actions = own ? `<span class="msg-actions"><button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>` : "";
-        return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span><time>now${edited}</time>${actions}</div><div class="md">${renderCommentBody(m)}</div></div>`;
+        return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span>${badge}<time>now${edited}</time>${actions}</div><div class="md">${renderCommentBody(m)}</div>${awaiting ? '<div class="awaiting-answer">Waiting for answer…</div>' : ""}</div>`;
       }).join("");
   box.innerHTML = `${messages}<div class="thread-actions">${c.status === "resolved" ? '<button class="reopen-thread">Reopen</button>' : '<button class="reply-thread">Reply</button><button class="resolve-thread">Resolve</button>'}</div>`;
   const reply = box.querySelector(".reply-thread") as HTMLButtonElement | null;

@@ -90,6 +90,11 @@ the guided review, then UI work, then distribution.
       are uncommitted), diffs against the merge-base, and accept/reject become approve /
       request-changes verdicts (no staging). _gh PR-number fetch is out of scope; branch names only._
 
+- [x] **Ask the agent (just-in-time questions)** — a comment can be an **Ask** (a question the
+      agent answers live, in the thread) or a **Request change** (queued for Send). `galley await`
+      is a tagged event stream (`{kind:"question"|"review"}`); the agent answers questions with
+      `galley comment` and acts on the review on Send. Questions never enter the handoff.
+
 ### Guided review
 
 - [ ] **AI-guided review in the right sidebar** — overall changeset overview → optional PR
