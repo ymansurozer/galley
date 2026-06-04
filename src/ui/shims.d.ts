@@ -8,3 +8,10 @@ declare module "alpinejs" {
     g: Store;
   }
 }
+
+// Shiki's per-language grammars are deep-imported by file path (no typed export
+// map). Each default-exports a grammar (LanguageRegistration[]).
+declare module "shiki/dist/langs/*" {
+  const grammar: unknown;
+  export default grammar;
+}
