@@ -47,11 +47,12 @@ const LANGS = [javascript, typescript, tsx, json, html, css, python, go, rust, c
 let md: MarkdownIt | null = null;
 const cache = new Map<string, string>();
 
-// Stamp each top-level block-open token with its 1-based source line, so rendered
-// blocks carry data-line (1-based matches @pierre/diffs' additions-side numbers).
+// Stamp each commentable block-open token with its 1-based source line (1-based
+// matches @pierre/diffs' additions-side numbers). Top-level blocks AND list items,
+// so a comment can target an individual list item rather than the whole list.
 function sourceLine(mdi: MarkdownIt) {
   mdi.core.ruler.push("source_line", (state) => {
-    for (const t of state.tokens) if (t.map && t.level === 0) t.attrSet("data-line", String(t.map[0] + 1));
+    for (const t of state.tokens) if (t.map && (t.level === 0 || t.type === "list_item_open")) t.attrSet("data-line", String(t.map[0] + 1));
     return true;
   });
 }

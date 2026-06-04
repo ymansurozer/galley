@@ -17,21 +17,27 @@ export function defaultFileView(f: ReturnType<typeof currentFile>): "rendered" |
   return changed ? "source" : "rendered";
 }
 
-function openComposerAt(lineNumber: number, e: MouseEvent) {
+function openComposerAt(lineNumber: number, clientX: number, clientY: number) {
   S.selected = { side: "additions", lineNumber };
   S.composerBody = "";
   S.editingCommentId = null;
   S.composerTitle = selectionLabel();
   S.popoverOpen = false;
-  placePopoverFromPoint(e.clientX, e.clientY);
+  placePopoverFromPoint(clientX, clientY);
   placeNearActionPop($("composer"));
   S.composerOpen = true;
   setTimeout(() => $("commentBody").focus(), 0);
 }
 
-// Render the current markdown file as formatted HTML in #diff, with a per-block comment
-// affordance and existing comment threads overlaid at their source line. Replaces the
-// @pierre/diffs view (no line gutter); comments are still plain line-anchored ReviewComments.
+// A commentable block is any element carrying a source line, except the list
+// containers themselves (you comment on the individual <li>, not the whole list).
+function isAnchor(el: Element): boolean {
+  return el.hasAttribute("data-line") && el.tagName !== "UL" && el.tagName !== "OL";
+}
+
+// Render the current markdown file as formatted HTML in #diff, with click-to-comment on
+// each block and existing comment threads overlaid at their source line. Replaces the
+// @pierre/diffs view; comments are still plain line-anchored ReviewComments.
 export function renderMarkdownFile() {
   const f = currentFile();
   const host = $("diff");
@@ -39,26 +45,22 @@ export function renderMarkdownFile() {
   const container = host.firstElementChild as HTMLElement;
   container.innerHTML = renderMarkdown(f.newFile.contents);
 
-  // Wrap each top-level block (carries data-line) so we can hang a hover 💬 + threads off it.
-  const wrappers: HTMLElement[] = [];
-  for (const child of [...container.children] as HTMLElement[]) {
-    const line = child.getAttribute("data-line");
-    if (line === null) continue;
-    const wrap = document.createElement("div");
-    wrap.className = "md-block";
-    wrap.dataset.line = line;
-    child.replaceWith(wrap);
-    wrap.appendChild(child);
-    const btn = document.createElement("button");
-    btn.className = "md-comment-btn";
-    btn.title = "Comment on this block";
-    btn.textContent = "💬";
-    btn.onclick = (e) => openComposerAt(Number(line), e);
-    wrap.appendChild(btn);
-    wrappers.push(wrap);
-  }
+  const anchors = [...container.querySelectorAll<HTMLElement>("[data-line]")].filter(isAnchor);
+  for (const el of anchors) { el.classList.add("md-anchor"); el.title = "Click to comment"; }
 
-  // Overlay comment threads after the block at (or nearest at/above) each comment's line.
+  // Click anywhere on a block to comment on it (ignore text selection, links, and clicks
+  // inside an existing thread). Delegated so it survives the per-render rebuild.
+  container.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("a, button, input, .md-thread")) return;
+    if (!window.getSelection()?.isCollapsed) return; // user is selecting text
+    const el = target.closest<HTMLElement>("[data-line]");
+    if (!el || !isAnchor(el)) return; // clicked the list container gutter, not an item
+    openComposerAt(Number(el.dataset.line), e.clientX, e.clientY);
+  });
+
+  // Overlay comment threads at each comment's source line: inside the <li> for list
+  // items (indented under the item), after the block otherwise.
   const byLine = new Map<number, ReviewComment[]>();
   for (const c of currentComments()) (byLine.get(c.lineNumber) ?? byLine.set(c.lineNumber, []).get(c.lineNumber)!).push(c);
   for (const [line, comments] of byLine) {
@@ -66,17 +68,19 @@ export function renderMarkdownFile() {
     const thread = document.createElement("div");
     thread.className = "annotation md-thread";
     thread.appendChild(buildCommentThread({ type: "thread", path: f.path, side: "additions", lineNumber: line, status: comments.some((c) => c.status === "open") ? "open" : "resolved", comments }));
-    const block = blockForLine(wrappers, line);
-    if (block) block.after(thread); else container.appendChild(thread);
+    const el = anchorForLine(anchors, line);
+    if (!el) container.appendChild(thread);
+    else if (el.tagName === "LI") el.appendChild(thread);
+    else el.after(thread);
   }
 }
 
-// The block whose data-line is the largest value <= line (the block the comment sits in).
-function blockForLine(wrappers: HTMLElement[], line: number): HTMLElement | null {
+// The anchor whose data-line is the largest value <= line (the block the comment sits in).
+function anchorForLine(anchors: HTMLElement[], line: number): HTMLElement | null {
   let best: HTMLElement | null = null;
-  for (const w of wrappers) {
-    const wl = Number(w.dataset.line);
-    if (wl <= line && (!best || wl > Number(best.dataset.line))) best = w;
+  for (const el of anchors) {
+    const l = Number(el.dataset.line);
+    if (l <= line && (!best || l > Number(best.dataset.line))) best = el;
   }
-  return best ?? wrappers[0] ?? null;
+  return best ?? anchors[0] ?? null;
 }

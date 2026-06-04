@@ -53,7 +53,7 @@ S.rowClick = (r) => { if (r.kind === "dir") S.toggleDir?.(r.full); else if (r.fi
 S.openComposer = openCommentComposer;
 S.setStyle = (style) => { S.diffStyle = style; localStorage.setItem("galley.diffStyle", style); render(); };
 S.setFileView = (view) => { S.fileView = view; D.fileDiff = null; render(); };
-S.isMarkdownFile = () => { const f = S.state && S.state.files[S.fileIndex]; return !!f && isMarkdownPath(f.path); };
+S.isMarkdownFile = () => { const f = S.state && S.state.mode === "file" && S.state.files[S.fileIndex]; return !!f && isMarkdownPath(f.path); };
 S.saveComment = () => {
   const body = (S.composerBody || "").trim();
   if (!body) return;
