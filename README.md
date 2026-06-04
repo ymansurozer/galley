@@ -55,8 +55,10 @@ while that lock exists.
 
 ## Buttons
 
+Every change — decisions, comments, staging, viewed marks — is **saved automatically** as you
+make it (resume any time by reopening the desk), so there are just two buttons:
+
 - **Reset** — clear decisions/comments and unstage everything for this review.
-- **Save** — persist the review so far without finishing (resume later).
 - **Send to agent** — hand the current review to the waiting agent; the desk stays open and
   shows the agent's replies as they arrive.
 
@@ -106,8 +108,8 @@ the guided review, then UI work, then distribution.
 - [ ] **Comark markdown rendering** — render markdown files (e.g. plans) with comark instead of
       raw text, with rendered-comment anchoring. Deferred here because comark is framework-first
       and the anchoring model should be built on the stack chosen above.
-- [ ] **Auto-save; remove the Save button** — persist every change instantly; keep only Reset
-      and Send to agent.
+- [x] **Auto-save; remove the Save button** — every change persists instantly via `persist()`
+      after each mutation; the toolbar keeps only Reset and Send to agent.
 - [ ] **Edit & delete comments** — manage your own comments, not just add/resolve.
 - [ ] **Markdown comments** — render comment bodies with a CommonMark renderer + code
       highlighting.

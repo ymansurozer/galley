@@ -58,7 +58,6 @@ S.saveComment = () => {
   S.composerOpen = false; render(); persist(); toast("Comment saved");
 };
 S.reset = async () => { const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" }); if (r.state) { S.state = r.state; D.fileDiff = null; render(); } toast("Reset review"); };
-S.save = async () => { await persist(); toast("Saved"); };
 S.send = async () => { const r = await api<{ sent?: boolean }>("/api/send", { method: "POST", body: JSON.stringify(S.state) }); if (r && r.sent) { S.awaitingAgent = true; toast("Sent to agent"); } else toast("Could not send review"); };
 S.cancelStage = () => { S.pendingStagePath = null; S.modalOpen = false; };
 S.confirmStage = async () => { const path = S.pendingStagePath; S.pendingStagePath = null; S.modalOpen = false; if (path) await stageFile(path, true); };

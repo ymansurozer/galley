@@ -101,7 +101,6 @@ export interface Store {
   setStyle?: (style: DiffStyle) => void;
   saveComment?: () => void;
   reset?: () => Promise<void>;
-  save?: () => Promise<void>;
   send?: () => Promise<void>;
   cancelStage?: () => void;
   confirmStage?: () => Promise<void>;

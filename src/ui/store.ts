@@ -45,4 +45,7 @@ export function toast(t: string) { S.toastMsg = t; clearTimeout(toastTimer); toa
 export function esc(s: unknown) { return String(s ?? "").replace(/[&<>]/g, (c: string) => (({ "&": "&amp;", "<": "&lt;", ">": "&gt;" } as Record<string, string>)[c] ?? c)); }
 export const api = <T = unknown>(path: string, opts: RequestInit = {}): Promise<T> =>
   fetch(path, { headers: { "content-type": "application/json" }, ...opts }).then((r) => r.json() as Promise<T>);
+// Instant auto-save: there is no manual Save button, so every state mutation
+// (decision, comment, stage/unstage, viewed) MUST call persist() to write the
+// review to ~/.galley/<repoHash>/<session>/.
 export const persist = () => api("/api/save", { method: "POST", body: JSON.stringify(S.state) }).catch(() => {});
