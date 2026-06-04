@@ -1,7 +1,8 @@
-import { S, $, esc, toast, persist } from "./store";
+import { S, $, toast, persist } from "./store";
 import { currentComments, currentChanges } from "./changes";
 import { acceptChange } from "./decisions";
 import { editComment, deleteComment } from "./comments";
+import { renderCommentBody } from "./markdown";
 import { selectionLabel, placeNearActionPop } from "./selection";
 import { render } from "./render";
 import type { AnnotationInput, AnnotationMeta, ReviewComment } from "./types";
@@ -44,7 +45,7 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
           const own = m.role !== "agent";
           const edited = m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
           const actions = own ? `<span class="msg-actions"><button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>` : "";
-          return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span><time>now${edited}</time>${actions}</div><p>${esc(m.body)}</p></div>`;
+          return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span><time>now${edited}</time>${actions}</div><div class="md">${renderCommentBody(m)}</div></div>`;
         }).join("");
     el.innerHTML = `<div class="comment-box">${messages}<div class="thread-actions">${c.status === "resolved" ? '<button class="reopen-thread">Reopen</button>' : '<button class="reply-thread">Reply</button><button class="resolve-thread">Resolve</button>'}</div></div>${change ? `<div class="change-actions"><button class="reject">Undo</button><button class="accept">Keep</button></div>` : ""}`;
   }

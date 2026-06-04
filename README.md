@@ -112,8 +112,9 @@ the guided review, then UI work, then distribution.
       after each mutation; the toolbar keeps only Reset Review and Send to Agent.
 - [x] **Edit & delete comments** — edit/delete your own comments (agent replies stay
       read-only); edits show an "edited" marker. Auto-saved like every other change.
-- [ ] **Markdown comments** — render comment bodies with a CommonMark renderer + code
-      highlighting.
+- [x] **Markdown comments** — comment bodies render as markdown via **comark** with
+      Shiki-highlighted code blocks. Output is sanitized (`html: false` + DOMPurify)
+      because agent replies are rendered too.
 - [ ] **Settings** — font, diff-view options, file-tree options, diff theme, code-highlight theme.
 
 ### Distribution
