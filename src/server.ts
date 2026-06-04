@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { git, listProjectTree, patchForChange } from "./git.js";
 import { buildReviewResult, buildReviewState, buildReviewSummary, hash, mergeReviewState, nowIso, persistReview, syncGitState } from "./state.js";
-import type { ReviewResult, ReviewState } from "./types.js";
+import type { AwaitEvent, ReviewResult, ReviewState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -85,14 +85,15 @@ async function openUrl(url: string) {
 
 export async function startServer(options: ServerOptions): Promise<ServerHandle> {
   const { state } = options;
-  // The desk is a living surface: it keeps serving across rounds. Each "Send to
-  // agent" emits a ReviewResult to whoever is waiting on /api/await-send. A
-  // single-slot buffer holds a send that arrives before the agent re-arms.
-  const sendWaiters: Array<(result: ReviewResult) => void> = [];
-  let pendingResult: ReviewResult | null = null;
-  const emitSend = (result: ReviewResult) => {
-    if (sendWaiters.length) for (const w of sendWaiters.splice(0)) w(result);
-    else pendingResult = result;
+  // The desk is a living surface: it keeps serving across rounds. `galley await` is a
+  // tagged event stream — a "question" (reviewer clicked Ask, wants an answer now) or a
+  // "review" (Send). Events hand to a parked waiter, else queue (FIFO) until one arms.
+  const eventWaiters: Array<(ev: AwaitEvent) => void> = [];
+  const eventQueue: AwaitEvent[] = [];
+  const emitEvent = (ev: AwaitEvent) => {
+    const waiter = eventWaiters.shift();
+    if (waiter) waiter(ev);
+    else eventQueue.push(ev);
   };
 
   const server = http.createServer(async (req, res) => {
@@ -141,26 +142,32 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         await fs.writeFile(summaryMd, buildReviewSummary(state) + "\n", "utf8");
         const payload = buildReviewResult(state, { resultJson, summaryMd, sessionDir });
         await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
-        res.on("finish", () => emitSend(payload));
+        res.on("finish", () => emitEvent({ kind: "review", result: payload }));
         return json(res, 200, { ok: true, sent: true, summaryMd, resultJson });
       }
+      if (req.method === "POST" && url.pathname === "/api/ask") {
+        // Reviewer clicked Ask: push a question to the agent now (out of band from Send).
+        const b = JSON.parse(await readBody(req)) as { path?: string; lineNumber?: number; side?: string; body?: string };
+        const text = (b.body ?? "").trim();
+        if (!b.path || !text) return fail(res, 422, "INVALID_QUESTION", "ask requires path and body", "Send { path, lineNumber, side, body } as JSON.");
+        emitEvent({ kind: "question", question: { path: b.path, lineNumber: Number(b.lineNumber ?? 1), side: b.side === "deletions" ? "deletions" : "additions", body: text, mode: state.mode, session: state.session } });
+        return json(res, 200, { ok: true });
+      }
       if (req.method === "GET" && url.pathname === "/api/await-send") {
-        // Long-poll: resolves with the next (or buffered) ReviewResult. Lets the
-        // agent learn of a Send without the desk process exiting.
-        if (pendingResult) {
-          const r = pendingResult;
-          pendingResult = null;
-          return json(res, 200, { result: r });
-        }
+        // Long-poll the tagged event stream: resolves with the next queued event
+        // ({kind:"question"|"review"}). Lets the agent learn of questions and Sends
+        // without the desk process exiting.
+        const queued = eventQueue.shift();
+        if (queued) return json(res, 200, queued);
         let settled = false;
-        const waiter = (r: ReviewResult) => { if (settled) return; settled = true; clearTimeout(timer); json(res, 200, { result: r }); };
-        const drop = () => { const i = sendWaiters.indexOf(waiter); if (i >= 0) sendWaiters.splice(i, 1); };
+        const waiter = (ev: AwaitEvent) => { if (settled) return; settled = true; clearTimeout(timer); json(res, 200, ev); };
+        const drop = () => { const i = eventWaiters.indexOf(waiter); if (i >= 0) eventWaiters.splice(i, 1); };
         // Bounded long-poll for harnesses that pass --timeout; otherwise hold for an hour.
         const timeoutSec = Number(url.searchParams.get("timeout"));
         const holdMs = Number.isFinite(timeoutSec) && timeoutSec > 0 ? timeoutSec * 1000 : 60 * 60 * 1000;
         const timer = setTimeout(() => { if (settled) return; settled = true; drop(); res.writeHead(204); res.end(); }, holdMs);
         req.on("close", () => { if (!settled) { settled = true; clearTimeout(timer); drop(); } });
-        sendWaiters.push(waiter);
+        eventWaiters.push(waiter);
         return;
       }
       if (req.method === "POST" && url.pathname === "/api/reload") {

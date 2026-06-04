@@ -285,7 +285,8 @@ export function buildReviewSummary(state: ReviewState) {
     for (const d of rejected) out.push(`- ${d.path}:${d.lineNumber} (${d.side}) ${d.title}`);
     out.push("");
   }
-  const actionable = state.comments.filter((c) => c.status === "open" && c.role !== "agent");
+  // Questions are answered live (the await stream), so they're not change-requests.
+  const actionable = state.comments.filter((c) => c.status === "open" && c.role !== "agent" && c.intent !== "question");
   if (actionable.length) {
     out.push("## Requested changes");
     for (const c of actionable) {
@@ -341,7 +342,7 @@ export function buildReviewResult(
     accepted: pick("accepted"),
     rejected: pick("rejected"),
     requestedChanges: state.comments
-      .filter((c) => c.status === "open" && c.role !== "agent")
+      .filter((c) => c.status === "open" && c.role !== "agent" && c.intent !== "question")
       .map((c) => ({ path: c.path, lineNumber: c.lineNumber, side: c.side, body: c.body })),
     stagedFiles: state.stagedFiles,
     artifacts,

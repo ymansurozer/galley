@@ -121,6 +121,16 @@ test("buildReviewResult reads decisions, so a staged-out accepted hunk still app
   assert.equal(r.accepted[0]!.lineNumber, 4);
 });
 
+test("buildReviewResult excludes questions from requestedChanges, keeps an action on the same line", () => {
+  const s = state({ comments: [
+    comment({ id: "q", path: "a.ts", lineNumber: 4, body: "why is this here?", intent: "question" }),
+    comment({ id: "a", path: "a.ts", lineNumber: 4, body: "rename this", intent: "action" }),
+  ] });
+  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  assert.equal(r.requestedChanges.length, 1);
+  assert.equal(r.requestedChanges[0]!.body, "rename this");
+});
+
 test("buildReviewResult carries mode/target/base", () => {
   const s = state({ mode: "pr", target: "feature-x", base: "abc123" });
   const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });

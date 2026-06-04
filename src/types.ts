@@ -32,7 +32,9 @@ export type ReviewComment = {
   createdAt: string;
   updatedAt: string;
   status: "open" | "resolved" | "stale";
-  intent?: "note" | "action";
+  // "action" = a change request (goes back to the agent on Send); "question" = a
+  // just-in-time question answered live via the await stream; "note" = plain note.
+  intent?: "note" | "action" | "question";
   // "user" comments are the reviewer's; "agent" comments are replies posted
   // back by the coding agent via `galley comment` between sessions.
   role?: "user" | "agent";
@@ -135,3 +137,19 @@ export type ReviewResult = {
   stagedFiles: string[];
   artifacts: { resultJson: string; summaryMd: string; sessionDir: string };
 };
+
+// A question the reviewer asked (intent "question") that the agent should answer now.
+export type QuestionPayload = {
+  path: string;
+  lineNumber: number;
+  side: "additions" | "deletions";
+  body: string;
+  mode: ReviewMode;
+  session: string;
+};
+
+// What `galley await` yields — a tagged event stream. The agent loops and branches:
+// "question" → answer it now with `galley comment`; "review" → act on the Send.
+export type AwaitEvent =
+  | { kind: "review"; result: ReviewResult }
+  | { kind: "question"; question: QuestionPayload };

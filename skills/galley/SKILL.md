@@ -46,24 +46,41 @@ desk for the repo, so you usually don't pass `--session`.
 | Command | Role |
 |---|---|
 | `galley …` (above) | Start the persistent desk for the chosen mode (opens the tab, stays up until Ctrl-C). |
-| `galley await [--session <id>]` | Block until the next **Send**, print the `ReviewResult` JSON to stdout, exit. Call in a loop. |
-| `galley comment [--session <id>] --path <f> --line <n> --body "…"` | Post a reply; appears in the open tab within ~1.5s. |
+| `galley await [--session <id>]` | Block until the next desk **event**, print it as a tagged JSON envelope, exit. Loop and branch on `kind`. |
+| `galley comment [--session <id>] --path <f> --line <n> --body "…"` | Post a reply (an answer to a question, or a note); appears in the open tab within ~1.5s. |
+
+`galley await` yields one of two events:
+
+- `{"kind":"question","question":{…}}` — the reviewer asked a **question** and wants an answer
+  **now**. Answer it immediately with `galley comment` at its path/line/side. Questions are a
+  live side-channel; they are **not** included in the Send/ReviewResult.
+- `{"kind":"review","result":{…ReviewResult…}}` — the reviewer clicked **Send to Agent**. Act
+  on `result` (revert rejected, make requested changes, leave accepted).
 
 ```bash
 # 1. Start the desk once, in the background. It stays alive.
 galley --session <id> --diff working &
 
-# 2. Each round: wait for the human to Send, act, optionally reply, repeat.
-while result=$(galley await --session <id>); do
-  [ -z "$result" ] && continue          # 204 timeout, no send yet — re-wait
-  #  ... act on $result (a ReviewResult JSON) ...
-  galley comment --session <id> --path <f> --line <n> --body "…"   # optional reply
+# 2. Loop on events. Branch: answer questions instantly; act on Sends.
+while ev=$(galley await --session <id>); do
+  [ -z "$ev" ] && continue                                  # timeout, no event — re-wait
+  case "$(printf '%s' "$ev" | jq -r .kind)" in
+    question)   # answer now, threaded at the question's location
+      q=$(printf '%s' "$ev" | jq .question)
+      galley comment --session <id> \
+        --path "$(jq -r .path <<<"$q")" --line "$(jq -r .lineNumber <<<"$q")" \
+        --side "$(jq -r .side <<<"$q")" --body "…your answer…" ;;
+    review)     # act on the ReviewResult
+      result=$(printf '%s' "$ev" | jq .result)
+      #  ... revert rejected, make requested changes, leave accepted ...
+      ;;
+  esac
 done
 ```
 
 The desk's banner (`Galley [<session>]: <url>`) prints to **stderr**; the desk process
-prints nothing to stdout and runs until Ctrl-C. The `ReviewResult` JSON is printed by
-`galley await`, one per send.
+prints nothing to stdout and runs until Ctrl-C. `galley await` prints one event envelope per
+call (a `question` or a `review`).
 
 ## Start options
 
@@ -82,11 +99,26 @@ prints nothing to stdout and runs until Ctrl-C. The `ReviewResult` JSON is print
 
 | `galley await` | Meaning | What to do |
 |---|---|---|
-| exit 0, JSON on stdout | The reviewer clicked **Send**. | Act on the `ReviewResult`. |
-| exit 0, empty stdout | Long-poll timed out before any send. | Call `await` again. |
+| exit 0, `{"kind":"question","question":{…}}` | The reviewer asked a question, wants an answer now. | Answer with `galley comment` at the question's `path`/`lineNumber`/`side`. |
+| exit 0, `{"kind":"review","result":{…}}` | The reviewer clicked **Send**. | Act on `result` (a `ReviewResult`). |
+| exit 0, empty stdout | Long-poll timed out before any event. | Call `await` again. |
 | non-zero | No live desk for this session. | Start it: `galley --session <id>`. |
 
+### Question event
+
+```json
+{ "kind": "question",
+  "question": { "path": "src/app.ts", "lineNumber": 12, "side": "additions",
+                "body": "why merge-base here?", "mode": "pr", "session": "feature-x" } }
+```
+
+Read the file/diff for context (you have the repo), then answer with `galley comment` matching
+`path`/`lineNumber`/`side` so the reply threads under the question. Answer promptly — the human
+is waiting in the tab. Questions are resolved live and never appear in a `ReviewResult`.
+
 ## ReviewResult
+
+This is the `result` field of a `{"kind":"review", …}` event from `galley await`.
 
 ```json
 {
@@ -117,7 +149,7 @@ can't long-poll can stat that file instead of using `await`.
 | Item | Action |
 |---|---|
 | **Rejected change** | Revert that change. The reviewer does not want it. |
-| **Requested change** (a comment) | Make the edit it asks for, at `path:lineNumber`. If it's a question, answer with `galley comment`. |
+| **Requested change** (a comment) | Make the edit it asks for, at `path:lineNumber`. (Questions are not here — they arrive as their own `question` events and are answered live.) |
 | **Accepted change** | Leave it. Do not re-touch accepted hunks. |
 | **Staged file** | Already staged by the reviewer. Don't touch unless a requested change requires it. |
 | **Next round** | Call `galley await` again to wait for the reviewer's next Send. |
@@ -157,7 +189,8 @@ retry.
 ## AGENTS.md snippet
 
 > After making changes the user should review, start `galley --session $TASK_ID --diff
-> working` in the background (it stays up). Then loop: run `galley await --session
-> $TASK_ID`; when it prints a `ReviewResult`, act on it — revert rejected, make requested,
-> leave accepted, don't touch staged unless required — and optionally `galley comment …`
-> to reply. Restart the desk after editing code so the new diff shows.
+> working` in the background (it stays up). Then loop on `galley await --session $TASK_ID`
+> and branch on the event `kind`: for `"question"`, answer it now with `galley comment` at
+> the question's path/line/side; for `"review"`, act on `.result` — revert rejected, make
+> requested, leave accepted, don't touch staged unless required. Restart the desk after
+> editing code so the new diff shows.

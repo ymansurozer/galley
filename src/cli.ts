@@ -102,9 +102,11 @@ async function runComment(args: Record<string, string | boolean>) {
   process.stdout.write(JSON.stringify({ ok: true, live: false, session, commentId: comment.id }) + "\n");
 }
 
-// `galley await --session <id>` — block until the next "Send to agent" on
-// the live desk, then print the ReviewResult to stdout and exit. Call it in a
-// loop to drive the back-and-forth without the desk ever closing.
+// `galley await --session <id>` — block until the next desk event, then print it
+// to stdout as a tagged envelope and exit. The event is either
+//   {"kind":"question","question":{path,lineNumber,side,body,mode,session}}  — answer it now
+//   {"kind":"review","result":{…ReviewResult…}}                              — the reviewer hit Send
+// Call in a loop and branch on `kind`. Answer a question with `galley comment`.
 async function runAwait(args: Record<string, string | boolean>) {
   const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
   const session = await resolveActionSession(root, args);
@@ -117,8 +119,8 @@ async function runAwait(args: Record<string, string | boolean>) {
   let urlStr = `${lock.url}api/await-send`;
   if (typeof args.timeout === "string" && Number(args.timeout) > 0) urlStr += `?timeout=${Number(args.timeout)}`;
   const res = await httpGetJson(urlStr).catch(() => null);
-  if (!res || res.status === 204 || !res.body) return; // timed out with no send; caller re-runs
-  if (res.body.result) process.stdout.write(JSON.stringify(res.body.result) + "\n");
+  if (!res || res.status === 204 || !res.body) return; // timed out, no event; caller re-runs
+  if (res.body.kind) process.stdout.write(JSON.stringify(res.body) + "\n");
 }
 
 // `galley reload --session <id>` — re-diff the working tree into the live desk
