@@ -97,10 +97,12 @@ the guided review, then UI work, then distribution.
 
 ### UI
 
-- [x] **UI architecture** — chose to modularize the vanilla client behind esbuild (no
-      framework). `src/ui/` is now ES modules (`store`, `difflib`, `changes`, `selection`,
-      `tree`, `annotations`, `decisions`, `render`, `poll`, `main`) bundled to `dist/ui.js`;
-      `@pierre/diffs` stays a runtime CDN import (kept external). Unblocks the polish items below.
+- [x] **UI architecture** — modular `src/ui/` ES modules bundled by esbuild → `dist/ui.js`.
+      The chrome (file tree, toolbar, composer, modals, toast) is reactive via **Alpine.js**
+      over a single reactive store (`store.S`); the diff is an imperative `@pierre/diffs`
+      island kept in a non-reactive holder (`store.D`) + `x-ignore`. `alpinejs`,
+      `@alpinejs/persist`, and `@pierre/diffs` are all bundled (no CDN; ~9.5MB ui.js, fine for
+      a localhost tool). Unblocks the polish items below.
 - [ ] **Comark markdown rendering** — render markdown files (e.g. plans) with comark instead of
       raw text, with rendered-comment anchoring. Deferred here because comark is framework-first
       and the anchoring model should be built on the stack chosen above.
