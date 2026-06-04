@@ -45,8 +45,22 @@ function fail(res: http.ServerResponse, status: number, code: string, error: str
   json(res, status, { error, code, fix, docs: DOCS });
 }
 
+// Resolve a UI asset against the built location first (__dirname is dist/ in a
+// real install), then a dev fallback. Under `pnpm dev` the server runs from
+// source via tsx, so __dirname is src/ — the served bundle lives in dist/ and
+// the page markup in src/ui/.
+async function firstExisting(...candidates: string[]) {
+  for (const p of candidates) if (await fs.stat(p).then(() => true, () => false)) return p;
+  return candidates[0];
+}
+
+async function uiBundlePath() {
+  return firstExisting(path.join(__dirname, "ui.js"), path.join(process.cwd(), "dist", "ui.js"));
+}
+
 async function html() {
-  return fs.readFile(path.join(__dirname, "index.html"), "utf8").catch(() => fs.readFile(path.join(process.cwd(), "src", "ui", "index.html"), "utf8"));
+  const file = await firstExisting(path.join(__dirname, "index.html"), path.join(process.cwd(), "src", "ui", "index.html"));
+  return fs.readFile(file, "utf8");
 }
 
 async function applyPatchToIndex(root: string, patch: string) {
@@ -90,7 +104,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return;
       }
       if (req.method === "GET" && url.pathname === "/ui.js") {
-        const file = path.join(__dirname, "ui.js");
+        const file = await uiBundlePath();
         const stat = await fs.stat(file).catch(() => null);
         const etag = stat ? `"${stat.size}-${Math.round(stat.mtimeMs)}"` : "";
         if (etag && req.headers["if-none-match"] === etag) { res.writeHead(304); res.end(); return; }
