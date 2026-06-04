@@ -1,14 +1,20 @@
-import { createRender } from "@comark/html";
-import highlight from "@comark/html/plugins/highlight";
-import footnotes from "@comark/html/plugins/footnotes";
+import MarkdownIt from "markdown-it";
+import footnote from "markdown-it-footnote";
+// markdown-it-task-lists ships no types and has no @types package.
+// @ts-ignore
+import taskLists from "markdown-it-task-lists";
+import { fromHighlighter } from "@shikijs/markdown-it/core";
+import { createHighlighterCore } from "shiki/core";
+import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import DOMPurify from "dompurify";
-import { esc } from "./store";
+import { S, esc } from "./store";
 import { render } from "./render";
 import type { ReviewComment } from "./types";
 
-// comark's highlight only wires ~10 web-focused languages on-demand, so without an
-// explicit preload python/go/rust/diff/etc. silently fall back to plaintext. Deep-import
-// a curated set of grammars (same path comark itself uses) and register them up front.
+// Curated Shiki theme + languages, deep-imported so only these are bundled (using
+// shiki's full createHighlighter would pull ~200 unused grammars). The JS regex
+// engine avoids a second oniguruma wasm.
+import palenight from "shiki/dist/themes/material-theme-palenight.mjs";
 import javascript from "shiki/dist/langs/javascript.mjs";
 import typescript from "shiki/dist/langs/typescript.mjs";
 import tsx from "shiki/dist/langs/tsx.mjs";
@@ -24,53 +30,60 @@ import java from "shiki/dist/langs/java.mjs";
 import bash from "shiki/dist/langs/bash.mjs";
 import sql from "shiki/dist/langs/sql.mjs";
 import yaml from "shiki/dist/langs/yaml.mjs";
-import markdown from "shiki/dist/langs/markdown.mjs";
+import markdownLang from "shiki/dist/langs/markdown.mjs";
 import diff from "shiki/dist/langs/diff.mjs";
 import toml from "shiki/dist/langs/toml.mjs";
 import ruby from "shiki/dist/langs/ruby.mjs";
 import php from "shiki/dist/langs/php.mjs";
 import dockerfile from "shiki/dist/langs/dockerfile.mjs";
 
-const languages = [javascript, typescript, tsx, json, html, css, python, go, rust, c, cpp, java, bash, sql, yaml, markdown, diff, toml, ruby, php, dockerfile];
+// One markdown renderer for both comment bodies (#17) and markdown files (#21).
+// markdown-it gives exact per-block source lines (token.map) — see sourceLine below —
+// which is why we use it over comark; html:false drops raw HTML at the source, and
+// DOMPurify is the final gate before anything is innerHTML'd (incl. agent-authored).
+const THEME = "material-theme-palenight";
+const LANGS = [javascript, typescript, tsx, json, html, css, python, go, rust, c, cpp, java, bash, sql, yaml, markdownLang, diff, toml, ruby, php, dockerfile];
 
-// One reusable async renderer (parser + Shiki highlighter initialized once).
-// - html:false drops embedded raw HTML at the source (no <script>/<img onerror> from a body)
-// - a single dark Shiki theme bakes colors into inline `color:` (no --shiki-dark var that a
-//   sanitizer might strip), so code is readable on the always-dark desk
-// - DOMPurify is the final gate before we innerHTML comment bodies (incl. agent-authored ones)
-const md = createRender({ html: false, plugins: [highlight({ themes: { dark: "material-theme-palenight" }, languages } as never), footnotes()] });
-
+let md: MarkdownIt | null = null;
 const cache = new Map<string, string>();
-const inflight = new Set<string>();
-const cacheKey = (c: ReviewComment) => `${c.id}:${c.updatedAt}`;
 
-let repaintQueued = false;
-function queueRepaint() {
-  if (repaintQueued) return;
-  repaintQueued = true;
-  setTimeout(() => { repaintQueued = false; render(); }, 0); // coalesce warms into one repaint
+// Stamp each top-level block-open token with its 1-based source line, so rendered
+// blocks carry data-line (1-based matches @pierre/diffs' additions-side numbers).
+function sourceLine(mdi: MarkdownIt) {
+  mdi.core.ruler.push("source_line", (state) => {
+    for (const t of state.tokens) if (t.map && t.level === 0) t.attrSet("data-line", String(t.map[0] + 1));
+    return true;
+  });
 }
 
-async function warm(body: string, key: string) {
-  if (inflight.has(key)) return;
-  inflight.add(key);
-  try {
-    cache.set(key, DOMPurify.sanitize(await md(body || "")));
-  } catch {
-    cache.set(key, `<p>${esc(body)}</p>`);
-  } finally {
-    inflight.delete(key);
-    queueRepaint(); // swap the plaintext fallback for the rendered markdown
-  }
+// Shiki's highlighter loads async (wasm + grammars); markdown-it render is sync once
+// ready. Until then renderMarkdown returns an escaped-text fallback; on ready we
+// repaint once so any fallbacks upgrade to rendered markdown.
+void (async () => {
+  const hl = await createHighlighterCore({ themes: [palenight] as never, langs: LANGS as never, engine: createJavaScriptRegexEngine() });
+  const instance = new MarkdownIt({ html: false, linkify: true })
+    .use(footnote)
+    .use(taskLists, { label: true })
+    .use(fromHighlighter(hl, { theme: THEME, fallbackLanguage: "text" as never })) // unknown fences → plain
+    .use(sourceLine);
+  md = instance;
+  if (S.state) render();
+})();
+
+// Render arbitrary markdown to sanitized HTML (data-* attributes, incl. data-line,
+// are preserved by DOMPurify). Synchronous once the highlighter is ready.
+export function renderMarkdown(text: string): string {
+  if (!md) return `<p>${esc(text)}</p>`;
+  return DOMPurify.sanitize(md.render(text || ""));
 }
 
-// Markdown render is async (Shiki) but renderAnnotation is synchronous, so the first
-// call returns an escaped-plaintext fallback and warms the cache, then triggers one
-// repaint. Keyed by id+updatedAt, so editing a comment re-renders it.
+// Comment body → sanitized HTML, cached by id+updatedAt (so an edit re-renders).
 export function renderCommentBody(c: ReviewComment): string {
-  const key = cacheKey(c);
+  const key = `${c.id}:${c.updatedAt}`;
   const cached = cache.get(key);
   if (cached !== undefined) return cached;
-  void warm(c.body, key);
-  return `<p>${esc(c.body)}</p>`;
+  if (!md) return `<p>${esc(c.body)}</p>`; // not ready yet — don't cache the fallback
+  const html = renderMarkdown(c.body);
+  cache.set(key, html);
+  return html;
 }
