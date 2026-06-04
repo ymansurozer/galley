@@ -37,7 +37,7 @@ document.querySelectorAll<HTMLElement>("[data-resize]").forEach((handle) => {
 
 // Keyboard shortcuts
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { S.composerOpen = false; S.popoverOpen = false; return; }
+  if (e.key === "Escape") { S.composerOpen = false; S.popoverOpen = false; S.editingCommentId = null; return; }
   if (e.key === "c" && S.composerOpen) { e.preventDefault(); S.saveComment?.(); }
   if (e.key === "v") S.setStyle?.(S.diffStyle === "split" ? "unified" : "split");
 });
@@ -54,7 +54,15 @@ S.setStyle = (style) => { S.diffStyle = style; localStorage.setItem("galley.diff
 S.saveComment = () => {
   const body = (S.composerBody || "").trim();
   if (!body) return;
-  S.state.comments.push({ id: crypto.randomUUID(), path: currentFile().path, side: S.selected.side, lineNumber: S.selected.lineNumber, endLine: S.selected.endLine, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), status: "open", role: "user", body, intent: "action" });
+  if (S.editingCommentId) {
+    const comment = S.state.comments.find((c) => c.id === S.editingCommentId);
+    if (comment) { comment.body = body; comment.updatedAt = new Date().toISOString(); }
+    S.editingCommentId = null;
+    S.composerOpen = false; render(); persist(); toast("Comment updated");
+    return;
+  }
+  const now = new Date().toISOString();
+  S.state.comments.push({ id: crypto.randomUUID(), path: currentFile().path, side: S.selected.side, lineNumber: S.selected.lineNumber, endLine: S.selected.endLine, createdAt: now, updatedAt: now, status: "open", role: "user", body, intent: "action" });
   S.composerOpen = false; render(); persist(); toast("Comment saved");
 };
 S.reset = async () => { const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" }); if (r.state) { S.state = r.state; D.fileDiff = null; render(); } toast("Reset review"); };

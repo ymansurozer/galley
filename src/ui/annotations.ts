@@ -1,6 +1,7 @@
 import { S, $, esc, toast, persist } from "./store";
 import { currentComments, currentChanges } from "./changes";
 import { acceptChange } from "./decisions";
+import { editComment, deleteComment } from "./comments";
 import { selectionLabel, placeNearActionPop } from "./selection";
 import { render } from "./render";
 import type { AnnotationInput, AnnotationMeta, ReviewComment } from "./types";
@@ -39,14 +40,21 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   } else {
     const messages = c.status === "resolved"
       ? `<div class="thread-summary"><b>${c.comments.length}</b> comment${c.comments.length === 1 ? "" : "s"} <span>(Resolved)</span><button class="reopen-inline">Reopen</button></div>`
-      : c.comments.map((m) => `<div class="msg ${m.role === "agent" ? "agent" : ""}"><div class="meta"><span class="author ${m.role === "agent" ? "agent" : ""}">${m.role === "agent" ? "Agent" : "You"}</span><time>now</time></div><p>${esc(m.body)}</p></div>`).join("");
+      : c.comments.map((m) => {
+          const own = m.role !== "agent";
+          const edited = m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
+          const actions = own ? `<span class="msg-actions"><button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>` : "";
+          return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span><time>now${edited}</time>${actions}</div><p>${esc(m.body)}</p></div>`;
+        }).join("");
     el.innerHTML = `<div class="comment-box">${messages}<div class="thread-actions">${c.status === "resolved" ? '<button class="reopen-thread">Reopen</button>' : '<button class="reply-thread">Reply</button><button class="resolve-thread">Resolve</button>'}</div></div>${change ? `<div class="change-actions"><button class="reject">Undo</button><button class="accept">Keep</button></div>` : ""}`;
   }
   const acceptButton = el.querySelector(".accept");
   const rejectButton = el.querySelector(".reject");
   if (change && acceptButton && rejectButton) { (acceptButton as HTMLButtonElement).onclick = () => acceptChange(change.id, "accepted"); (rejectButton as HTMLButtonElement).onclick = () => acceptChange(change.id, "rejected"); }
   const reply = el.querySelector(".reply-thread") as HTMLButtonElement | null;
-  if (reply) reply.onclick = () => { S.selected = { side: c.side, lineNumber: c.lineNumber }; S.composerBody = ""; S.composerTitle = selectionLabel(); placeNearActionPop($("composer")); S.composerOpen = true; setTimeout(() => $("commentBody").focus(), 0); };
+  if (reply) reply.onclick = () => { S.selected = { side: c.side, lineNumber: c.lineNumber }; S.composerBody = ""; S.composerTitle = selectionLabel(); S.editingCommentId = null; placeNearActionPop($("composer")); S.composerOpen = true; setTimeout(() => $("commentBody").focus(), 0); };
+  el.querySelectorAll(".edit-comment").forEach((b) => ((b as HTMLButtonElement).onclick = () => editComment((b as HTMLElement).dataset.id!)));
+  el.querySelectorAll(".delete-comment").forEach((b) => ((b as HTMLButtonElement).onclick = () => deleteComment((b as HTMLElement).dataset.id!)));
   const resolve = el.querySelector(".resolve-thread") as HTMLButtonElement | null;
   if (resolve) resolve.onclick = () => { S.state.comments.filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber).forEach((x) => (x.status = "resolved")); render(); toast("Resolved"); persist(); };
   const reopen = el.querySelector(".reopen-thread,.reopen-inline") as HTMLButtonElement | null;

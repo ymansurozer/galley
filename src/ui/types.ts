@@ -90,6 +90,7 @@ export interface Store {
   toastMsg: string;
   composerTitle: string;
   composerBody: string;
+  editingCommentId: string | null;
 
   treeRows?: () => TreeRow[];
   selectFile?: (i: number) => void;

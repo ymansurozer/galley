@@ -28,6 +28,7 @@ export function openCommentComposer() {
   S.popoverOpen = false;
   S.composerBody = "";
   S.composerTitle = selectionLabel();
+  S.editingCommentId = null; // a fresh composer creates a new comment, never edits
   S.composerOpen = true;
   setTimeout(() => $("commentBody").focus(), 0); // after Alpine shows it
 }
@@ -63,7 +64,7 @@ export function showForDiffLine(payload: LinePayload, event?: PointerEvent) {
   openCommentComposer();
 }
 export function composerHasText() { return S.composerOpen && S.composerBody.trim().length > 0; }
-export function closeComposerIfEmpty() { if (S.composerOpen && !composerHasText()) S.composerOpen = false; }
+export function closeComposerIfEmpty() { if (S.composerOpen && !composerHasText()) { S.composerOpen = false; S.editingCommentId = null; } }
 export function handleDiffSelection(range: any) {
   if (Date.now() < suppressSelectionUntil) return;
   if (!range) { S.popoverOpen = false; closeComposerIfEmpty(); ignoreNextLineClick = true; setTimeout(() => (ignoreNextLineClick = false), 0); return; }

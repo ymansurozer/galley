@@ -22,6 +22,7 @@ export const S: Store = Alpine.reactive<Store>({
   toastMsg: "",
   composerTitle: "New line",
   composerBody: "",
+  editingCommentId: null,
 });
 
 // Imperative-island objects kept OUT of the reactive store: the @pierre/diffs
