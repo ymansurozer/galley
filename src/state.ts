@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { changeBlockContent, changeStableKeyFromBlock, fileAt, getGitRoot, getHead, git, parseUnifiedDiff, changeBlocks } from "./git.js";
-import type { ChangeState, ReviewComment, ReviewFile, ReviewMode, ReviewResult, ReviewState } from "./types.js";
+import type { ChangeState, Decision, ReviewComment, ReviewFile, ReviewMode, ReviewResult, ReviewState } from "./types.js";
 
 export function nowIso() {
   return new Date().toISOString();
@@ -104,7 +104,7 @@ export async function buildReviewState(cwd: string, opts: { mode?: ReviewMode; p
   const make = (root: string, source: DiffSource, extra: { staged: boolean; target?: string; base?: string }, head: string | null): ReviewState => ({
     id: crypto.randomUUID(), session: sanitizeSession(opts.session), root, repoHash: hash(root), mode,
     target: extra.target, base: extra.base, staged: extra.staged, head, baseDiffHash: hash(source.rawDiff),
-    createdAt: nowIso(), updatedAt: nowIso(), rawDiff: source.rawDiff, files: source.files, comments: [], changes: source.changes, reviewedFiles: [], stagedFiles: [],
+    createdAt: nowIso(), updatedAt: nowIso(), rawDiff: source.rawDiff, files: source.files, comments: [], changes: source.changes, reviewedFiles: [], stagedFiles: [], decisions: [],
   });
 
   if (mode === "file") {
@@ -203,20 +203,39 @@ export async function loadLatestReview(root: string, session: string) {
   return null;
 }
 
+function decisionFromChange(c: ChangeState): Decision {
+  return { key: `${c.path}:${c.stableKey}`, status: c.status as "accepted" | "rejected", reviewedHash: c.reviewedHash, path: c.path, lineNumber: c.lineNumber, side: c.side, title: c.title };
+}
+
+// Decisions[] is the source of truth. For reviews persisted before it existed,
+// derive decisions from any decided changes so the handoff/summary stay correct.
+function effectiveDecisions(state: ReviewState): Decision[] {
+  if (state.decisions) return state.decisions;
+  return state.changes.filter((c) => c.status !== "pending").map(decisionFromChange);
+}
+
 export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   if (!saved) return base;
   const currentFiles = new Set(base.files.map((file) => file.path));
+  // Decisions are explicit and durable: carry them forward as the source of truth.
+  // A decision whose change is gone from the rebuilt diff (e.g. accepting it staged
+  // the hunk out of the working tree) is *kept* — that's the whole point. A decision
+  // whose change is still visible but whose content changed is dropped as stale.
+  let decisions = effectiveDecisions(saved);
+  const decisionByKey = new Map(decisions.map((d) => [d.key, d]));
+  const stale = new Set<string>();
   for (const change of base.changes) {
-    const old = saved.changes.find((c) => c.id === change.id || (c.stableKey && c.path === change.path && c.stableKey === change.stableKey));
-    if (!old || old.status === "pending") continue;
-    // Carry a prior accept/reject only if the change content is unchanged.
-    // Otherwise the agent rewrote this block since it was reviewed, so the
-    // decision is stale — leave it pending for re-review.
-    if (old.reviewedHash && change.contentHash && old.reviewedHash === change.contentHash) {
-      change.status = old.status;
-      change.reviewedHash = old.reviewedHash;
+    const key = `${change.path}:${change.stableKey}`;
+    const d = decisionByKey.get(key);
+    if (!d) continue;
+    if (d.reviewedHash && change.contentHash && d.reviewedHash === change.contentHash) {
+      change.status = d.status;
+      change.reviewedHash = d.reviewedHash;
+    } else {
+      stale.add(key); // agent rewrote this block since it was reviewed → re-review
     }
   }
+  decisions = decisions.filter((d) => !stale.has(d.key));
   return {
     ...base,
     id: saved.id,
@@ -226,6 +245,7 @@ export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
     stagedFiles: saved.stagedFiles,
     stagedChangeKeys: saved.stagedChangeKeys ?? [],
     decisionFiles: saved.decisionFiles ?? [],
+    decisions,
     persistFile: saved.persistFile,
   } satisfies ReviewState;
 }
@@ -252,16 +272,17 @@ export function buildReviewSummary(state: ReviewState) {
     for (const file of state.stagedFiles) out.push(`- ${file}`);
     out.push("");
   }
-  const accepted = state.changes.filter((c) => c.status === "accepted");
-  const rejected = state.changes.filter((c) => c.status === "rejected");
+  const decisions = effectiveDecisions(state);
+  const accepted = decisions.filter((d) => d.status === "accepted");
+  const rejected = decisions.filter((d) => d.status === "rejected");
   if (accepted.length) {
     out.push(pr ? "## Approved hunks" : "## Accepted line changes");
-    for (const c of accepted) out.push(`- ${c.path}:${c.lineNumber} (${c.side}) ${c.title}`);
+    for (const d of accepted) out.push(`- ${d.path}:${d.lineNumber} (${d.side}) ${d.title}`);
     out.push("");
   }
   if (rejected.length) {
     out.push(pr ? "## Hunks needing changes" : "## Rejected line changes");
-    for (const c of rejected) out.push(`- ${c.path}:${c.lineNumber} (${c.side}) ${c.title}`);
+    for (const d of rejected) out.push(`- ${d.path}:${d.lineNumber} (${d.side}) ${d.title}`);
     out.push("");
   }
   const actionable = state.comments.filter((c) => c.status === "open" && c.role !== "agent");
@@ -304,8 +325,9 @@ export function buildReviewResult(
   state: ReviewState,
   artifacts: { resultJson: string; summaryMd: string; sessionDir: string },
 ): ReviewResult {
-  const pick = (status: ChangeState["status"]) =>
-    state.changes.filter((c) => c.status === status).map((c) => ({ path: c.path, lineNumber: c.lineNumber, side: c.side, title: c.title }));
+  const decisions = effectiveDecisions(state);
+  const pick = (status: Decision["status"]) =>
+    decisions.filter((d) => d.status === status).map((d) => ({ path: d.path, lineNumber: d.lineNumber, side: d.side, title: d.title }));
   return {
     session: state.session,
     repoRoot: state.root,

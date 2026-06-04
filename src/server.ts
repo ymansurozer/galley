@@ -206,6 +206,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         state.stagedFiles = [];
         state.stagedChangeKeys = [];
         state.decisionFiles = [];
+        state.decisions = [];
         state.changes = state.changes.map((change) => ({ ...change, status: "pending", reviewedHash: undefined }));
         await persistReview(state);
         return json(res, 200, { ok: true, state });

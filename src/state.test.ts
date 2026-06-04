@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildReviewResult, buildReviewSummary, mergeReviewState, sanitizeSession } from "./state.js";
-import type { ChangeState, ReviewComment, ReviewState } from "./types.js";
+import type { ChangeState, Decision, ReviewComment, ReviewState } from "./types.js";
 
 function file(path: string) {
   return { path, hunks: [], oldFile: { name: path, contents: "" }, newFile: { name: path, contents: "" } };
@@ -11,6 +11,9 @@ function change(over: Partial<ChangeState> & { id: string; path: string }): Chan
 }
 function comment(over: Partial<ReviewComment> & { id: string; path: string }): ReviewComment {
   return { side: "additions", lineNumber: 1, body: "", createdAt: "t", updatedAt: "t", status: "open", ...over };
+}
+function decision(over: Partial<Decision> & { key: string; path: string }): Decision {
+  return { status: "accepted", lineNumber: 1, side: "additions", title: "", ...over };
 }
 function state(over: Partial<ReviewState>): ReviewState {
   return {
@@ -81,6 +84,41 @@ test("mergeReviewState (reload shape): folds a fresh diff into a live state — 
   assert.equal(merged.changes.find((c) => c.stableKey === "k2")!.status, "pending");  // changed → re-review
   assert.equal(merged.comments.length, 1); // the agent comment survives
   assert.equal(merged.comments[0]!.id, "c1");
+});
+
+test("mergeReviewState keeps an explicit decision whose hunk left the diff (accepted→staged)", () => {
+  // Accepting stages the hunk, so it disappears from the working-tree diff: the
+  // rebuilt base has no change for it, yet the decision must survive.
+  const base = state({ files: [file("a.ts")], changes: [] });
+  const saved = state({
+    files: [file("a.ts")], changes: [],
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts", status: "accepted", reviewedHash: "H", lineNumber: 4, title: "1 removed · 5 added" })],
+  });
+  const merged = mergeReviewState(base, saved);
+  assert.equal(merged.decisions!.length, 1);
+  assert.equal(merged.decisions![0]!.status, "accepted");
+});
+
+test("mergeReviewState drops an explicit decision that went stale (content changed, still visible)", () => {
+  const base = state({ files: [file("a.ts")], changes: [change({ id: "a.ts:k1", path: "a.ts", stableKey: "k1", contentHash: "NEW" })] });
+  const saved = state({
+    files: [file("a.ts")], changes: [],
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts", status: "accepted", reviewedHash: "OLD" })],
+  });
+  const merged = mergeReviewState(base, saved);
+  assert.equal(merged.changes[0]!.status, "pending"); // stale → re-review
+  assert.equal(merged.decisions!.length, 0);          // and the decision is removed
+});
+
+test("buildReviewResult reads decisions, so a staged-out accepted hunk still appears in accepted[]", () => {
+  const s = state({
+    mode: "repo", changes: [], // the accepted hunk is gone from the working diff (staged)
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts", status: "accepted", lineNumber: 4, side: "additions", title: "1 removed · 5 added" })],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  assert.equal(r.accepted.length, 1);
+  assert.equal(r.accepted[0]!.path, "a.ts");
+  assert.equal(r.accepted[0]!.lineNumber, 4);
 });
 
 test("buildReviewResult carries mode/target/base", () => {

@@ -62,6 +62,22 @@ export type ChangeState = {
   reviewedHash?: string;
 };
 
+// An explicit, durable record of a user's accept/reject on a change block, keyed
+// by stable identity (`path:stableKey`). This — not git staging — is the source
+// of truth for decisions, so a decision survives a reload even when accepting it
+// staged the hunk out of the working-tree diff (where it would otherwise vanish).
+export type Decision = {
+  key: string; // `${path}:${stableKey}`
+  status: "accepted" | "rejected";
+  // contentHash the decision was made against; lets reconciliation drop a decision
+  // as stale if the agent rewrote that block since it was reviewed.
+  reviewedHash?: string;
+  path: string;
+  lineNumber: number;
+  side: "additions" | "deletions";
+  title: string;
+};
+
 export type ReviewFile = DiffFile & {
   path: string;
   oldFile: { name: string; contents: string };
@@ -96,6 +112,8 @@ export type ReviewState = {
   stagedFiles: string[];
   stagedChangeKeys?: string[];
   decisionFiles?: string[];
+  // Explicit accept/reject records — the source of truth for decisions.
+  decisions?: Decision[];
   persistFile?: string;
 };
 

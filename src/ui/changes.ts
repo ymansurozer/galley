@@ -25,8 +25,11 @@ export function deriveChanges(diff: FileDiffMetadata, path: string, previous = n
       const stableKey = changeStableKey(part);
       const id = `${path}:${stableKey}`;
       const prev = previous.get(id);
-      const status: ChangeStatus = (S.state.stagedChangeKeys || []).includes(`${path}:${stableKey}`) ? "accepted" : prev?.status || "pending";
-      derived.push({ id, path, hunkIndex, changeIndex: contentIndex, stableKey, side, lineNumber, endLine: (side === "additions" ? part.additionLineIndex + (part.additions || 1) : part.deletionLineIndex + (part.deletions || 1)), title: `${part.deletions || 0} removed · ${part.additions || 0} added`, status, stageable: prev?.stageable, contentHash: prev?.contentHash, reviewedHash: prev?.reviewedHash });
+      // Status comes from the explicit decision record (source of truth), not from
+      // whether the hunk happens to be staged.
+      const decision = (S.state.decisions || []).find((d) => d.key === id);
+      const status: ChangeStatus = decision?.status ?? "pending";
+      derived.push({ id, path, hunkIndex, changeIndex: contentIndex, stableKey, side, lineNumber, endLine: (side === "additions" ? part.additionLineIndex + (part.additions || 1) : part.deletionLineIndex + (part.deletions || 1)), title: `${part.deletions || 0} removed · ${part.additions || 0} added`, status, stageable: prev?.stageable, contentHash: prev?.contentHash, reviewedHash: decision?.reviewedHash ?? prev?.reviewedHash });
     });
   });
   return derived;

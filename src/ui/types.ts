@@ -1,4 +1,4 @@
-import type { ReviewState, ReviewComment, ChangeState } from "../types";
+import type { ReviewState, ReviewComment, ChangeState, Decision } from "../types";
 
 export type Side = "additions" | "deletions";
 export type DiffStyle = "split" | "unified";
@@ -106,4 +106,4 @@ export interface Store {
   confirmStage?: () => Promise<void>;
 }
 
-export type { ReviewState, ReviewComment, ChangeState };
+export type { ReviewState, ReviewComment, ChangeState, Decision };
