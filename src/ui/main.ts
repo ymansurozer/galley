@@ -8,6 +8,7 @@ import { stageFile, unstageFile } from "./decisions";
 import { treeRows } from "./tree";
 import { render } from "./render";
 import { pollState } from "./poll";
+import { defaultFileView, isMarkdownPath } from "./mdfile";
 import type { ReviewState } from "./types";
 
 // Close the composer when clicking outside it (unless it has unsaved text).
@@ -44,13 +45,15 @@ document.addEventListener("keydown", (e) => {
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
-S.selectFile = (i) => { S.fileIndex = i; D.fileDiff = null; render(); };
+S.selectFile = (i) => { S.fileIndex = i; S.fileView = defaultFileView(S.state.files[i]); D.fileDiff = null; render(); };
 S.toggleDir = (full) => { S.expandedDirs.has(full) ? S.expandedDirs.delete(full) : S.expandedDirs.add(full); };
 S.toggleTestDir = (key) => { S.expandedDirs.has(key) ? S.expandedDirs.delete(key) : S.expandedDirs.add(key); };
 S.gitToggle = (path, action) => (action === "unstage" ? unstageFile(path) : stageFile(path));
 S.rowClick = (r) => { if (r.kind === "dir") S.toggleDir?.(r.full); else if (r.fileIndex !== undefined) S.selectFile?.(r.fileIndex); };
 S.openComposer = openCommentComposer;
 S.setStyle = (style) => { S.diffStyle = style; localStorage.setItem("galley.diffStyle", style); render(); };
+S.setFileView = (view) => { S.fileView = view; D.fileDiff = null; render(); };
+S.isMarkdownFile = () => { const f = S.state && S.state.files[S.fileIndex]; return !!f && isMarkdownPath(f.path); };
 S.saveComment = () => {
   const body = (S.composerBody || "").trim();
   if (!body) return;
@@ -82,5 +85,6 @@ S.state = await api<ReviewState>("/api/state");
 S.projectFiles = (await api<{ files?: string[] }>("/api/tree")).files || [];
 S.lastBaseDiffHash = S.state.baseDiffHash;
 S.selected = { side: S.state.changes[0]?.side || "additions", lineNumber: S.state.changes[0]?.lineNumber || 1 };
+if (S.state.files[S.fileIndex]) S.fileView = defaultFileView(S.state.files[S.fileIndex]);
 render();
 setInterval(pollState, 1500);

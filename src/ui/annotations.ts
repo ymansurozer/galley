@@ -5,7 +5,7 @@ import { editComment, deleteComment } from "./comments";
 import { renderCommentBody } from "./markdown";
 import { selectionLabel, placeNearActionPop } from "./selection";
 import { render } from "./render";
-import type { AnnotationInput, AnnotationMeta, ReviewComment } from "./types";
+import type { AnnotationInput, AnnotationMeta, ThreadMeta, ReviewComment } from "./types";
 
 export function annotations(): AnnotationInput[] {
   const out: AnnotationInput[] = [];
@@ -29,6 +29,31 @@ export function annotations(): AnnotationInput[] {
   return out;
 }
 
+// The comment-box element for one thread (messages + reply/resolve/reopen + per-message
+// edit/delete). Shared by the diff annotations and the markdown-file view (mdfile.ts).
+export function buildCommentThread(c: ThreadMeta): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "comment-box";
+  const messages = c.status === "resolved"
+    ? `<div class="thread-summary"><b>${c.comments.length}</b> comment${c.comments.length === 1 ? "" : "s"} <span>(Resolved)</span><button class="reopen-inline">Reopen</button></div>`
+    : c.comments.map((m) => {
+        const own = m.role !== "agent";
+        const edited = m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
+        const actions = own ? `<span class="msg-actions"><button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>` : "";
+        return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span><time>now${edited}</time>${actions}</div><div class="md">${renderCommentBody(m)}</div></div>`;
+      }).join("");
+  box.innerHTML = `${messages}<div class="thread-actions">${c.status === "resolved" ? '<button class="reopen-thread">Reopen</button>' : '<button class="reply-thread">Reply</button><button class="resolve-thread">Resolve</button>'}</div>`;
+  const reply = box.querySelector(".reply-thread") as HTMLButtonElement | null;
+  if (reply) reply.onclick = () => { S.selected = { side: c.side, lineNumber: c.lineNumber }; S.composerBody = ""; S.composerTitle = selectionLabel(); S.editingCommentId = null; placeNearActionPop($("composer")); S.composerOpen = true; setTimeout(() => $("commentBody").focus(), 0); };
+  box.querySelectorAll(".edit-comment").forEach((b) => ((b as HTMLButtonElement).onclick = () => editComment((b as HTMLElement).dataset.id!)));
+  box.querySelectorAll(".delete-comment").forEach((b) => ((b as HTMLButtonElement).onclick = () => deleteComment((b as HTMLElement).dataset.id!)));
+  const resolve = box.querySelector(".resolve-thread") as HTMLButtonElement | null;
+  if (resolve) resolve.onclick = () => { S.state.comments.filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber).forEach((x) => (x.status = "resolved")); render(); toast("Resolved"); persist(); };
+  const reopen = box.querySelector(".reopen-thread,.reopen-inline") as HTMLButtonElement | null;
+  if (reopen) reopen.onclick = () => { S.state.comments.filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber).forEach((x) => (x.status = "open")); render(); toast("Reopened"); persist(); };
+  return box;
+}
+
 // `a` is @pierre/diffs' annotation callback argument (loose by contract); the
 // metadata we tucked into it is our own typed AnnotationMeta.
 export function renderAnnotation(a: { metadata: AnnotationMeta }) {
@@ -39,26 +64,16 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   if (c.type === "change") {
     el.innerHTML = `<div class="change-actions"><button class="reject">Undo</button><button class="accept">Keep</button></div>`;
   } else {
-    const messages = c.status === "resolved"
-      ? `<div class="thread-summary"><b>${c.comments.length}</b> comment${c.comments.length === 1 ? "" : "s"} <span>(Resolved)</span><button class="reopen-inline">Reopen</button></div>`
-      : c.comments.map((m) => {
-          const own = m.role !== "agent";
-          const edited = m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
-          const actions = own ? `<span class="msg-actions"><button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>` : "";
-          return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span><time>now${edited}</time>${actions}</div><div class="md">${renderCommentBody(m)}</div></div>`;
-        }).join("");
-    el.innerHTML = `<div class="comment-box">${messages}<div class="thread-actions">${c.status === "resolved" ? '<button class="reopen-thread">Reopen</button>' : '<button class="reply-thread">Reply</button><button class="resolve-thread">Resolve</button>'}</div></div>${change ? `<div class="change-actions"><button class="reject">Undo</button><button class="accept">Keep</button></div>` : ""}`;
+    el.appendChild(buildCommentThread(c));
+    if (change) {
+      const ca = document.createElement("div");
+      ca.className = "change-actions";
+      ca.innerHTML = `<button class="reject">Undo</button><button class="accept">Keep</button>`;
+      el.appendChild(ca);
+    }
   }
   const acceptButton = el.querySelector(".accept");
   const rejectButton = el.querySelector(".reject");
   if (change && acceptButton && rejectButton) { (acceptButton as HTMLButtonElement).onclick = () => acceptChange(change.id, "accepted"); (rejectButton as HTMLButtonElement).onclick = () => acceptChange(change.id, "rejected"); }
-  const reply = el.querySelector(".reply-thread") as HTMLButtonElement | null;
-  if (reply) reply.onclick = () => { S.selected = { side: c.side, lineNumber: c.lineNumber }; S.composerBody = ""; S.composerTitle = selectionLabel(); S.editingCommentId = null; placeNearActionPop($("composer")); S.composerOpen = true; setTimeout(() => $("commentBody").focus(), 0); };
-  el.querySelectorAll(".edit-comment").forEach((b) => ((b as HTMLButtonElement).onclick = () => editComment((b as HTMLElement).dataset.id!)));
-  el.querySelectorAll(".delete-comment").forEach((b) => ((b as HTMLButtonElement).onclick = () => deleteComment((b as HTMLElement).dataset.id!)));
-  const resolve = el.querySelector(".resolve-thread") as HTMLButtonElement | null;
-  if (resolve) resolve.onclick = () => { S.state.comments.filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber).forEach((x) => (x.status = "resolved")); render(); toast("Resolved"); persist(); };
-  const reopen = el.querySelector(".reopen-thread,.reopen-inline") as HTMLButtonElement | null;
-  if (reopen) reopen.onclick = () => { S.state.comments.filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber).forEach((x) => (x.status = "open")); render(); toast("Reopened"); persist(); };
   return el;
 }

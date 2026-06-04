@@ -6,10 +6,23 @@ import { applyLayoutClasses } from "./tree";
 import { annotations, renderAnnotation } from "./annotations";
 import { handleLineNumberClick, handleDiffSelection, attachDiffSelectionHandlers } from "./selection";
 import { keepAllCurrentFile, resetReview, toggleReviewed } from "./decisions";
+import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
 
 export async function render() {
   if (D.instance) D.instance.cleanUp?.();
+  // Drop any leftover rendered-markdown DOM before either path re-renders into #diff
+  // (@pierre/diffs manages only its own root, so it won't clear our injected .md-file).
+  const host = $("diff");
+  if (host.querySelector(".md-file")) host.innerHTML = "";
   const f = currentFile();
+  // Markdown file in rendered mode: formatted preview with block-anchored comments,
+  // instead of the @pierre/diffs view.
+  if (S.state.mode === "file" && isMarkdownPath(f.path) && S.fileView === "rendered") {
+    D.instance = null;
+    applyLayoutClasses();
+    renderMarkdownFile();
+    return;
+  }
   const viewOnly = S.state.mode === "file" && (f.oldFile.contents === "" || f.oldFile.contents === f.newFile.contents);
   let fd = viewOnly ? D.parseDiffFromFile({ name: f.newFile.name, contents: "" }, f.newFile) : D.parseDiffFromFile(f.oldFile, f.newFile);
   if (!viewOnly) { ensureChangesFromFileDiff(fd); fd = replayDecisions(fd); }

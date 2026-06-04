@@ -91,6 +91,9 @@ export interface Store {
   composerTitle: string;
   composerBody: string;
   editingCommentId: string | null;
+  // file mode: how a markdown file is shown — "rendered" (comark/markdown-it preview,
+  // comment on blocks) or "source" (@pierre/diffs raw/diff).
+  fileView: "rendered" | "source";
 
   treeRows?: () => TreeRow[];
   selectFile?: (i: number) => void;
@@ -100,6 +103,8 @@ export interface Store {
   rowClick?: (r: TreeRow) => void;
   openComposer?: () => void;
   setStyle?: (style: DiffStyle) => void;
+  setFileView?: (view: "rendered" | "source") => void;
+  isMarkdownFile?: () => boolean;
   saveComment?: () => void;
   reset?: () => Promise<void>;
   send?: () => Promise<void>;

@@ -105,14 +105,16 @@ the guided review, then UI work, then distribution.
       island kept in a non-reactive holder (`store.D`) + `x-ignore`. `alpinejs`,
       `@alpinejs/persist`, and `@pierre/diffs` are all bundled (no CDN; ~9.5MB ui.js, fine for
       a localhost tool). Unblocks the polish items below.
-- [ ] **Comark markdown rendering** — render markdown files (e.g. plans) with comark instead of
-      raw text, with rendered-comment anchoring. Deferred here because comark is framework-first
-      and the anchoring model should be built on the stack chosen above.
+- [x] **Markdown file rendering** — in file mode, markdown files render formatted (markdown-it)
+      with a **Rendered / Source** toggle. Comment directly on rendered blocks: markdown-it's
+      `token.map` gives each block its exact source line, so a block comment is a normal
+      line-anchored comment (works the same in the Source/diff view). New/untracked files open
+      Rendered; changed files open Source.
 - [x] **Auto-save; remove the Save button** — every change persists instantly via `persist()`
       after each mutation; the toolbar keeps only Reset Review and Send to Agent.
 - [x] **Edit & delete comments** — edit/delete your own comments (agent replies stay
       read-only); edits show an "edited" marker. Auto-saved like every other change.
-- [x] **Markdown comments** — comment bodies render as markdown via **comark** with
+- [x] **Markdown comments** — comment bodies render as markdown via **markdown-it** with
       Shiki-highlighted code blocks. Output is sanitized (`html: false` + DOMPurify)
       because agent replies are rendered too.
 - [ ] **Settings** — font, diff-view options, file-tree options, diff theme, code-highlight theme.
