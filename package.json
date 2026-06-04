@@ -1,0 +1,23 @@
+{
+  "name": "galley",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "bin": {
+    "galley": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "node scripts/build-ui.mjs --watch & tsx src/cli.ts",
+    "build": "tsc && node scripts/build-ui.mjs && cp src/ui/index.html dist/index.html",
+    "start": "node dist/cli.js",
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "esbuild": "^0.28.0",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}
