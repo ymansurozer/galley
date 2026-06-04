@@ -1,4 +1,4 @@
-import { S } from "./store";
+import { S, D } from "./store";
 
 export function currentFile() { return S.state.files[S.fileIndex]; }
 export function currentChanges() { return S.state.changes.filter((c: any) => c.path === currentFile().path); }
@@ -27,7 +27,7 @@ export function deriveChanges(diff: any, path: string, previous = new Map()) {
   return derived;
 }
 
-export function ensureChangesFromFileDiff(diff = S.fileDiff) {
+export function ensureChangesFromFileDiff(diff = D.fileDiff) {
   if (!diff) return;
   const path = currentFile().path;
   const previous = new Map(S.state.changes.filter((c: any) => c.path === path).map((c: any) => [c.id, c]));
@@ -49,7 +49,7 @@ export function findChangePosition(diff: any, stableKey: string) {
 export function applyDecisionToDiff(diff: any, change: any, status: string) {
   const pos = findChangePosition(diff, change.stableKey);
   if (!pos) return diff;
-  try { return S.diffAcceptRejectHunk(diff, pos.hunkIndex, { type: status === "accepted" ? "accept" : "reject", changeIndex: pos.changeIndex }); } catch { return diff; }
+  try { return D.diffAcceptRejectHunk(diff, pos.hunkIndex, { type: status === "accepted" ? "accept" : "reject", changeIndex: pos.changeIndex }); } catch { return diff; }
 }
 
 export function replayDecisions(diff: any) {

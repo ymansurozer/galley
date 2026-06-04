@@ -1,13 +1,12 @@
-import { S, $, show, toast, api, persist } from "./store";
+import { S, D, $, show, toast, api, persist } from "./store";
 import { currentFile, applyDecisionToDiff } from "./changes";
-import { sync } from "./tree";
 import { render } from "./render";
 
 export function toggleReviewed(path: string) {
   S.state.reviewedFiles = S.state.reviewedFiles || [];
   if (S.state.reviewedFiles.includes(path)) { S.state.reviewedFiles = S.state.reviewedFiles.filter((p: string) => p !== path); toast("Marked unviewed"); }
   else { S.state.reviewedFiles.push(path); toast("Marked viewed"); }
-  sync(); render(); persist();
+  render(); persist();
 }
 
 export async function resetReview(path: string) {
@@ -16,7 +15,7 @@ export async function resetReview(path: string) {
   S.state.decisionFiles = (S.state.decisionFiles || []).filter((p: string) => p !== path);
   S.state.stagedFiles = (S.state.stagedFiles || []).filter((p: string) => p !== path);
   await api("/api/unstage", { method: "POST", body: JSON.stringify({ path }) }).catch(() => {});
-  if (path === currentFile().path) S.fileDiff = S.parseDiffFromFile(currentFile().oldFile, currentFile().newFile);
+  if (path === currentFile().path) D.fileDiff = D.parseDiffFromFile(currentFile().oldFile, currentFile().newFile);
   render(); toast("Reset decisions"); persist();
 }
 
@@ -44,13 +43,13 @@ export async function stageFile(path: string, force = false) {
   await api("/api/stage", { method: "POST", body: JSON.stringify({ path }) });
   S.state.stagedFiles = S.state.stagedFiles || [];
   if (!S.state.stagedFiles.includes(path)) S.state.stagedFiles.push(path);
-  sync(); render(); toast("File staged"); persist();
+  render(); toast("File staged"); persist();
 }
 
 export async function unstageFile(path: string) {
   await api("/api/unstage", { method: "POST", body: JSON.stringify({ path }) }).catch(() => {});
   S.state.stagedFiles = (S.state.stagedFiles || []).filter((p: string) => p !== path);
-  sync(); render(); toast("File unstaged"); persist();
+  render(); toast("File unstaged"); persist();
 }
 
 export async function acceptChange(id: string, status: string) {
@@ -67,7 +66,7 @@ export async function acceptChange(id: string, status: string) {
   change.reviewedHash = change.contentHash;
   S.state.decisionFiles = S.state.decisionFiles || [];
   if (!S.state.decisionFiles.includes(change.path)) S.state.decisionFiles.push(change.path);
-  S.fileDiff = applyDecisionToDiff(S.fileDiff, change, status);
+  D.fileDiff = applyDecisionToDiff(D.fileDiff, change, status);
   toast(status === "accepted" ? "Accepted and staged" : "Rejected");
   render(); persist();
 }

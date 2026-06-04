@@ -1,8 +1,9 @@
-import { S, $, esc } from "./store";
-import { render } from "./render";
-import { stageFile, unstageFile } from "./decisions";
+import { S } from "./store";
 
-export function buildFileTree() {
+// Pure data: the flat, ordered list of tree rows the template renders with x-for.
+// (Replaces the old buildFileTree HTML-string builder + sync() DOM wiring.)
+export function treeRows() {
+  if (!S.state) return []; // template may evaluate before the initial fetch
   const root: any = { name: "", full: "", dirs: new Map(), files: [], changed: false };
   const changed = new Map(S.state.files.map((f: any, i: number) => [f.path, i]));
   const all = S.projectFiles.length ? S.projectFiles : S.state.files.map((f: any) => f.path);
@@ -22,7 +23,7 @@ export function buildFileTree() {
     if (isChanged && !isStaged) stack.forEach((n) => (n.changed = true));
     node.files.push({ name: parts.at(-1) || path, index: changed.get(path), changed: isChanged, path, tests: [] });
   });
-  const out: string[] = [];
+
   function groupTests(node: any) {
     const byName = new Map(node.files.map((f: any) => [f.name, f]));
     for (const f of node.files) {
@@ -34,62 +35,65 @@ export function buildFileTree() {
     node.files = node.files.filter((f: any) => !f.folded);
     for (const child of node.dirs.values()) groupTests(child);
   }
-  function walk(node: any, depth: number) {
-    [...node.dirs.values()].sort((a: any, b: any) => a.name.localeCompare(b.name)).forEach((dir: any) => {
-      const changedCount = countChanged(dir);
-      const open = S.expandedDirs.has(dir.full) || dir.changed;
-      out.push(`<div class="node ${dir.changed ? "changed" : ""} indent-${Math.min(depth, 3)}" data-dir="${esc(dir.full)}"><span>${open ? "▾" : "▸"}</span><span>${esc(dir.name)}</span><span class="count">${changedCount || ""}</span></div>`);
-      if (open) walk(dir, depth + 1);
-    });
-    node.files.sort((a: any, b: any) => a.name.localeCompare(b.name)).forEach((file: any) => renderFile(file, depth));
-  }
-  function renderFile(file: any, depth: number) {
-    const comments = S.state.comments.filter((c: any) => c.path === file.path);
-    const openComments = comments.filter((c: any) => c.status === "open" && c.role !== "agent").length;
-    const reviewed = S.state.reviewedFiles?.includes(file.path);
-    const staged = S.state.stagedFiles?.includes(file.path);
-    const decisions = S.state.changes.filter((c: any) => c.path === file.path);
-    const decided = decisions.length > 0 && decisions.every((c: any) => c.status !== "pending");
-    const active = file.index === S.fileIndex;
-    const clickable = file.index !== undefined;
-    const hasTests = file.tests.length > 0;
-    const changedTests = file.tests.some((t: any) => t.changed && !S.state.stagedFiles?.includes(t.path));
-    const changedish = (file.changed || changedTests) && !staged;
-    const open = hasTests && (S.expandedDirs.has(`tests:${file.path}`) || changedTests);
-    const git = file.changed || staged ? `<button class="git-action ${staged ? "unstage" : "stage"}" data-git-path="${esc(file.path)}" data-git-action="${staged ? "unstage" : "stage"}" title="${staged ? "Unstage file" : "Stage file"}">${staged ? "−" : "+"}</button>` : "";
-    const statuses = `<span class="status-pack">${!decided && file.changed && !staged ? '<span class="state-icon pending-decisions" title="Unresolved changes">◇</span>' : ""}${openComments ? '<span class="state-icon comments-open" title="Unresolved comments">⋯</span>' : ""}${reviewed ? '<span class="state-icon viewed" title="Viewed">✓</span>' : ""}</span>`;
-    out.push(`<div class="node ${active ? "active" : ""} ${changedish ? "changed" : ""} indent-${Math.min(depth, 3)}" ${clickable ? `data-file="${file.index}"` : ""}><span>${esc(file.name)}</span>${hasTests && !reviewed && !decided && !comments.length ? `<span data-test-dir="tests:${esc(file.path)}">${open ? "▾" : "▸"}</span>` : statuses}${git}</div>`);
-    if (open) file.tests.sort((a: any, b: any) => Number(b.changed) - Number(a.changed) || a.name.localeCompare(b.name)).forEach((t: any) => renderTestFile(t, depth + 1));
-  }
-  function renderTestFile(file: any, depth: number) {
-    const comments = S.state.comments.filter((c: any) => c.path === file.path);
-    const openComments = comments.filter((c: any) => c.status === "open" && c.role !== "agent").length;
-    const reviewed = S.state.reviewedFiles?.includes(file.path);
-    const staged = S.state.stagedFiles?.includes(file.path);
-    const decisions = S.state.changes.filter((c: any) => c.path === file.path);
-    const decided = decisions.length > 0 && decisions.every((c: any) => c.status !== "pending");
-    const active = file.index === S.fileIndex;
-    const clickable = file.index !== undefined;
-    const git = file.changed || staged ? `<button class="git-action ${staged ? "unstage" : "stage"}" data-git-path="${esc(file.path)}" data-git-action="${staged ? "unstage" : "stage"}" title="${staged ? "Unstage file" : "Stage file"}">${staged ? "−" : "+"}</button>` : "";
-    const statuses = `<span class="status-pack">${!decided && file.changed && !staged ? '<span class="state-icon pending-decisions" title="Unresolved changes">◇</span>' : ""}${openComments ? '<span class="state-icon comments-open" title="Unresolved comments">⋯</span>' : ""}${reviewed ? '<span class="state-icon viewed" title="Viewed">✓</span>' : ""}</span>`;
-    out.push(`<div class="node ${active ? "active" : ""} ${file.changed && !staged ? "changed" : ""} test indent-${Math.min(depth, 3)}" ${clickable ? `data-file="${file.index}"` : ""}><span>${esc(file.name)}</span>${statuses}${git}</div>`);
-  }
   function countChanged(node: any): number {
     let n = node.files.filter((f: any) => (f.changed && !S.state.stagedFiles?.includes(f.path)) || f.tests.some((t: any) => t.changed && !S.state.stagedFiles?.includes(t.path))).length;
     for (const child of node.dirs.values()) n += countChanged(child);
     return n;
   }
+
+  const rows: any[] = [];
+  const indent = (d: number) => `indent-${Math.min(d, 3)}`;
+
+  function fileRow(file: any, depth: number, isTest: boolean) {
+    const comments = S.state.comments.filter((c: any) => c.path === file.path);
+    const openComments = comments.filter((c: any) => c.status === "open" && c.role !== "agent").length;
+    const reviewed = S.state.reviewedFiles?.includes(file.path);
+    const staged = S.state.stagedFiles?.includes(file.path);
+    const decisions = S.state.changes.filter((c: any) => c.path === file.path);
+    const decided = decisions.length > 0 && decisions.every((c: any) => c.status !== "pending");
+    const active = file.index === S.fileIndex;
+    const hasTests = !isTest && file.tests.length > 0;
+    const changedTests = !isTest && file.tests.some((t: any) => t.changed && !S.state.stagedFiles?.includes(t.path));
+    const changedish = (file.changed || changedTests) && !staged;
+    const testOpen = hasTests && (S.expandedDirs.has(`tests:${file.path}`) || changedTests);
+    // Original: a file with tests shows the test-toggle caret instead of badges
+    // only when it's otherwise "quiet" (not reviewed/decided/commented).
+    const showTestToggle = hasTests && !reviewed && !decided && !comments.length;
+    rows.push({
+      key: (isTest ? "test:" : "file:") + file.path,
+      kind: isTest ? "test" : "file",
+      depth,
+      name: file.name,
+      cls: [active ? "active" : "", changedish ? "changed" : "", isTest ? "test" : "", indent(depth)].filter(Boolean).join(" "),
+      path: file.path,
+      fileIndex: file.index,
+      testToggle: showTestToggle,
+      testKey: `tests:${file.path}`,
+      testCaret: testOpen ? "▾" : "▸",
+      badges: showTestToggle ? null : { pending: !decided && file.changed && !staged, comments: openComments > 0, viewed: !!reviewed },
+      git: file.changed || staged ? (staged ? "unstage" : "stage") : null,
+      gitSymbol: staged ? "−" : "+",
+    });
+    if (testOpen) file.tests.sort((a: any, b: any) => Number(b.changed) - Number(a.changed) || a.name.localeCompare(b.name)).forEach((t: any) => fileRow(t, depth + 1, true));
+  }
+
+  function walk(node: any, depth: number) {
+    [...node.dirs.values()].sort((a: any, b: any) => a.name.localeCompare(b.name)).forEach((dir: any) => {
+      const open = S.expandedDirs.has(dir.full) || dir.changed;
+      const count = countChanged(dir);
+      rows.push({ key: "dir:" + dir.full, kind: "dir", depth, name: dir.name, cls: [dir.changed ? "changed" : "", indent(depth)].filter(Boolean).join(" "), full: dir.full, dirCaret: open ? "▾" : "▸", count });
+      if (open) walk(dir, depth + 1);
+    });
+    node.files.sort((a: any, b: any) => a.name.localeCompare(b.name)).forEach((file: any) => fileRow(file, depth, false));
+  }
+
   groupTests(root);
   walk(root, 0);
-  return out.join("");
+  return rows;
 }
 
-export function sync() {
+// Layout classes were toggled inside the old sync(); render() calls this now.
+export function applyLayoutClasses() {
   document.body.classList.toggle("single", (S.state.files?.length || 0) <= 1);
   document.body.classList.toggle("file-mode", S.state.mode === "file");
-  $("files").innerHTML = buildFileTree();
-  document.querySelectorAll("[data-file]").forEach((n: any) => (n.onclick = () => { S.fileIndex = Number(n.dataset.file); S.fileDiff = null; render(); }));
-  document.querySelectorAll("[data-dir]").forEach((n: any) => (n.onclick = () => { const dir = n.dataset.dir; if (S.expandedDirs.has(dir)) S.expandedDirs.delete(dir); else S.expandedDirs.add(dir); sync(); }));
-  document.querySelectorAll("[data-test-dir]").forEach((n: any) => (n.onclick = (e: any) => { e.stopPropagation(); const dir = n.dataset.testDir; if (S.expandedDirs.has(dir)) S.expandedDirs.delete(dir); else S.expandedDirs.add(dir); sync(); }));
-  document.querySelectorAll("[data-git-path]").forEach((n: any) => (n.onclick = async (e: any) => { e.stopPropagation(); const path = n.dataset.gitPath; if (n.dataset.gitAction === "unstage") await unstageFile(path); else await stageFile(path); }));
 }

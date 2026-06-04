@@ -1,5 +1,4 @@
 import { S, $, show, hide } from "./store";
-import { sync } from "./tree";
 
 let lastSelectionPointer: any = null;
 let dragSelectionStart: any = null;
@@ -52,7 +51,6 @@ export function selectionLabel() {
 }
 export function showForDiffLine(payload: any, event?: any) {
   S.selected = { side: normalizeSide(payload.side), lineNumber: payload.lineNumber, endLine: payload.endLine };
-  sync();
   $("popContext").textContent = selectionLabel();
   const e = event || payload.event;
   if (e?.clientX) placePopoverFromPoint(e.clientX, e.clientY);

@@ -1,8 +1,11 @@
-import { S, $, show, hide, toast, api, persist } from "./store";
+import Alpine from "alpinejs";
+import persistPlugin from "@alpinejs/persist";
+import { S, D, $, show, hide, toast, api, persist } from "./store";
 import { loadDiffLib } from "./difflib";
 import { currentFile } from "./changes";
 import { openCommentComposer, closeComposerIfEmpty } from "./selection";
-import { stageFile } from "./decisions";
+import { stageFile, unstageFile } from "./decisions";
+import { treeRows } from "./tree";
 import { render } from "./render";
 import { pollState } from "./poll";
 
@@ -43,7 +46,7 @@ $("saveComment").onclick = async () => {
   S.state.comments.push({ id: crypto.randomUUID(), ...base, role: "user", body, intent: "action" });
   hide($("composer")); render(); persist(); toast("Comment saved");
 };
-$("reset").onclick = async () => { const result = await api("/api/reset", { method: "POST" }); if (result.state) { S.state = result.state; S.fileDiff = null; render(); } toast("Reset review"); };
+$("reset").onclick = async () => { const result = await api("/api/reset", { method: "POST" }); if (result.state) { S.state = result.state; D.fileDiff = null; render(); } toast("Reset review"); };
 $("save").onclick = async () => { await persist(); toast("Saved"); };
 $("send").onclick = async () => {
   const b = $("send");
@@ -65,6 +68,20 @@ document.addEventListener("keydown", (e: any) => {
   if (e.key === "c" && $("composer").classList.contains("show")) { e.preventDefault(); $("saveComment").click(); }
   if (e.key === "v") { S.diffStyle = S.diffStyle === "split" ? "unified" : "split"; localStorage.setItem("galley.diffStyle", S.diffStyle); document.querySelectorAll("[data-style]").forEach((x: any) => x.classList.toggle("active", x.dataset.style === S.diffStyle)); render(); }
 });
+
+// Tree handlers used by the reactive template ($store.g.*).
+S.treeRows = treeRows;
+S.selectFile = (i: number) => { S.fileIndex = i; D.fileDiff = null; render(); };
+S.toggleDir = (full: string) => { S.expandedDirs.has(full) ? S.expandedDirs.delete(full) : S.expandedDirs.add(full); };
+S.toggleTestDir = (key: string) => { S.expandedDirs.has(key) ? S.expandedDirs.delete(key) : S.expandedDirs.add(key); };
+S.gitToggle = (path: string, action: string) => (action === "unstage" ? unstageFile(path) : stageFile(path));
+S.rowClick = (r: any) => { if (r.kind === "dir") S.toggleDir(r.full); else S.selectFile(r.fileIndex); };
+
+// Alpine: register the reactive store + persist plugin, then start.
+(window as any).Alpine = Alpine;
+Alpine.plugin(persistPlugin);
+Alpine.store("g", S);
+Alpine.start();
 
 // Init
 await loadDiffLib();

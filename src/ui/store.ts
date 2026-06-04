@@ -1,20 +1,28 @@
-// Shared mutable client state + DOM helpers. A single mutable object keeps
-// cross-module state simple (ESM live bindings can't be reassigned by importers).
-export const S: any = {
+import Alpine from "alpinejs";
+
+// Single reactive source of truth: the imperative diff island mutates it directly,
+// and the Alpine-driven chrome (tree, toolbar, composer, modals, toast) renders from it.
+export const S: any = Alpine.reactive({
   state: null,
   projectFiles: [],
   expandedDirs: new Set<string>(),
   pendingStagePath: null,
-  FileDiff: null,
-  parseDiffFromFile: null,
-  diffAcceptRejectHunk: null,
-  instance: null,
-  fileDiff: null,
   diffStyle: localStorage.getItem("galley.diffStyle") || "split",
   fileIndex: 0,
   awaitingAgent: false,
   lastBaseDiffHash: null,
   selected: { side: "additions", lineNumber: 1 },
+});
+
+// Imperative-island objects kept OUT of the reactive store: the @pierre/diffs
+// classes/instance and parsed fileDiff do internal element/identity checks that
+// an Alpine reactive Proxy breaks (e.g. ResizeManager ownership). Plain object.
+export const D: any = {
+  FileDiff: null,
+  parseDiffFromFile: null,
+  diffAcceptRejectHunk: null,
+  instance: null,
+  fileDiff: null,
 };
 
 export const $ = (id: string) => document.getElementById(id) as any;

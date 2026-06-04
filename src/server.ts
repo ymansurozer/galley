@@ -90,8 +90,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return;
       }
       if (req.method === "GET" && url.pathname === "/ui.js") {
-        const js = await fs.readFile(path.join(__dirname, "ui.js"), "utf8").catch(() => "");
-        res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+        const file = path.join(__dirname, "ui.js");
+        const stat = await fs.stat(file).catch(() => null);
+        const etag = stat ? `"${stat.size}-${Math.round(stat.mtimeMs)}"` : "";
+        if (etag && req.headers["if-none-match"] === etag) { res.writeHead(304); res.end(); return; }
+        const js = await fs.readFile(file, "utf8").catch(() => "");
+        res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", ...(etag ? { etag, "cache-control": "no-cache" } : {}) });
         res.end(js);
         return;
       }

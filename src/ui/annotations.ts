@@ -2,7 +2,6 @@ import { S, $, show, esc, toast, persist } from "./store";
 import { currentComments, currentChanges } from "./changes";
 import { acceptChange } from "./decisions";
 import { selectionLabel, placeNearActionPop } from "./selection";
-import { sync } from "./tree";
 import { render } from "./render";
 
 export function annotations() {
@@ -44,7 +43,7 @@ export function renderAnnotation(a: any) {
   const rejectButton = el.querySelector(".reject");
   if (change && acceptButton && rejectButton) { (acceptButton as any).onclick = () => acceptChange(change.id, "accepted"); (rejectButton as any).onclick = () => acceptChange(change.id, "rejected"); }
   const reply = el.querySelector(".reply-thread");
-  if (reply) (reply as any).onclick = () => { S.selected = { side: c.side, lineNumber: c.lineNumber }; $("commentBody").value = ""; $("composerTitle").textContent = selectionLabel(); sync(); placeNearActionPop($("composer")); show($("composer")); $("commentBody").focus(); };
+  if (reply) (reply as any).onclick = () => { S.selected = { side: c.side, lineNumber: c.lineNumber }; $("commentBody").value = ""; $("composerTitle").textContent = selectionLabel(); placeNearActionPop($("composer")); show($("composer")); $("commentBody").focus(); };
   const resolve = el.querySelector(".resolve-thread");
   if (resolve) (resolve as any).onclick = () => { S.state.comments.filter((x: any) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber).forEach((x: any) => (x.status = "resolved")); render(); toast("Resolved"); persist(); };
   const reopen = el.querySelector(".reopen-thread,.reopen-inline");

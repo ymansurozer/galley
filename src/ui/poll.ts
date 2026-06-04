@@ -1,4 +1,4 @@
-import { S, $, api, toast } from "./store";
+import { S, D, $, api, toast } from "./store";
 import { render } from "./render";
 
 export async function pollState() {
@@ -9,7 +9,7 @@ export async function pollState() {
   if (server.baseDiffHash !== S.lastBaseDiffHash) {
     S.lastBaseDiffHash = server.baseDiffHash;
     S.state = server;
-    S.fileDiff = null;
+    D.fileDiff = null;
     if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
     S.awaitingAgent = false;
     const b = $("send"); b.textContent = "Send to agent"; b.disabled = false;

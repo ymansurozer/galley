@@ -117,3 +117,7 @@ the guided review, then UI work, then distribution.
       start → `await` → act → `comment` → `await` loop; test end-to-end with each.
 - [ ] **Documented file-poll fallback** — for agents that can't long-poll or background a
       process: each Send writes `artifacts.resultJson`, so the agent can just stat that file.
+- [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
+      PR) plus an automated release flow: merges to `main` trigger semantic versioning and a
+      tagged release (changelog, npm publish/binaries), with GitHub branch protection on `main`
+      (required status checks, PR review before merge, linear history).
