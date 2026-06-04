@@ -1,7 +1,7 @@
 # Galley
 
 Standalone browser-based Galley for git working tree or staged diffs. A human reviews
-the diff — accepting/rejecting changes and leaving comments — then clicks **Send to agent**,
+the diff — accepting/rejecting changes and leaving comments — then clicks **Send to Agent**,
 which hands a structured review back to a waiting coding agent.
 
 ## Run
@@ -28,7 +28,7 @@ or reopen the tab.
 1. The agent starts `galley --session <id>` in the background. It opens the tab and keeps
    serving. The banner goes to **stderr**.
 2. The agent loops on `galley await --session <id>`, which blocks until the human clicks
-   **Send to agent** and then prints the `ReviewResult` to stdout.
+   **Send to Agent** and then prints the `ReviewResult` to stdout.
 3. The agent acts on it, and can `galley comment --session <id> --path … --body "…"` to
    reply — the reply appears in the open tab within ~1.5s, threaded under the human's comment.
 4. The human keeps reviewing in the same tab; the agent loops back to `await`.
@@ -58,8 +58,8 @@ while that lock exists.
 Every change — decisions, comments, staging, viewed marks — is **saved automatically** as you
 make it (resume any time by reopening the desk), so there are just two buttons:
 
-- **Reset** — clear decisions/comments and unstage everything for this review.
-- **Send to agent** — hand the current review to the waiting agent; the desk stays open and
+- **Reset Review** — clear decisions/comments and unstage everything for this review.
+- **Send to Agent** — hand the current review to the waiting agent; the desk stays open and
   shows the agent's replies as they arrive.
 
 ## Roadmap
@@ -109,7 +109,7 @@ the guided review, then UI work, then distribution.
       raw text, with rendered-comment anchoring. Deferred here because comark is framework-first
       and the anchoring model should be built on the stack chosen above.
 - [x] **Auto-save; remove the Save button** — every change persists instantly via `persist()`
-      after each mutation; the toolbar keeps only Reset and Send to agent.
+      after each mutation; the toolbar keeps only Reset Review and Send to Agent.
 - [ ] **Edit & delete comments** — manage your own comments, not just add/resolve.
 - [ ] **Markdown comments** — render comment bodies with a CommonMark renderer + code
       highlighting.
