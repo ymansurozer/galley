@@ -1,4 +1,4 @@
-import { S, D, $, show, toast, api, persist } from "./store";
+import { S, D, toast, api, persist } from "./store";
 import { currentFile, applyDecisionToDiff } from "./changes";
 import { render } from "./render";
 
@@ -35,7 +35,7 @@ export async function keepAllCurrentFile() {
 }
 
 export async function stageFile(path: string, force = false) {
-  if (!force && needsStageConfirmation(path)) { S.pendingStagePath = path; show($("stageModal")); return; }
+  if (!force && needsStageConfirmation(path)) { S.pendingStagePath = path; S.modalOpen = true; return; }
   S.state.changes.filter((c: any) => c.path === path && c.status === "pending").forEach((c: any) => { c.status = "accepted"; c.reviewedHash = c.contentHash; });
   S.state.decisionFiles = S.state.decisionFiles || [];
   if (!S.state.decisionFiles.includes(path)) S.state.decisionFiles.push(path);

@@ -12,6 +12,13 @@ export const S: any = Alpine.reactive({
   awaitingAgent: false,
   lastBaseDiffHash: null,
   selected: { side: "additions", lineNumber: 1 },
+  // chrome UI flags (templates bind to these)
+  composerOpen: false,
+  popoverOpen: false,
+  modalOpen: false,
+  toastMsg: "",
+  composerTitle: "New line",
+  composerBody: "",
 });
 
 // Imperative-island objects kept OUT of the reactive store: the @pierre/diffs
@@ -28,7 +35,8 @@ export const D: any = {
 export const $ = (id: string) => document.getElementById(id) as any;
 export function show(e: any) { e.classList.add("show"); }
 export function hide(e: any) { e.classList.remove("show"); }
-export function toast(t: string) { $("toast").textContent = t; show($("toast")); setTimeout(() => hide($("toast")), 2800); }
+let toastTimer: any;
+export function toast(t: string) { S.toastMsg = t; clearTimeout(toastTimer); toastTimer = setTimeout(() => (S.toastMsg = ""), 2800); }
 export function esc(s: any) { return String(s ?? "").replace(/[&<>]/g, (c: string) => (({ "&": "&amp;", "<": "&lt;", ">": "&gt;" } as any)[c])); }
 export const api = (path: string, opts: any = {}) => fetch(path, { headers: { "content-type": "application/json" }, ...opts }).then((r) => r.json());
 export const persist = () => api("/api/save", { method: "POST", body: JSON.stringify(S.state) }).catch(() => {});

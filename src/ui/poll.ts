@@ -1,8 +1,8 @@
-import { S, D, $, api, toast } from "./store";
+import { S, D, api, toast } from "./store";
 import { render } from "./render";
 
 export async function pollState() {
-  if ($("composer").classList.contains("show") || $("actionPop").classList.contains("show")) return;
+  if (S.composerOpen || S.popoverOpen) return;
   let server: any;
   try { server = await api("/api/state"); } catch { return; }
   if (!server || !Array.isArray(server.comments)) return;
@@ -12,7 +12,6 @@ export async function pollState() {
     D.fileDiff = null;
     if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
     S.awaitingAgent = false;
-    const b = $("send"); b.textContent = "Send to agent"; b.disabled = false;
     render(); toast("Diff updated");
     return;
   }
@@ -20,6 +19,6 @@ export async function pollState() {
   const incoming = server.comments.filter((c: any) => !localIds.has(c.id));
   if (!incoming.length) return;
   S.state.comments.push(...incoming);
-  if (incoming.some((c: any) => c.role === "agent")) { S.awaitingAgent = false; const b = $("send"); b.textContent = "Send to agent"; b.disabled = false; toast("Agent replied"); }
+  if (incoming.some((c: any) => c.role === "agent")) { S.awaitingAgent = false; toast("Agent replied"); }
   render();
 }

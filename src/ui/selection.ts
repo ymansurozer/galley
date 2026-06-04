@@ -1,4 +1,4 @@
-import { S, $, show, hide } from "./store";
+import { S, $ } from "./store";
 
 let lastSelectionPointer: any = null;
 let dragSelectionStart: any = null;
@@ -20,11 +20,11 @@ export function placeNearActionPop(el: any) {
 
 export function openCommentComposer() {
   placeNearActionPop($("composer"));
-  hide($("actionPop"));
-  $("commentBody").value = "";
-  $("composerTitle").textContent = selectionLabel();
-  show($("composer"));
-  $("commentBody").focus();
+  S.popoverOpen = false;
+  S.composerBody = "";
+  S.composerTitle = selectionLabel();
+  S.composerOpen = true;
+  setTimeout(() => $("commentBody").focus(), 0); // after Alpine shows it
 }
 
 function selectedEndpoint(range: any) { return range?.end || range?.start || range?.anchor || range?.focus || range; }
@@ -57,11 +57,11 @@ export function showForDiffLine(payload: any, event?: any) {
   else if (lastSelectionPointer) placePopoverFromPoint(lastSelectionPointer.clientX, lastSelectionPointer.clientY);
   openCommentComposer();
 }
-export function composerHasText() { return $("composer").classList.contains("show") && $("commentBody").value.trim().length > 0; }
-export function closeComposerIfEmpty() { if ($("composer").classList.contains("show") && !composerHasText()) hide($("composer")); }
+export function composerHasText() { return S.composerOpen && S.composerBody.trim().length > 0; }
+export function closeComposerIfEmpty() { if (S.composerOpen && !composerHasText()) S.composerOpen = false; }
 export function handleDiffSelection(range: any) {
   if (Date.now() < suppressSelectionUntil) return;
-  if (!range) { hide($("actionPop")); closeComposerIfEmpty(); ignoreNextLineClick = true; setTimeout(() => (ignoreNextLineClick = false), 0); return; }
+  if (!range) { S.popoverOpen = false; closeComposerIfEmpty(); ignoreNextLineClick = true; setTimeout(() => (ignoreNextLineClick = false), 0); return; }
   const payload = extractLinePayload(selectedEndpoint(range));
   if (payload) showForDiffLine(payload);
 }
@@ -70,8 +70,8 @@ export function handleLineNumberClick(...args: any[]) {
   const payload: any = args.map(extractLinePayload).find(Boolean);
   if (!payload) return;
   const side = normalizeSide(payload.side);
-  if ($("composer").classList.contains("show") && S.selected.lineNumber === payload.lineNumber && S.selected.side === side) {
-    if (!composerHasText()) hide($("composer"));
+  if (S.composerOpen && S.selected.lineNumber === payload.lineNumber && S.selected.side === side) {
+    if (!composerHasText()) S.composerOpen = false;
     suppressSelectionUntil = Date.now() + 350;
     return;
   }
