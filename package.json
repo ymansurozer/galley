@@ -9,12 +9,14 @@
   },
   "scripts": {
     "dev": "node scripts/build-ui.mjs --watch & tsx src/cli.ts",
-    "build": "tsc && node scripts/build-ui.mjs && cp src/ui/index.html dist/index.html",
+    "build": "tsc && tsc -p tsconfig.ui.json && node scripts/build-ui.mjs && cp src/ui/index.html dist/index.html",
     "start": "node dist/cli.js",
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc -p tsconfig.ui.json",
     "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "devDependencies": {
+    "@types/alpinejs": "^3.13.11",
+    "@types/alpinejs__persist": "^3.13.4",
     "@types/node": "latest",
     "esbuild": "^0.28.0",
     "tsx": "latest",

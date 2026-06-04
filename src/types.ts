@@ -42,8 +42,12 @@ export type ChangeState = {
   id: string;
   path: string;
   hunkIndex: number;
+  // Index of this change block within its hunk's content segments.
+  changeIndex?: number;
   side: "additions" | "deletions";
   lineNumber: number;
+  // Last line of the change block (multi-line blocks); anchors the Undo/Keep annotation.
+  endLine?: number;
   title: string;
   stableKey?: string;
   status: "pending" | "accepted" | "rejected";

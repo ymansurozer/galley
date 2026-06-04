@@ -1,13 +1,16 @@
 import Alpine from "alpinejs";
+import type { Store, DiffHolder, DiffStyle } from "./types";
 
 // Single reactive source of truth: the imperative diff island mutates it directly,
 // and the Alpine-driven chrome (tree, toolbar, composer, modals, toast) renders from it.
-export const S: any = Alpine.reactive({
-  state: null,
+// `state` is null until the initial fetch in main.ts; everything that reads it runs
+// post-init (treeRows guards for the brief pre-init window the template may render in).
+export const S: Store = Alpine.reactive<Store>({
+  state: null as unknown as Store["state"],
   projectFiles: [],
   expandedDirs: new Set<string>(),
   pendingStagePath: null,
-  diffStyle: localStorage.getItem("galley.diffStyle") || "split",
+  diffStyle: (localStorage.getItem("galley.diffStyle") as DiffStyle) || "split",
   fileIndex: 0,
   awaitingAgent: false,
   lastBaseDiffHash: null,
@@ -24,19 +27,22 @@ export const S: any = Alpine.reactive({
 // Imperative-island objects kept OUT of the reactive store: the @pierre/diffs
 // classes/instance and parsed fileDiff do internal element/identity checks that
 // an Alpine reactive Proxy breaks (e.g. ResizeManager ownership). Plain object.
-export const D: any = {
-  FileDiff: null,
-  parseDiffFromFile: null,
-  diffAcceptRejectHunk: null,
+export const D: DiffHolder = {
+  // null until difflib.ts wires them at import (before any render); cast so the
+  // hot-path call sites don't each need a non-null assertion.
+  FileDiff: null as unknown as DiffHolder["FileDiff"],
+  parseDiffFromFile: null as unknown as DiffHolder["parseDiffFromFile"],
+  diffAcceptRejectHunk: null as unknown as DiffHolder["diffAcceptRejectHunk"],
   instance: null,
   fileDiff: null,
 };
 
-export const $ = (id: string) => document.getElementById(id) as any;
-export function show(e: any) { e.classList.add("show"); }
-export function hide(e: any) { e.classList.remove("show"); }
-let toastTimer: any;
+export const $ = (id: string) => document.getElementById(id) as HTMLElement;
+export function show(e: Element) { e.classList.add("show"); }
+export function hide(e: Element) { e.classList.remove("show"); }
+let toastTimer: ReturnType<typeof setTimeout>;
 export function toast(t: string) { S.toastMsg = t; clearTimeout(toastTimer); toastTimer = setTimeout(() => (S.toastMsg = ""), 2800); }
-export function esc(s: any) { return String(s ?? "").replace(/[&<>]/g, (c: string) => (({ "&": "&amp;", "<": "&lt;", ">": "&gt;" } as any)[c])); }
-export const api = (path: string, opts: any = {}) => fetch(path, { headers: { "content-type": "application/json" }, ...opts }).then((r) => r.json());
+export function esc(s: unknown) { return String(s ?? "").replace(/[&<>]/g, (c: string) => (({ "&": "&amp;", "<": "&lt;", ">": "&gt;" } as Record<string, string>)[c] ?? c)); }
+export const api = <T = unknown>(path: string, opts: RequestInit = {}): Promise<T> =>
+  fetch(path, { headers: { "content-type": "application/json" }, ...opts }).then((r) => r.json() as Promise<T>);
 export const persist = () => api("/api/save", { method: "POST", body: JSON.stringify(S.state) }).catch(() => {});

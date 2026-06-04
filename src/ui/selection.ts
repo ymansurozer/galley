@@ -1,18 +1,23 @@
 import { S, $ } from "./store";
+import type { Side } from "./types";
 
-let lastSelectionPointer: any = null;
-let dragSelectionStart: any = null;
+// Payload shapes coming out of @pierre/diffs' line callbacks are loosely
+// documented, so the extraction below is deliberately duck-typed.
+type LinePayload = { lineNumber: number; side?: unknown; endLine?: number; event?: PointerEvent };
+
+let lastSelectionPointer: { clientX: number; clientY: number } | null = null;
+let dragSelectionStart: LinePayload | null = null;
 let suppressSelectionUntil = 0;
 let ignoreNextLineClick = false;
 
 export function placePopoverFromPoint(clientX: number, clientY: number) {
-  const box = (document.querySelector(".main") as any).getBoundingClientRect();
+  const box = (document.querySelector(".main") as HTMLElement).getBoundingClientRect();
   const pop = $("actionPop");
   pop.style.left = `${Math.max(292, Math.min(box.width - 320, clientX - box.left + 12))}px`;
   pop.style.top = `${Math.max(58, Math.min(box.height - 220, clientY - box.top + 8))}px`;
 }
 
-export function placeNearActionPop(el: any) {
+export function placeNearActionPop(el: HTMLElement) {
   const pop = $("actionPop");
   if (pop.style.left && pop.style.top) { el.style.left = pop.style.left; el.style.top = pop.style.top; }
   else if (lastSelectionPointer) { placePopoverFromPoint(lastSelectionPointer.clientX, lastSelectionPointer.clientY); el.style.left = pop.style.left; el.style.top = pop.style.top; }
@@ -28,16 +33,16 @@ export function openCommentComposer() {
 }
 
 function selectedEndpoint(range: any) { return range?.end || range?.start || range?.anchor || range?.focus || range; }
-function extractLinePayload(value: any) {
+function extractLinePayload(value: any): LinePayload | null {
   if (!value || typeof value !== "object") return null;
   const lineNumber = value.lineNumber ?? value.line?.number ?? value.lineInfo?.number ?? value.number;
   const side = value.annotationSide ?? value.side ?? value.line?.side ?? value.lineInfo?.side ?? value.type;
   const event = value.event;
   return Number.isFinite(lineNumber) ? { lineNumber, side, event } : null;
 }
-export function normalizeSide(side: any) { return side === "deletions" || side === "old" ? "deletions" : "additions"; }
-function linePayloadFromPointerEvent(e: any) {
-  for (const el of (e.composedPath?.() || []) as any[]) {
+export function normalizeSide(side: unknown): Side { return side === "deletions" || side === "old" ? "deletions" : "additions"; }
+function linePayloadFromPointerEvent(e: PointerEvent): LinePayload | null {
+  for (const el of (e.composedPath?.() || []) as HTMLElement[]) {
     if (!el || el.nodeType !== 1) continue;
     const text = (el.innerText || el.textContent || "").trim();
     if (/^\d+$/.test(text)) { const box = $("diff").getBoundingClientRect(); return { lineNumber: Number(text), side: e.clientX < box.left + box.width / 2 ? "deletions" : "additions", event: e }; }
@@ -49,7 +54,7 @@ export function selectionLabel() {
   const a = S.selected.lineNumber, b = S.selected.endLine;
   return b && b !== a ? `${side} lines ${Math.min(a, b)}–${Math.max(a, b)}` : `${side} line ${a}`;
 }
-export function showForDiffLine(payload: any, event?: any) {
+export function showForDiffLine(payload: LinePayload, event?: PointerEvent) {
   S.selected = { side: normalizeSide(payload.side), lineNumber: payload.lineNumber, endLine: payload.endLine };
   $("popContext").textContent = selectionLabel();
   const e = event || payload.event;
@@ -67,7 +72,7 @@ export function handleDiffSelection(range: any) {
 }
 export function handleLineNumberClick(...args: any[]) {
   if (ignoreNextLineClick) { ignoreNextLineClick = false; return; }
-  const payload: any = args.map(extractLinePayload).find(Boolean);
+  const payload = args.map(extractLinePayload).find(Boolean);
   if (!payload) return;
   const side = normalizeSide(payload.side);
   if (S.composerOpen && S.selected.lineNumber === payload.lineNumber && S.selected.side === side) {
@@ -79,8 +84,8 @@ export function handleLineNumberClick(...args: any[]) {
 }
 export function attachDiffSelectionHandlers() {
   const root = $("diff");
-  root.onpointerdown = (e: any) => { lastSelectionPointer = { clientX: e.clientX, clientY: e.clientY }; dragSelectionStart = linePayloadFromPointerEvent(e); };
-  root.onpointerup = (e: any) => {
+  root.onpointerdown = (e: PointerEvent) => { lastSelectionPointer = { clientX: e.clientX, clientY: e.clientY }; dragSelectionStart = linePayloadFromPointerEvent(e); };
+  root.onpointerup = (e: PointerEvent) => {
     const end = linePayloadFromPointerEvent(e);
     if (!dragSelectionStart || !end) return;
     const same = dragSelectionStart.lineNumber === end.lineNumber && normalizeSide(dragSelectionStart.side) === normalizeSide(end.side);
