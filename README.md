@@ -27,18 +27,20 @@ or reopen the tab.
 
 1. The agent starts `galley --session <id>` in the background. It opens the tab and keeps
    serving. The banner goes to **stderr**.
-2. The agent loops on `galley await --session <id>`, which blocks until the human clicks
-   **Send to Agent** and then prints the `ReviewResult` to stdout.
+2. The agent loops on `galley await --session <id>`, which blocks until the next desk event
+   and prints a tagged JSON envelope to stdout: `{kind:"question",…}` (the human asked a
+   question — answer it live) or `{kind:"review",result:{…}}` (the human clicked **Send**).
 3. The agent acts on it, and can `galley comment --session <id> --path … --body "…"` to
    reply — the reply appears in the open tab within ~1.5s, threaded under the human's comment.
-4. The human keeps reviewing in the same tab; the agent loops back to `await`.
-
-Code edits the agent makes are not re-diffed into the open desk; restart the desk to surface a
-fresh diff (decisions reconcile — a hunk whose content changed resets to pending).
+4. After editing code the agent runs `galley reload --session <id>` to re-diff the working
+   tree into the open tab (decisions reconcile — a hunk whose content changed resets to
+   pending), then loops back to `await` for the next round. The desk stays open throughout.
 
 The full agent-facing contract and installable skill is
-[`skills/galley/SKILL.md`](./skills/galley/SKILL.md) — install it into any agent
-with `npx skills add <owner>/galley`.
+[`skills/galley/SKILL.md`](./skills/galley/SKILL.md) — install it into any agent with `npx
+skills add <owner>/galley`. To make an agent *always* review via Galley, paste the standalone
+[`skills/galley/agents-snippet.md`](./skills/galley/agents-snippet.md) into its `AGENTS.md` /
+`CLAUDE.md`; the snippet refers back to the skill for details.
 
 ## Review identity & storage
 
@@ -129,11 +131,14 @@ the guided review, then UI work, then distribution.
 
 ### Distribution
 
-- [x] **Agent contract: one skill, install-or-paste + e2e** — the loop is agent-agnostic (CLI +
-      `skills/galley/SKILL.md`), so instead of per-agent blocks there's a single short skill you
-      can `npx skills add` for explicit use **or** paste into any agent's instructions
-      (`AGENTS.md`, `CLAUDE.md`, …) so it always reviews via Galley. `pnpm smoke` drives the full
-      `await` event-stream loop end-to-end (question → answer → Send → ReviewResult) as a kept check.
+- [x] **Agent contract: one complete skill + paste-in snippet + e2e** — the loop is
+      agent-agnostic, so instead of per-agent blocks there's one full reference skill
+      (`skills/galley/SKILL.md`: modes, the await event loop, every CLI option, `ReviewResult`)
+      you `npx skills add` for explicit use, plus a separate standalone snippet
+      (`skills/galley/agents-snippet.md`) you paste into any agent's `AGENTS.md` / `CLAUDE.md` so
+      it always reviews via Galley — the snippet refers back to the skill for details. `pnpm
+      smoke` drives the full `await` event-stream loop end-to-end (question → answer → Send →
+      ReviewResult) on a throwaway repo as a kept check.
 - [ ] **Documented file-poll fallback** — for agents that can't long-poll or background a
       process: each Send writes `artifacts.resultJson`, so the agent can just stat that file.
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
