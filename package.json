@@ -12,7 +12,8 @@
     "build": "tsc && tsc -p tsconfig.ui.json && node scripts/build-ui.mjs && cp src/ui/index.html dist/index.html",
     "start": "node dist/cli.js",
     "check": "tsc --noEmit && tsc -p tsconfig.ui.json",
-    "test": "node --import tsx --test \"src/**/*.test.ts\""
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
     "@types/alpinejs": "^3.13.11",

@@ -129,8 +129,11 @@ the guided review, then UI work, then distribution.
 
 ### Distribution
 
-- [ ] **Per-agent instruction blocks** — Codex (`AGENTS.md`) and Pi config snippets for the
-      start → `await` → act → `comment` → `await` loop; test end-to-end with each.
+- [x] **Agent contract: one skill, install-or-paste + e2e** — the loop is agent-agnostic (CLI +
+      `skills/galley/SKILL.md`), so instead of per-agent blocks there's a single short skill you
+      can `npx skills add` for explicit use **or** paste into any agent's instructions
+      (`AGENTS.md`, `CLAUDE.md`, …) so it always reviews via Galley. `pnpm smoke` drives the full
+      `await` event-stream loop end-to-end (question → answer → Send → ReviewResult) as a kept check.
 - [ ] **Documented file-poll fallback** — for agents that can't long-poll or background a
       process: each Send writes `artifacts.resultJson`, so the agent can just stat that file.
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
