@@ -88,6 +88,29 @@ export type ReviewFile = DiffFile & {
 
 export type ReviewMode = "repo" | "file" | "pr";
 
+// A per-file entry in an agent-generated guided review. `order` drives Next/Prev
+// (general → specific); `category` is the stepper grouping (e.g. Config/Core/Wiring,
+// semantic, distinct from the folder); `critical` + `why` drive the flag + "why flagged".
+export type GuideFile = {
+  path: string;
+  order: number;
+  category: string;
+  summary: string;
+  critical?: boolean;
+  why?: string;
+};
+
+// The guided review the coding agent attaches (the desk renders it, runs no model).
+// Absent on a ReviewState → no guide surfaces render and the desk works as today.
+export type Guide = {
+  overview: string;
+  prDescription?: string;
+  files: GuideFile[];
+  // baseDiffHash the guide was generated against — set on attach; used (in a later
+  // slice) to flag the guide as possibly stale once the diff advances past it.
+  baseDiffHash?: string;
+};
+
 export type ReviewState = {
   id: string;
   // Stable identity of the review: repo + session (branch by default).
@@ -116,6 +139,9 @@ export type ReviewState = {
   decisionFiles?: string[];
   // Explicit accept/reject records — the source of truth for decisions.
   decisions?: Decision[];
+  // Agent-generated guided review (overview + per-file summaries/order/category).
+  // Optional: absent → no guide surfaces render.
+  guide?: Guide;
   persistFile?: string;
 };
 

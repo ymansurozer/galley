@@ -13,6 +13,9 @@ export async function pollState() {
     D.fileDiff = null;
     if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
     S.awaitingAgent = false;
+    // The diff changed (e.g. a reload added files) — refresh the project listing too so
+    // the tree reflects newly tracked files, not the listing fetched at startup.
+    api<{ files?: string[] }>("/api/tree").then((r) => { if (r.files) S.projectFiles = r.files; }).catch(() => {});
     render(); toast("Diff updated");
     return;
   }

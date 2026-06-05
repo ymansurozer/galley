@@ -180,7 +180,7 @@
     .main {
       min-height: 0;
       display: grid;
-      grid-template-columns: var(--left-width, 280px) 1px minmax(0, 1fr) 1px var(--right-width, 320px);
+      grid-template-columns: var(--left-width, 280px) 1px minmax(0, 1fr);
       position: relative
     }
 
@@ -225,8 +225,8 @@
     .center {
       min-width: 0;
       min-height: 0;
-      display: grid;
-      grid-template-rows: 1fr;
+      display: flex;
+      flex-direction: column;
       overflow: hidden
     }
 
@@ -234,7 +234,125 @@
       display: none
     }
 
+    [x-cloak] {
+      display: none !important
+    }
+
+    .guidebar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 12px;
+      min-height: 38px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      font-size: 12px
+    }
+
+    .guidebar .gb-acts {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 4px
+    }
+
+    .guidebar .gb-home,
+    .guidebar .gb-nav {
+      flex: 0 0 auto;
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 14px
+    }
+
+    .guidebar .gb-home:hover,
+    .guidebar .gb-nav:not(:disabled):hover {
+      border-color: #354146;
+      color: var(--ink);
+      background: #151a1c
+    }
+
+    .guidebar .gb-nav:disabled {
+      opacity: .4;
+      cursor: default
+    }
+
+    .guidebar .gb-progress {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 11px
+    }
+
+    .guidebar .gb-bar {
+      width: 60px;
+      height: 3px;
+      border-radius: 3px;
+      overflow: hidden;
+      background: var(--line)
+    }
+
+    .guidebar .gb-bar>i {
+      display: block;
+      height: 100%;
+      background: var(--green);
+      transition: width .25s
+    }
+
+    .guidebar .gb-cat {
+      flex: 0 0 auto;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      background: #081923;
+      border: 1px solid #17394a;
+      border-radius: 999px;
+      padding: 2px 8px
+    }
+
+    .guidebar .gb-cat.crit {
+      color: var(--amber);
+      background: rgba(224, 175, 104, .08);
+      border-color: rgba(224, 175, 104, .45)
+    }
+
+    .guidebar .gb-file {
+      flex: 0 0 auto;
+      font-weight: 600;
+      color: var(--ink)
+    }
+
+    .guidebar .gb-expl {
+      flex: 1 1 auto;
+      min-width: 0;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap
+    }
+
+    .guidebar .gb-why {
+      flex: 0 1 auto;
+      min-width: 0;
+      color: var(--amber);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap
+    }
+
     #diff {
+      flex: 1;
       min-height: 0;
       overflow: auto;
       background: #090b0c;
@@ -1168,6 +1286,95 @@
       margin: 0
     }
 
+    .guide-overview {
+      min-height: 100%;
+      display: grid;
+      place-items: start center;
+      padding: 34px 30px
+    }
+
+    .guide-overview .go-card {
+      width: min(680px, 100%);
+      border: 1px solid var(--line);
+      background: #0b0e0f;
+      border-radius: 12px;
+      padding: 18px 20px
+    }
+
+    .guide-overview h1 {
+      margin: 0 0 4px;
+      font-size: 18px;
+      color: var(--ink)
+    }
+
+    .guide-overview .go-sub {
+      color: var(--ghost);
+      font-size: 11px;
+      margin-bottom: 14px
+    }
+
+    .guide-overview .go-overview {
+      color: var(--muted);
+      line-height: 1.55;
+      margin: 0 0 12px;
+      font-size: 13px
+    }
+
+    .guide-overview .go-pr {
+      border: 1px solid var(--line);
+      background: #070909;
+      border-radius: 8px;
+      padding: 9px 12px;
+      margin: 0 0 12px
+    }
+
+    .guide-overview .go-pr b {
+      color: var(--ink);
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      margin-bottom: 4px
+    }
+
+    .guide-overview .go-pr p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5
+    }
+
+    .guide-overview .go-plan {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 0 0 16px
+    }
+
+    .guide-overview .go-seg {
+      font-size: 11px;
+      color: var(--muted);
+      background: #0b0e0f;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 11px
+    }
+
+    .guide-overview .go-seg.crit {
+      color: var(--amber);
+      border-color: rgba(224, 175, 104, .45)
+    }
+
+    .guide-overview .go-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px
+    }
+
+    .guide-overview .go-meta {
+      color: var(--ghost);
+      font-size: 12px
+    }
+
     .toast {
       position: absolute;
       left: 50%;
@@ -1224,7 +1431,7 @@
     }
 
     body.single .main {
-      grid-template-columns: minmax(0, 1fr) 1px var(--right-width, 320px)
+      grid-template-columns: minmax(0, 1fr)
     }
 
     body.file-mode .tree,
@@ -1273,11 +1480,27 @@
           </template></div>
       </aside>
       <div class="resizer" data-resize="left"></div>
-      <section class="center" x-ignore>
-        <div id="diff"></div>
+      <section class="center">
+        <div class="guidebar" x-show="$store.g.showGuideBar && $store.g.showGuideBar()" x-cloak>
+          <div class="gb-acts">
+            <button class="gb-home" @click="$store.g.openOverview()" title="Overview">⌂</button>
+            <button class="gb-nav" @click="$store.g.guidePrev()" title="Previous (k)">←</button>
+            <button class="gb-nav" @click="$store.g.guideNext()"
+              :disabled="$store.g.guideAtLast && $store.g.guideAtLast()" title="Next (j)">→</button>
+          </div>
+          <span class="gb-cat" x-show="$store.g.curGuide()" :class="{crit: $store.g.curGuide() && $store.g.curGuide().critical}"
+            x-text="$store.g.curGuide() && $store.g.curGuide().category"></span>
+          <span class="gb-file" x-text="$store.g.curFileName()"></span>
+          <span class="gb-expl" x-text="($store.g.curGuide() && $store.g.curGuide().summary) || ''"></span>
+          <span class="gb-why" x-show="$store.g.curGuide() && $store.g.curGuide().critical"
+            x-text="'⚑ ' + (($store.g.curGuide() && $store.g.curGuide().why) || '')"></span>
+          <span class="gb-progress" x-show="$store.g.guideProgress">
+            <span class="gb-bar"><i :style="`width:${$store.g.guideProgress().pct}%`"></i></span>
+            <span x-text="$store.g.guideProgress().done + '/' + $store.g.guideProgress().total + ' reviewed'"></span>
+          </span>
+        </div>
+        <div id="diff" x-ignore></div>
       </section>
-      <div class="resizer" data-resize="right"></div>
-      <aside class="right"></aside>
       <div class="action-pop" id="actionPop" :class="{show: $store.g.popoverOpen}">
         <div class="pop-context" id="popContext">New line</div><button class="choice"
           @click="$store.g.openComposer()"><span>c</span>

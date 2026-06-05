@@ -86,7 +86,7 @@ function buildMd(theme: string): MarkdownIt {
 void (async () => {
   hl = await createHighlighterCore({ themes: Object.values(THEMES) as never, langs: LANGS as never, engine: createJavaScriptRegexEngine() });
   const want = loadSettings().theme;
-  md = buildMd(THEMES[want] ? want : "material-theme-palenight");
+  md = buildMd(THEMES[want] ? want : "github-dark");
   if (S.state) render();
 })();
 
@@ -94,7 +94,8 @@ void (async () => {
 // the caller re-renders. @pierre/diffs handles the diff side with the same theme name.
 export function setMarkdownTheme(name: string) {
   if (!hl) return;
-  md = buildMd(THEMES[name] ? name : "material-theme-palenight");
+  // Diff-only themes (e.g. pierre-dark) aren't Shiki bundles → render comment code in github-dark.
+  md = buildMd(THEMES[name] ? name : "github-dark");
   cache.clear();
 }
 

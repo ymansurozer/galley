@@ -6,7 +6,9 @@ export const DEFAULT_SETTINGS: Settings = {
   hunkSeparators: "line-info",
   overflow: "scroll",
   lineHighlight: "full",
-  theme: "material-theme-palenight",
+  // Diff defaults to Pierre Dark (a @pierre/diffs theme). Pierre isn't a Shiki bundled
+  // theme, so comment/markdown code blocks fall back to github-dark (see markdown.ts).
+  theme: "pierre-dark",
   font: "jetbrains-mono",
   fontSize: 12.5,
   showUnchanged: true,

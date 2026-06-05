@@ -7,13 +7,18 @@ import { annotations, renderAnnotation } from "./annotations";
 import { handleLineNumberClick, handleDiffSelection, attachDiffSelectionHandlers } from "./selection";
 import { keepAllCurrentFile, resetReview, toggleReviewed } from "./decisions";
 import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
+import { hasGuide, renderOverview } from "./guide";
 
 export async function render() {
   if (D.instance) D.instance.cleanUp?.();
   // Drop any leftover rendered-markdown DOM before either path re-renders into #diff
   // (@pierre/diffs manages only its own root, so it won't clear our injected .md-file).
   const host = $("diff");
-  if (host.querySelector(".md-file")) host.innerHTML = "";
+  // Clear our own injected DOM (markdown preview or the guide Overview) before either
+  // path re-renders — @pierre/diffs only manages its own root, so it won't remove these.
+  if (host.querySelector(".md-file") || host.querySelector(".guide-overview")) host.innerHTML = "";
+  // Guided review: the Overview page takes over the center until a file is selected.
+  if (S.overviewOpen && hasGuide()) { D.instance = null; renderOverview(); return; }
   const f = currentFile();
   // Markdown file in rendered mode: formatted preview with block-anchored comments,
   // instead of the @pierre/diffs view.

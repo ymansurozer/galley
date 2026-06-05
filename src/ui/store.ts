@@ -26,6 +26,7 @@ export const S: Store = Alpine.reactive<Store>({
   editingCommentId: null,
   settings: loadSettings(),
   settingsOpen: false,
+  overviewOpen: false,
   fileView: "rendered",
 });
 

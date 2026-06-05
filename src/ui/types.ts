@@ -1,4 +1,4 @@
-import type { ReviewState, ReviewComment, ChangeState, Decision } from "../types";
+import type { ReviewState, ReviewComment, ChangeState, Decision, GuideFile } from "../types";
 
 export type Side = "additions" | "deletions";
 export type DiffStyle = "split" | "unified";
@@ -110,6 +110,9 @@ export interface Store {
   editingCommentId: string | null;
   settings: Settings;
   settingsOpen: boolean;
+  // Guided review: when true (and a guide is attached) the center shows the Overview page
+  // instead of the diff. Selecting any file (tree or Start) drops back to the diff.
+  overviewOpen: boolean;
   // file mode: how a markdown file is shown — "rendered" (comark/markdown-it preview,
   // comment on blocks) or "source" (@pierre/diffs raw/diff).
   fileView: "rendered" | "source";
@@ -127,6 +130,16 @@ export interface Store {
   applySettings?: () => void;
   openSettings?: () => void;
   closeSettings?: () => void;
+  hasGuide?: () => boolean;
+  openOverview?: () => void;
+  startGuided?: () => void;
+  showGuideBar?: () => boolean;
+  curGuide?: () => GuideFile | null;
+  curFileName?: () => string;
+  guideNext?: () => void;
+  guidePrev?: () => void;
+  guideAtLast?: () => boolean;
+  guideProgress?: () => { done: number; total: number; pct: number };
   saveComment?: () => void;
   ask?: () => void;
   requestChange?: () => void;

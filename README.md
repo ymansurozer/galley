@@ -141,6 +141,8 @@ the guided review, then UI work, then distribution.
       ReviewResult) on a throwaway repo as a kept check.
 - [ ] **Documented file-poll fallback** — for agents that can't long-poll or background a
       process: each Send writes `artifacts.resultJson`, so the agent can just stat that file.
+- [ ] **Keyboard shortcuts** — for common actions (stage/unstage, accept/reject, comment, navigate
+      hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
       PR) plus an automated release flow: merges to `main` trigger semantic versioning and a
       tagged release (changelog, npm publish/binaries), with GitHub branch protection on `main`

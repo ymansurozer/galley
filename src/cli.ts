@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import http from "node:http";
-import { unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { getBranch, getGitRoot, git } from "./git.js";
 import { appendComment, buildReviewState, deskLockPath, findLiveDesks, loadLatestReview, mergeReviewState, persistReview, readDeskLock, reviewDir, sanitizeSession, syncGitState } from "./state.js";
+import { validateGuide } from "./guide.js";
 import { startServer } from "./server.js";
 import type { ReviewMode } from "./types.js";
 
@@ -144,6 +145,24 @@ async function runReload(args: Record<string, string | boolean>) {
   process.stdout.write(JSON.stringify({ ok: true, live: true, session, baseDiffHash: j.baseDiffHash, empty: j.empty }) + "\n");
 }
 
+// Read + validate a guide JSON file for the `--guide` start flag. Returns the validated
+// guide, or null on any error (after printing why) so the caller can abort.
+function loadGuideArg(value: string | boolean | undefined) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") { console.error("--guide requires a path to a guide JSON file, e.g. --guide guide.json"); return null; }
+  const SCHEMA = "Expected JSON: { overview, prDescription?, files: [{ path, order, category, summary, critical?, why? }] }.";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(value, "utf8"));
+  } catch (error) {
+    console.error(`Could not read guide file "${value}" as JSON: ${error instanceof Error ? error.message : String(error)}\n${SCHEMA}`);
+    return null;
+  }
+  const result = validateGuide(parsed);
+  if (!result.ok) { console.error(`Invalid guide: ${result.reason}.\n${SCHEMA}`); return null; }
+  return result.guide;
+}
+
 // Launch a persistent desk in repo / file / pr mode.
 async function runDesk(mode: ReviewMode, target: string | undefined, args: Record<string, string | boolean>) {
   const repo = resolveRepo(args);
@@ -183,6 +202,13 @@ async function runDesk(mode: ReviewMode, target: string | undefined, args: Recor
   }
   const saved = await loadLatestReview(base.root, session);
   const state = mergeReviewState(base, saved);
+  // Optional agent-generated guided review, attached at startup. Required to be a readable,
+  // valid JSON file when --guide is passed; survives reload via the state merge.
+  if (args.guide !== undefined) {
+    const guide = loadGuideArg(args.guide);
+    if (guide === null) { process.exitCode = 1; return; }
+    state.guide = guide;
+  }
   if (mode === "repo") await syncGitState(state);
   await persistReview(state);
 

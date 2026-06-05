@@ -1,6 +1,7 @@
 import { S, D, toast, api, persist } from "./store";
 import { currentFile, applyDecisionToDiff } from "./changes";
 import { render } from "./render";
+import { nextFileIndex } from "./guide";
 import type { ChangeState, Decision } from "./types";
 
 type ChangeStatus = ChangeState["status"];
@@ -20,9 +21,18 @@ function clearDecisions(path: string) {
 
 export function toggleReviewed(path: string) {
   S.state.reviewedFiles = S.state.reviewedFiles || [];
-  if (S.state.reviewedFiles.includes(path)) { S.state.reviewedFiles = S.state.reviewedFiles.filter((p) => p !== path); toast("Marked unviewed"); }
-  else { S.state.reviewedFiles.push(path); toast("Marked viewed"); }
-  render(); persist();
+  if (S.state.reviewedFiles.includes(path)) {
+    // Un-viewing just toggles — stay on the file.
+    S.state.reviewedFiles = S.state.reviewedFiles.filter((p) => p !== path);
+    toast("Marked unviewed"); render(); persist(); return;
+  }
+  // Marking viewed advances to the next file (guide order if guided, else sequential);
+  // on the last file there's nowhere to go, so just re-render in place.
+  S.state.reviewedFiles.push(path);
+  persist();
+  const next = nextFileIndex(S.fileIndex);
+  if (next !== null && S.selectFile) { toast("Viewed — next file"); S.selectFile(next); }
+  else { toast(next === null ? "Viewed — last file" : "Marked viewed"); render(); }
 }
 
 export async function resetReview(path: string) {

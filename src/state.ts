@@ -246,6 +246,8 @@ export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
     stagedChangeKeys: saved.stagedChangeKeys ?? [],
     decisionFiles: saved.decisionFiles ?? [],
     decisions,
+    // Carry the attached guide forward across reload/restart (the rebuilt base has none).
+    guide: saved.guide ?? base.guide,
     persistFile: saved.persistFile,
   } satisfies ReviewState;
 }

@@ -11,6 +11,7 @@ import { pollState } from "./poll";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
 import { applyAppearance, persistSettings } from "./settings";
 import { setMarkdownTheme } from "./markdown";
+import { hasGuide, firstGuideIndex, currentGuideEntry, currentFileName, showGuideBar, nextFileIndex, prevFileIndex, guideProgress } from "./guide";
 import type { ReviewState } from "./types";
 
 // Close the composer when clicking outside it (unless it has unsaved text).
@@ -43,11 +44,18 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { S.composerOpen = false; S.popoverOpen = false; S.editingCommentId = null; S.settingsOpen = false; return; }
   if (e.key === "c" && S.composerOpen) { e.preventDefault(); S.saveComment?.(); }
   if (e.key === "v") S.setStyle?.(S.diffStyle === "split" ? "unified" : "split");
+  // j/k walk the guided order (only with a guide, not on the overview, not while typing).
+  if ((e.key === "j" || e.key === "k") && S.hasGuide?.() && !S.overviewOpen && !S.composerOpen) {
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    e.preventDefault();
+    e.key === "j" ? S.guideNext?.() : S.guidePrev?.();
+  }
 });
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
-S.selectFile = (i) => { S.fileIndex = i; S.fileView = defaultFileView(S.state.files[i]); D.fileDiff = null; render(); };
+S.selectFile = (i) => { S.overviewOpen = false; S.fileIndex = i; S.fileView = defaultFileView(S.state.files[i]); D.fileDiff = null; render(); };
 S.toggleDir = (full) => { S.expandedDirs.has(full) ? S.expandedDirs.delete(full) : S.expandedDirs.add(full); };
 S.toggleTestDir = (key) => { S.expandedDirs.has(key) ? S.expandedDirs.delete(key) : S.expandedDirs.add(key); };
 S.gitToggle = (path, action) => (action === "unstage" ? unstageFile(path) : stageFile(path));
@@ -60,6 +68,20 @@ S.setFileView = (view) => { S.fileView = view; D.fileDiff = null; render(); };
 S.applySettings = () => { persistSettings(S.settings); applyAppearance(S.settings); setMarkdownTheme(S.settings.theme); render(); };
 S.openSettings = () => { S.settingsOpen = true; };
 S.closeSettings = () => { S.settingsOpen = false; };
+// Guided review: ⌂ returns to the Overview page; Start enters the per-file flow at the
+// first file in the guide's order.
+S.hasGuide = hasGuide;
+S.openOverview = () => { S.overviewOpen = true; render(); };
+S.startGuided = () => { S.overviewOpen = false; S.selectFile?.(firstGuideIndex()); };
+// Top guide-bar getters (the bar is Alpine chrome, reactive on fileIndex/overviewOpen).
+S.showGuideBar = showGuideBar;
+S.curGuide = currentGuideEntry;
+S.curFileName = currentFileName;
+// Guided navigation: Next/Prev walk guide order; Prev off the first file → Overview.
+S.guideNext = () => { const n = nextFileIndex(S.fileIndex); if (n !== null) S.selectFile?.(n); };
+S.guidePrev = () => { const p = prevFileIndex(S.fileIndex); if (p === null) S.openOverview?.(); else S.selectFile?.(p); };
+S.guideAtLast = () => nextFileIndex(S.fileIndex) === null;
+S.guideProgress = guideProgress;
 S.isMarkdownFile = () => { const f = S.state && S.state.mode === "file" && S.state.files[S.fileIndex]; return !!f && isMarkdownPath(f.path); };
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
@@ -103,5 +125,7 @@ S.projectFiles = (await api<{ files?: string[] }>("/api/tree")).files || [];
 S.lastBaseDiffHash = S.state.baseDiffHash;
 S.selected = { side: S.state.changes[0]?.side || "additions", lineNumber: S.state.changes[0]?.lineNumber || 1 };
 if (S.state.files[S.fileIndex]) S.fileView = defaultFileView(S.state.files[S.fileIndex]);
+// With a guide attached, land on the Overview page (the guided entry point).
+if (hasGuide()) S.overviewOpen = true;
 render();
 setInterval(pollState, 1500);

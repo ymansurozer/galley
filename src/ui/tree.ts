@@ -7,7 +7,13 @@ export function treeRows(): TreeRow[] {
   if (!S.state) return []; // template may evaluate before the initial fetch
   const root: TreeNode = { name: "", full: "", dirs: new Map(), files: [], changed: false };
   const changed = new Map(S.state.files.map((f, i) => [f.path, i]));
-  const all = S.settings.showUnchanged && S.projectFiles.length ? S.projectFiles : S.state.files.map((f) => f.path);
+  const changedPaths = S.state.files.map((f) => f.path);
+  // A reviewed file must always appear, even if it isn't in the project listing (a new/
+  // untracked file, or a stale listing): union the listing with the changed files when
+  // showing unchanged; otherwise just the changed files.
+  const all = S.settings.showUnchanged && S.projectFiles.length
+    ? [...new Set([...S.projectFiles, ...changedPaths])]
+    : changedPaths;
   all.forEach((path) => {
     const parts = path.split("/").filter(Boolean);
     let node = root;
