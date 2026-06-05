@@ -312,6 +312,31 @@
       flex: 1 1 auto
     }
 
+    .guidebar .gb-stale {
+      flex: 0 0 auto;
+      color: var(--amber);
+      font-size: 11px
+    }
+
+    .guide-overview .go-stale {
+      margin: 12px 0 18px;
+      padding: 8px 11px;
+      border: 1px solid rgba(224, 175, 104, .5);
+      border-left: 2px solid var(--amber);
+      border-radius: 6px;
+      background: rgba(224, 175, 104, .05);
+      color: var(--amber);
+      font-size: 12px;
+      line-height: 1.45
+    }
+
+    .guide-overview .go-stale code {
+      background: #0b0e0f;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 0 4px
+    }
+
     /* Guided custom diff header (renderCustomHeader): row 1 = icon + file + counts + actions
        (preserves @pierre's look); row 2 = category + guidance, left-aligned. */
     .ghdr {
@@ -1643,6 +1668,8 @@
             <button class="gb-nav" @click="$store.g.guideNext()"
               :disabled="$store.g.guideAtLast && $store.g.guideAtLast()" title="Next (j)">→</button>
           </div>
+          <span class="gb-stale" x-show="$store.g.guideStale && $store.g.guideStale()"
+            title="Guide generated for an earlier diff — regenerate and restart with --guide to refresh">⚠ Guide Stale</span>
           <span class="gb-fill"></span>
           <span class="gb-progress" x-show="$store.g.guideProgress">
             <span class="gb-bar"><i :style="`width:${$store.g.guideProgress().pct}%`"></i></span>

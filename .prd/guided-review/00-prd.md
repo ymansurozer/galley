@@ -1,6 +1,7 @@
 ---
-status: in-progress
+status: done
 created_at: 2026-06-03
+completed_at: 2026-06-06
 ---
 
 ## Problem Statement

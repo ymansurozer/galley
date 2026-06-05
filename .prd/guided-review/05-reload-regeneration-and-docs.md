@@ -1,6 +1,7 @@
 ---
-status: open
+status: done
 created_at: 2026-06-05
+completed_at: 2026-06-06
 ---
 
 ## Parent
@@ -26,12 +27,12 @@ workflow.
 
 ## Acceptance criteria
 
-- [ ] The guide stores the `baseDiffHash` it was generated against; attaching a guide sets it.
-- [ ] When `state.baseDiffHash` differs from the guide's, a subtle "may be stale" hint shows;
+- [x] The guide stores the `baseDiffHash` it was generated against; attaching a guide sets it.
+- [x] When `state.baseDiffHash` differs from the guide's, a subtle "may be stale" hint shows;
       re-attaching a fresh guide clears it.
-- [ ] `skills/galley/SKILL.md` documents `galley guide`, the guide JSON schema, and the
+- [x] `skills/galley/SKILL.md` documents `galley guide`, the guide JSON schema, and the
       regenerate-after-reload flow; tables stay aligned (oxfmt) and prose is unwrapped.
-- [ ] Graceful absence still holds (no guide → no hint, desk usable).
+- [x] Graceful absence still holds (no guide → no hint, desk usable).
 
 ## Blocked by
 

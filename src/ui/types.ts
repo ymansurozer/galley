@@ -132,6 +132,7 @@ export interface Store {
   openSettings?: () => void;
   closeSettings?: () => void;
   hasGuide?: () => boolean;
+  guideStale?: () => boolean;
   openOverview?: () => void;
   startGuided?: () => void;
   showGuideBar?: () => boolean;

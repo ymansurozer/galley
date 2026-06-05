@@ -11,7 +11,7 @@ import { pollState } from "./poll";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
 import { applyAppearance, persistSettings } from "./settings";
 import { setMarkdownTheme } from "./markdown";
-import { hasGuide, firstGuideIndex, currentGuideEntry, currentFileName, showGuideBar, nextFileIndex, prevFileIndex, guideProgress, categorySteps, firstFileOfCategory } from "./guide";
+import { hasGuide, firstGuideIndex, currentGuideEntry, currentFileName, showGuideBar, guideStale, nextFileIndex, prevFileIndex, guideProgress, categorySteps, firstFileOfCategory } from "./guide";
 import type { ReviewState } from "./types";
 
 // Close the composer when clicking outside it (unless it has unsaved text).
@@ -75,6 +75,7 @@ S.openOverview = () => { S.overviewOpen = true; render(); };
 S.startGuided = () => { S.overviewOpen = false; S.selectFile?.(firstGuideIndex()); };
 // Top guide-bar getters (the bar is Alpine chrome, reactive on fileIndex/overviewOpen).
 S.showGuideBar = showGuideBar;
+S.guideStale = guideStale;
 S.curGuide = currentGuideEntry;
 S.curFileName = currentFileName;
 // Guided navigation: the Overview is the position before the first file. From it, Next

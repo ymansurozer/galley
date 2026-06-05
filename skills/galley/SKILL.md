@@ -78,6 +78,7 @@ done
 | `--repo <path>`          | cwd                                            | Repo to review.                                  |
 | `--path <path>`          | whole repo                                     | Limit a repo-mode diff to a path.                |
 | `--base <ref>`           | default branch                                 | PR mode only — base to diff `<ref>` against.     |
+| `--guide <file>`         | none                                           | Attach an AI guided review (see below).          |
 | `--no-open`              | opens browser                                  | Don't auto-open the browser.                     |
 | `--port <n>`             | random                                         | Server port.                                     |
 
@@ -152,6 +153,45 @@ This is the `result` field of a `{"kind":"review", …}` event from `galley awai
 | **Staged file**                  | Already staged by the reviewer. Don't touch unless a requested change requires it.                                                            |
 | **Show your edits**              | After editing, run `galley reload` so the new diff appears in the open tab.                                                                   |
 | **Next round**                   | Call `galley await` again to wait for the reviewer's next Send.                                                                               |
+
+## Guided review (optional)
+
+Attach an AI **guided review** so the desk presents the changeset as a guided flow — an overview page, then files in a logical order, each with a per-file summary, a change category, and a flag for the critical ones. Galley runs no model: you (the agent) generate the guide from the diff and attach it at start with `galley … --guide <file>`. With no guide attached the desk works exactly as today.
+
+The guide is one JSON object:
+
+```json
+{
+  "title": "Add API rate limiting",
+  "overview": "One-paragraph summary of the whole changeset (shown on the overview page).",
+  "prDescription": "Optional — the PR/author intent, shown in PR mode.",
+  "files": [
+    {
+      "path": "src/config/limits.ts",
+      "order": 1,
+      "category": "Config",
+      "summary": "Concise per-file summary, shown above the diff."
+    },
+    {
+      "path": "src/middleware/rateLimit.ts",
+      "order": 2,
+      "category": "Core",
+      "summary": "The token-bucket limiter.",
+      "critical": true,
+      "why": "Why this one needs careful eyes."
+    }
+  ]
+}
+```
+
+- `title` — optional short changeset name; the overview heading. In repo mode write a short title; in PR mode use the PR name. Falls back to the branch/ref.
+- `overview` — required; the changeset overview paragraph.
+- `prDescription` — optional; author intent, shown on the overview.
+- `files` — required; one entry per file. `path` + `summary` are required; `order` sets the general→specific review order, `category` groups files (e.g. Config / Core / Wiring / Routes / Tests / Docs), and `critical` + `why` flag the files that deserve closer reading.
+
+`--guide` requires a readable JSON file; a malformed file or an invalid schema fails the launch with a clear error (naming the offending field) so you can fix it and re-run. The guide survives `reload` and desk restarts.
+
+Regenerating: the guide is attached at **start** only, and is stamped against the diff it was generated for. After you edit code and `galley reload` (which re-diffs into the open desk), if the diff has moved on the desk flags the guide as "stale" — regenerate it from the new diff and restart the desk with a fresh `--guide` to refresh.
 
 ## Replying to the reviewer
 

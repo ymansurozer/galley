@@ -206,8 +206,10 @@ async function runDesk(mode: ReviewMode, target: string | undefined, args: Recor
   // valid JSON file when --guide is passed; survives reload via the state merge.
   if (args.guide !== undefined) {
     const guide = loadGuideArg(args.guide);
-    if (guide === null) { process.exitCode = 1; return; }
-    state.guide = guide;
+    if (!guide) { process.exitCode = 1; return; }
+    // Stamp the diff hash the guide was generated against; if a later reload advances the
+    // diff past it, the desk flags the guide as possibly stale (slice 05).
+    state.guide = { ...guide, baseDiffHash: state.baseDiffHash };
   }
   if (mode === "repo") await syncGitState(state);
   await persistReview(state);

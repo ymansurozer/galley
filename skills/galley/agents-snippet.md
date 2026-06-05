@@ -12,6 +12,8 @@ When the user should review a plan, a PR, or code changes you've made, hand it t
 - **A markdown plan / single artifact** → `galley file <path> &`.
 - **A branch / PR** → `galley pr <ref> &`.
 
+Optionally attach an AI **guided review** so the human gets an overview + a logical, annotated file order: add `--guide guide.json` to the start command (see the skill for the JSON schema).
+
 Then loop: `galley await --session <task-id>` blocks for the next event and prints a tagged JSON envelope.
 - `{"kind":"question",…}` → answer **now** with `galley comment --path … --line … --side … --body "…"` at the question's location.
 - `{"kind":"review","result":{…}}` → act on `result`: revert **rejected**, make **requestedChanges**, leave **accepted** alone, don't touch **stagedFiles** unless a change requires it.

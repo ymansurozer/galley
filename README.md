@@ -99,10 +99,13 @@ the guided review, then UI work, then distribution.
 
 ### Guided review
 
-- [ ] **AI-guided review in the right sidebar** — overall changeset overview → optional PR
-      description → logical file order (general→specific) with a concise per-file summary shown
-      before each diff → highlight the most critical changes. Turns a pile of changes into a
-      guided overview → summary → diff → next flow.
+- [x] **AI-guided review** — the agent attaches a guide at start (`galley … --guide <file>`):
+      an overview page (title + changeset overview + optional PR description + a count-fill
+      category plan), then files walked in a logical order (general→specific) with a per-file
+      change category + summary in the diff header and the critical ones flagged. Top bar drives
+      Next/Prev + progress; marking a file Viewed advances. Galley runs no model — it renders +
+      validates the guide and flags it stale when the diff moves past it. (Built as vertical
+      slices; design in `prototypes/`, PRD + issues in `.prd/guided-review/`.)
 
 ### UI
 
@@ -144,6 +147,7 @@ the guided review, then UI work, then distribution.
 - [ ] **Keyboard shortcuts** — for common actions (stage/unstage, accept/reject, comment, navigate
       hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **UI Polish**: 
+      - Sans font for non-code UI
       - Responsiveness
       - Diff view show full file option
       - Better guided review buttons

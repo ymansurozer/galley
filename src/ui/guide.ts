@@ -97,6 +97,12 @@ export function showGuideBar(): boolean {
   return hasGuide();
 }
 
+// The guide was generated against an older diff than the one now loaded (e.g. the agent
+// edited code and the desk reloaded). Advisory only — the guide still renders.
+export function guideStale(): boolean {
+  return hasGuide() && !!S.state.guide!.baseDiffHash && S.state.guide!.baseDiffHash !== S.state.baseDiffHash;
+}
+
 // Render the Overview page into #diff: overview → optional PR description → the category
 // plan as a count+fill progress list → Start. Called by render() when overviewOpen &&
 // hasGuide(). Binds the Start button + per-category jumps.
@@ -112,6 +118,7 @@ export function renderOverview() {
   $("diff").innerHTML = `<div class="guide-overview"><div class="go-card">
     <h1>${esc(title)}</h1>
     <div class="go-sub">${esc(S.state.mode)} · ${esc(S.state.session)} · ${S.state.files.length} files</div>
+    ${guideStale() ? `<div class="go-stale">⚠ This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
     <p class="go-overview">${esc(g.overview)}</p>
     ${g.prDescription ? `<div class="go-pr"><b>PR description</b><p>${esc(g.prDescription)}</p></div>` : ""}
     ${plan ? `<div class="go-plan">${plan}</div>` : ""}
