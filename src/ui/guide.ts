@@ -59,9 +59,10 @@ export function currentFileName(): string {
   return S.state?.files?.[S.fileIndex]?.path.split("/").pop() ?? "";
 }
 
-// Show the top guide bar whenever a guide is attached and we're not on the Overview page.
+// Show the top guide bar whenever a guide is attached — including on the Overview page
+// (where the overview is treated as the position before the first file).
 export function showGuideBar(): boolean {
-  return hasGuide() && !S.overviewOpen;
+  return hasGuide();
 }
 
 // Distinct categories in guide order, each with its file count + whether it holds a critical.

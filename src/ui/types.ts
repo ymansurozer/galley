@@ -138,6 +138,7 @@ export interface Store {
   curFileName?: () => string;
   guideNext?: () => void;
   guidePrev?: () => void;
+  guideAtStart?: () => boolean;
   guideAtLast?: () => boolean;
   guideProgress?: () => { done: number; total: number; pct: number };
   saveComment?: () => void;

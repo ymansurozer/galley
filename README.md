@@ -143,6 +143,13 @@ the guided review, then UI work, then distribution.
       process: each Send writes `artifacts.resultJson`, so the agent can just stat that file.
 - [ ] **Keyboard shortcuts** — for common actions (stage/unstage, accept/reject, comment, navigate
       hunks/files), to speed up the review flow and reduce mouse dependency.
+- [ ] **UI Polish**: 
+      - Responsiveness
+      - Diff view show full file option
+      - Better guided review buttons
+      - Better html with css vars
+      - Better defaults etc.
+      - File tree (colors, icons, folder/file nesting)
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
       PR) plus an automated release flow: merges to `main` trigger semantic versioning and a
       tagged release (changelog, npm publish/binaries), with GitHub branch protection on `main`

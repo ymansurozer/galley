@@ -77,10 +77,12 @@ S.startGuided = () => { S.overviewOpen = false; S.selectFile?.(firstGuideIndex()
 S.showGuideBar = showGuideBar;
 S.curGuide = currentGuideEntry;
 S.curFileName = currentFileName;
-// Guided navigation: Next/Prev walk guide order; Prev off the first file → Overview.
-S.guideNext = () => { const n = nextFileIndex(S.fileIndex); if (n !== null) S.selectFile?.(n); };
-S.guidePrev = () => { const p = prevFileIndex(S.fileIndex); if (p === null) S.openOverview?.(); else S.selectFile?.(p); };
-S.guideAtLast = () => nextFileIndex(S.fileIndex) === null;
+// Guided navigation: the Overview is the position before the first file. From it, Next
+// enters the first file and Prev is a no-op; within files, Prev off the first → Overview.
+S.guideNext = () => { if (S.overviewOpen) { S.startGuided?.(); return; } const n = nextFileIndex(S.fileIndex); if (n !== null) S.selectFile?.(n); };
+S.guidePrev = () => { if (S.overviewOpen) return; const p = prevFileIndex(S.fileIndex); if (p === null) S.openOverview?.(); else S.selectFile?.(p); };
+S.guideAtStart = () => !!S.overviewOpen;
+S.guideAtLast = () => !S.overviewOpen && nextFileIndex(S.fileIndex) === null;
 S.guideProgress = guideProgress;
 S.isMarkdownFile = () => { const f = S.state && S.state.mode === "file" && S.state.files[S.fileIndex]; return !!f && isMarkdownPath(f.path); };
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
