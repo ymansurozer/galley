@@ -11,7 +11,7 @@ import { pollState } from "./poll";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
 import { applyAppearance, persistSettings } from "./settings";
 import { setMarkdownTheme } from "./markdown";
-import { hasGuide, firstGuideIndex, currentGuideEntry, currentFileName, showGuideBar, nextFileIndex, prevFileIndex, guideProgress } from "./guide";
+import { hasGuide, firstGuideIndex, currentGuideEntry, currentFileName, showGuideBar, nextFileIndex, prevFileIndex, guideProgress, categorySteps, firstFileOfCategory } from "./guide";
 import type { ReviewState } from "./types";
 
 // Close the composer when clicking outside it (unless it has unsaved text).
@@ -84,6 +84,9 @@ S.guidePrev = () => { if (S.overviewOpen) return; const p = prevFileIndex(S.file
 S.guideAtStart = () => !!S.overviewOpen;
 S.guideAtLast = () => !S.overviewOpen && nextFileIndex(S.fileIndex) === null;
 S.guideProgress = guideProgress;
+// Category stepper (count + fill): clicking a category jumps to its first unreviewed file.
+S.categorySteps = categorySteps;
+S.jumpToCategory = (cat) => { const i = firstFileOfCategory(cat); if (i !== null && i !== undefined) S.selectFile?.(i); };
 S.isMarkdownFile = () => { const f = S.state && S.state.mode === "file" && S.state.files[S.fileIndex]; return !!f && isMarkdownPath(f.path); };
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the

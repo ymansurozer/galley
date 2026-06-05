@@ -32,6 +32,7 @@ export function validateGuide(input: unknown): GuideValidation {
   }
   files.sort((a, b) => a.order - b.order);
   const guide: Guide = { overview: g.overview, files };
+  if (typeof g.title === "string" && g.title.trim()) guide.title = g.title;
   if (typeof g.prDescription === "string" && g.prDescription.trim()) guide.prDescription = g.prDescription;
   if (typeof g.baseDiffHash === "string" && g.baseDiffHash) guide.baseDiffHash = g.baseDiffHash;
   return { ok: true, guide };

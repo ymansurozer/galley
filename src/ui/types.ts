@@ -1,4 +1,5 @@
 import type { ReviewState, ReviewComment, ChangeState, Decision, GuideFile } from "../types";
+import type { CategoryStep } from "./guide";
 
 export type Side = "additions" | "deletions";
 export type DiffStyle = "split" | "unified";
@@ -141,6 +142,8 @@ export interface Store {
   guideAtStart?: () => boolean;
   guideAtLast?: () => boolean;
   guideProgress?: () => { done: number; total: number; pct: number };
+  categorySteps?: () => CategoryStep[];
+  jumpToCategory?: (category: string) => void;
   saveComment?: () => void;
   ask?: () => void;
   requestChange?: () => void;

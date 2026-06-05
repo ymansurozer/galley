@@ -5,6 +5,7 @@ import { mergeReviewState } from "./state.js";
 import type { Guide, ReviewState } from "./types.js";
 
 const validInput = () => ({
+  title: "Add API rate limiting",
   overview: "Adds rate limiting.",
   prDescription: "Closes #312.",
   files: [
@@ -17,6 +18,7 @@ test("validateGuide accepts a well-formed guide and sorts files by order", () =>
   const r = validateGuide(validInput());
   assert.ok(r.ok);
   if (!r.ok) return;
+  assert.equal(r.guide.title, "Add API rate limiting");
   assert.equal(r.guide.overview, "Adds rate limiting.");
   assert.equal(r.guide.prDescription, "Closes #312.");
   assert.deepEqual(r.guide.files.map((f) => f.path), ["src/config/limits.ts", "src/middleware/rateLimit.ts"]);

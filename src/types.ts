@@ -103,6 +103,9 @@ export type GuideFile = {
 // The guided review the coding agent attaches (the desk renders it, runs no model).
 // Absent on a ReviewState → no guide surfaces render and the desk works as today.
 export type Guide = {
+  // A short agent-written title for the changeset (e.g. the PR name, or a one-line summary
+  // in repo mode). Shown as the Overview heading; falls back to the target/"Review" if absent.
+  title?: string;
   overview: string;
   prDescription?: string;
   files: GuideFile[];

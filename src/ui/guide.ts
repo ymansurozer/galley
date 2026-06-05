@@ -47,6 +47,38 @@ export function guideProgress(): { done: number; total: number; pct: number } {
   return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }
 
+export type CategoryStep = { category: string; total: number; viewed: number; pct: number; critical: boolean; active: boolean };
+
+// Per-category macro-progress for the top-bar stepper: distinct categories in guide order,
+// each with viewed/total (count + fill) and whether it holds the current file / a critical.
+export function categorySteps(): CategoryStep[] {
+  if (!hasGuide()) return [];
+  const reviewed = new Set(S.state.reviewedFiles ?? []);
+  const curCat = !S.overviewOpen ? currentGuideEntry()?.category : undefined;
+  const out: CategoryStep[] = [];
+  const at = new Map<string, number>();
+  for (const g of S.state.guide!.files) {
+    let i = at.get(g.category);
+    if (i === undefined) { i = out.length; at.set(g.category, i); out.push({ category: g.category, total: 0, viewed: 0, pct: 0, critical: false, active: g.category === curCat }); }
+    const step = out[i]!;
+    step.total++;
+    if (reviewed.has(g.path)) step.viewed++;
+    if (g.critical) step.critical = true;
+  }
+  for (const s of out) s.pct = s.total ? Math.round((s.viewed / s.total) * 100) : 0;
+  return out;
+}
+
+// Jump target for a category click: its first not-yet-viewed file (guide order), else its first.
+export function firstFileOfCategory(category: string): number | null {
+  if (!hasGuide()) return null;
+  const byPath = new Map(S.state.files.map((f, i) => [f.path, i] as const));
+  const reviewed = new Set(S.state.reviewedFiles ?? []);
+  const inCat = S.state.guide!.files.filter((g) => g.category === category);
+  const target = inCat.find((g) => !reviewed.has(g.path)) ?? inCat[0];
+  return target ? byPath.get(target.path) ?? null : null;
+}
+
 // The guide entry for the file currently shown (or null) — drives the top guide bar.
 export function currentGuideEntry() {
   if (!hasGuide()) return null;
@@ -65,35 +97,27 @@ export function showGuideBar(): boolean {
   return hasGuide();
 }
 
-// Distinct categories in guide order, each with its file count + whether it holds a critical.
-function categoryPlan(): Array<{ category: string; count: number; critical: boolean }> {
-  const out: Array<{ category: string; count: number; critical: boolean }> = [];
-  const at = new Map<string, number>();
-  for (const g of S.state.guide!.files) {
-    let i = at.get(g.category);
-    if (i === undefined) { i = out.length; at.set(g.category, i); out.push({ category: g.category, count: 0, critical: false }); }
-    out[i]!.count++;
-    if (g.critical) out[i]!.critical = true;
-  }
-  return out;
-}
-
-// Render the Overview page into #diff: overview → optional PR description → category plan →
-// Start. Called by render() when S.overviewOpen && hasGuide(). Binds the Start button.
+// Render the Overview page into #diff: overview → optional PR description → the category
+// plan as a count+fill progress list → Start. Called by render() when overviewOpen &&
+// hasGuide(). Binds the Start button + per-category jumps.
 export function renderOverview() {
   const g = S.state.guide!;
-  const plan = categoryPlan()
-    .map((c) => `<span class="go-seg${c.critical ? " crit" : ""}">${c.critical ? "⚑ " : ""}${esc(c.category)} · ${c.count}</span>`)
+  const plan = categorySteps()
+    .map((c) => `<button class="go-cat${c.critical ? " crit" : ""}${c.viewed === c.total ? " done" : ""}" data-cat="${esc(c.category)}" title="Jump to ${esc(c.category)}">
+      <span class="go-cat-top"><span class="go-cat-lab">${c.critical ? "⚑ " : ""}${esc(c.category)}</span><span class="go-cat-cnt">${c.viewed}/${c.total}</span></span>
+      <span class="go-cat-bar"><i style="width:${c.pct}%"></i></span>
+    </button>`)
     .join("");
-  const critical = g.files.filter((f) => f.critical).length;
+  const title = g.title || S.state.target || "Review";
   $("diff").innerHTML = `<div class="guide-overview"><div class="go-card">
-    <h1>Guided review</h1>
+    <h1>${esc(title)}</h1>
     <div class="go-sub">${esc(S.state.mode)} · ${esc(S.state.session)} · ${S.state.files.length} files</div>
     <p class="go-overview">${esc(g.overview)}</p>
     ${g.prDescription ? `<div class="go-pr"><b>PR description</b><p>${esc(g.prDescription)}</p></div>` : ""}
     ${plan ? `<div class="go-plan">${plan}</div>` : ""}
-    <div class="go-actions"><button class="btn primary" id="guideStart">Start guided review →</button>${critical ? `<span class="go-meta">⚑ ${critical} critical</span>` : ""}</div>
+    <div class="go-actions"><button class="btn primary" id="guideStart">Start Review</button></div>
   </div></div>`;
   const start = $("diff").querySelector("#guideStart") as HTMLButtonElement | null;
   if (start) start.onclick = () => S.startGuided?.();
+  $("diff").querySelectorAll<HTMLElement>(".go-cat").forEach((el) => { el.onclick = () => S.jumpToCategory?.(el.dataset.cat!); });
 }

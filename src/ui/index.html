@@ -1453,21 +1453,69 @@
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      margin: 0 0 16px
+      margin: 2px 0 16px
     }
 
-    .guide-overview .go-seg {
-      font-size: 11px;
-      color: var(--muted);
-      background: #0b0e0f;
+    .guide-overview .go-cat {
+      flex: 1 1 0;
+      min-width: 96px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding: 6px 9px;
       border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 4px 11px
+      border-radius: 7px;
+      background: #0b0e0f;
+      cursor: pointer;
+      text-align: left
     }
 
-    .guide-overview .go-seg.crit {
-      color: var(--amber);
-      border-color: rgba(224, 175, 104, .45)
+    .guide-overview .go-cat:hover {
+      border-color: #354146;
+      background: #0e1517
+    }
+
+    .guide-overview .go-cat-top {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 6px
+    }
+
+    .guide-overview .go-cat-lab {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      color: var(--muted);
+      white-space: nowrap
+    }
+
+    .guide-overview .go-cat.crit .go-cat-lab {
+      color: var(--amber)
+    }
+
+    .guide-overview .go-cat.done .go-cat-lab {
+      color: var(--green)
+    }
+
+    .guide-overview .go-cat-cnt {
+      font-size: 10px;
+      color: var(--ghost)
+    }
+
+    .guide-overview .go-cat-bar {
+      height: 4px;
+      border-radius: 3px;
+      background: var(--line);
+      overflow: hidden
+    }
+
+    .guide-overview .go-cat-bar>i {
+      display: block;
+      height: 100%;
+      background: var(--green);
+      transition: width .25s
     }
 
     .guide-overview .go-actions {

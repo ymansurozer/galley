@@ -1,6 +1,7 @@
 ---
-status: open
+status: done
 created_at: 2026-06-05
+completed_at: 2026-06-06
 ---
 
 ## Parent
@@ -9,33 +10,29 @@ created_at: 2026-06-05
 
 ## What to build
 
-The **category stepper** across the top guide bar — the macro-progress view, using the
-decided **"count + fill"** treatment (from `prototypes/guided-review-v5.html`, variant V1).
+The **category plan** as a "count + fill" progress list, using the decided treatment (from
+`prototypes/guided-review-v5.html`, variant V1). _Placement changed during review:_ it lives
+on the **Overview page** (not the top bar — the bar was deliberately slimmed to nav +
+progress, and per-file category moved into the diff header).
 
-- Derive categories in `guide.order` (Config › Core › Wiring › Routes › Tests › Docs …). Each
-  category is a segment showing its name + `n/m` (files viewed / total in that category) and a
-  thin **fill bar** that grows with `n/m` and turns **green at `m/m`** (done).
-- The **current file's category** segment is highlighted (and tinted if that category contains
-  the current critical file). A multi-file category stays one segment that fills as you walk
-  its files — e.g. a 5-file Wiring reads `Wiring 2/5`; the exact file is shown in the tree and
-  the bar's filename.
+- Derive categories in `guide.order` (Config / Core / Wiring / Routes / Tests / Docs …). Each
+  is a row showing its name + `n/m` (files viewed / total in that category) and a **fill bar**
+  that grows with `n/m` and turns **green at `m/m`** (done). Critical categories are amber.
+- A multi-file category is one row that fills as those files are viewed — e.g. a 5-file Wiring
+  reads `Wiring 2/5`; the exact file is shown in the tree + diff header.
 - **Click a category** → jump to its first not-yet-viewed file (or its first file if all
-  viewed), advancing the guided position.
+  viewed), entering the guided flow.
 
-Counts/fills are derived from `reviewedFiles` (same source as Slice 3 progress), so viewing a
-file updates both its category fill and the overall progress.
+Counts/fills derive from `reviewedFiles` (same source as Slice 3 progress).
 
 ## Acceptance criteria
 
-- [ ] The stepper renders one segment per category in `guide.order`, each with `n/m` + a fill
-      bar; a category at `m/m` shows as done (green).
-- [ ] The current file's category is highlighted; marking a file Viewed advances its category
-      fill and the overall progress together.
-- [ ] A multi-file category (e.g. 5 files) shows `n/5` and is walked file-by-file by Next; the
-      tree/bar show which file.
-- [ ] Clicking a category jumps to its first unviewed file (or first file if all viewed).
-- [ ] No guide → no stepper; desk unchanged.
-- [ ] `pnpm check` + build clean.
+- [x] The Overview renders one row per category in `guide.order`, each with `n/m` + a fill bar;
+      a category at `m/m` shows as done (green), critical categories amber.
+- [x] A multi-file category (e.g. Core 1/2) shows `n/m` and fills as its files are viewed.
+- [x] Clicking a category jumps to its first unviewed file (or first file if all viewed).
+- [x] No guide → no plan; desk unchanged.
+- [x] `pnpm check` + build clean (26/26 tests).
 
 ## Blocked by
 

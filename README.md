@@ -150,7 +150,10 @@ the guided review, then UI work, then distribution.
       - Better html with css vars
       - Better defaults etc.
       - File tree (colors, icons, folder/file nesting)
+      - Review percentage based on lines or hunks, not files
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
       PR) plus an automated release flow: merges to `main` trigger semantic versioning and a
       tagged release (changelog, npm publish/binaries), with GitHub branch protection on `main`
       (required status checks, PR review before merge, linear history).
+- [ ] **Release 0.1** — publish to npm, with a simple install script that adds the skill and snippet to the
+      agent of choice, plus docs on manual installation and usage.
