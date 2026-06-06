@@ -12,18 +12,79 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #050606;
+
+      /* ── Surfaces (dark → light) ── */
+      --bg: #070909;
+      /* page / diff / overview canvas */
+      --surface: #0b0e0f;
+      /* recessed: inputs, headers, scroll track */
       --panel: #101415;
+      /* panels: sidebar, guide bar, modal */
+      --surface-raised: #151a1c;
+      /* hover / active rows */
       --panel3: #1d2426;
-      --ink: #d9d9d4;
-      --muted: #8a9396;
-      --ghost: #4b5558;
+      /* strongest raised: selected, chips */
+
+      /* ── Lines ── */
       --line: #222a2d;
-      --guide: #1b2226;
+      /* default border */
+      --line-strong: #354146;
+      /* emphasized / hover border */
+
+      /* ── Text ── */
+      --ink: #d9d9d4;
+      /* primary text */
+      --ink-bright: #fafafa;
+      /* highest-contrast text */
+      --muted: #8a9396;
+      /* secondary text */
+      --ghost: #4b5558;
+      /* faint text / icons */
+      --on-accent: #050608;
+      /* near-black text on a bright accent fill */
+
+      /* ── Accents (hue + bg/line/fg tints) ── */
       --cyan: #00a8ff;
-      --amber: #e0af68;
+      --cyan-bg: #081923;
+      --cyan-bg-strong: #0c2533;
+      /* hover fill for cyan tinted buttons */
+      --cyan-line: #17394a;
+      --cyan-line-strong: #25617a;
+      /* hover border + comment-thread rail */
+      --cyan-fg: #8fc4d4;
       --green: #00d084;
+      --green-bg: #071811;
+      --green-line: #163b2b;
+      --green-fg: #9af0b2;
+
+      /* Verdict action buttons (Keep / Undo) — shared by per-hunk + header */
+      --accept: rgba(34, 197, 94, .72);
+      --accept-hover: rgba(34, 197, 94, .9);
+      --reject: rgba(63, 63, 70, .82);
+      --reject-hover: rgba(82, 82, 91, .92);
+      --amber: #e0af68;
+      --amber-fg: #f0c783;
       --red: #ff4d6d;
+      --red-fg: #ff8095;
+      --guide: #1b2226;
+      /* file-tree nesting rails */
+
+      /* ── Radius scale ── */
+      --radius-xs: 3px;
+      --radius-sm: 4px;
+      --radius: 6px;
+      --radius-lg: 8px;
+      --radius-xl: 12px;
+      --radius-pill: 999px;
+
+      /* ── Type scale ── */
+      --text-2xs: 10px;
+      --text-xs: 11px;
+      --text-sm: 12px;
+      --text-md: 13px;
+      --text-lg: 14px;
+      --text-xl: 17px;
+
       --mono: "JetBrains Mono", ui-monospace, monospace;
       font-family: var(--mono)
     }
@@ -34,7 +95,7 @@
 
     * {
       scrollbar-width: thin;
-      scrollbar-color: #2a3336 transparent
+      scrollbar-color: var(--line) transparent
     }
 
     *::-webkit-scrollbar {
@@ -47,14 +108,14 @@
     }
 
     *::-webkit-scrollbar-thumb {
-      background: #2a3336;
+      background: var(--line);
       border: 2px solid transparent;
-      border-radius: 999px;
+      border-radius: var(--radius-pill);
       background-clip: content-box
     }
 
     *::-webkit-scrollbar-thumb:hover {
-      background: #3a464a;
+      background: var(--line-strong);
       background-clip: content-box
     }
 
@@ -99,7 +160,7 @@
       background: rgba(12, 15, 16, .96);
       border-color: var(--line);
       color: var(--muted);
-      font-size: 12px
+      font-size: var(--text-sm)
     }
 
     .top {
@@ -131,8 +192,8 @@
       gap: 3px;
       padding: 0;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #070909;
+      border-radius: var(--radius-lg);
+      background: var(--bg);
       margin: 0
     }
 
@@ -141,7 +202,7 @@
       border: 1px solid transparent;
       background: transparent;
       color: var(--muted);
-      border-radius: 6px;
+      border-radius: var(--radius);
       padding: 5px 8px
     }
 
@@ -166,25 +227,25 @@
     }
 
     .btn:hover {
-      border-color: #354146;
-      background: #151a1c
+      border-color: var(--line-strong);
+      background: var(--surface-raised)
     }
 
     .btn.primary {
       color: var(--cyan);
-      border-color: #17394a;
-      background: #081923
+      border-color: var(--cyan-line);
+      background: var(--cyan-bg)
     }
 
     .btn.primary:hover {
-      background: #0c2533;
-      border-color: #25617a
+      background: var(--cyan-bg-strong);
+      border-color: var(--cyan-line-strong)
     }
 
     .btn.green {
       color: var(--green);
-      border-color: #163b2b;
-      background: #071811
+      border-color: var(--green-line);
+      background: var(--green-bg)
     }
 
     .main {
@@ -257,7 +318,7 @@
       min-height: 38px;
       background: var(--panel);
       border-bottom: 1px solid var(--line);
-      font-size: 12px
+      font-size: var(--text-sm)
     }
 
     .guidebar .gb-acts {
@@ -276,17 +337,17 @@
       place-items: center;
       padding: 0;
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: var(--radius);
       background: var(--panel);
       color: var(--muted);
-      font-size: 14px
+      font-size: var(--text-lg)
     }
 
     .guidebar .gb-home:hover,
     .guidebar .gb-nav:not(:disabled):hover {
-      border-color: #354146;
+      border-color: var(--line-strong);
       color: var(--ink);
-      background: #151a1c
+      background: var(--surface-raised)
     }
 
     .guidebar .gb-nav:disabled {
@@ -300,13 +361,13 @@
       align-items: center;
       gap: 7px;
       color: var(--muted);
-      font-size: 11px
+      font-size: var(--text-xs)
     }
 
     .guidebar .gb-bar {
       width: 60px;
       height: 3px;
-      border-radius: 3px;
+      border-radius: var(--radius-xs);
       overflow: hidden;
       background: var(--line)
     }
@@ -325,24 +386,24 @@
     .guidebar .gb-stale {
       flex: 0 0 auto;
       color: var(--amber);
-      font-size: 11px
+      font-size: var(--text-xs)
     }
 
     .guide-overview .go-stale {
       margin: 12px 0 18px;
       padding: 8px 11px;
       border: 1px solid rgba(224, 175, 104, .5);
-      border-radius: 6px;
+      border-radius: var(--radius);
       background: rgba(224, 175, 104, .05);
       color: var(--amber);
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 1.45
     }
 
     .guide-overview .go-stale code {
-      background: #0b0e0f;
+      background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       padding: 0 4px
     }
 
@@ -358,7 +419,7 @@
       background: var(--panel);
       border-bottom: 1px solid var(--line);
       font-family: var(--mono);
-      font-size: 12px
+      font-size: var(--text-sm)
     }
 
     .ghdr .ghdr-row1 {
@@ -397,7 +458,7 @@
 
     .ghdr .ghdr-cat {
       margin-right: 7px;
-      font-size: 10px;
+      font-size: var(--text-2xs);
       font-weight: 700;
       letter-spacing: .08em;
       text-transform: uppercase;
@@ -422,7 +483,7 @@
     .ghdr .ghdr-why {
       max-width: 74ch;
       color: var(--amber);
-      font-size: 11.5px;
+      font-size: var(--text-xs);
       line-height: 1.45;
       white-space: normal
     }
@@ -430,7 +491,7 @@
     .ghdr .ghdr-readonly {
       flex: 0 0 auto;
       color: var(--muted);
-      font-size: 11px;
+      font-size: var(--text-xs);
       letter-spacing: .02em
     }
 
@@ -457,14 +518,14 @@
 
     .guidebar .gb-cat {
       flex: 0 0 auto;
-      font-size: 10px;
+      font-size: var(--text-2xs);
       font-weight: 700;
       letter-spacing: .06em;
       text-transform: uppercase;
       color: var(--cyan);
-      background: #081923;
-      border: 1px solid #17394a;
-      border-radius: 999px;
+      background: var(--cyan-bg);
+      border: 1px solid var(--cyan-line);
+      border-radius: var(--radius-pill);
       padding: 2px 8px
     }
 
@@ -502,7 +563,7 @@
       flex: 1;
       min-height: 0;
       overflow: auto;
-      background: #090b0c;
+      background: var(--bg);
       padding: 0;
       /* @pierre reserves a right-side scrollbar gutter; we scroll on #diff itself, so drop it */
       --diffs-scrollbar-gutter-override: 0px
@@ -545,7 +606,7 @@
       left: 1px;
       right: 1px;
       min-height: 2px;
-      border-radius: 1px;
+      border-radius: var(--radius-xs);
       opacity: .85
     }
 
@@ -561,7 +622,7 @@
       color: var(--ghost);
       text-transform: uppercase;
       letter-spacing: .12em;
-      font-size: 10px;
+      font-size: var(--text-2xs);
       margin: 8px 0 7px
     }
 
@@ -581,7 +642,7 @@
       place-items: center;
       padding: 0;
       border: 1px solid transparent;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       background: transparent;
       color: var(--ghost)
     }
@@ -589,7 +650,7 @@
     .tree-toggle:hover {
       color: var(--ink);
       border-color: var(--line);
-      background: #151a1c
+      background: var(--surface-raised)
     }
 
     .node {
@@ -599,7 +660,7 @@
       align-items: center;
       padding: 3px 6px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 1.6;
       white-space: nowrap;
       cursor: pointer;
@@ -612,7 +673,7 @@
     }
 
     .node:hover {
-      background: #151a1c;
+      background: var(--surface-raised);
       color: var(--ink)
     }
 
@@ -679,7 +740,7 @@
 
     .node .testcaret {
       color: var(--ghost);
-      font-size: 11px;
+      font-size: var(--text-xs);
       cursor: pointer
     }
 
@@ -710,9 +771,9 @@
     .git-action {
       margin-left: 4px;
       border: 1px solid var(--line);
-      background: #0c1011;
+      background: var(--surface);
       color: var(--muted);
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       width: 20px;
       height: 20px;
       padding: 0;
@@ -760,16 +821,16 @@
 
     .card {
       border: 1px solid var(--line);
-      background: #0b0e0f;
-      border-radius: 8px;
+      background: var(--surface);
+      border-radius: var(--radius-lg);
       padding: 9px;
       margin-bottom: 8px;
-      font-size: 12px
+      font-size: var(--text-sm)
     }
 
     .card.active {
-      border-color: #17394a;
-      background: #081319
+      border-color: var(--cyan-line);
+      background: var(--cyan-bg)
     }
 
     .card p {
@@ -782,9 +843,9 @@
     input {
       width: 100%;
       color: var(--ink);
-      background: #070909;
+      background: var(--bg);
       border: 1px solid var(--line);
-      border-radius: 7px;
+      border-radius: var(--radius);
       padding: 8px
     }
 
@@ -800,9 +861,9 @@
       left: 320px;
       top: 150px;
       z-index: 10;
-      border: 1px solid #26383d;
+      border: 1px solid var(--line);
       background: rgba(8, 11, 12, .98);
-      border-radius: 12px;
+      border-radius: var(--radius-xl);
       box-shadow: 0 24px 100px rgba(0, 0, 0, .6);
       padding: 8px;
       display: none
@@ -815,7 +876,7 @@
 
     .pop-context {
       color: var(--ghost);
-      font-size: 10px;
+      font-size: var(--text-2xs);
       text-transform: uppercase;
       letter-spacing: .1em;
       padding: 3px 7px 7px;
@@ -830,7 +891,7 @@
 
     .composer-head {
       color: var(--ghost);
-      font-size: 10px;
+      font-size: var(--text-2xs);
       text-transform: uppercase;
       letter-spacing: .1em;
       padding: 3px 7px 7px;
@@ -840,7 +901,7 @@
     .composer textarea {
       min-height: 92px;
       padding: 8px;
-      font-size: 12px
+      font-size: var(--text-sm)
     }
 
     .composer-actions {
@@ -852,7 +913,7 @@
 
     .composer-actions .btn {
       padding: 4px 8px;
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 16px
     }
 
@@ -868,15 +929,15 @@
       padding: 7px;
       border: 0;
       background: transparent;
-      border-radius: 7px;
+      border-radius: var(--radius);
       color: var(--muted);
-      font-size: 12px;
+      font-size: var(--text-sm);
       width: 100%;
       text-align: left
     }
 
     .choice:hover {
-      background: #101a1d
+      background: var(--panel)
     }
 
     .choice span:first-child {
@@ -884,11 +945,11 @@
       place-items: center;
       width: 18px;
       height: 18px;
-      border: 1px solid #183846;
-      border-radius: 5px;
+      border: 1px solid var(--cyan-line);
+      border-radius: var(--radius-sm);
       color: var(--cyan);
-      font-size: 11px;
-      background: #081319
+      font-size: var(--text-xs);
+      background: var(--cyan-bg)
     }
 
     .choice b {
@@ -900,7 +961,7 @@
       display: block;
       margin-top: 1px;
       color: var(--muted);
-      font-size: 11px;
+      font-size: var(--text-xs);
       line-height: 1.3
     }
 
@@ -946,26 +1007,26 @@
       border: 1px solid rgba(224, 175, 104, .35);
       background: rgba(224, 175, 104, .06);
       color: var(--amber);
-      border-radius: 5px;
+      border-radius: var(--radius-sm);
       padding: 2px 6px;
-      font-size: 11px;
+      font-size: var(--text-xs);
       line-height: 15px
     }
 
     .annotation .thread-actions button {
       border: 1px solid var(--line);
-      background: #101415;
+      background: var(--panel);
       color: var(--muted);
-      border-radius: 5px;
+      border-radius: var(--radius-sm);
       padding: 2px 6px;
-      font-size: 11px;
+      font-size: var(--text-xs);
       line-height: 15px
     }
 
     .annotation .thread-actions button:hover {
-      border-color: #354146;
+      border-color: var(--line-strong);
       color: var(--ink);
-      background: #151a1c
+      background: var(--surface-raised)
     }
 
     .annotation .thread-actions .resolve-thread {
@@ -977,7 +1038,7 @@
     .annotation .thread-actions .resolve-thread:hover {
       border-color: rgba(115, 218, 145, .55);
       background: rgba(115, 218, 145, .11);
-      color: #9af0b2
+      color: var(--green-fg)
     }
 
     .annotation .thread-actions .reopen-thread {
@@ -989,7 +1050,7 @@
     .annotation .thread-actions .reopen-thread:hover {
       border-color: rgba(224, 175, 104, .6);
       background: rgba(224, 175, 104, .12);
-      color: #f0c783
+      color: var(--amber-fg)
     }
 
     .annotation .msg {
@@ -1003,7 +1064,7 @@
 
     .annotation .thread-summary {
       color: var(--muted);
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 20px
     }
 
@@ -1020,17 +1081,17 @@
       border: 1px solid rgba(224, 175, 104, .35);
       background: rgba(224, 175, 104, .06);
       color: var(--amber);
-      border-radius: 5px;
+      border-radius: var(--radius-sm);
       padding: 2px 6px;
       margin-left: 6px;
-      font-size: 11px;
+      font-size: var(--text-xs);
       line-height: 15px
     }
 
     .annotation.resolved .reopen-inline:hover {
       border-color: rgba(224, 175, 104, .6);
       background: rgba(224, 175, 104, .12);
-      color: #f0c783
+      color: var(--amber-fg)
     }
 
     .annotation .meta {
@@ -1038,7 +1099,7 @@
       gap: 6px;
       align-items: baseline;
       color: var(--muted);
-      font-size: 11px
+      font-size: var(--text-xs)
     }
 
     .annotation .msg-actions {
@@ -1055,48 +1116,48 @@
 
     .annotation .msg-actions button {
       border: 1px solid var(--line);
-      background: #101415;
+      background: var(--panel);
       color: var(--muted);
-      border-radius: 5px;
+      border-radius: var(--radius-sm);
       padding: 1px 7px;
-      font-size: 10px;
+      font-size: var(--text-2xs);
       line-height: 15px
     }
 
     .annotation .msg-actions button:hover {
-      border-color: #354146;
+      border-color: var(--line-strong);
       color: var(--ink);
-      background: #151a1c
+      background: var(--surface-raised)
     }
 
     .annotation .msg-actions .delete-comment:hover {
-      color: #ff8095;
+      color: var(--red-fg);
       border-color: rgba(255, 77, 109, .5);
       background: rgba(255, 77, 109, .1)
     }
 
     .annotation .intent-badge {
-      font-size: 10px;
+      font-size: var(--text-2xs);
       border: 0;
       padding: 1px 7px;
-      border-radius: 999px;
+      border-radius: var(--radius-pill);
       line-height: 15px
     }
 
     .annotation .intent-badge.q {
-      color: #8fc4d4;
+      color: var(--cyan-fg);
       background: rgba(0, 168, 255, .12)
     }
 
     .annotation .intent-badge.a {
-      color: #e0b878;
+      color: var(--amber);
       background: rgba(224, 175, 104, .13)
     }
 
     .annotation .awaiting-answer {
       margin-top: 6px;
       color: var(--cyan);
-      font-size: 11px;
+      font-size: var(--text-xs);
       opacity: .85
     }
 
@@ -1119,23 +1180,23 @@
 
     .annotation p {
       margin: 7px 0 0;
-      color: #9fa8ab;
+      color: var(--muted);
       line-height: 1.45
     }
 
     .annotation .msg.agent p {
-      color: #a7b8c0
+      color: var(--muted)
     }
 
     .md {
-      color: #9fa8ab;
+      color: var(--muted);
       line-height: 1.5;
-      font-size: 12.5px;
+      font-size: var(--text-sm);
       margin-top: 7px
     }
 
     .annotation .msg.agent .md {
-      color: #a7b8c0
+      color: var(--muted)
     }
 
     .md>:first-child {
@@ -1160,19 +1221,19 @@
     }
 
     .md h1 {
-      font-size: 15px
+      font-size: var(--text-lg)
     }
 
     .md h2 {
-      font-size: 14px
+      font-size: var(--text-lg)
     }
 
     .md h3 {
-      font-size: 13px
+      font-size: var(--text-md)
     }
 
     .md h4 {
-      font-size: 12.5px
+      font-size: var(--text-sm)
     }
 
     .md ul,
@@ -1197,31 +1258,31 @@
     }
 
     .md code {
-      background: #0b0e0f;
+      background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       padding: 1px 4px;
-      font-size: 11.5px
+      font-size: var(--text-xs)
     }
 
     .md pre {
-      background: #0b0e0f;
+      background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: var(--radius);
       padding: 8px 10px;
       overflow: auto;
       margin: 8px 0
     }
 
     .md pre.shiki {
-      background: #0b0e0f
+      background: var(--surface)
     }
 
     .md pre code {
       background: transparent;
       border: 0;
       padding: 0;
-      font-size: 11.5px;
+      font-size: var(--text-xs);
       line-height: 1.5
     }
 
@@ -1260,14 +1321,14 @@
     }
 
     .md-file.md {
-      color: #c4ccce;
-      font-size: 13px;
+      color: var(--ink);
+      font-size: var(--text-md);
       line-height: 1.62
     }
 
     .md-anchor {
       cursor: pointer;
-      border-radius: 5px;
+      border-radius: var(--radius-sm);
       transition: background .1s;
       box-decoration-break: clone
     }
@@ -1279,9 +1340,9 @@
 
     .md-thread {
       margin: 6px 0 14px;
-      border-left: 2px solid #25617a;
-      border-radius: 0 6px 6px 0;
-      background: #0b0e0f;
+      border-left: 2px solid var(--cyan-line-strong);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      background: var(--surface);
       cursor: default
     }
 
@@ -1317,57 +1378,57 @@
 
     .change-actions button {
       border: 0;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       padding: 3px 8px;
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 16px;
       transition: background .12s ease, color .12s ease
     }
 
     .change-actions .reject {
-      background: rgba(63, 63, 70, .82);
-      color: #d4d4d8
+      background: var(--reject);
+      color: var(--ink)
     }
 
     .change-actions .reject:hover {
-      background: rgba(82, 82, 91, .92);
-      color: #fafafa
+      background: var(--reject-hover);
+      color: var(--ink-bright)
     }
 
     .change-actions .accept {
-      background: rgba(34, 197, 94, .72);
-      color: #020617
+      background: var(--accept);
+      color: var(--on-accent)
     }
 
     .change-actions .accept:hover {
-      background: rgba(34, 197, 94, .9);
-      color: #020617
+      background: var(--accept-hover);
+      color: var(--on-accent)
     }
 
     .diff-header-action {
       border: 0;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       padding: 3px 8px;
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 16px;
-      background: #039b48;
-      color: #05130b;
+      background: var(--accept);
+      color: var(--on-accent);
       margin-left: 4px
     }
 
     .diff-header-action:hover {
-      background: #06b957;
-      color: #020a05
+      background: var(--accept-hover);
+      color: var(--on-accent)
     }
 
     .diff-header-action.secondary {
-      background: #2b2b2d;
-      color: #e5e7eb
+      background: var(--panel3);
+      color: var(--ink-bright)
     }
 
     .diff-header-action.secondary:hover {
-      background: #3a3a3d;
-      color: #fff
+      background: var(--line-strong);
+      color: var(--ink-bright)
     }
 
     .diff-header-action.undo {
@@ -1379,7 +1440,7 @@
     .diff-header-action.undo:hover {
       background: rgba(224, 175, 104, .12);
       border-color: rgba(224, 175, 104, .75);
-      color: #f0c783
+      color: var(--amber-fg)
     }
 
     .diff-header-action.done {
@@ -1396,18 +1457,18 @@
     .file-header-actions button,
     .file-header-actions label {
       border: 1px solid var(--line);
-      border-radius: 5px;
-      background: #101415;
+      border-radius: var(--radius-sm);
+      background: var(--panel);
       color: var(--muted);
       padding: 3px 7px;
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 16px
     }
 
     .file-header-actions button:hover,
     .file-header-actions label:hover {
       color: var(--ink);
-      border-color: #354146
+      border-color: var(--line-strong)
     }
 
     .file-header-actions .stage {
@@ -1419,7 +1480,7 @@
     .file-header-actions .stage:hover {
       background: rgba(115, 218, 145, .14);
       border-color: rgba(115, 218, 145, .65);
-      color: #9af0b2
+      color: var(--green-fg)
     }
 
     .file-header-actions .unstage {
@@ -1455,21 +1516,21 @@
     .modal {
       width: 420px;
       border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #0b0e0f;
+      border-radius: var(--radius-lg);
+      background: var(--surface);
       box-shadow: 0 24px 100px rgba(0, 0, 0, .65);
       padding: 16px
     }
 
     .modal h3 {
       margin: 0 0 8px;
-      font-size: 14px
+      font-size: var(--text-lg)
     }
 
     .modal p {
       margin: 0;
       color: var(--muted);
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 1.5
     }
 
@@ -1482,13 +1543,13 @@
 
     .modal-actions .btn {
       padding: 4px 7px;
-      font-size: 12px;
+      font-size: var(--text-sm);
       line-height: 16px
     }
 
     .btn.icon {
       padding: 3px 9px;
-      font-size: 17px;
+      font-size: var(--text-xl);
       line-height: 20px
     }
 
@@ -1502,7 +1563,7 @@
       color: var(--ghost);
       text-transform: uppercase;
       letter-spacing: .12em;
-      font-size: 10px;
+      font-size: var(--text-2xs);
       margin: 24px 0 10px
     }
 
@@ -1520,7 +1581,7 @@
       justify-content: space-between;
       align-items: center;
       gap: 12px;
-      font-size: 12px;
+      font-size: var(--text-sm);
       color: var(--muted)
     }
 
@@ -1535,12 +1596,12 @@
       width: auto;
       min-width: 150px;
       color: var(--ink);
-      background: #070909;
+      background: var(--bg);
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: var(--radius);
       padding: 5px 7px;
       font: inherit;
-      font-size: 12px
+      font-size: var(--text-sm)
     }
 
     .set-grid input[type=number] {
@@ -1563,20 +1624,20 @@
     .guide-overview .go-card {
       width: min(680px, 100%);
       border: 1px solid var(--line);
-      background: #0b0e0f;
-      border-radius: 12px;
+      background: var(--surface);
+      border-radius: var(--radius-xl);
       padding: 18px 20px
     }
 
     .guide-overview h1 {
       margin: 0 0 4px;
-      font-size: 18px;
+      font-size: var(--text-xl);
       color: var(--ink)
     }
 
     .guide-overview .go-sub {
       color: var(--ghost);
-      font-size: 11px;
+      font-size: var(--text-xs);
       margin-bottom: 14px
     }
 
@@ -1584,13 +1645,13 @@
       color: var(--muted);
       line-height: 1.55;
       margin: 0 0 12px;
-      font-size: 13px
+      font-size: var(--text-md)
     }
 
     .guide-overview .go-pr {
       border: 1px solid var(--line);
-      background: #070909;
-      border-radius: 8px;
+      background: var(--bg);
+      border-radius: var(--radius-lg);
       padding: 9px 12px;
       margin: 0 0 12px
     }
@@ -1598,7 +1659,7 @@
     .guide-overview .go-pr b {
       color: var(--ink);
       display: block;
-      font-size: 10px;
+      font-size: var(--text-2xs);
       text-transform: uppercase;
       letter-spacing: .1em;
       margin-bottom: 4px
@@ -1625,15 +1686,15 @@
       gap: 5px;
       padding: 6px 9px;
       border: 1px solid var(--line);
-      border-radius: 7px;
-      background: #0b0e0f;
+      border-radius: var(--radius);
+      background: var(--surface);
       cursor: pointer;
       text-align: left
     }
 
     .guide-overview .go-cat:hover {
-      border-color: #354146;
-      background: #0e1517
+      border-color: var(--line-strong);
+      background: var(--panel)
     }
 
     .guide-overview .go-cat-top {
@@ -1644,7 +1705,7 @@
     }
 
     .guide-overview .go-cat-lab {
-      font-size: 10.5px;
+      font-size: var(--text-2xs);
       font-weight: 700;
       letter-spacing: .05em;
       text-transform: uppercase;
@@ -1661,13 +1722,13 @@
     }
 
     .guide-overview .go-cat-cnt {
-      font-size: 10px;
+      font-size: var(--text-2xs);
       color: var(--ghost)
     }
 
     .guide-overview .go-cat-bar {
       height: 4px;
-      border-radius: 3px;
+      border-radius: var(--radius-xs);
       background: var(--line);
       overflow: hidden
     }
@@ -1687,7 +1748,7 @@
 
     .guide-overview .go-meta {
       color: var(--ghost);
-      font-size: 12px
+      font-size: var(--text-sm)
     }
 
     .toast {
@@ -1695,12 +1756,12 @@
       left: 50%;
       bottom: 46px;
       transform: translateX(-50%);
-      border: 1px solid #163b2b;
-      background: #071811;
+      border: 1px solid var(--green-line);
+      background: var(--green-bg);
       color: var(--green);
-      border-radius: 999px;
+      border-radius: var(--radius-pill);
       padding: 7px 12px;
-      font-size: 12px;
+      font-size: var(--text-sm);
       display: none
     }
 

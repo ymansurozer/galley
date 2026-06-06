@@ -148,15 +148,15 @@ the guided review, then UI work, then distribution.
 - [ ] **Keyboard shortcuts** — for common actions (stage/unstage, accept/reject, comment, navigate
       hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **UI Polish**: 
-      - Sans font for non-code UI
-      - Better guided review buttons
-      - Better html with css vars
-      - Better defaults etc.
-      - Review percentage based on lines or hunks, not files
+      - click on money takes time to load
       - Viewed vs staged
       - Split/stacked location
-      - Icons duotone or lucide or other
       - Top review bar + file bar bg colors
+      - Change overview thingys not fully aligned
+      - Better guided review buttons
+      - Review percentage based on lines or hunks, not files
+      - Icons duotone or lucide or other
+      - Sans font for non-code UI
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
       PR) plus an automated release flow: merges to `main` trigger semantic versioning and a
       tagged release (changelog, npm publish/binaries), with GitHub branch protection on `main`

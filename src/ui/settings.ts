@@ -4,7 +4,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lineDiffType: "word-alt",
   diffIndicators: "bars",
   hunkSeparators: "line-info",
-  overflow: "scroll",
+  overflow: "wrap",
   lineHighlight: "full",
   // Diff defaults to Pierre Dark (a @pierre/diffs theme). Pierre isn't a Shiki bundled
   // theme, so comment/markdown code blocks fall back to github-dark (see markdown.ts).
@@ -13,7 +13,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSize: 12.5,
   showUnchanged: true,
   unchangedLines: "collapse",
-  stageOnAccept: true,
+  stageOnAccept: false,
 };
 
 // Curated mono fonts (loaded from Google Fonts on selection, like JetBrains Mono today).
