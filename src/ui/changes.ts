@@ -5,7 +5,18 @@ import type { ChangeState, ReviewComment, ReviewState } from "./types";
 type ReviewFile = ReviewState["files"][number];
 type ChangeStatus = ChangeState["status"];
 
-export function currentFile(): ReviewFile { return S.state.files[S.fileIndex]; }
+// The file the diff is currently showing. A `preview` (an unchanged file the reviewer opened
+// to read/comment on) takes precedence over the indexed review file when set.
+export function currentFile(): ReviewFile { return S.preview ?? S.state.files[S.fileIndex]; }
+// Split view only makes sense for a two-sided diff. A new file (no old side), a deleted file
+// (no new side), or a view-only full file (old === new — including any preview) render
+// single-column, so split is a no-op — used to render them unified and to disable the toggle.
+export function currentSplittable(): boolean {
+  const f = S.preview ?? S.state?.files?.[S.fileIndex];
+  if (!f) return true;
+  const o = f.oldFile?.contents ?? "", n = f.newFile?.contents ?? "";
+  return o !== "" && n !== "" && o !== n;
+}
 export function currentChanges(): ChangeState[] { return S.state.changes.filter((c) => c.path === currentFile().path); }
 export function currentComments(): ReviewComment[] { return S.state.comments.filter((c) => c.path === currentFile().path); }
 

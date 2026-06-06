@@ -127,6 +127,16 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         await syncGitState(state);
         return json(res, 200, { files: await listProjectTree(state.root) });
       }
+      if (req.method === "GET" && url.pathname === "/api/file") {
+        // Read an arbitrary repo file (for previewing/commenting on unchanged files).
+        const rel = url.searchParams.get("path") || "";
+        const root = path.resolve(state.root);
+        const abs = path.resolve(root, rel);
+        if (abs !== root && !abs.startsWith(root + path.sep)) return fail(res, 400, "BAD_PATH", "Path escapes the repo.", "Use a repo-relative path.");
+        const contents = await fs.readFile(abs, "utf8").catch(() => null);
+        if (contents === null) return fail(res, 404, "NOT_FOUND", `Cannot read "${rel}".`, "Check the path is a readable text file in the repo.");
+        return json(res, 200, { path: rel, contents });
+      }
       if (req.method === "POST" && url.pathname === "/api/save") {
         Object.assign(state, JSON.parse(await readBody(req)));
         const file = await persistReview(state);

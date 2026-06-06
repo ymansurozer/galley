@@ -1,6 +1,35 @@
 import { S } from "./store";
 import type { TreeRow, TreeNode, TreeFile } from "./types";
 
+// Every directory path in the tree (independent of current open/closed state) — used by
+// the collapse-all / expand-all control.
+export function allDirPaths(): string[] {
+  if (!S.state) return [];
+  const changedPaths = S.state.files.map((f) => f.path);
+  const all = S.settings.showUnchanged && S.projectFiles.length ? [...new Set([...S.projectFiles, ...changedPaths])] : changedPaths;
+  const dirs = new Set<string>();
+  for (const p of all) {
+    const parts = p.split("/").filter(Boolean);
+    let full = "";
+    for (let i = 0; i < parts.length - 1; i++) { full = full ? `${full}/${parts[i]}` : parts[i]!; dirs.add(full); }
+  }
+  return [...dirs];
+}
+
+// Folders containing a "touched" file — one in the review (changed/staged) or carrying a
+// comment. These are what "expand all" opens (purely-unchanged folders stay closed).
+export function touchedDirPaths(): string[] {
+  if (!S.state) return [];
+  const touched = new Set<string>([...(S.state.files ?? []).map((f) => f.path), ...(S.state.comments ?? []).map((c) => c.path)]);
+  const dirs = new Set<string>();
+  for (const p of touched) {
+    const parts = p.split("/").filter(Boolean);
+    let full = "";
+    for (let i = 0; i < parts.length - 1; i++) { full = full ? `${full}/${parts[i]}` : parts[i]!; dirs.add(full); }
+  }
+  return [...dirs];
+}
+
 // Pure data: the flat, ordered list of tree rows the template renders with x-for.
 // (Replaces the old buildFileTree HTML-string builder + sync() DOM wiring.)
 export function treeRows(): TreeRow[] {
@@ -26,8 +55,9 @@ export function treeRows(): TreeRow[] {
       stack.push(node);
     }
     const isChanged = changed.has(path);
-    const isStaged = S.state.stagedFiles?.includes(path);
-    if (isChanged && !isStaged) stack.forEach((n) => (n.changed = true));
+    // A folder counts as part of the review (open by default) if it holds any reviewed file,
+    // staged or not — so staging a file doesn't flip its folder to "unchanged" and collapse it.
+    if (isChanged) stack.forEach((n) => (n.changed = true));
     node.files.push({ name: parts.at(-1) || path, index: changed.get(path), changed: isChanged, path, tests: [] });
   });
 
@@ -42,10 +72,14 @@ export function treeRows(): TreeRow[] {
     node.files = node.files.filter((f) => !f.folded);
     for (const child of node.dirs.values()) groupTests(child);
   }
-  function countChanged(node: TreeNode): number {
-    let n = node.files.filter((f) => (f.changed && !S.state.stagedFiles?.includes(f.path)) || f.tests.some((t) => t.changed && !S.state.stagedFiles?.includes(t.path))).length;
-    for (const child of node.dirs.values()) n += countChanged(child);
-    return n;
+  // A changed file's type, derived from its diff contents — drives the file-icon color.
+  function changeType(file: TreeFile): "new" | "modified" | "deleted" | null {
+    if (file.index === undefined) return null;
+    const sf = S.state.files[file.index];
+    if (!sf) return null;
+    if (!sf.oldFile?.contents && sf.newFile?.contents) return "new";
+    if (!sf.newFile?.contents && sf.oldFile?.contents) return "deleted";
+    return "modified";
   }
 
   const rows: TreeRow[] = [];
@@ -58,7 +92,9 @@ export function treeRows(): TreeRow[] {
     const staged = S.state.stagedFiles?.includes(file.path);
     const decisions = S.state.changes.filter((c) => c.path === file.path);
     const decided = decisions.length > 0 && decisions.every((c) => c.status !== "pending");
-    const active = file.index === S.fileIndex;
+    // While previewing an opened file, the previewed path is active (it may be unchanged, so
+    // it has no fileIndex); otherwise the indexed review file is active.
+    const active = S.preview ? S.preview.path === file.path : file.index === S.fileIndex;
     const hasTests = !isTest && file.tests.length > 0;
     const changedTests = !isTest && file.tests.some((t) => t.changed && !S.state.stagedFiles?.includes(t.path));
     const changedish = (file.changed || changedTests) && !staged;
@@ -77,6 +113,7 @@ export function treeRows(): TreeRow[] {
       testToggle: showTestToggle,
       testKey: `tests:${file.path}`,
       testCaret: testOpen ? "▾" : "▸",
+      changeType: changedish ? changeType(file) : null,
       badges: showTestToggle ? null : { pending: !decided && file.changed && !staged, comments: openComments > 0, viewed: !!reviewed },
       git: file.changed || staged ? (staged ? "unstage" : "stage") : null,
       gitSymbol: staged ? "−" : "+",
@@ -86,9 +123,10 @@ export function treeRows(): TreeRow[] {
 
   function walk(node: TreeNode, depth: number) {
     [...node.dirs.values()].sort((a, b) => a.name.localeCompare(b.name)).forEach((dir) => {
-      const open = S.expandedDirs.has(dir.full) || dir.changed;
-      const count = countChanged(dir);
-      rows.push({ key: "dir:" + dir.full, kind: "dir", depth, name: dir.name, cls: [dir.changed ? "changed" : "", indent(depth)].filter(Boolean).join(" "), full: dir.full, dirCaret: open ? "▾" : "▸", count });
+      // Changed folders default open (collapsible via collapsedDirs); unchanged default
+      // closed (expandable via expandedDirs). Either way the chevron toggles.
+      const open = dir.changed ? !S.collapsedDirs.has(dir.full) : S.expandedDirs.has(dir.full);
+      rows.push({ key: "dir:" + dir.full, kind: "dir", depth, name: dir.name, cls: [dir.changed ? "changed" : "", indent(depth)].filter(Boolean).join(" "), full: dir.full, dirCaret: open ? "▾" : "▸", open, changed: dir.changed });
       if (open) walk(dir, depth + 1);
     });
     node.files.sort((a, b) => a.name.localeCompare(b.name)).forEach((file) => fileRow(file, depth, false));

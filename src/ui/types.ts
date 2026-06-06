@@ -1,4 +1,4 @@
-import type { ReviewState, ReviewComment, ChangeState, Decision, GuideFile } from "../types";
+import type { ReviewState, ReviewComment, ChangeState, Decision, GuideFile, ReviewFile } from "../types";
 import type { CategoryStep } from "./guide";
 
 export type Side = "additions" | "deletions";
@@ -18,6 +18,9 @@ export type Settings = {
   font: string;       // key into the FONTS map
   fontSize: number;   // px
   showUnchanged: boolean;
+  // Diff view: "collapse" (default) folds long unchanged runs into a "N unmodified lines"
+  // separator; "expand" renders every line (mapped to @pierre's expandUnchanged flag).
+  unchangedLines: "collapse" | "expand";
   stageOnAccept: boolean;
 };
 
@@ -35,7 +38,8 @@ export type DirRow = {
   cls: string;
   full: string;
   dirCaret: string;
-  count: number;
+  open: boolean;
+  changed: boolean;
 };
 
 export type FileRow = {
@@ -49,6 +53,7 @@ export type FileRow = {
   testToggle: boolean;
   testKey: string;
   testCaret: string;
+  changeType: "new" | "modified" | "deleted" | null;
   badges: TreeBadges | null;
   git: "stage" | "unstage" | null;
   gitSymbol: string;
@@ -96,9 +101,13 @@ export interface Store {
   state: ReviewState;
   projectFiles: string[];
   expandedDirs: Set<string>;
+  collapsedDirs: Set<string>;
   pendingStagePath: string | null;
   diffStyle: DiffStyle;
   fileIndex: number;
+  // A non-review file (e.g. an unchanged file) the reviewer opened to read/comment on.
+  // When set, it's the "current file" instead of state.files[fileIndex].
+  preview: ReviewFile | null;
   awaitingAgent: boolean;
   lastBaseDiffHash: string | null;
   selected: Selection;
@@ -120,7 +129,10 @@ export interface Store {
 
   treeRows?: () => TreeRow[];
   selectFile?: (i: number) => void;
-  toggleDir?: (full: string) => void;
+  previewFile?: (path: string) => void;
+  toggleDir?: (full: string, changed: boolean) => void;
+  toggleAllDirs?: () => void;
+  treeAnyOpen?: () => boolean;
   toggleTestDir?: (key: string) => void;
   gitToggle?: (path: string, action: string) => void;
   rowClick?: (r: TreeRow) => void;
@@ -128,6 +140,7 @@ export interface Store {
   setStyle?: (style: DiffStyle) => void;
   setFileView?: (view: "rendered" | "source") => void;
   isMarkdownFile?: () => boolean;
+  splitApplies?: () => boolean;
   applySettings?: () => void;
   openSettings?: () => void;
   closeSettings?: () => void;

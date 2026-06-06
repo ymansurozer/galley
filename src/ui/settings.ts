@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS: Settings = {
   font: "jetbrains-mono",
   fontSize: 12.5,
   showUnchanged: true,
+  unchangedLines: "collapse",
   stageOnAccept: true,
 };
 

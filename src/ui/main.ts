@@ -2,15 +2,16 @@ import Alpine from "alpinejs";
 import persistPlugin from "@alpinejs/persist";
 import { S, D, $, api, persist, toast } from "./store";
 import { loadDiffLib } from "./difflib";
-import { currentFile } from "./changes";
+import { currentFile, currentSplittable } from "./changes";
 import { openCommentComposer, closeComposerIfEmpty } from "./selection";
 import { stageFile, unstageFile } from "./decisions";
-import { treeRows } from "./tree";
+import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { render } from "./render";
 import { pollState } from "./poll";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
 import { applyAppearance, persistSettings } from "./settings";
 import { setMarkdownTheme } from "./markdown";
+import { ensureIcons } from "./icons";
 import { hasGuide, firstGuideIndex, currentGuideEntry, currentFileName, showGuideBar, guideStale, nextFileIndex, prevFileIndex, guideProgress, categorySteps, firstFileOfCategory } from "./guide";
 import type { ReviewState } from "./types";
 
@@ -55,11 +56,34 @@ document.addEventListener("keydown", (e) => {
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
-S.selectFile = (i) => { S.overviewOpen = false; S.fileIndex = i; S.fileView = defaultFileView(S.state.files[i]); D.fileDiff = null; render(); };
-S.toggleDir = (full) => { S.expandedDirs.has(full) ? S.expandedDirs.delete(full) : S.expandedDirs.add(full); };
+S.selectFile = (i) => { S.overviewOpen = false; S.preview = null; S.fileIndex = i; S.fileView = defaultFileView(S.state.files[i]); D.fileDiff = null; render(); };
+// Open any repo file (incl. unchanged ones) for read/comment: fetch its contents and show it
+// as a plain view (old === new → no diff blocks). Comments anchor to it like any file.
+S.previewFile = async (path) => {
+  try {
+    const r = await api<{ path: string; contents: string }>(`/api/file?path=${encodeURIComponent(path)}`);
+    if (typeof r.contents !== "string") { toast("Could not open file"); return; }
+    S.overviewOpen = false;
+    S.preview = { path, hunks: [], oldFile: { name: path, contents: r.contents }, newFile: { name: path, contents: r.contents } };
+    D.fileDiff = null; render();
+  } catch { toast("Could not open file"); }
+};
+// Changed folders open by default → toggle via collapsedDirs; unchanged closed → expandedDirs.
+S.toggleDir = (full, changed) => {
+  const set = changed ? S.collapsedDirs : S.expandedDirs;
+  set.has(full) ? set.delete(full) : set.add(full);
+};
+// Collapse-all / expand-all from the FILES title. anyOpen drives the button's icon.
+S.treeAnyOpen = () => (S.treeRows?.() ?? []).some((r) => r.kind === "dir" && (r as { open?: boolean }).open);
+S.toggleAllDirs = () => {
+  // Collapse all → close every folder. Expand all → open only folders with a touched file
+  // (changes/comments); purely-unchanged folders stay closed.
+  if (S.treeAnyOpen?.()) { S.collapsedDirs = new Set(allDirPaths()); S.expandedDirs = new Set(); }
+  else { S.collapsedDirs = new Set(); S.expandedDirs = new Set(touchedDirPaths()); }
+};
 S.toggleTestDir = (key) => { S.expandedDirs.has(key) ? S.expandedDirs.delete(key) : S.expandedDirs.add(key); };
 S.gitToggle = (path, action) => (action === "unstage" ? unstageFile(path) : stageFile(path));
-S.rowClick = (r) => { if (r.kind === "dir") S.toggleDir?.(r.full); else if (r.fileIndex !== undefined) S.selectFile?.(r.fileIndex); };
+S.rowClick = (r) => { if (r.kind === "dir") S.toggleDir?.(r.full, r.changed); else if (r.fileIndex !== undefined) S.selectFile?.(r.fileIndex); else S.previewFile?.(r.path); };
 S.openComposer = openCommentComposer;
 S.setStyle = (style) => { S.diffStyle = style; localStorage.setItem("galley.diffStyle", style); render(); };
 S.setFileView = (view) => { S.fileView = view; D.fileDiff = null; render(); };
@@ -89,6 +113,7 @@ S.guideProgress = guideProgress;
 S.categorySteps = categorySteps;
 S.jumpToCategory = (cat) => { const i = firstFileOfCategory(cat); if (i !== null && i !== undefined) S.selectFile?.(i); };
 S.isMarkdownFile = () => { const f = S.state && S.state.mode === "file" && S.state.files[S.fileIndex]; return !!f && isMarkdownPath(f.path); };
+S.splitApplies = currentSplittable;
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
 // body and keeps the existing intent.
@@ -124,6 +149,7 @@ Alpine.store("g", S);
 Alpine.start();
 
 // Init
+ensureIcons(); // file-tree icon sprite (folder/file/badges/stage)
 applyAppearance(S.settings); // persisted font + size before first paint
 await loadDiffLib();
 S.state = await api<ReviewState>("/api/state");

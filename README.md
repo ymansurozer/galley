@@ -149,13 +149,15 @@ the guided review, then UI work, then distribution.
       hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **UI Polish**: 
       - Sans font for non-code UI
-      - Responsiveness
       - Diff view show full file option
       - Better guided review buttons
       - Better html with css vars
       - Better defaults etc.
-      - File tree (colors, icons, folder/file nesting)
       - Review percentage based on lines or hunks, not files
+      - Viewed vs staged
+      - Split/stacked location
+      - Icons duotone or lucide or other
+      - Top review bar + file bar bg colors
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
       PR) plus an automated release flow: merges to `main` trigger semantic versioning and a
       tagged release (changelog, npm publish/binaries), with GitHub branch protection on `main`

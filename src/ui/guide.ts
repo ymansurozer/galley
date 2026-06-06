@@ -108,8 +108,9 @@ export function guideStale(): boolean {
 // hasGuide(). Binds the Start button + per-category jumps.
 export function renderOverview() {
   const g = S.state.guide!;
+  // Each category segment grows in proportion to how many files it holds (flex-grow = total).
   const plan = categorySteps()
-    .map((c) => `<button class="go-cat${c.critical ? " crit" : ""}${c.viewed === c.total ? " done" : ""}" data-cat="${esc(c.category)}" title="Jump to ${esc(c.category)}">
+    .map((c) => `<button class="go-cat${c.critical ? " crit" : ""}${c.viewed === c.total ? " done" : ""}" data-cat="${esc(c.category)}" title="Jump to ${esc(c.category)} (${c.total} file${c.total === 1 ? "" : "s"})" style="flex-grow:${c.total}">
       <span class="go-cat-top"><span class="go-cat-lab">${c.critical ? "⚑ " : ""}${esc(c.category)}</span><span class="go-cat-cnt">${c.viewed}/${c.total}</span></span>
       <span class="go-cat-bar"><i style="width:${c.pct}%"></i></span>
     </button>`)
