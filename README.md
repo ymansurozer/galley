@@ -149,7 +149,6 @@ the guided review, then UI work, then distribution.
       hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **UI Polish**: 
       - Sans font for non-code UI
-      - Diff view show full file option
       - Better guided review buttons
       - Better html with css vars
       - Better defaults etc.
