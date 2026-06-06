@@ -141,7 +141,11 @@ This is the `result` field of a `{"kind":"review", …}` event from `galley awai
 }
 ```
 
-`summaryMarkdown` is a ready-to-use prompt body. The structured arrays are there when you need to act precisely. The same payload is persisted at `artifacts.resultJson` — agents that can't long-poll can stat that file instead of using `await`.
+`summaryMarkdown` is a ready-to-use prompt body; the structured arrays are there when you need to act precisely.
+
+### File-poll fallback (no long-poll / no background process)
+
+If your harness can't hold a `galley await` long-poll open or background the desk, poll the result file instead of using `await`. Every **Send** (over)writes the same `ReviewResult` JSON to `artifacts.resultJson` — `~/.galley/<repoHash>/<session>/<id>-result.json`, where `<repoHash>` is the first 16 hex chars of `sha256(<absolute repo root path>)` and `<session>` is the (sanitized) session name. Watch that session dir and read the newest `*-result.json`: a changed mtime means a new Send, and the file is the exact `ReviewResult` you'd otherwise get from the `await` event. Agent replies still post with `galley comment` as usual. One caveat: live **questions** (the Ask side-channel) are delivered only through the `await` event stream, so a pure file-poll agent sees Sends but not live Asks.
 
 ## How to act on a review — one path per item, don't mix
 

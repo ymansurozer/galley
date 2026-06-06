@@ -142,8 +142,9 @@ the guided review, then UI work, then distribution.
       it always reviews via Galley — the snippet refers back to the skill for details. `pnpm
       smoke` drives the full `await` event-stream loop end-to-end (question → answer → Send →
       ReviewResult) on a throwaway repo as a kept check.
-- [ ] **Documented file-poll fallback** — for agents that can't long-poll or background a
-      process: each Send writes `artifacts.resultJson`, so the agent can just stat that file.
+- [x] **Documented file-poll fallback** — for agents that can't long-poll or background a
+      process: each Send (over)writes `artifacts.resultJson`, so the agent polls that file
+      instead of `galley await`. Documented in `skills/galley/SKILL.md` (File-poll fallback).
 - [ ] **Keyboard shortcuts** — for common actions (stage/unstage, accept/reject, comment, navigate
       hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **UI Polish**: 
