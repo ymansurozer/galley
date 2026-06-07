@@ -92,9 +92,10 @@ export function treeRows(): TreeRow[] {
     const staged = S.state.stagedFiles?.includes(file.path);
     const decisions = S.state.changes.filter((c) => c.path === file.path);
     const decided = decisions.length > 0 && decisions.every((c) => c.status !== "pending");
+    // No file is "active" while the guide Overview is showing (nothing is being viewed yet).
     // While previewing an opened file, the previewed path is active (it may be unchanged, so
     // it has no fileIndex); otherwise the indexed review file is active.
-    const active = S.preview ? S.preview.path === file.path : file.index === S.fileIndex;
+    const active = S.overviewOpen ? false : S.preview ? S.preview.path === file.path : file.index === S.fileIndex;
     const hasTests = !isTest && file.tests.length > 0;
     const changedTests = !isTest && file.tests.some((t) => t.changed && !S.state.stagedFiles?.includes(t.path));
     const changedish = (file.changed || changedTests) && !staged;

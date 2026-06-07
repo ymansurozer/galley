@@ -149,10 +149,7 @@ the guided review, then UI work, then distribution.
       hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **UI Polish**: 
       - click on money takes time to load
-      - Viewed vs staged
-      - Split/stacked location
       - Top review bar + file bar bg colors
-      - Change overview thingys not fully aligned
       - Better guided review buttons
       - Review percentage based on lines or hunks, not files
       - Icons duotone or lucide or other

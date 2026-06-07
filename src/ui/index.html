@@ -476,6 +476,38 @@
       font-weight: 600
     }
 
+    /* Subtle Split/Stacked toggle next to the filename — low-contrast so the filename leads,
+       but bordered so it reads as a control. */
+    .ghdr .ghdr-layout {
+      flex: 0 0 auto;
+      display: inline-flex;
+      gap: 1px;
+      margin-left: 8px;
+      padding: 1px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm)
+    }
+
+    .ghdr .ghdr-layout button {
+      border: 0;
+      background: transparent;
+      color: var(--ghost);
+      font-family: var(--mono);
+      font-size: var(--text-2xs);
+      line-height: 1.5;
+      padding: 1px 6px;
+      border-radius: var(--radius-xs)
+    }
+
+    .ghdr .ghdr-layout button:hover {
+      color: var(--muted)
+    }
+
+    .ghdr .ghdr-layout button.active {
+      background: var(--surface-raised);
+      color: var(--muted)
+    }
+
     .ghdr .ghdr-expl {
       color: var(--muted)
     }
@@ -1827,13 +1859,6 @@
     <header class="top">
       <div><span class="brand">Galley</span></div>
       <div class="toggles">
-        <div class="toggle" x-show="!($store.g.isMarkdownFile() && $store.g.fileView==='rendered')"
-          :title="$store.g.splitApplies && !$store.g.splitApplies() ? 'Split view doesn\'t apply to this file' : ''"><button
-            :class="{active: $store.g.splitApplies() && $store.g.diffStyle==='split'}"
-            :disabled="!$store.g.splitApplies()" @click="$store.g.setStyle('split')">Split</button><button
-            :class="{active: !$store.g.splitApplies() || $store.g.diffStyle==='unified'}"
-            :disabled="!$store.g.splitApplies()" @click="$store.g.setStyle('unified')">Stacked</button>
-        </div>
         <div class="toggle" x-show="$store.g.isMarkdownFile()"><button :class="{active: $store.g.fileView==='rendered'}"
             @click="$store.g.setFileView('rendered')">Rendered</button><button
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>

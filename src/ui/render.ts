@@ -46,6 +46,24 @@ function changeIcon(type: string | undefined): SVGElement {
   return svg;
 }
 
+// Subtle Split/Stacked segmented control that lives in the diff header (right of the filename).
+// Kept low-contrast so it doesn't compete with the filename; clicking re-renders the diff,
+// which rebuilds this control with the new active state.
+function layoutToggle(): HTMLElement {
+  const wrap = document.createElement("span");
+  wrap.className = "ghdr-layout";
+  const mk = (label: string, style: "split" | "unified") => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (S.diffStyle === style) b.className = "active";
+    b.onclick = () => S.setStyle?.(style);
+    wrap.appendChild(b);
+  };
+  mk("Split", "split");
+  mk("Stacked", "unified");
+  return wrap;
+}
+
 // @pierre renders the diff into a shadow root mounted on some descendant of #diff. Find it
 // so we can measure rendered change rows for the overview ruler.
 function findDiffShadow(): ShadowRoot | null {
@@ -66,7 +84,9 @@ function renderOverviewRuler() {
   const shadow = findDiffShadow();
   const contentH = diff.scrollHeight;
   const rows = shadow ? Array.from(shadow.querySelectorAll<HTMLElement>("[data-line-type^='change-']")) : [];
-  if (!rows.length || !contentH) { ruler.classList.remove("show"); return; }
+  // Only a map for a scrollable file — if it fits without scrolling, the changes are already
+  // all on screen and the ruler is redundant noise. (+1px tolerance for sub-pixel rounding.)
+  if (!rows.length || !contentH || diff.scrollHeight <= diff.clientHeight + 1) { ruler.classList.remove("show"); return; }
   const diffTop = diff.getBoundingClientRect().top;
   const scrollTop = diff.scrollTop;
   // @pierre tags both the gutter cell and the code cell of a line with data-line-type, so each
@@ -152,10 +172,10 @@ export async function render() {
     if (S.state.mode !== "file") { const actions = document.createElement("span"); actions.className = "file-header-actions"; actions.innerHTML = `<label><input type="checkbox" ${viewed ? "checked" : ""}>Viewed</label>`; (actions.querySelector("input") as any).onchange = () => toggleReviewed(filePath); wrap.appendChild(actions); }
     return wrap;
   };
-  // Guided mode: a two-row custom header. Row 1 preserves @pierre's look — change-type icon
-  // + filename + counts — with our actions. Row 2 (left-aligned) carries the category +
-  // AI guidance, so the top bar can drop them.
-  const guidedHeader = (file: FileDiffMetadata) => {
+  // Our custom diff header (all changed-file modes): row 1 preserves @pierre's look —
+  // change-type icon + filename + a subtle Split/Stacked toggle + counts + actions. With a
+  // guide, row 2 (left-aligned) adds the category + AI guidance.
+  const fileHeader = (file: FileDiffMetadata) => {
     const entry = currentGuideEntry();
     const wrap = document.createElement("div");
     wrap.className = "ghdr";
@@ -164,6 +184,8 @@ export async function render() {
     const row1 = document.createElement("div"); row1.className = "ghdr-row1";
     row1.appendChild(changeIcon(file?.type));
     const name = document.createElement("span"); name.className = "ghdr-file"; name.textContent = currentFile().path; row1.appendChild(name);
+    // Layout toggle right of the filename — only when Split actually applies (a two-sided diff).
+    if (currentSplittable()) row1.appendChild(layoutToggle());
     const grow = document.createElement("span"); grow.className = "ghdr-grow"; row1.appendChild(grow);
     let add = 0, del = 0; for (const h of file?.hunks ?? []) { add += h.additionLines ?? 0; del += h.deletionLines ?? 0; }
     const counts = document.createElement("span"); counts.className = "ghdr-counts"; counts.innerHTML = `<span class="a">+${add}</span><span class="d">−${del}</span>`; row1.appendChild(counts);
@@ -204,8 +226,9 @@ export async function render() {
     // (for a vertical scrollbar it hides) — drop it so rows fill the full width. previewCSS
     // (empty unless previewing) neutralizes addition styling to context, in-shadow.
     unsafeCSS: "[data-code]{scrollbar-gutter:auto}" + previewCSS,
-    // Preview → minimal read-only header; else with a guide → our consolidated header.
-    ...(previewing ? { renderCustomHeader: previewHeader } : hasGuide() ? { renderCustomHeader: guidedHeader } : {}),
+    // Preview → minimal read-only header; otherwise our custom file header (icon + filename +
+    // layout toggle + counts + actions, plus guidance when a guide is attached).
+    renderCustomHeader: previewing ? previewHeader : fileHeader,
   });
   D.instance = inst;
   // annotations() is our own AnnotationInput[]; the lib's DiffLineAnnotation<T> is a
