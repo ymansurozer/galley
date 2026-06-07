@@ -148,7 +148,6 @@ the guided review, then UI work, then distribution.
 - [ ] **Keyboard shortcuts** — for common actions (stage/unstage, accept/reject, comment, navigate
       hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **UI Polish**: 
-      - Top review bar + file bar bg colors
       - Better guided review buttons
       - Review percentage based on lines or hunks, not files
       - Icons duotone or lucide or other
