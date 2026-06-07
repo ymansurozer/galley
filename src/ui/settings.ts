@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSize: 12.5,
   showUnchanged: true,
   unchangedLines: "collapse",
+  progressBy: "lines",
   stageOnAccept: false,
 };
 

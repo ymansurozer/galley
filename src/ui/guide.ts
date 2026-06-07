@@ -41,23 +41,43 @@ export function prevFileIndex(cur: number): number | null {
   return cur - 1 >= 0 ? cur - 1 : null;
 }
 
-// Overall review progress for the guide-bar indicator. "done" counts files the reviewer has
-// finished (approved OR changes-requested), so requesting changes still advances the bar;
-// "approved" is the clean-signoff sub-count.
+// Changed lines (additions + deletions) per file path — the weight used for progress, so
+// finishing a big file advances the bar more than a tiny one. Min 1 so every file counts.
+function locByPath(): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const f of S.state?.files ?? []) {
+    let n = 0;
+    for (const h of f.hunks ?? []) for (const l of h.lines) if (l.kind !== "context") n++;
+    m.set(f.path, Math.max(n, 1));
+  }
+  return m;
+}
+
+// Overall review progress for the guide-bar indicator, weighted by changed lines (LOC) rather
+// than file count: "done" sums the LOC of files the reviewer finished (approved OR
+// changes-requested), "approved" the clean-signoff LOC.
 export function guideProgress(): { done: number; approved: number; total: number; pct: number } {
-  const files = S.state?.files ?? [];
-  const total = files.length;
-  const done = files.filter((f) => fileReviewState(f.path) !== "pending").length;
-  const approved = files.filter((f) => fileReviewState(f.path) === "approved").length;
+  const byLines = S.settings.progressBy !== "files";
+  const loc = byLines ? locByPath() : null;
+  let total = 0, done = 0, approved = 0;
+  for (const f of S.state?.files ?? []) {
+    const w = byLines ? loc!.get(f.path) ?? 1 : 1;
+    total += w;
+    const st = fileReviewState(f.path);
+    if (st !== "pending") done += w;
+    if (st === "approved") approved += w;
+  }
   return { done, approved, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }
 
 export type CategoryStep = { category: string; total: number; done: number; pct: number; critical: boolean; active: boolean };
 
-// Per-category macro-progress for the top-bar stepper: distinct categories in guide order,
-// each with done/total (count + fill) and whether it holds the current file / a critical.
+// Per-category macro-progress for the stepper: distinct categories in guide order, each with
+// done/total **changed lines** (count + fill) and whether it holds the current file / a critical.
 export function categorySteps(): CategoryStep[] {
   if (!hasGuide()) return [];
+  const byLines = S.settings.progressBy !== "files";
+  const loc = byLines ? locByPath() : null;
   const curCat = !S.overviewOpen ? currentGuideEntry()?.category : undefined;
   const out: CategoryStep[] = [];
   const at = new Map<string, number>();
@@ -65,8 +85,9 @@ export function categorySteps(): CategoryStep[] {
     let i = at.get(g.category);
     if (i === undefined) { i = out.length; at.set(g.category, i); out.push({ category: g.category, total: 0, done: 0, pct: 0, critical: false, active: g.category === curCat }); }
     const step = out[i]!;
-    step.total++;
-    if (fileReviewState(g.path) !== "pending") step.done++;
+    const w = byLines ? loc!.get(g.path) ?? 1 : 1;
+    step.total += w;
+    if (fileReviewState(g.path) !== "pending") step.done += w;
     if (g.critical) step.critical = true;
   }
   for (const s of out) s.pct = s.total ? Math.round((s.done / s.total) * 100) : 0;

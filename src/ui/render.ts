@@ -260,7 +260,7 @@ export async function render() {
     row1.appendChild(changeIcon("file"));
     const name = document.createElement("span"); name.className = "ghdr-file"; name.textContent = currentFile().path; row1.appendChild(name);
     const grow = document.createElement("span"); grow.className = "ghdr-grow"; row1.appendChild(grow);
-    const tag = document.createElement("span"); tag.className = "ghdr-readonly"; tag.textContent = "Unchanged · read-only"; row1.appendChild(tag);
+    const tag = document.createElement("span"); tag.className = "ghdr-readonly"; tag.textContent = "Unchanged"; row1.appendChild(tag);
     wrap.appendChild(row1);
     return wrap;
   };

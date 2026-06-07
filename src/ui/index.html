@@ -1630,8 +1630,8 @@
 
     .set-grid select,
     .set-grid input[type=number] {
-      width: auto;
-      min-width: 150px;
+      width: 160px;
+      min-width: 0;
       color: var(--ink);
       background: var(--bg);
       border: 1px solid var(--line);
@@ -1915,7 +1915,7 @@
           <span class="gb-fill"></span>
           <span class="gb-progress" x-show="$store.g.guideProgress">
             <span class="gb-bar"><i :style="`width:${$store.g.guideProgress().pct}%`"></i></span>
-            <span x-text="$store.g.guideProgress().done + '/' + $store.g.guideProgress().total + ' reviewed' + ($store.g.guideProgress().approved ? ' · ' + $store.g.guideProgress().approved + ' approved' : '')"></span>
+            <span x-text="$store.g.guideProgress().pct + '% reviewed'"></span>
           </span>
         </div>
         <div class="diff-area">
@@ -2003,11 +2003,21 @@
               </select></label><label>Font size<input type="number" min="11" max="16" step="0.5"
                 x-model.number="$store.g.settings.fontSize" @change="$store.g.applySettings()"></label></div>
           <div class="set-section">File tree</div>
-          <div class="set-grid"><label class="check"><input type="checkbox" x-model="$store.g.settings.showUnchanged"
-                @change="$store.g.applySettings()">Show unchanged files</label></div>
+          <div class="set-grid"><label>Unchanged files<select
+                @change="$store.g.settings.showUnchanged = $event.target.value === 'show'; $store.g.applySettings()">
+                <option value="show" :selected="$store.g.settings.showUnchanged">Show</option>
+                <option value="hide" :selected="!$store.g.settings.showUnchanged">Hide</option>
+              </select></label></div>
           <div class="set-section">Behavior</div>
-          <div class="set-grid"><label class="check"><input type="checkbox" x-model="$store.g.settings.stageOnAccept"
-                @change="$store.g.applySettings()">Approve stages file (off = verdict only)</label></div>
+          <div class="set-grid"><label>Track progress by<select x-model="$store.g.settings.progressBy"
+                @change="$store.g.applySettings()">
+                <option value="lines">Diff lines</option>
+                <option value="files">Files</option>
+              </select></label><label>Approve<select
+                @change="$store.g.settings.stageOnAccept = $event.target.value === 'stage'; $store.g.applySettings()">
+                <option value="stage" :selected="$store.g.settings.stageOnAccept">Stages file</option>
+                <option value="verdict" :selected="!$store.g.settings.stageOnAccept">Verdict only</option>
+              </select></label></div>
           <div class="modal-actions"><button class="btn primary" @click="$store.g.closeSettings()">Done</button></div>
         </div>
       </div>

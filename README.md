@@ -148,8 +148,6 @@ the guided review, then UI work, then distribution.
 - [ ] **Keyboard shortcuts** — for common actions (stage/unstage, accept/reject, comment, navigate
       hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **UI Polish**: 
-      - Better guided review buttons
-      - Review percentage based on lines or hunks, not files
       - Icons duotone or lucide or other
       - Sans font for non-code UI
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every

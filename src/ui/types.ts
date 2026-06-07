@@ -21,6 +21,9 @@ export type Settings = {
   // Diff view: "collapse" (default) folds long unchanged runs into a "N unmodified lines"
   // separator; "expand" renders every line (mapped to @pierre's expandUnchanged flag).
   unchangedLines: "collapse" | "expand";
+  // How guided-review progress is weighted: "lines" (changed lines per file — finishing a
+  // bigger change advances more) or "files" (every file counts the same).
+  progressBy: "lines" | "files";
   stageOnAccept: boolean;
 };
 
