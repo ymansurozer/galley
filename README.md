@@ -57,7 +57,7 @@ while that lock exists.
 
 ## Buttons
 
-Every change — decisions, comments, staging, viewed marks — is **saved automatically** as you
+Every change — decisions, comments, staging, file approvals — is **saved automatically** as you
 make it (resume any time by reopening the desk), so there are just two buttons:
 
 - **Reset Review** — clear decisions/comments and unstage everything for this review.
@@ -86,7 +86,7 @@ the guided review, then UI work, then distribution.
 
 - [x] **File review mode + single-file simplified view** — `galley file <path>` for one file,
       tracked or untracked/new (e.g. a generated plan): full file when unchanged, diff when
-      changed. Tracked+changed stages on accept; untracked is verdict-only. Tree auto-hidden
+      changed. Tracked+changed stages on approve; untracked is verdict-only. Tree auto-hidden
       when only one file is in the review.
 - [x] **PR review mode** — `galley pr <ref>` checks out the branch (aborts if tracked changes
       are uncommitted), diffs against the merge-base, and accept/reject become approve /
@@ -103,7 +103,7 @@ the guided review, then UI work, then distribution.
       an overview page (title + changeset overview + optional PR description + a count-fill
       category plan), then files walked in a logical order (general→specific) with a per-file
       change category + summary in the diff header and the critical ones flagged. Top bar drives
-      Next/Prev + progress; marking a file Viewed advances. Galley runs no model — it renders +
+      Next/Prev + progress; approving (or marking reviewed) a file advances. Galley runs no model — it renders +
       validates the guide and flags it stale when the diff moves past it. (Built as vertical
       slices; design in `prototypes/`, PRD + issues in `.prd/guided-review/`.)
 
@@ -148,7 +148,6 @@ the guided review, then UI work, then distribution.
 - [ ] **Keyboard shortcuts** — for common actions (stage/unstage, accept/reject, comment, navigate
       hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **UI Polish**: 
-      - click on money takes time to load
       - Top review bar + file bar bg colors
       - Better guided review buttons
       - Review percentage based on lines or hunks, not files

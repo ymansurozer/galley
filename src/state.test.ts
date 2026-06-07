@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { buildReviewResult, buildReviewSummary, mergeReviewState, sanitizeSession } from "./state.js";
 import type { ChangeState, Decision, ReviewComment, ReviewState } from "./types.js";
 
-function file(path: string) {
-  return { path, hunks: [], oldFile: { name: path, contents: "" }, newFile: { name: path, contents: "" } };
+function file(path: string, contentHash = "FH") {
+  return { path, hunks: [], oldFile: { name: path, contents: "" }, newFile: { name: path, contents: "" }, contentHash };
 }
 function change(over: Partial<ChangeState> & { id: string; path: string }): ChangeState {
   return { hunkIndex: 0, side: "additions", lineNumber: 1, title: "", status: "pending", ...over };
@@ -166,4 +166,55 @@ test("sanitizeSession normalizes branch names and falls back", () => {
   assert.equal(sanitizeSession("ok.name_1"), "ok.name_1");
   assert.equal(sanitizeSession(""), "review");
   assert.equal(sanitizeSession("///"), "review");
+});
+
+test("mergeReviewState keeps a finished file when its content hash is unchanged", () => {
+  const base = state({ files: [file("a.ts", "H")] });
+  const saved = state({ files: [file("a.ts", "H")], reviewedFiles: ["a.ts"], reviewedFileHashes: { "a.ts": "H" } });
+  const merged = mergeReviewState(base, saved);
+  assert.deepEqual(merged.reviewedFiles, ["a.ts"]);
+  assert.equal(merged.reviewedFileHashes!["a.ts"], "H");
+});
+
+test("mergeReviewState drops a finished file when its content hash changed (re-review)", () => {
+  const base = state({ files: [file("a.ts", "NEW")] });
+  const saved = state({ files: [file("a.ts", "OLD")], reviewedFiles: ["a.ts"], reviewedFileHashes: { "a.ts": "OLD" } });
+  const merged = mergeReviewState(base, saved);
+  assert.deepEqual(merged.reviewedFiles, []);
+  assert.deepEqual(merged.reviewedFileHashes, {});
+});
+
+test("mergeReviewState drops a finished file with no recorded hash (old viewed-era session)", () => {
+  const base = state({ files: [file("a.ts", "H")] });
+  const saved = state({ files: [file("a.ts", "H")], reviewedFiles: ["a.ts"] }); // no reviewedFileHashes
+  const merged = mergeReviewState(base, saved);
+  assert.deepEqual(merged.reviewedFiles, []);
+});
+
+test("buildReviewResult.approvedFiles includes a clean signed-off file", () => {
+  const s = state({ files: [file("a.ts", "H")], reviewedFiles: ["a.ts"], reviewedFileHashes: { "a.ts": "H" } });
+  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  assert.deepEqual(r.approvedFiles, ["a.ts"]);
+});
+
+test("buildReviewResult.approvedFiles excludes a signed-off file with a rejected hunk", () => {
+  const s = state({
+    files: [file("a.ts", "H")], reviewedFiles: ["a.ts"], reviewedFileHashes: { "a.ts": "H" },
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts", status: "rejected" })],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  assert.deepEqual(r.approvedFiles, []);
+});
+
+test("buildReviewResult.approvedFiles excludes a signed-off file with an open action comment, keeps one with only a question", () => {
+  const s = state({
+    files: [file("a.ts", "H"), file("b.ts", "H")],
+    reviewedFiles: ["a.ts", "b.ts"], reviewedFileHashes: { "a.ts": "H", "b.ts": "H" },
+    comments: [
+      comment({ id: "c1", path: "a.ts", status: "open", role: "user", intent: "action", body: "fix" }),
+      comment({ id: "c2", path: "b.ts", status: "open", role: "user", intent: "question", body: "why?" }),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  assert.deepEqual(r.approvedFiles, ["b.ts"]); // a.ts has an open change request; b.ts only a question
 });

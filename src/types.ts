@@ -84,6 +84,9 @@ export type ReviewFile = DiffFile & {
   path: string;
   oldFile: { name: string; contents: string };
   newFile: { name: string; contents: string };
+  // Hash of the new-side contents — used to invalidate a file's approval when its
+  // content changes between turns (see reviewedFileHashes / mergeReviewState).
+  contentHash: string;
 };
 
 export type ReviewMode = "repo" | "file" | "pr";
@@ -136,7 +139,12 @@ export type ReviewState = {
   files: ReviewFile[];
   comments: ReviewComment[];
   changes: ChangeState[];
+  // Files the reviewer has finished/signed off (set by the Approve / Mark reviewed button).
+  // The displayed status (approved vs changes-requested) is *derived* from objections, not
+  // stored here. reviewedFileHashes records the file's contentHash at sign-off so approval
+  // goes stale when the file's content changes.
   reviewedFiles: string[];
+  reviewedFileHashes?: Record<string, string>;
   stagedFiles: string[];
   stagedChangeKeys?: string[];
   decisionFiles?: string[];
@@ -164,6 +172,9 @@ export type ReviewResult = {
   rejected: Array<{ path: string; lineNumber: number; side: string; title: string }>;
   requestedChanges: Array<{ path: string; lineNumber: number; side: string; body: string }>;
   stagedFiles: string[];
+  // Files the reviewer signed off as-is (no rejected hunks, no open requested-change
+  // comments, approval still current): the agent should leave these unchanged.
+  approvedFiles: string[];
   artifacts: { resultJson: string; summaryMd: string; sessionDir: string };
 };
 

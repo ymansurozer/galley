@@ -20,7 +20,7 @@ export function sanitizeSession(session: string) {
 type DiffSource = { files: ReviewFile[]; changes: ChangeState[]; rawDiff: string };
 
 function fileEntry(filePath: string, oldContents: string, newContents: string): ReviewFile {
-  return { oldPath: filePath, newPath: filePath, hunks: [], path: filePath, oldFile: { name: filePath, contents: oldContents }, newFile: { name: filePath, contents: newContents } };
+  return { oldPath: filePath, newPath: filePath, hunks: [], path: filePath, oldFile: { name: filePath, contents: oldContents }, newFile: { name: filePath, contents: newContents }, contentHash: hash(newContents) };
 }
 
 // Parse a unified diff into review files + change blocks, fetching old/new file
@@ -35,7 +35,8 @@ async function assembleDiff(
   const changes: ChangeState[] = [];
   for (const f of parseUnifiedDiff(rawDiff)) {
     const filePath = f.newPath ?? f.oldPath ?? "unknown";
-    files.push({ ...f, path: filePath, oldFile: { name: filePath, contents: await fetchOld(f.oldPath) }, newFile: { name: filePath, contents: await fetchNew(f.newPath) } });
+    const newContents = await fetchNew(f.newPath);
+    files.push({ ...f, path: filePath, oldFile: { name: filePath, contents: await fetchOld(f.oldPath) }, newFile: { name: filePath, contents: newContents }, contentHash: hash(newContents) });
     f.hunks.forEach((h, hunkIndex) => {
       changeBlocks(h).forEach((block) => {
         const firstAdd = block.find((l) => l.kind === "add");
@@ -104,7 +105,8 @@ export async function buildReviewState(cwd: string, opts: { mode?: ReviewMode; p
   const make = (root: string, source: DiffSource, extra: { staged: boolean; target?: string; base?: string }, head: string | null): ReviewState => ({
     id: crypto.randomUUID(), session: sanitizeSession(opts.session), root, repoHash: hash(root), mode,
     target: extra.target, base: extra.base, staged: extra.staged, head, baseDiffHash: hash(source.rawDiff),
-    createdAt: nowIso(), updatedAt: nowIso(), rawDiff: source.rawDiff, files: source.files, comments: [], changes: source.changes, reviewedFiles: [], stagedFiles: [], decisions: [],
+    createdAt: nowIso(), updatedAt: nowIso(), rawDiff: source.rawDiff, files: source.files,
+    comments: [], changes: source.changes, reviewedFiles: [], reviewedFileHashes: {}, stagedFiles: [], decisions: [],
   });
 
   if (mode === "file") {
@@ -236,12 +238,20 @@ export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
     }
   }
   decisions = decisions.filter((d) => !stale.has(d.key));
+  // A file's approval/sign-off survives reload only if the file is still present AND its
+  // content hash is unchanged. A file whose content the agent rewrote (or that has no
+  // recorded hash — e.g. an old "viewed" session) drops back to pending for re-review.
+  const fileHashes = new Map(base.files.map((file) => [file.path, file.contentHash]));
+  const savedHashes = saved.reviewedFileHashes ?? {};
+  const reviewedFiles = saved.reviewedFiles.filter((file) => currentFiles.has(file) && savedHashes[file] && savedHashes[file] === fileHashes.get(file));
+  const reviewedFileHashes = Object.fromEntries(reviewedFiles.map((file) => [file, savedHashes[file]!]));
   return {
     ...base,
     id: saved.id,
     createdAt: saved.createdAt,
     comments: saved.comments.map((comment) => currentFiles.has(comment.path) ? comment : { ...comment, status: "stale" as const }).filter((comment) => currentFiles.has(comment.path) || comment.intent === "action"),
-    reviewedFiles: saved.reviewedFiles.filter((file) => currentFiles.has(file)),
+    reviewedFiles,
+    reviewedFileHashes,
     stagedFiles: saved.stagedFiles,
     stagedChangeKeys: saved.stagedChangeKeys ?? [],
     decisionFiles: saved.decisionFiles ?? [],
@@ -260,6 +270,18 @@ export async function syncGitState(state: ReviewState) {
   state.stagedChangeKeys = (state.stagedChangeKeys ?? []).filter((key) => stagedFiles.has(key.split(":")[0]));
 }
 
+// Files the reviewer signed off as-is: finished (in reviewedFiles, content hash still current)
+// AND with no objections — no rejected hunk and no open requested-change comment (questions and
+// agent replies don't count). Guarantees approvedFiles is disjoint from rejected/requestedChanges.
+export function computeApprovedFiles(state: ReviewState): string[] {
+  const hashes = state.reviewedFileHashes ?? {};
+  const fileHash = new Map(state.files.map((f) => [f.path, f.contentHash]));
+  const decisions = effectiveDecisions(state);
+  const hasReject = (p: string) => decisions.some((d) => d.path === p && d.status === "rejected");
+  const hasOpenChange = (p: string) => state.comments.some((c) => c.path === p && c.status === "open" && c.role !== "agent" && c.intent !== "question");
+  return (state.reviewedFiles ?? []).filter((p) => hashes[p] && hashes[p] === fileHash.get(p) && !hasReject(p) && !hasOpenChange(p));
+}
+
 export function buildReviewSummary(state: ReviewState) {
   const pr = state.mode === "pr";
   const scope = pr ? `the PR/branch${state.target ? ` \`${state.target}\`` : ""} (committed changes)`
@@ -272,6 +294,12 @@ export function buildReviewSummary(state: ReviewState) {
   if (!pr && state.stagedFiles.length) {
     out.push("## Staged files");
     for (const file of state.stagedFiles) out.push(`- ${file}`);
+    out.push("");
+  }
+  const approved = computeApprovedFiles(state);
+  if (approved.length) {
+    out.push("## Approved files (signed off — leave as-is)");
+    for (const file of approved) out.push(`- ${file}`);
     out.push("");
   }
   const decisions = effectiveDecisions(state);
@@ -347,6 +375,7 @@ export function buildReviewResult(
       .filter((c) => c.status === "open" && c.role !== "agent" && c.intent !== "question")
       .map((c) => ({ path: c.path, lineNumber: c.lineNumber, side: c.side, body: c.body })),
     stagedFiles: state.stagedFiles,
+    approvedFiles: computeApprovedFiles(state),
     artifacts,
   };
 }

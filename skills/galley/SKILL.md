@@ -20,11 +20,11 @@ The review is the human's; the agent acts on the decisions and answers questions
 
 `galley` reviews in one of three modes. `await`/`comment`/`reload` auto-target the lone live desk for the repo, so you usually don't pass `--session`.
 
-| Start command        | Mode           | What's reviewed                                                              | accept/reject means                                                       |
+| Start command        | Mode           | What's reviewed                                                              | staging                                                                   |
 | -------------------- | -------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `galley`             | repo (default) | working-tree (or `--diff staged`) diff                                       | accept = **stage** the hunk                                               |
-| `galley file <path>` | file           | one file — tracked or untracked/new. No changes → full file; changed → diff. | tracked+changed → **stage**; untracked → **verdict**                      |
-| `galley pr <ref>`    | pr             | a branch's committed changes vs its base                                     | **verdict only**: accept = approve, reject = request-changes (no staging) |
+| `galley`             | repo (default) | working-tree (or `--diff staged`) diff                                       | **Approve stages** the file (toggle); accept/reject are verdicts          |
+| `galley file <path>` | file           | one file — tracked or untracked/new. No changes → full file; changed → diff. | tracked+changed → **Approve stages**; untracked → **verdict**             |
+| `galley pr <ref>`    | pr             | a branch's committed changes vs its base                                     | **verdict only**: Approve = approve, reject = request-changes (no staging) |
 
 - **Repo mode** (the default) reviews the whole working tree. `--diff staged` reviews the staged diff instead; `--path <p>` limits it to one path.
 - **File mode** is for reviewing an artifact (e.g. a generated plan in a temp/config folder) and commenting on it. An untracked file shows in full and is commented, not staged. Markdown files render formatted with a Rendered/Source toggle, and you can comment on any rendered block.
@@ -133,6 +133,7 @@ This is the `result` field of a `{"kind":"review", …}` event from `galley awai
     { "path": "c.ts", "lineNumber": 7, "side": "additions", "body": "extract this into a helper" }
   ],
   "stagedFiles": ["a.ts"],
+  "approvedFiles": ["a.ts"],
   "artifacts": {
     "resultJson": "~/.galley/<repoHash>/<session>/<id>-result.json",
     "summaryMd": "~/.galley/<repoHash>/<session>/<id>-send-review.md",
@@ -140,6 +141,8 @@ This is the `result` field of a `{"kind":"review", …}` event from `galley awai
   }
 }
 ```
+
+Each changed file ends the review in one of three states: **pending** (the reviewer hasn't signed it off), **approved** (signed off with no objections → listed in `approvedFiles`), or **changes-requested** (signed off but has a rejected hunk and/or a requested change). `approvedFiles` is exactly the files with no rejected hunk and no open requested-change, whose approval was still current at Send — leave them as they are. Approval is invalidated automatically when the file's content changes, so after you edit and `galley reload`, a previously-approved file you touched returns to pending for re-review.
 
 `summaryMarkdown` is a ready-to-use prompt body; the structured arrays are there when you need to act precisely.
 
@@ -154,6 +157,7 @@ If your harness can't hold a `galley await` long-poll open or background the des
 | **Rejected change**              | Revert that change. The reviewer does not want it.                                                                                            |
 | **Requested change** (a comment) | Make the edit it asks for, at `path:lineNumber`. (Questions are not here — they arrive as their own `question` events and are answered live.) |
 | **Accepted change**              | Leave it. Do not re-touch accepted hunks.                                                                                                     |
+| **Approved file** (`approvedFiles`) | Signed off as-is. Leave the whole file alone unless a requested change elsewhere forces a touch — if so, expect it to need re-review.       |
 | **Staged file**                  | Already staged by the reviewer. Don't touch unless a requested change requires it.                                                            |
 | **Show your edits**              | After editing, run `galley reload` so the new diff appears in the open tab.                                                                   |
 | **Next round**                   | Call `galley await` again to wait for the reviewer's next Send.                                                                               |
@@ -216,7 +220,7 @@ A live desk writes `<sessionDir>/desk.lock` (with its `url`) and removes it on e
 
 ## Settings
 
-The desk has a gear-triggered settings panel (persisted per-browser): diff layout/intra-line/indicators/separators/wrapping, a shared code-highlight theme, mono font + size, show-unchanged-files, and a stage-on-accept toggle. These are the human's display preferences — you don't set them, but note that with stage-on-accept off, accept becomes a verdict and `stagedFiles` may be empty even for accepted hunks.
+The desk has a gear-triggered settings panel (persisted per-browser): diff layout/intra-line/indicators/separators/wrapping, a shared code-highlight theme, mono font + size, show-unchanged-files, and an "Approve stages file" toggle. These are the human's display preferences — you don't set them, but note that with "Approve stages file" off, approving is verdict-only and `stagedFiles` may be empty even for approved files.
 
 ## Errors
 

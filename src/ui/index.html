@@ -633,6 +633,30 @@
       display: block
     }
 
+    /* "Rendering…" indicator shown while a non-cached diff render is in flight. Covers the
+       diff area so stale content isn't shown; the work is synchronous so it can't animate. */
+    .diff-rendering {
+      position: absolute;
+      inset: 0;
+      z-index: 8;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      pointer-events: none
+    }
+
+    .diff-rendering span {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-pill);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: var(--text-sm)
+    }
+
     .ovr i {
       position: absolute;
       left: 1px;
@@ -792,41 +816,12 @@
       color: var(--cyan)
     }
 
-    .node .badge.comments {
-      color: var(--amber)
-    }
-
-    .node .badge.viewed {
+    .node .badge.approved {
       color: var(--green)
     }
 
-    .git-action {
-      margin-left: 4px;
-      border: 1px solid var(--line);
-      background: var(--surface);
-      color: var(--muted);
-      border-radius: var(--radius-sm);
-      width: 20px;
-      height: 20px;
-      padding: 0;
-      display: inline-grid;
-      place-items: center
-    }
-
-    .git-action:hover {
-      border-color: rgba(115, 218, 145, .45);
-      color: var(--green);
-      background: rgba(115, 218, 145, .08)
-    }
-
-    .git-action.unstage {
+    .node .badge.changes {
       color: var(--amber)
-    }
-
-    .git-action.unstage:hover {
-      border-color: rgba(224, 175, 104, .55);
-      color: var(--amber);
-      background: rgba(224, 175, 104, .1)
     }
 
     .node.test {
@@ -1479,6 +1474,16 @@
       opacity: .72
     }
 
+    /* "Mark reviewed" (file has objections): amber-tinted, distinct from the green Approve. */
+    .diff-header-action.warn {
+      background: rgba(224, 175, 104, .14);
+      color: var(--amber-fg)
+    }
+
+    .diff-header-action.warn:hover {
+      background: rgba(224, 175, 104, .22)
+    }
+
     .file-header-actions {
       display: inline-flex;
       align-items: center;
@@ -1887,15 +1892,11 @@
               <span class="nm" x-text="r.name"></span>
               <span class="testcaret" x-show="r.testToggle" x-text="r.testCaret"
                 @click.stop="$store.g.toggleTestDir(r.testKey)"></span>
-              <span class="status-pack" x-show="r.badges">
-                <svg class="ic badge pending" x-show="r.badges && r.badges.pending"><use href="#gly-dot"></use></svg>
-                <svg class="ic badge comments" x-show="r.badges && r.badges.comments"><use href="#gly-comment"></use></svg>
-                <svg class="ic badge viewed" x-show="r.badges && r.badges.viewed"><use href="#gly-check"></use></svg>
+              <span class="status-pack" x-show="r.state">
+                <svg class="ic badge pending" x-show="r.state==='pending'" title="Pending review"><use href="#gly-dot"></use></svg>
+                <svg class="ic badge approved" x-show="r.state==='approved'" title="Approved"><use href="#gly-check"></use></svg>
+                <svg class="ic badge changes" x-show="r.state==='changes-requested'" title="Changes requested"><use href="#gly-flag"></use></svg>
               </span>
-              <button class="git-action" x-show="r.git" :class="r.git" @click.stop="$store.g.gitToggle(r.path, r.git)"
-                :title="r.git==='unstage' ? 'Unstage file' : 'Stage file'">
-                <svg class="ic"><use :href="r.git==='unstage' ? '#gly-minus' : '#gly-plus'"></use></svg>
-              </button>
             </div>
           </template></div>
       </aside>
@@ -1914,12 +1915,13 @@
           <span class="gb-fill"></span>
           <span class="gb-progress" x-show="$store.g.guideProgress">
             <span class="gb-bar"><i :style="`width:${$store.g.guideProgress().pct}%`"></i></span>
-            <span x-text="$store.g.guideProgress().done + '/' + $store.g.guideProgress().total + ' reviewed'"></span>
+            <span x-text="$store.g.guideProgress().done + '/' + $store.g.guideProgress().total + ' reviewed' + ($store.g.guideProgress().approved ? ' · ' + $store.g.guideProgress().approved + ' approved' : '')"></span>
           </span>
         </div>
         <div class="diff-area">
           <div id="diff" x-ignore></div>
           <div class="ovr" id="ovr" x-ignore></div>
+          <div class="diff-rendering" x-show="$store.g.rendering" x-cloak><span>Rendering…</span></div>
         </div>
       </section>
       <div class="action-pop" id="actionPop" :class="{show: $store.g.popoverOpen}">
@@ -1935,14 +1937,6 @@
             @click="$store.g.ask()">Ask</button><button class="btn primary" x-show="!$store.g.editingCommentId"
             @click="$store.g.requestChange()">Request change</button><button class="btn primary"
             x-show="$store.g.editingCommentId" @click="$store.g.saveComment()">Save</button></div>
-      </div>
-      <div class="modal-backdrop" id="stageModal" :class="{show: $store.g.modalOpen}">
-        <div class="modal">
-          <h3>Pending decisions</h3>
-          <p>Staging will keep all changes and resolve all comments in this file.</p>
-          <div class="modal-actions"><button class="btn" @click="$store.g.cancelStage()">Cancel</button><button
-              class="btn primary" @click="$store.g.confirmStage()">Keep all and stage</button></div>
-        </div>
       </div>
       <div class="modal-backdrop" id="settingsModal" :class="{show: $store.g.settingsOpen}"
         @click.self="$store.g.closeSettings()">
@@ -2013,7 +2007,7 @@
                 @change="$store.g.applySettings()">Show unchanged files</label></div>
           <div class="set-section">Behavior</div>
           <div class="set-grid"><label class="check"><input type="checkbox" x-model="$store.g.settings.stageOnAccept"
-                @change="$store.g.applySettings()">Stage on accept (off = verdict only)</label></div>
+                @change="$store.g.applySettings()">Approve stages file (off = verdict only)</label></div>
           <div class="modal-actions"><button class="btn primary" @click="$store.g.closeSettings()">Done</button></div>
         </div>
       </div>

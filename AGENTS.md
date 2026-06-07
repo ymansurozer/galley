@@ -10,7 +10,7 @@ When the user should review a plan, a PR, or code changes you've made, hand it t
 
 Then loop: `galley await --session <task-id>` blocks for the next event and prints a tagged JSON envelope.
 - `{"kind":"question",…}` → answer **now** with `galley comment --path … --line … --side … --body "…"` at the question's location.
-- `{"kind":"review","result":{…}}` → act on `result`: revert **rejected**, make **requestedChanges**, leave **accepted** alone, don't touch **stagedFiles** unless a change requires it.
+- `{"kind":"review","result":{…}}` → act on `result`: revert **rejected**, make **requestedChanges**, leave **accepted** alone, leave **approvedFiles** (signed off as-is) untouched, don't touch **stagedFiles** unless a change requires it. (Editing an approved file invalidates its approval → it needs re-review next round.)
 
 After editing code, run `galley reload --session <task-id>` so your edits show in the open tab, then `galley await` again for the next round. The desk stays open across rounds — don't reopen it.
 

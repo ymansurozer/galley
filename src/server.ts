@@ -220,6 +220,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         }
         state.comments = [];
         state.reviewedFiles = [];
+        state.reviewedFileHashes = {};
         state.stagedFiles = [];
         state.stagedChangeKeys = [];
         state.decisionFiles = [];

@@ -4,9 +4,8 @@ import { S, D, $, api, persist, toast } from "./store";
 import { loadDiffLib } from "./difflib";
 import { currentFile, currentSplittable } from "./changes";
 import { openCommentComposer, closeComposerIfEmpty } from "./selection";
-import { stageFile, unstageFile } from "./decisions";
 import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
-import { render } from "./render";
+import { render, deferRender } from "./render";
 import { pollState } from "./poll";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
 import { applyAppearance, persistSettings } from "./settings";
@@ -56,7 +55,14 @@ document.addEventListener("keydown", (e) => {
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
-S.selectFile = (i) => { S.overviewOpen = false; S.preview = null; S.fileIndex = i; S.fileView = defaultFileView(S.state.files[i]); D.fileDiff = null; render(); };
+// Update the lightweight state synchronously (so the tree active-row + guide bar repaint
+// immediately — the click feels instant), then run the heavier diff render via deferRender,
+// which shows the "Rendering…" indicator only for a cold open of a big file.
+S.selectFile = (i) => {
+  if (i < 0 || !S.state.files[i]) return; // ignore out-of-range selections
+  S.overviewOpen = false; S.preview = null; S.fileIndex = i; S.fileView = defaultFileView(S.state.files[i]); D.fileDiff = null;
+  deferRender();
+};
 // Open any repo file (incl. unchanged ones) for read/comment: fetch its contents and show it
 // as a plain view (old === new → no diff blocks). Comments anchor to it like any file.
 S.previewFile = async (path) => {
@@ -64,7 +70,8 @@ S.previewFile = async (path) => {
     const r = await api<{ path: string; contents: string }>(`/api/file?path=${encodeURIComponent(path)}`);
     if (typeof r.contents !== "string") { toast("Could not open file"); return; }
     S.overviewOpen = false;
-    S.preview = { path, hunks: [], oldFile: { name: path, contents: r.contents }, newFile: { name: path, contents: r.contents } };
+    // contentHash is unused for previews (they're never approved), so leave it empty.
+    S.preview = { path, hunks: [], contentHash: "", oldFile: { name: path, contents: r.contents }, newFile: { name: path, contents: r.contents } };
     D.fileDiff = null; render();
   } catch { toast("Could not open file"); }
 };
@@ -82,7 +89,6 @@ S.toggleAllDirs = () => {
   else { S.collapsedDirs = new Set(); S.expandedDirs = new Set(touchedDirPaths()); }
 };
 S.toggleTestDir = (key) => { S.expandedDirs.has(key) ? S.expandedDirs.delete(key) : S.expandedDirs.add(key); };
-S.gitToggle = (path, action) => (action === "unstage" ? unstageFile(path) : stageFile(path));
 S.rowClick = (r) => { if (r.kind === "dir") S.toggleDir?.(r.full, r.changed); else if (r.fileIndex !== undefined) S.selectFile?.(r.fileIndex); else S.previewFile?.(r.path); };
 S.openComposer = openCommentComposer;
 S.setStyle = (style) => { S.diffStyle = style; localStorage.setItem("galley.diffStyle", style); render(); };
@@ -139,8 +145,6 @@ S.ask = () => submitComment("question");
 S.requestChange = () => submitComment("action");
 S.reset = async () => { const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" }); if (r.state) { S.state = r.state; D.fileDiff = null; render(); } toast("Reset review"); };
 S.send = async () => { const r = await api<{ sent?: boolean }>("/api/send", { method: "POST", body: JSON.stringify(S.state) }); if (r && r.sent) { S.awaitingAgent = true; toast("Sent to agent"); } else toast("Could not send review"); };
-S.cancelStage = () => { S.pendingStagePath = null; S.modalOpen = false; };
-S.confirmStage = async () => { const path = S.pendingStagePath; S.pendingStagePath = null; S.modalOpen = false; if (path) await stageFile(path, true); };
 
 // Alpine: register the reactive store + persist plugin, then start.
 (window as any).Alpine = Alpine;

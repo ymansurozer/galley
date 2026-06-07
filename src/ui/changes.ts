@@ -20,6 +20,33 @@ export function currentSplittable(): boolean {
 export function currentChanges(): ChangeState[] { return S.state.changes.filter((c) => c.path === currentFile().path); }
 export function currentComments(): ReviewComment[] { return S.state.comments.filter((c) => c.path === currentFile().path); }
 
+// ── File-level review state: pending / approved / changes-requested ──────────
+export type FileReviewState = "pending" | "approved" | "changes-requested";
+
+// A file has objections if the reviewer rejected a hunk in it OR left an open requested-change
+// comment (open, by the user, not a question). Questions are answered live, so they don't count.
+// Mirrors the server's computeApprovedFiles so the desk and the handoff agree.
+export function fileObjections(path: string): boolean {
+  const rejected = (S.state.decisions ?? []).some((d) => d.path === path && d.status === "rejected");
+  const openChange = S.state.comments.some((c) => c.path === path && c.status === "open" && c.role !== "agent" && c.intent !== "question");
+  return rejected || openChange;
+}
+
+// A file is "finished" only while its sign-off is current: it's in reviewedFiles and the content
+// hash recorded at sign-off still matches the file (the agent hasn't rewritten it since).
+export function fileFinished(path: string): boolean {
+  if (!S.state.reviewedFiles?.includes(path)) return false;
+  const h = S.state.reviewedFileHashes?.[path];
+  const file = S.state.files.find((f) => f.path === path);
+  return !!h && !!file && h === file.contentHash;
+}
+
+// The single source of truth for a changed file's badge/header/progress state.
+export function fileReviewState(path: string): FileReviewState {
+  if (!fileFinished(path)) return "pending";
+  return fileObjections(path) ? "changes-requested" : "approved";
+}
+
 export function changeStableKey(part: ChangeContent) {
   const side = part.additions > 0 ? "additions" : "deletions";
   const lineNumber = (side === "additions" ? part.additionLineIndex : part.deletionLineIndex) + 1;

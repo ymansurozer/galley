@@ -1,4 +1,5 @@
 import { S } from "./store";
+import { fileFinished, fileReviewState } from "./changes";
 import type { TreeRow, TreeNode, TreeFile } from "./types";
 
 // Every directory path in the tree (independent of current open/closed state) — used by
@@ -87,22 +88,24 @@ export function treeRows(): TreeRow[] {
 
   function fileRow(file: TreeFile, depth: number, isTest: boolean) {
     const comments = S.state.comments.filter((c) => c.path === file.path);
-    const openComments = comments.filter((c) => c.status === "open" && c.role !== "agent").length;
-    const reviewed = S.state.reviewedFiles?.includes(file.path);
-    const staged = S.state.stagedFiles?.includes(file.path);
     const decisions = S.state.changes.filter((c) => c.path === file.path);
     const decided = decisions.length > 0 && decisions.every((c) => c.status !== "pending");
+    const finished = fileFinished(file.path);
+    // Single review-state badge for a changed file: pending / approved / changes-requested.
+    const state = file.changed ? fileReviewState(file.path) : null;
     // No file is "active" while the guide Overview is showing (nothing is being viewed yet).
     // While previewing an opened file, the previewed path is active (it may be unchanged, so
     // it has no fileIndex); otherwise the indexed review file is active.
     const active = S.overviewOpen ? false : S.preview ? S.preview.path === file.path : file.index === S.fileIndex;
     const hasTests = !isTest && file.tests.length > 0;
-    const changedTests = !isTest && file.tests.some((t) => t.changed && !S.state.stagedFiles?.includes(t.path));
-    const changedish = (file.changed || changedTests) && !staged;
+    const changedTests = !isTest && file.tests.some((t) => t.changed && fileReviewState(t.path) === "pending");
+    // "Changed" (cyan) filename = still needs attention: a pending changed file, or a child test
+    // that's still pending. Approved / changes-requested files read as neutral (dealt with).
+    const changedish = (file.changed && state === "pending") || changedTests;
     const testOpen = hasTests && (S.expandedDirs.has(`tests:${file.path}`) || changedTests);
-    // Original: a file with tests shows the test-toggle caret instead of badges
-    // only when it's otherwise "quiet" (not reviewed/decided/commented).
-    const showTestToggle = hasTests && !reviewed && !decided && !comments.length;
+    // A file with tests shows the test-toggle caret instead of a badge only when it's otherwise
+    // "quiet" (not finished / decided / commented).
+    const showTestToggle = hasTests && !finished && !decided && !comments.length;
     rows.push({
       key: (isTest ? "test:" : "file:") + file.path,
       kind: isTest ? "test" : "file",
@@ -115,9 +118,7 @@ export function treeRows(): TreeRow[] {
       testKey: `tests:${file.path}`,
       testCaret: testOpen ? "▾" : "▸",
       changeType: changedish ? changeType(file) : null,
-      badges: showTestToggle ? null : { pending: !decided && file.changed && !staged, comments: openComments > 0, viewed: !!reviewed },
-      git: file.changed || staged ? (staged ? "unstage" : "stage") : null,
-      gitSymbol: staged ? "−" : "+",
+      state: showTestToggle ? null : state,
     });
     if (testOpen) file.tests.sort((a, b) => Number(b.changed) - Number(a.changed) || a.name.localeCompare(b.name)).forEach((t) => fileRow(t, depth + 1, true));
   }

@@ -28,7 +28,7 @@ export type Settings = {
 export type Selection = { side: Side; lineNumber: number; endLine?: number };
 
 // ── File-tree rows (pure data the x-for template renders) ──────────────────
-export type TreeBadges = { pending: boolean; comments: boolean; viewed: boolean };
+export type FileReviewState = "pending" | "approved" | "changes-requested";
 
 export type DirRow = {
   kind: "dir";
@@ -54,9 +54,8 @@ export type FileRow = {
   testKey: string;
   testCaret: string;
   changeType: "new" | "modified" | "deleted" | null;
-  badges: TreeBadges | null;
-  git: "stage" | "unstage" | null;
-  gitSymbol: string;
+  // Single review-state badge (null = unchanged file / showing the test caret instead).
+  state: FileReviewState | null;
 };
 
 export type TreeRow = DirRow | FileRow;
@@ -91,6 +90,11 @@ export type DiffHolder = {
   diffAcceptRejectHunk: Pierre["diffAcceptRejectHunk"];
   // FileDiff is generic over its annotation metadata — ours is AnnotationMeta.
   instance: import("@pierre/diffs").FileDiff<AnnotationMeta> | null;
+  // LRU of rendered diffs keyed by file + view options (see diffKey). Each instance lives in
+  // its own wrapper element; only the active wrapper is mounted in #diff, the rest stay
+  // detached (held here) with their DOM + @pierre highlight cache intact — so re-opening a
+  // visited file re-mounts instantly without re-tokenizing.
+  diffCache: Map<string, { wrapper: HTMLElement; inst: import("@pierre/diffs").FileDiff<AnnotationMeta> }>;
   fileDiff: import("@pierre/diffs").FileDiffMetadata | null;
 };
 
@@ -102,18 +106,18 @@ export interface Store {
   projectFiles: string[];
   expandedDirs: Set<string>;
   collapsedDirs: Set<string>;
-  pendingStagePath: string | null;
   diffStyle: DiffStyle;
   fileIndex: number;
   // A non-review file (e.g. an unchanged file) the reviewer opened to read/comment on.
   // When set, it's the "current file" instead of state.files[fileIndex].
   preview: ReviewFile | null;
+  // True while a (non-cached) diff render is in flight — drives the "Rendering…" indicator.
+  rendering: boolean;
   awaitingAgent: boolean;
   lastBaseDiffHash: string | null;
   selected: Selection;
   composerOpen: boolean;
   popoverOpen: boolean;
-  modalOpen: boolean;
   toastMsg: string;
   composerTitle: string;
   composerBody: string;
@@ -134,7 +138,6 @@ export interface Store {
   toggleAllDirs?: () => void;
   treeAnyOpen?: () => boolean;
   toggleTestDir?: (key: string) => void;
-  gitToggle?: (path: string, action: string) => void;
   rowClick?: (r: TreeRow) => void;
   openComposer?: () => void;
   setStyle?: (style: DiffStyle) => void;
@@ -155,7 +158,7 @@ export interface Store {
   guidePrev?: () => void;
   guideAtStart?: () => boolean;
   guideAtLast?: () => boolean;
-  guideProgress?: () => { done: number; total: number; pct: number };
+  guideProgress?: () => { done: number; approved: number; total: number; pct: number };
   categorySteps?: () => CategoryStep[];
   jumpToCategory?: (category: string) => void;
   saveComment?: () => void;
@@ -163,8 +166,6 @@ export interface Store {
   requestChange?: () => void;
   reset?: () => Promise<void>;
   send?: () => Promise<void>;
-  cancelStage?: () => void;
-  confirmStage?: () => Promise<void>;
 }
 
 export type { ReviewState, ReviewComment, ChangeState, Decision };

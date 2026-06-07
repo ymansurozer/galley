@@ -1,4 +1,5 @@
 import { S, $, esc } from "./store";
+import { fileReviewState } from "./changes";
 
 // Whether the current review carries an agent-attached guide with at least one file.
 export function hasGuide(): boolean {
@@ -40,42 +41,44 @@ export function prevFileIndex(cur: number): number | null {
   return cur - 1 >= 0 ? cur - 1 : null;
 }
 
-// Overall review progress for the guide-bar indicator: files marked viewed / total files.
-export function guideProgress(): { done: number; total: number; pct: number } {
-  const total = S.state?.files?.length ?? 0;
-  const done = S.state?.reviewedFiles?.length ?? 0;
-  return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
+// Overall review progress for the guide-bar indicator. "done" counts files the reviewer has
+// finished (approved OR changes-requested), so requesting changes still advances the bar;
+// "approved" is the clean-signoff sub-count.
+export function guideProgress(): { done: number; approved: number; total: number; pct: number } {
+  const files = S.state?.files ?? [];
+  const total = files.length;
+  const done = files.filter((f) => fileReviewState(f.path) !== "pending").length;
+  const approved = files.filter((f) => fileReviewState(f.path) === "approved").length;
+  return { done, approved, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }
 
-export type CategoryStep = { category: string; total: number; viewed: number; pct: number; critical: boolean; active: boolean };
+export type CategoryStep = { category: string; total: number; done: number; pct: number; critical: boolean; active: boolean };
 
 // Per-category macro-progress for the top-bar stepper: distinct categories in guide order,
-// each with viewed/total (count + fill) and whether it holds the current file / a critical.
+// each with done/total (count + fill) and whether it holds the current file / a critical.
 export function categorySteps(): CategoryStep[] {
   if (!hasGuide()) return [];
-  const reviewed = new Set(S.state.reviewedFiles ?? []);
   const curCat = !S.overviewOpen ? currentGuideEntry()?.category : undefined;
   const out: CategoryStep[] = [];
   const at = new Map<string, number>();
   for (const g of S.state.guide!.files) {
     let i = at.get(g.category);
-    if (i === undefined) { i = out.length; at.set(g.category, i); out.push({ category: g.category, total: 0, viewed: 0, pct: 0, critical: false, active: g.category === curCat }); }
+    if (i === undefined) { i = out.length; at.set(g.category, i); out.push({ category: g.category, total: 0, done: 0, pct: 0, critical: false, active: g.category === curCat }); }
     const step = out[i]!;
     step.total++;
-    if (reviewed.has(g.path)) step.viewed++;
+    if (fileReviewState(g.path) !== "pending") step.done++;
     if (g.critical) step.critical = true;
   }
-  for (const s of out) s.pct = s.total ? Math.round((s.viewed / s.total) * 100) : 0;
+  for (const s of out) s.pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
   return out;
 }
 
-// Jump target for a category click: its first not-yet-viewed file (guide order), else its first.
+// Jump target for a category click: its first not-yet-finished file (guide order), else its first.
 export function firstFileOfCategory(category: string): number | null {
   if (!hasGuide()) return null;
   const byPath = new Map(S.state.files.map((f, i) => [f.path, i] as const));
-  const reviewed = new Set(S.state.reviewedFiles ?? []);
   const inCat = S.state.guide!.files.filter((g) => g.category === category);
-  const target = inCat.find((g) => !reviewed.has(g.path)) ?? inCat[0];
+  const target = inCat.find((g) => fileReviewState(g.path) === "pending") ?? inCat[0];
   return target ? byPath.get(target.path) ?? null : null;
 }
 
@@ -110,8 +113,8 @@ export function renderOverview() {
   const g = S.state.guide!;
   // Each category segment grows in proportion to how many files it holds (flex-grow = total).
   const plan = categorySteps()
-    .map((c) => `<button class="go-cat${c.critical ? " crit" : ""}${c.viewed === c.total ? " done" : ""}" data-cat="${esc(c.category)}" title="Jump to ${esc(c.category)} (${c.total} file${c.total === 1 ? "" : "s"})" style="flex-grow:${c.total}">
-      <span class="go-cat-top"><span class="go-cat-lab">${c.critical ? "⚑ " : ""}${esc(c.category)}</span><span class="go-cat-cnt">${c.viewed}/${c.total}</span></span>
+    .map((c) => `<button class="go-cat${c.critical ? " crit" : ""}${c.done === c.total ? " done" : ""}" data-cat="${esc(c.category)}" title="Jump to ${esc(c.category)} (${c.total} file${c.total === 1 ? "" : "s"})" style="flex-grow:${c.total}">
+      <span class="go-cat-top"><span class="go-cat-lab">${c.critical ? "⚑ " : ""}${esc(c.category)}</span><span class="go-cat-cnt">${c.done}/${c.total}</span></span>
       <span class="go-cat-bar"><i style="width:${c.pct}%"></i></span>
     </button>`)
     .join("");
