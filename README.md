@@ -106,6 +106,16 @@ the guided review, then UI work, then distribution.
       Next/Prev + progress; approving (or marking reviewed) a file advances. Galley runs no model — it renders +
       validates the guide and flags it stale when the diff moves past it. (Built as vertical
       slices; design in `prototypes/`, PRD + issues in `.prd/guided-review/`.)
+- [ ] **Anti-hedging guide-authoring rules** — tighten the guide spec / skill instructions with
+      explicit anti-hedging language (ban "appears / seems / might / likely / probably / I think";
+      demand "This change introduces… / moves… / is needed because…"; describe only what the diff
+      supports, state concrete uncertainty otherwise). Cheap copy-edit that raises the quality of
+      agent-authored summaries and seeded comments. (Borrowed from codiff's review-assist prompt.)
+- [ ] **Anchor repair instead of stale-flagging** — when re-diffing on `reload`, try to re-anchor
+      each guide entry to its nearest surviving section/line before declaring the guide stale, so a
+      guide degrades gracefully across rounds (the agent edits between rounds — Galley's hot path)
+      instead of invalidating wholesale on any drift. Keep clean "vanished → stale" semantics for
+      anchors that genuinely no longer resolve. (Borrowed from codiff's walkthrough anchor repair.)
 
 ### UI
 
@@ -142,12 +152,47 @@ the guided review, then UI work, then distribution.
       it always reviews via Galley — the snippet refers back to the skill for details. `pnpm
       smoke` drives the full `await` event-stream loop end-to-end (question → answer → Send →
       ReviewResult) on a throwaway repo as a kept check.
+- [ ] **App-served guide spec + thin skill shim** — move the guide data-model + authoring rules
+      out of the skill and into the binary (`galley guide-spec` prints the current schema + rules
+      to stdout); the installed skill fetches it at runtime instead of hardcoding it, so the skill
+      can't drift from the user's installed `galley`. Keep the human-facing reference in SKILL.md,
+      but make the *machine* contract come from the binary. (Borrowed from codiff's
+      `--walkthrough-guide`; highest-leverage robustness win for the skill-install distribution.)
 - [x] **Documented file-poll fallback** — for agents that can't long-poll or background a
       process: each Send (over)writes `artifacts.resultJson`, so the agent polls that file
       instead of `galley await`. Documented in `skills/galley/SKILL.md` (File-poll fallback).
 - [x] **Keyboard shortcuts** — full keyboard navigation (Gerrit-style): `]`/`[` files, `j`/`k`
       lines, `n`/`p` changes, `a`/`x` accept/reject, `c` comment, `f` approve, `?` help overlay.
 - [x] **UI Polish**: 
+- [ ] **Command palette** — add a discoverable Cmd/Ctrl+Shift+P palette for common review
+      actions: file filter, find in diffs, next/previous file or change, accept/reject/request
+      change, approve file, toggle layout/settings/sidebar, open in editor, reload, and Send to
+      Agent. Keep keyboard shortcuts as the fast path, but make every major action searchable.
+- [ ] **Commit/range/branch review modes** — expand beyond working/staged/file/PR branch
+      reviews with `galley commit <ref>`, `galley range <base>..<head>` / `<base>...<head>`, and
+      `galley branch <base>` so Galley can review historical or comparison diffs without
+      requiring a dirty working tree.
+- [ ] **Open file in editor** — add a configurable editor command and UI/shortcut action to open
+      the selected file at the current line from the review desk. Support placeholders like
+      `{repo}`, `{file}`, and `{line}` and keep it safe for repo-relative paths.
+- [ ] **Lazy diff/content loading + large/binary-file guards** — today `src/git.ts` reads full
+      contents for *every* changed file up front (`git show` / `fs.readFile(…, "utf8")`, capped only
+      by a 50 MiB `maxBuffer` crash guard) and ships it all in the initial state; the only large-file
+      handling is client-side render deferral (`deferRender`'s "Rendering…" badge over
+      `RENDER_INDICATOR_MIN_LINES`, plus the `DIFF_CACHE_CAP` LRU of warm @pierre instances), which
+      only manages tokenization jank on content that's *already* loaded. Move the guard to the data
+      layer: classify each file by byte size before loading and ship lightweight patch/summary data
+      first, then hydrate full contents, highlighting, rendered markdown, and image details on demand
+      when a file is opened. Borrow codiff's model — a per-file `loadState`
+      (`ready | deferred | too-large | binary | error`) with two byte tiers (an *eager* limit, e.g.
+      ~1 MiB, loaded up front; a *manual* limit, e.g. ~2 MiB, deferred until the user opens it; over
+      that = `too-large`, skipped with a "File is N MB, so Galley skipped rendering it." summary and an
+      explicit load-anyway action) plus an image byte cap. Add **binary detection** (NUL-byte scan)
+      so binaries are skipped rather than read as UTF-8 and handed to @pierre — Galley has no binary
+      guard today.
+- [ ] **GitHub PR URL/number support** — let `galley pr 123` or a GitHub pull request URL resolve
+      and fetch the PR branch/merge-base automatically. Keep Send-to-Agent as the primary output;
+      any GitHub publishing should be optional and separate.
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
       PR) plus an automated release flow: merges to `main` trigger semantic versioning and a
       tagged release (changelog, npm publish/binaries), with GitHub branch protection on `main`
