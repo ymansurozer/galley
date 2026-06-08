@@ -7,7 +7,7 @@
   <title>Galley</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
   <style>
     :root {
@@ -86,6 +86,16 @@
       --text-xl: 17px;
 
       --mono: "JetBrains Mono", ui-monospace, monospace;
+      /* UI / non-code text. Code (the diff, inline code, file paths) stays --mono. Both are
+         overridable in Settings → Appearance (Code font / UI font) via applyAppearance. */
+      --sans: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-family: var(--sans)
+    }
+
+    /* Code is always monospace, wherever it appears in the chrome (inline code, fenced blocks).
+       The @pierre diff uses its own --diffs-font-family (set from the Code font in applyAppearance). */
+    code,
+    pre {
       font-family: var(--mono)
     }
 
@@ -418,7 +428,7 @@
       box-sizing: border-box;
       background: var(--surface-raised);
       border-bottom: 1px solid var(--line);
-      font-family: var(--mono);
+      font-family: var(--sans);
       font-size: var(--text-sm)
     }
 
@@ -473,6 +483,7 @@
     .ghdr .ghdr-file {
       flex: 0 0 auto;
       color: var(--ink);
+      font-family: var(--mono);
       font-weight: 600
     }
 
@@ -492,7 +503,6 @@
       border: 0;
       background: transparent;
       color: var(--ghost);
-      font-family: var(--mono);
       font-size: var(--text-2xs);
       line-height: 1.5;
       padding: 1px 6px;
@@ -530,6 +540,7 @@
     .ghdr .ghdr-counts {
       flex: 0 0 auto;
       display: inline-flex;
+      font-family: var(--mono);
       gap: 6px
     }
 
@@ -602,7 +613,7 @@
     }
 
     #diff>* {
-      font-family: var(--mono) !important;
+      font-family: var(--sans);
       font-size: var(--code-size, 12.5px);
       line-height: 1.62
     }
@@ -993,7 +1004,7 @@
     }
 
     .annotation {
-      font-family: var(--mono);
+      font-family: var(--sans);
       position: relative;
       width: 100%;
       min-height: 30px;
@@ -1993,14 +2004,19 @@
                   <option value="pierre-dark">Pierre Dark</option>
                   <option value="pierre-dark-soft">Pierre Dark Soft</option>
                 </optgroup>
-              </select></label><label>Font<select x-model="$store.g.settings.font" @change="$store.g.applySettings()">
+              </select></label><label>Code font<select x-model="$store.g.settings.font" @change="$store.g.applySettings()">
                 <option value="jetbrains-mono">JetBrains Mono</option>
                 <option value="geist-mono">Geist Mono</option>
                 <option value="fira-code">Fira Code</option>
                 <option value="ibm-plex-mono">IBM Plex Mono</option>
                 <option value="source-code-pro">Source Code Pro</option>
                 <option value="roboto-mono">Roboto Mono</option>
-              </select></label><label>Font size<input type="number" min="11" max="16" step="0.5"
+              </select></label><label>UI font<select x-model="$store.g.settings.uiFont" @change="$store.g.applySettings()">
+                <option value="inter">Inter</option>
+                <option value="geist">Geist</option>
+                <option value="ibm-plex-sans">IBM Plex Sans</option>
+                <option value="system">System</option>
+              </select></label><label>Code size<input type="number" min="11" max="16" step="0.5"
                 x-model.number="$store.g.settings.fontSize" @change="$store.g.applySettings()"></label></div>
           <div class="set-section">File tree</div>
           <div class="set-grid"><label>Unchanged files<select

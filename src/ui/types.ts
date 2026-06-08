@@ -15,8 +15,9 @@ export type Settings = {
   // emphasis), off (no row tint — focus entirely on the word diff).
   lineHighlight: "full" | "subtle" | "off";
   theme: string;      // Shiki bundled dark theme — applies to the diff AND comment code
-  font: string;       // key into the FONTS map
-  fontSize: number;   // px
+  font: string;       // key into the FONTS map — code font (diff + comment/markdown code)
+  uiFont: string;     // key into the SANS_FONTS map — UI chrome font (non-code)
+  fontSize: number;   // px — code font size (diff + comment code)
   showUnchanged: boolean;
   // Diff view: "collapse" (default) folds long unchanged runs into a "N unmodified lines"
   // separator; "expand" renders every line (mapped to @pierre's expandUnchanged flag).

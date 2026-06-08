@@ -149,7 +149,6 @@ the guided review, then UI work, then distribution.
       hunks/files), to speed up the review flow and reduce mouse dependency.
 - [ ] **UI Polish**: 
       - Icons duotone or lucide or other
-      - Sans font for non-code UI
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
       PR) plus an automated release flow: merges to `main` trigger semantic versioning and a
       tagged release (changelog, npm publish/binaries), with GitHub branch protection on `main`
