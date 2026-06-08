@@ -1,6 +1,6 @@
 {
   "name": "@ymansurozer/galley",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "An integrated review environment (IRE) for code you didn't write by hand — review a git diff in the browser, then hand a structured review back to your coding agent.",
   "keywords": [
     "git",
