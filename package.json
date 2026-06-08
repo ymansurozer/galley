@@ -1,0 +1,74 @@
+{
+  "name": "@ymansurozer/galley",
+  "version": "0.1.0",
+  "description": "An integrated review environment (IRE) for code you didn't write by hand — review a git diff in the browser, then hand a structured review back to your coding agent.",
+  "keywords": [
+    "git",
+    "diff",
+    "code-review",
+    "review",
+    "coding-agent",
+    "ai",
+    "cli"
+  ],
+  "homepage": "https://github.com/ymansurozer/galley#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ymansurozer/galley.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ymansurozer/galley/issues"
+  },
+  "author": "Yusuf Mansur Özer",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "galley": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "node scripts/build-ui.mjs --watch & tsx src/cli.ts",
+    "build": "tsc && tsc -p tsconfig.ui.json && node scripts/build-ui.mjs && cp src/ui/index.html dist/index.html",
+    "start": "node dist/cli.js",
+    "check": "tsc --noEmit && tsc -p tsconfig.ui.json",
+    "lint": "oxlint src scripts && oxfmt --check src scripts",
+    "lint:fix": "oxlint src scripts --fix && oxfmt src scripts",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "smoke": "node scripts/smoke.mjs",
+    "prepack": "pnpm build",
+    "release": "pnpm lint && pnpm check && pnpm test && pnpm build && pnpm smoke && changelogen --release --push"
+  },
+  "devDependencies": {
+    "@types/alpinejs": "^3.13.11",
+    "@types/alpinejs__persist": "^3.13.4",
+    "@types/markdown-it": "^14.1.2",
+    "@types/markdown-it-footnote": "^3.0.4",
+    "@types/node": "latest",
+    "changelogen": "^0.6.2",
+    "esbuild": "^0.28.0",
+    "oxfmt": "^0.53.0",
+    "oxlint": "^1.68.0",
+    "tsx": "latest",
+    "typescript": "latest"
+  },
+  "dependencies": {
+    "@alpinejs/persist": "^3.15.12",
+    "@pierre/diffs": "1.2.4",
+    "@shikijs/markdown-it": "^4.2.0",
+    "alpinejs": "^3.15.12",
+    "dompurify": "^3.4.8",
+    "markdown-it": "^14.2.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "shiki": "^4.2.0"
+  }
+}

@@ -1,0 +1,10 @@
+.prd/
+prototypes/
+node_modules/
+dist/
+.pi/
+*.log
+.DS_Store
+
+# Playwright MCP test artifacts (screenshots/snapshots)
+.playwright-mcp/

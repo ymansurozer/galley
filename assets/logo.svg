@@ -1,0 +1,10 @@
+<svg width="120" height="120" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g filter="url(#hb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g>
+  <g filter="url(#hb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g>
+  <g filter="url(#hb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g>
+  <defs>
+    <filter id="hb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter>
+    <filter id="hb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter>
+    <filter id="hb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter>
+  </defs>
+</svg>

@@ -1,0 +1,33 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  id-token: write # OIDC trusted publishing + npm provenance
+  contents: write # create the GitHub Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm check
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm smoke
+      # OIDC trusted publishing (tokenless) requires npm >= 11.5.1
+      - run: npm install -g npm@latest
+      - run: npm publish --provenance --access public
+      - run: npx changelogen@latest github release --token "$GITHUB_TOKEN"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

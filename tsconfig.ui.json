@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "noEmit": true,
+    "declaration": false
+  },
+  "include": ["src/ui/**/*.ts"],
+  "exclude": ["src/ui/**/*.test.ts"]
+}
