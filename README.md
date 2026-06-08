@@ -64,6 +64,21 @@ make it (resume any time by reopening the desk), so there are just two buttons:
 - **Send to Agent** — hand the current review to the waiting agent; the desk stays open and
   shows the agent's replies as they arrive.
 
+## Development
+
+```bash
+pnpm install
+pnpm lint      # oxlint + oxfmt
+pnpm check     # typecheck (CLI + UI)
+pnpm test      # node:test unit suite
+pnpm smoke     # end-to-end agent-contract loop on a throwaway repo
+```
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/). CI runs
+lint/typecheck/build/test/smoke on every PR. Releases are cut by the maintainer with
+`pnpm release` (bumps version, writes `CHANGELOG.md`, tags, pushes); the pushed `v*` tag
+triggers a workflow that publishes to npm with provenance.
+
 ## Roadmap
 
 Ordered roughly by sequence: **infra & robustness first**, then review capabilities, then

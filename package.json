@@ -1,19 +1,51 @@
 {
-  "name": "galley",
+  "name": "@ymansurozer/galley",
   "version": "0.1.0",
-  "private": true,
+  "description": "Standalone browser-based review desk for git diffs — a human reviews changes and hands a structured review back to a waiting coding agent.",
+  "keywords": [
+    "git",
+    "diff",
+    "code-review",
+    "review",
+    "coding-agent",
+    "ai",
+    "cli"
+  ],
+  "homepage": "https://github.com/ymansurozer/galley#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ymansurozer/galley.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ymansurozer/galley/issues"
+  },
+  "author": "Yusuf Mansur Özer",
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "galley": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "dev": "node scripts/build-ui.mjs --watch & tsx src/cli.ts",
     "build": "tsc && tsc -p tsconfig.ui.json && node scripts/build-ui.mjs && cp src/ui/index.html dist/index.html",
     "start": "node dist/cli.js",
     "check": "tsc --noEmit && tsc -p tsconfig.ui.json",
+    "lint": "oxlint src scripts && oxfmt --check src scripts",
+    "lint:fix": "oxlint src scripts --fix && oxfmt src scripts",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "prepack": "pnpm build",
+    "release": "pnpm lint && pnpm check && pnpm test && pnpm build && pnpm smoke && changelogen --release --push"
   },
   "devDependencies": {
     "@types/alpinejs": "^3.13.11",
@@ -21,7 +53,10 @@
     "@types/markdown-it": "^14.1.2",
     "@types/markdown-it-footnote": "^3.0.4",
     "@types/node": "latest",
+    "changelogen": "^0.6.2",
     "esbuild": "^0.28.0",
+    "oxfmt": "^0.53.0",
+    "oxlint": "^1.68.0",
     "tsx": "latest",
     "typescript": "latest"
   },

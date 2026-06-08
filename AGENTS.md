@@ -15,3 +15,13 @@ Then loop: `galley await --session <task-id>` blocks for the next event and prin
 After editing code, run `galley reload --session <task-id>` so your edits show in the open tab, then `galley await` again for the next round. The desk stays open across rounds — don't reopen it.
 
 Full reference (modes, options, exit semantics, `ReviewResult`): **`skills/galley/SKILL.md`**.
+
+## Commits & releases
+
+- Commits follow **Conventional Commits** (`feat:`, `fix:`, `perf:`, `refactor:`, `docs:`,
+  `chore:`, …). `changelogen` groups them into the changelog and infers the semver bump, so the
+  prefix matters — use `feat:` for user-facing additions and `fix:` for bug fixes.
+- Releases are cut by the maintainer with `pnpm release`: it runs lint + typecheck + tests +
+  build + smoke, then `changelogen --release --push` bumps the version, writes `CHANGELOG.md`,
+  tags `vX.Y.Z`, and pushes. The pushed tag triggers the `release` workflow, which publishes to
+  npm with provenance via OIDC. Do not run `npm publish` by hand.
