@@ -99,6 +99,16 @@
       font-family: var(--mono)
     }
 
+    /* Base size for sprite icons (<svg class="ic"><use href="#gly-…">). currentColor is inherited;
+       .tree-scoped rules below refine size/color per context. vertical-align tucks inline icons
+       (in labels, callouts) onto the text baseline. */
+    svg.ic {
+      width: 14px;
+      height: 14px;
+      flex: 0 0 auto;
+      vertical-align: -.15em
+    }
+
     * {
       box-sizing: border-box
     }
@@ -1880,7 +1890,7 @@
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
         </div>
       </div>
-      <div class="actions"><button class="btn icon" title="Settings" @click="$store.g.openSettings()">⚙</button><button
+      <div class="actions"><button class="btn icon" title="Settings" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
           class="btn" @click="$store.g.reset()">Reset Review</button><button class="btn primary"
           :disabled="$store.g.awaitingAgent" @click="$store.g.send()"
           x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send to Agent'">Send to Agent</button></div>
@@ -1901,8 +1911,8 @@
               <span class="chev-spacer" x-show="r.kind!=='dir'"></span>
               <svg class="ic file" :class="r.changeType" x-show="r.kind!=='dir'"><use href="#gly-file"></use></svg>
               <span class="nm" x-text="r.name"></span>
-              <span class="testcaret" x-show="r.testToggle" x-text="r.testCaret"
-                @click.stop="$store.g.toggleTestDir(r.testKey)"></span>
+              <span class="testcaret" x-show="r.testToggle" @click.stop="$store.g.toggleTestDir(r.testKey)">
+                <svg class="ic chev" :class="{open: r.testCaret==='▾'}"><use href="#gly-chevron"></use></svg></span>
               <span class="status-pack" x-show="r.state">
                 <svg class="ic badge pending" x-show="r.state==='pending'" title="Pending review"><use href="#gly-dot"></use></svg>
                 <svg class="ic badge approved" x-show="r.state==='approved'" title="Approved"><use href="#gly-check"></use></svg>
@@ -1915,14 +1925,14 @@
       <section class="center">
         <div class="guidebar" x-show="$store.g.showGuideBar && $store.g.showGuideBar()" x-cloak>
           <div class="gb-acts">
-            <button class="gb-home" @click="$store.g.openOverview()" title="Overview">⌂</button>
+            <button class="gb-home" @click="$store.g.openOverview()" title="Overview"><svg class="ic"><use href="#gly-home"></use></svg></button>
             <button class="gb-nav" @click="$store.g.guidePrev()"
-              :disabled="$store.g.guideAtStart && $store.g.guideAtStart()" title="Previous (k)">←</button>
+              :disabled="$store.g.guideAtStart && $store.g.guideAtStart()" title="Previous (k)"><svg class="ic"><use href="#gly-arrow-left"></use></svg></button>
             <button class="gb-nav" @click="$store.g.guideNext()"
-              :disabled="$store.g.guideAtLast && $store.g.guideAtLast()" title="Next (j)">→</button>
+              :disabled="$store.g.guideAtLast && $store.g.guideAtLast()" title="Next (j)"><svg class="ic"><use href="#gly-arrow-right"></use></svg></button>
           </div>
           <span class="gb-stale" x-show="$store.g.guideStale && $store.g.guideStale()"
-            title="Guide generated for an earlier diff — regenerate and restart with --guide to refresh">⚠ Guide Stale</span>
+            title="Guide generated for an earlier diff — regenerate and restart with --guide to refresh"><svg class="ic"><use href="#gly-warn"></use></svg> Guide Stale</span>
           <span class="gb-fill"></span>
           <span class="gb-progress" x-show="$store.g.guideProgress">
             <span class="gb-bar"><i :style="`width:${$store.g.guideProgress().pct}%`"></i></span>

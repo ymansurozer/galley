@@ -147,8 +147,7 @@ the guided review, then UI work, then distribution.
       instead of `galley await`. Documented in `skills/galley/SKILL.md` (File-poll fallback).
 - [ ] **Keyboard shortcuts** — for common actions (stage/unstage, accept/reject, comment, navigate
       hunks/files), to speed up the review flow and reduce mouse dependency.
-- [ ] **UI Polish**: 
-      - Icons duotone or lucide or other
+- [x] **UI Polish**: 
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
       PR) plus an automated release flow: merges to `main` trigger semantic versioning and a
       tagged release (changelog, npm publish/binaries), with GitHub branch protection on `main`

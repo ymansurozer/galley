@@ -246,7 +246,7 @@ export async function render() {
       const expl = document.createElement("span"); expl.className = "ghdr-expl"; expl.textContent = entry.summary; row2.appendChild(expl);
       guide.appendChild(row2);
       // Critical "why" gets its own readable callout within the card.
-      if (entry.critical && entry.why) { const why = document.createElement("div"); why.className = "ghdr-why"; why.textContent = "⚑ " + entry.why; guide.appendChild(why); }
+      if (entry.critical && entry.why) { const why = document.createElement("div"); why.className = "ghdr-why"; why.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg> `; why.appendChild(document.createTextNode(entry.why)); guide.appendChild(why); }
       wrap.appendChild(guide);
     }
     return wrap;

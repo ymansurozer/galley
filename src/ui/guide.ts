@@ -135,7 +135,7 @@ export function renderOverview() {
   // Each category segment grows in proportion to how many files it holds (flex-grow = total).
   const plan = categorySteps()
     .map((c) => `<button class="go-cat${c.critical ? " crit" : ""}${c.done === c.total ? " done" : ""}" data-cat="${esc(c.category)}" title="Jump to ${esc(c.category)} (${c.total} file${c.total === 1 ? "" : "s"})" style="flex-grow:${c.total}">
-      <span class="go-cat-top"><span class="go-cat-lab">${c.critical ? "⚑ " : ""}${esc(c.category)}</span><span class="go-cat-cnt">${c.done}/${c.total}</span></span>
+      <span class="go-cat-top"><span class="go-cat-lab">${c.critical ? `<svg class="ic"><use href="#gly-flag"></use></svg> ` : ""}${esc(c.category)}</span><span class="go-cat-cnt">${c.done}/${c.total}</span></span>
       <span class="go-cat-bar"><i style="width:${c.pct}%"></i></span>
     </button>`)
     .join("");
@@ -143,7 +143,7 @@ export function renderOverview() {
   $("diff").innerHTML = `<div class="guide-overview"><div class="go-card">
     <h1>${esc(title)}</h1>
     <div class="go-sub">${esc(S.state.mode)} · ${esc(S.state.session)} · ${S.state.files.length} files</div>
-    ${guideStale() ? `<div class="go-stale">⚠ This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
+    ${guideStale() ? `<div class="go-stale"><svg class="ic"><use href="#gly-warn"></use></svg> This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
     <p class="go-overview">${esc(g.overview)}</p>
     ${g.prDescription ? `<div class="go-pr"><b>PR description</b><p>${esc(g.prDescription)}</p></div>` : ""}
     ${plan ? `<div class="go-plan">${plan}</div>` : ""}
