@@ -128,6 +128,10 @@ export interface Store {
   editingCommentId: string | null;
   settings: Settings;
   settingsOpen: boolean;
+  // Which tab the settings modal shows ("shortcuts" = the keyboard map). A small confirm dialog
+  // backs the destructive shortcuts (⇧R / ⇧S); confirmMsg is the prompt text, "" when closed.
+  settingsTab: "settings" | "shortcuts";
+  confirmMsg: string;
   // Guided review: when true (and a guide is attached) the center shows the Overview page
   // instead of the diff. Selecting any file (tree or Start) drops back to the diff.
   overviewOpen: boolean;
@@ -170,6 +174,15 @@ export interface Store {
   requestChange?: () => void;
   reset?: () => Promise<void>;
   send?: () => Promise<void>;
+  // Keyboard navigation (keys.ts): file stepping in either mode, confirm-dialog answers, and the
+  // grouped binding list the help overlay renders.
+  nextFile?: () => void;
+  prevFile?: () => void;
+  treeStep?: (dir: 1 | -1) => void;
+  confirmYes?: () => void;
+  confirmNo?: () => void;
+  promptFinish?: () => void;
+  helpGroups?: () => { group: string; items: { combo: string; desc: string }[] }[];
 }
 
 export type { ReviewState, ReviewComment, ChangeState, Decision };

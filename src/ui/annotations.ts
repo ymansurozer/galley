@@ -66,13 +66,13 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   const el = document.createElement("div");
   el.className = `annotation ${c.type === "thread" && c.status === "resolved" ? "resolved" : ""}`;
   if (c.type === "change") {
-    el.innerHTML = `<div class="change-actions"><button class="reject">Undo</button><button class="accept">Keep</button></div>`;
+    el.innerHTML = `<div class="change-actions"><button class="reject">Undo <kbd>⇧N</kbd></button><button class="accept">Keep <kbd>⇧Y</kbd></button></div>`;
   } else {
     el.appendChild(buildCommentThread(c));
     if (change) {
       const ca = document.createElement("div");
       ca.className = "change-actions";
-      ca.innerHTML = `<button class="reject">Undo</button><button class="accept">Keep</button>`;
+      ca.innerHTML = `<button class="reject">Undo <kbd>⇧N</kbd></button><button class="accept">Keep <kbd>⇧Y</kbd></button>`;
       el.appendChild(ca);
     }
   }

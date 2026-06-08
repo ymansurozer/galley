@@ -12,7 +12,9 @@ import { applyAppearance, persistSettings } from "./settings";
 import { setMarkdownTheme } from "./markdown";
 import { ensureIcons } from "./icons";
 import { hasGuide, firstGuideIndex, currentGuideEntry, currentFileName, showGuideBar, guideStale, nextFileIndex, prevFileIndex, guideProgress, categorySteps, firstFileOfCategory } from "./guide";
-import type { ReviewState } from "./types";
+import { installKeys, helpGroups, confirmYes, confirmNo, askConfirm } from "./keys";
+import { cursorReset, cursorResync, cursorOnScroll } from "./cursor";
+import type { ReviewState, FileRow } from "./types";
 
 // Close the composer when clicking outside it (unless it has unsaved text).
 document.addEventListener("pointerdown", (e) => {
@@ -39,19 +41,8 @@ document.querySelectorAll<HTMLElement>("[data-resize]").forEach((handle) => {
   };
 });
 
-// Keyboard shortcuts
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { S.composerOpen = false; S.popoverOpen = false; S.editingCommentId = null; S.settingsOpen = false; return; }
-  if (e.key === "c" && S.composerOpen) { e.preventDefault(); S.saveComment?.(); }
-  if (e.key === "v") S.setStyle?.(S.diffStyle === "split" ? "unified" : "split");
-  // j/k walk the guided order (only with a guide, not on the overview, not while typing).
-  if ((e.key === "j" || e.key === "k") && S.hasGuide?.() && !S.overviewOpen && !S.composerOpen) {
-    const tag = (e.target as HTMLElement)?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
-    e.preventDefault();
-    e.key === "j" ? S.guideNext?.() : S.guidePrev?.();
-  }
-});
+// Keyboard shortcuts: a central scope-aware dispatcher (keys.ts) is the single source of truth.
+installKeys();
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
@@ -61,6 +52,7 @@ S.treeRows = treeRows;
 S.selectFile = (i) => {
   if (i < 0 || !S.state.files[i]) return; // ignore out-of-range selections
   S.overviewOpen = false; S.preview = null; S.fileIndex = i; S.fileView = defaultFileView(S.state.files[i]); D.fileDiff = null;
+  cursorReset(); // re-init the line cursor to the new file's first change
   deferRender();
 };
 // Open any repo file (incl. unchanged ones) for read/comment: fetch its contents and show it
@@ -72,7 +64,7 @@ S.previewFile = async (path) => {
     S.overviewOpen = false;
     // contentHash is unused for previews (they're never approved), so leave it empty.
     S.preview = { path, hunks: [], contentHash: "", oldFile: { name: path, contents: r.contents }, newFile: { name: path, contents: r.contents } };
-    D.fileDiff = null; render();
+    D.fileDiff = null; cursorReset(); render();
   } catch { toast("Could not open file"); }
 };
 // Changed folders open by default → toggle via collapsedDirs; unchanged closed → expandedDirs.
@@ -114,6 +106,28 @@ S.guideNext = () => { if (S.overviewOpen) { S.startGuided?.(); return; } const n
 S.guidePrev = () => { if (S.overviewOpen) return; const p = prevFileIndex(S.fileIndex); if (p === null) S.openOverview?.(); else S.selectFile?.(p); };
 S.guideAtStart = () => !!S.overviewOpen;
 S.guideAtLast = () => !S.overviewOpen && nextFileIndex(S.fileIndex) === null;
+// Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else sequential.
+S.nextFile = () => { if (hasGuide() || S.overviewOpen) { S.guideNext?.(); return; } const n = S.fileIndex + 1; if (n < S.state.files.length) S.selectFile?.(n); };
+S.prevFile = () => { if (hasGuide() || S.overviewOpen) { S.guidePrev?.(); return; } const p = S.fileIndex - 1; if (p >= 0) S.selectFile?.(p); };
+// Tree-order file stepping (⇧↑/⇧↓) — walk the file rows as shown in the tree (skip folders),
+// selecting the prev/next one (preview for unchanged files).
+S.treeStep = (dir) => {
+  const fileRows = (S.treeRows?.() ?? []).filter((r): r is FileRow => r.kind !== "dir");
+  if (!fileRows.length) return;
+  const cur = S.preview?.path ?? S.state.files[S.fileIndex]?.path;
+  let i = fileRows.findIndex((r) => r.path === cur);
+  if (i < 0) i = dir === 1 ? -1 : fileRows.length;
+  const target = fileRows[i + dir];
+  if (!target) return;
+  if (target.fileIndex !== undefined) S.selectFile?.(target.fileIndex);
+  else S.previewFile?.(target.path);
+};
+// Keyboard help overlay + destructive-action confirm dialog (keys.ts owns the dialog state).
+S.helpGroups = helpGroups;
+S.confirmYes = confirmYes;
+S.confirmNo = confirmNo;
+// Fired after the last file is approved — offer to send the finished review back to the agent.
+S.promptFinish = () => askConfirm("You've reviewed every file. Send the review back to the agent?", () => S.send?.());
 S.guideProgress = guideProgress;
 // Category stepper (count + fill): clicking a category jumps to its first unreviewed file.
 S.categorySteps = categorySteps;
@@ -164,4 +178,7 @@ if (S.state.files[S.fileIndex]) S.fileView = defaultFileView(S.state.files[S.fil
 // With a guide attached, land on the Overview page (the guided entry point).
 if (hasGuide()) S.overviewOpen = true;
 render();
+// Keep the line-cursor highlight glued to its row while scrolling the diff (rAF-throttled).
+let scrollRAF = 0;
+$("diff").addEventListener("scroll", () => { if (scrollRAF) return; scrollRAF = requestAnimationFrame(() => { scrollRAF = 0; cursorOnScroll(); }); }, { passive: true });
 setInterval(pollState, 1500);

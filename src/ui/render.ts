@@ -8,6 +8,7 @@ import { annotations, renderAnnotation } from "./annotations";
 import { handleLineNumberClick, handleDiffSelection, attachDiffSelectionHandlers } from "./selection";
 import { approveCurrentFile, resetReview } from "./decisions";
 import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
+import { cursorResync, cursorReset } from "./cursor";
 import { hasGuide, renderOverview, currentGuideEntry } from "./guide";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -84,6 +85,7 @@ function changeIcon(type: string | undefined): SVGElement {
 function layoutToggle(): HTMLElement {
   const wrap = document.createElement("span");
   wrap.className = "ghdr-layout";
+  wrap.setAttribute("data-tip", "Split / unified (v)");
   const mk = (label: string, style: "split" | "unified") => {
     const b = document.createElement("button");
     b.textContent = label;
@@ -157,12 +159,13 @@ export async function render() {
   // content, detaching the wrapper, which we re-mount on return). No cleanUp → cache preserved.
   const dropInstance = () => { D.instance = null; };
   // Guided review: the Overview page takes over the center until a file is selected.
-  if (S.overviewOpen && hasGuide()) { dropInstance(); renderOverview(); return; }
+  if (S.overviewOpen && hasGuide()) { cursorReset(); dropInstance(); renderOverview(); return; }
   const f = currentFile();
   const previewing = !!S.preview;
   // Markdown file in rendered mode: formatted preview with block-anchored comments,
   // instead of the @pierre/diffs view.
   if (!previewing && S.state.mode === "file" && isMarkdownPath(f.path) && S.fileView === "rendered") {
+    cursorReset();
     dropInstance();
     applyLayoutClasses();
     renderMarkdownFile();
@@ -208,13 +211,13 @@ export async function render() {
       wrap.appendChild(reset());
     } else {
       const objections = fileObjections(filePath);
+      // Reset (clear in-progress hunk decisions) sits on the left; Approve is always far right.
+      if (S.state.decisionFiles?.includes(filePath)) wrap.appendChild(reset());
       const button = document.createElement("button");
       button.className = "diff-header-action" + (objections ? " warn" : "");
-      button.textContent = objections ? "Mark reviewed" : "Approve";
+      button.innerHTML = `${objections ? "Mark reviewed" : "Approve"} <kbd>⇧A</kbd>`;
       button.onclick = () => approveCurrentFile();
       wrap.appendChild(button);
-      // Clear in-progress hunk decisions without a full sign-off.
-      if (S.state.decisionFiles?.includes(filePath)) wrap.appendChild(reset());
     }
     return wrap;
   };
@@ -288,6 +291,9 @@ export async function render() {
     // The overview ruler only makes sense when the whole file is shown (expand mode) and
     // there are real changes (not a preview). Measure after a frame so rows have laid out.
     if (!previewing && expandUnchanged) requestAnimationFrame(() => renderOverviewRuler());
+    // Repaint the keyboard line cursor once rows have laid out (init to first change on a fresh
+    // file, else keep the same logical line).
+    requestAnimationFrame(() => cursorResync());
   };
   // ── D: an LRU cache of rendered instances, each in its OWN wrapper element. Only the active
   // wrapper is mounted in #diff (others stay detached but referenced by the Map, so their DOM +

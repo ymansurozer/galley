@@ -147,7 +147,7 @@ export function renderOverview() {
     <p class="go-overview">${esc(g.overview)}</p>
     ${g.prDescription ? `<div class="go-pr"><b>PR description</b><p>${esc(g.prDescription)}</p></div>` : ""}
     ${plan ? `<div class="go-plan">${plan}</div>` : ""}
-    <div class="go-actions"><button class="btn primary" id="guideStart">Start Review</button></div>
+    <div class="go-actions"><button class="btn primary" id="guideStart">Start Review <kbd>↵</kbd></button></div>
   </div></div>`;
   const start = $("diff").querySelector("#guideStart") as HTMLButtonElement | null;
   if (start) start.onclick = () => S.startGuided?.();

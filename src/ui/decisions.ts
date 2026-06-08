@@ -43,6 +43,10 @@ export async function approveCurrentFile() {
   }
   persist();
   const label = clean ? "Approved" : "Marked reviewed";
+  // Every changed file signed off → the review is done: prompt to send it back to the agent.
+  if (S.state.files.every((f) => S.state.reviewedFiles!.includes(f.path))) {
+    toast(`${label} — review complete`); render(); S.promptFinish?.(); return;
+  }
   const next = nextFileIndex(S.fileIndex);
   if (next !== null && S.selectFile) { toast(`${label} — next file`); S.selectFile(next); }
   else { toast(`${label} — last file`); render(); }

@@ -207,6 +207,12 @@
       align-items: center
     }
 
+    .actions .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px
+    }
+
     .toggle {
       display: flex;
       gap: 3px;
@@ -260,6 +266,23 @@
     .btn.primary:hover {
       background: var(--cyan-bg-strong);
       border-color: var(--cyan-line-strong)
+    }
+
+    /* Icon-only button (settings gear): no border, so it reads apart from the bordered actions. */
+    .btn.icon,
+    .btn.icon:hover {
+      border-color: transparent
+    }
+
+    .btn.icon:hover {
+      background: var(--surface-raised)
+    }
+
+    /* Destructive action (Reset Review): hint danger on hover. */
+    .btn.danger:hover {
+      color: var(--red);
+      border-color: color-mix(in srgb, var(--red) 55%, transparent);
+      background: color-mix(in srgb, var(--red) 12%, transparent)
     }
 
     .btn.green {
@@ -637,6 +660,23 @@
       display: flex
     }
 
+    /* Keyboard line cursor: a host overlay bar glued to the focused diff row (the diff is in
+       @pierre's shadow, so we position over its rect rather than styling the row). */
+    .diff-cursor {
+      position: absolute;
+      left: 0;
+      right: 0;
+      z-index: 4;
+      display: none;
+      pointer-events: none;
+      background: color-mix(in srgb, var(--cyan) 11%, transparent);
+      border-left: 2px solid var(--cyan)
+    }
+
+    .diff-cursor.show {
+      display: block
+    }
+
     /* VSCode-style change overview: green/red ticks mapping the whole file to the gutter,
        so changes are visible in one skim. Shown only in "expand unchanged" mode. */
     .ovr {
@@ -962,7 +1002,34 @@
     .composer-actions .btn {
       padding: 4px 8px;
       font-size: var(--text-sm);
-      line-height: 16px
+      line-height: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    /* kbd chips inside buttons don't intercept clicks. On a colored/solid button (primary, the
+       diff verdict + approve actions) the default dark chip is unreadable, so use a subtle
+       translucent chip with light text that reads on any button color. */
+    .btn kbd,
+    .change-actions button kbd,
+    .diff-header-action kbd {
+      pointer-events: none
+    }
+
+    .btn.primary kbd,
+    .change-actions button kbd,
+    .diff-header-action kbd {
+      color: rgba(255, 255, 255, .95);
+      background: rgba(0, 0, 0, .22);
+      border-color: rgba(255, 255, 255, .2)
+    }
+
+    .change-actions button,
+    .diff-header-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px
     }
 
     .show {
@@ -1602,7 +1669,109 @@
     .modal-actions .btn {
       padding: 4px 7px;
       font-size: var(--text-sm);
-      line-height: 16px
+      line-height: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    /* Keyboard hint chip — used in the help overlay, composer actions, and dialog buttons. */
+    kbd {
+      font-family: var(--mono);
+      font-size: var(--text-2xs);
+      line-height: 1;
+      padding: 3px 5px;
+      min-width: 16px;
+      text-align: center;
+      color: var(--muted);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xs)
+    }
+
+    /* Fast custom tooltip (native title has a ~1.5s delay): elements opt in with data-tip.
+       Appears just below the element after a short delay. data-tip-align="end" right-anchors it
+       (for controls near the right edge). */
+    [data-tip] {
+      position: relative
+    }
+
+    [data-tip]::after {
+      content: attr(data-tip);
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 60;
+      padding: 4px 7px;
+      border-radius: var(--radius-sm);
+      background: var(--panel3);
+      color: var(--ink);
+      border: 1px solid var(--line-strong);
+      font-family: var(--sans);
+      font-size: var(--text-2xs);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
+      opacity: 0;
+      transition: opacity .1s ease
+    }
+
+    [data-tip][data-tip-align="end"]::after {
+      left: auto;
+      right: 0;
+      transform: none
+    }
+
+    [data-tip]:hover::after {
+      opacity: 1;
+      transition-delay: .18s
+    }
+
+    .modal.help {
+      width: 640px;
+      max-width: 92vw
+    }
+
+    .help-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 28px
+    }
+
+    .help-col {
+      break-inside: avoid;
+      margin-bottom: 6px
+    }
+
+    .help-h {
+      font-size: var(--text-2xs);
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--ghost);
+      margin: 8px 0 4px
+    }
+
+    .help-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 3px 0;
+      font-size: var(--text-sm);
+      color: var(--ink)
+    }
+
+    .help-row kbd {
+      flex: 0 0 auto
+    }
+
+    .modal.confirm {
+      width: 380px
+    }
+
+    .modal.confirm .btn kbd {
+      pointer-events: none
     }
 
     .btn.icon {
@@ -1612,9 +1781,42 @@
     }
 
     .modal.settings {
-      width: 480px;
+      width: 560px;
       max-height: 82vh;
       overflow: auto
+    }
+
+    /* Settings ↔ Shortcuts tab strip. */
+    .set-tabs {
+      display: flex;
+      gap: 2px;
+      margin-bottom: 14px;
+      border-bottom: 1px solid var(--line)
+    }
+
+    .set-tabs button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: var(--text-sm);
+      padding: 6px 10px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px
+    }
+
+    .set-tabs button:hover {
+      color: var(--ink)
+    }
+
+    .set-tabs button.active {
+      color: var(--ink-bright);
+      border-bottom-color: var(--cyan)
+    }
+
+    .set-pane.help-grid {
+      margin-top: 2px
     }
 
     .modal.settings .set-section {
@@ -1804,6 +2006,12 @@
       gap: 12px
     }
 
+    .guide-overview .go-actions .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px
+    }
+
     .guide-overview .go-meta {
       color: var(--ghost);
       font-size: var(--text-sm)
@@ -1885,15 +2093,15 @@
     <header class="top">
       <div><span class="brand">Galley</span></div>
       <div class="toggles">
-        <div class="toggle" x-show="$store.g.isMarkdownFile()"><button :class="{active: $store.g.fileView==='rendered'}"
+        <div class="toggle" x-show="$store.g.isMarkdownFile()" data-tip="Rendered / source (m)"><button :class="{active: $store.g.fileView==='rendered'}"
             @click="$store.g.setFileView('rendered')">Rendered</button><button
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
         </div>
       </div>
-      <div class="actions"><button class="btn icon" title="Settings" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
-          class="btn" @click="$store.g.reset()">Reset Review</button><button class="btn primary"
-          :disabled="$store.g.awaitingAgent" @click="$store.g.send()"
-          x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send to Agent'">Send to Agent</button></div>
+      <div class="actions"><button class="btn icon" data-tip="Settings (⇧,)" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
+          class="btn danger" data-tip="Reset review (⇧R)" @click="$store.g.reset()">Reset Review</button><button class="btn primary"
+          :disabled="$store.g.awaitingAgent" @click="$store.g.send()"><span
+            x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send to Agent'">Send to Agent</span> <kbd>⇧S</kbd></button></div>
     </header>
     <main class="main">
       <aside class="tree">
@@ -1925,11 +2133,11 @@
       <section class="center">
         <div class="guidebar" x-show="$store.g.showGuideBar && $store.g.showGuideBar()" x-cloak>
           <div class="gb-acts">
-            <button class="gb-home" @click="$store.g.openOverview()" title="Overview"><svg class="ic"><use href="#gly-home"></use></svg></button>
+            <button class="gb-home" @click="$store.g.openOverview()" data-tip="Overview (o)"><svg class="ic"><use href="#gly-home"></use></svg></button>
             <button class="gb-nav" @click="$store.g.guidePrev()"
-              :disabled="$store.g.guideAtStart && $store.g.guideAtStart()" title="Previous (k)"><svg class="ic"><use href="#gly-arrow-left"></use></svg></button>
+              :disabled="$store.g.guideAtStart && $store.g.guideAtStart()" data-tip="Previous file (⇧←)"><svg class="ic"><use href="#gly-arrow-left"></use></svg></button>
             <button class="gb-nav" @click="$store.g.guideNext()"
-              :disabled="$store.g.guideAtLast && $store.g.guideAtLast()" title="Next (j)"><svg class="ic"><use href="#gly-arrow-right"></use></svg></button>
+              :disabled="$store.g.guideAtLast && $store.g.guideAtLast()" data-tip="Next file (⇧→)"><svg class="ic"><use href="#gly-arrow-right"></use></svg></button>
           </div>
           <span class="gb-stale" x-show="$store.g.guideStale && $store.g.guideStale()"
             title="Guide generated for an earlier diff — regenerate and restart with --guide to refresh"><svg class="ic"><use href="#gly-warn"></use></svg> Guide Stale</span>
@@ -1940,6 +2148,7 @@
           </span>
         </div>
         <div class="diff-area">
+          <div class="diff-cursor" id="cursorbar"></div>
           <div id="diff" x-ignore></div>
           <div class="ovr" id="ovr" x-ignore></div>
           <div class="diff-rendering" x-show="$store.g.rendering" x-cloak><span>Rendering…</span></div>
@@ -1955,14 +2164,18 @@
         <div class="composer-head"><span x-text="$store.g.composerTitle">New line</span></div><textarea id="commentBody"
           x-model="$store.g.composerBody"></textarea>
         <div class="composer-actions"><button class="btn" x-show="!$store.g.editingCommentId"
-            @click="$store.g.ask()">Ask</button><button class="btn primary" x-show="!$store.g.editingCommentId"
-            @click="$store.g.requestChange()">Request change</button><button class="btn primary"
-            x-show="$store.g.editingCommentId" @click="$store.g.saveComment()">Save</button></div>
+            @click="$store.g.ask()">Ask <kbd>⌘⇧↵</kbd></button><button class="btn primary" x-show="!$store.g.editingCommentId"
+            @click="$store.g.requestChange()">Request change <kbd>⌘↵</kbd></button><button class="btn primary"
+            x-show="$store.g.editingCommentId" @click="$store.g.saveComment()">Save <kbd>⌘↵</kbd></button></div>
       </div>
       <div class="modal-backdrop" id="settingsModal" :class="{show: $store.g.settingsOpen}"
         @click.self="$store.g.closeSettings()">
         <div class="modal settings">
-          <h3>Settings</h3>
+          <div class="set-tabs">
+            <button :class="{active: $store.g.settingsTab==='settings'}" @click="$store.g.settingsTab='settings'">Settings</button>
+            <button :class="{active: $store.g.settingsTab==='shortcuts'}" @click="$store.g.settingsTab='shortcuts'">Shortcuts</button>
+          </div>
+          <div class="set-pane" x-show="$store.g.settingsTab==='settings'">
           <div class="set-section">Diff</div>
           <div class="set-grid"><label>Layout<select :value="$store.g.diffStyle"
                 @change="$store.g.setStyle($event.target.value)">
@@ -2044,7 +2257,25 @@
                 <option value="stage" :selected="$store.g.settings.stageOnAccept">Stages file</option>
                 <option value="verdict" :selected="!$store.g.settings.stageOnAccept">Verdict only</option>
               </select></label></div>
+          </div>
+          <div class="set-pane help-grid" x-show="$store.g.settingsTab==='shortcuts'" x-cloak>
+            <template x-for="grp in $store.g.helpGroups()" :key="grp.group">
+              <div class="help-col">
+                <div class="help-h" x-text="grp.group"></div>
+                <template x-for="it in grp.items" :key="it.combo">
+                  <div class="help-row"><kbd x-text="it.combo"></kbd><span x-text="it.desc"></span></div>
+                </template>
+              </div>
+            </template>
+          </div>
           <div class="modal-actions"><button class="btn primary" @click="$store.g.closeSettings()">Done</button></div>
+        </div>
+      </div>
+      <div class="modal-backdrop" id="confirmModal" :class="{show: $store.g.confirmMsg}" @click.self="$store.g.confirmNo()">
+        <div class="modal confirm">
+          <p x-text="$store.g.confirmMsg"></p>
+          <div class="modal-actions"><button class="btn" @click="$store.g.confirmNo()">Cancel <kbd>Esc</kbd></button><button
+              class="btn primary" @click="$store.g.confirmYes()">Confirm <kbd>↵</kbd></button></div>
         </div>
       </div>
       <div class="toast" id="toast" :class="{show: $store.g.toastMsg}" x-text="$store.g.toastMsg">saved</div>

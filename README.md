@@ -145,8 +145,8 @@ the guided review, then UI work, then distribution.
 - [x] **Documented file-poll fallback** — for agents that can't long-poll or background a
       process: each Send (over)writes `artifacts.resultJson`, so the agent polls that file
       instead of `galley await`. Documented in `skills/galley/SKILL.md` (File-poll fallback).
-- [ ] **Keyboard shortcuts** — for common actions (stage/unstage, accept/reject, comment, navigate
-      hunks/files), to speed up the review flow and reduce mouse dependency.
+- [x] **Keyboard shortcuts** — full keyboard navigation (Gerrit-style): `]`/`[` files, `j`/`k`
+      lines, `n`/`p` changes, `a`/`x` accept/reject, `c` comment, `f` approve, `?` help overlay.
 - [x] **UI Polish**: 
 - [ ] **CI & release automation** — a solid CI pipeline (lint, typecheck, build, tests on every
       PR) plus an automated release flow: merges to `main` trigger semantic versioning and a
