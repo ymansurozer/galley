@@ -11,9 +11,18 @@ type ChangeStatus = ChangeState["status"];
 function recordDecision(change: ChangeState, status: Decision["status"]) {
   S.state.decisions = S.state.decisions || [];
   const key = `${change.path}:${change.stableKey}`;
-  const entry: Decision = { key, status, reviewedHash: change.contentHash, path: change.path, lineNumber: change.lineNumber, side: change.side, title: change.title };
+  const entry: Decision = {
+    key,
+    status,
+    reviewedHash: change.contentHash,
+    path: change.path,
+    lineNumber: change.lineNumber,
+    side: change.side,
+    title: change.title,
+  };
   const i = S.state.decisions.findIndex((d) => d.key === key);
-  if (i >= 0) S.state.decisions[i] = entry; else S.state.decisions.push(entry);
+  if (i >= 0) S.state.decisions[i] = entry;
+  else S.state.decisions.push(entry);
 }
 function clearDecisions(path: string) {
   S.state.decisions = (S.state.decisions || []).filter((d) => d.path !== path);
@@ -26,7 +35,13 @@ function clearDecisions(path: string) {
 export async function approveCurrentFile() {
   const file = currentFile();
   const path = file.path;
-  S.state.changes.filter((c) => c.path === path && c.status === "pending").forEach((c) => { c.status = "accepted"; c.reviewedHash = c.contentHash; recordDecision(c, "accepted"); });
+  S.state.changes
+    .filter((c) => c.path === path && c.status === "pending")
+    .forEach((c) => {
+      c.status = "accepted";
+      c.reviewedHash = c.contentHash;
+      recordDecision(c, "accepted");
+    });
   S.state.decisionFiles = S.state.decisionFiles || [];
   if (!S.state.decisionFiles.includes(path)) S.state.decisionFiles.push(path);
   S.state.reviewedFiles = S.state.reviewedFiles || [];
@@ -45,18 +60,28 @@ export async function approveCurrentFile() {
   const label = clean ? "Approved" : "Marked reviewed";
   // Every changed file signed off → the review is done: prompt to send it back to the agent.
   if (S.state.files.every((f) => S.state.reviewedFiles!.includes(f.path))) {
-    toast(`${label} — review complete`); render(); S.promptFinish?.(); return;
+    toast(`${label} — review complete`);
+    render();
+    S.promptFinish?.();
+    return;
   }
   const next = nextFileIndex(S.fileIndex);
-  if (next !== null && S.selectFile) { toast(`${label} — next file`); S.selectFile(next); }
-  else { toast(`${label} — last file`); render(); }
+  if (next !== null && S.selectFile) {
+    toast(`${label} — next file`);
+    S.selectFile(next);
+  } else {
+    toast(`${label} — last file`);
+    render();
+  }
 }
 
 // Undo a file's review: clear hunk decisions, the finished/sign-off marker + its hash, and unstage.
 export async function resetReview(path: string) {
   S.state.changes.filter((c) => c.path === path).forEach((c) => (c.status = "pending"));
   clearDecisions(path);
-  S.state.stagedChangeKeys = (S.state.stagedChangeKeys || []).filter((k) => !k.startsWith(`${path}:`));
+  S.state.stagedChangeKeys = (S.state.stagedChangeKeys || []).filter(
+    (k) => !k.startsWith(`${path}:`),
+  );
   S.state.decisionFiles = (S.state.decisionFiles || []).filter((p) => p !== path);
   S.state.reviewedFiles = (S.state.reviewedFiles || []).filter((p) => p !== path);
   if (S.state.reviewedFileHashes) delete S.state.reviewedFileHashes[path];
@@ -66,7 +91,9 @@ export async function resetReview(path: string) {
   api("/api/unstage", { method: "POST", body: JSON.stringify({ path }) }).catch(() => {});
   // Reset restores hunks the approval had collapsed, which re-tokenizes a big file — show the
   // "Rendering…" indicator during it (deferRender(true) shows it for any big file).
-  deferRender(true); toast("Reset review"); persist();
+  deferRender(true);
+  toast("Reset review");
+  persist();
 }
 
 // Per-hunk accept/reject is now a pure verdict — staging happens only when the file is approved
@@ -81,5 +108,6 @@ export async function acceptChange(id: string, status: Decision["status"]) {
   if (!S.state.decisionFiles.includes(change.path)) S.state.decisionFiles.push(change.path);
   if (D.fileDiff) D.fileDiff = applyDecisionToDiff(D.fileDiff, change, status);
   toast(status === "rejected" ? "Rejected" : "Accepted");
-  render(); persist();
+  render();
+  persist();
 }

@@ -1,11 +1,23 @@
 import type { DiffLineAnnotation, FileDiffMetadata } from "@pierre/diffs";
 import { getIconForType, SVGSpriteSheet } from "@pierre/diffs";
 import { S, D, $ } from "./store";
-import { currentFile, currentChanges, currentSplittable, ensureChangesFromFileDiff, replayDecisions, fileFinished, fileObjections } from "./changes";
+import {
+  currentFile,
+  currentChanges,
+  currentSplittable,
+  ensureChangesFromFileDiff,
+  replayDecisions,
+  fileFinished,
+  fileObjections,
+} from "./changes";
 import type { AnnotationMeta } from "./types";
 import { applyLayoutClasses } from "./tree";
 import { annotations, renderAnnotation } from "./annotations";
-import { handleLineNumberClick, handleDiffSelection, attachDiffSelectionHandlers } from "./selection";
+import {
+  handleLineNumberClick,
+  handleDiffSelection,
+  attachDiffSelectionHandlers,
+} from "./selection";
 import { approveCurrentFile, resetReview } from "./decisions";
 import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
 import { cursorResync, cursorReset } from "./cursor";
@@ -16,7 +28,10 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // side (the new side reuses the server's contentHash). Same content → same key → cache hit.
 function ckey(s: string): string {
   let h = 2166136261;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
   return (h >>> 0).toString(36);
 }
 
@@ -33,16 +48,34 @@ const RENDER_INDICATOR_MIN_LINES = 400;
 export function deferRender(forceIfBig = false) {
   const f = currentFile();
   const lc = (s?: string) => (s?.match(/\n/g)?.length ?? 0) + 1;
-  const big = !!f && Math.max(lc(f.oldFile.contents), lc(f.newFile.contents)) > RENDER_INDICATOR_MIN_LINES;
+  const big =
+    !!f && Math.max(lc(f.oldFile.contents), lc(f.newFile.contents)) > RENDER_INDICATOR_MIN_LINES;
   S.rendering = big && (forceIfBig || !D.diffCache.has(diffKey(!!S.preview)));
-  requestAnimationFrame(() => requestAnimationFrame(() => { void render().finally(() => { S.rendering = false; }); }));
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      void render().finally(() => {
+        S.rendering = false;
+      });
+    }),
+  );
 }
 // Identity of a rendered diff for the LRU cache: the current file + every option that changes
 // what @pierre renders. selectFile uses this to tell if re-opening a file will be a fast cache
 // hit (→ skip the "Rendering…" indicator). Reads currentFile(), so call after fileIndex is set.
 export function diffKey(previewing: boolean): string {
   const f = currentFile();
-  return JSON.stringify([f.path, previewing, currentSplittable() ? S.diffStyle : "unified", S.settings.unchangedLines === "expand", previewing ? "none" : S.settings.diffIndicators, S.settings.overflow, S.settings.hunkSeparators, S.settings.lineDiffType, S.settings.theme, !!currentGuideEntry()]);
+  return JSON.stringify([
+    f.path,
+    previewing,
+    currentSplittable() ? S.diffStyle : "unified",
+    S.settings.unchangedLines === "expand",
+    previewing ? "none" : S.settings.diffIndicators,
+    S.settings.overflow,
+    S.settings.hunkSeparators,
+    S.settings.lineDiffType,
+    S.settings.theme,
+    !!currentGuideEntry(),
+  ]);
 }
 // @pierre mounts its icon sprite into each diff's shadow root, so a light-DOM `<use>` can't
 // reach it. Inject the same sprite into the document once so our custom header can reuse
@@ -59,11 +92,17 @@ function ensureSprite() {
 // Change-type accent color, shared by the header icon and the guidance blockquote line.
 function ctColor(type: string | undefined): string {
   switch (type) {
-    case "new": return "var(--green)";
-    case "change": return "var(--cyan)";
-    case "deleted": return "var(--red)";
-    case "rename-pure": case "rename-changed": return "var(--amber)";
-    default: return "var(--muted)";
+    case "new":
+      return "var(--green)";
+    case "change":
+      return "var(--cyan)";
+    case "deleted":
+      return "var(--red)";
+    case "rename-pure":
+    case "rename-changed":
+      return "var(--amber)";
+    default:
+      return "var(--muted)";
   }
 }
 // @pierre's change-type icon as light-DOM SVG (the lib's createIconElement returns HAST).
@@ -71,8 +110,11 @@ function changeIcon(type: string | undefined): SVGElement {
   ensureSprite();
   const t = type ?? "file";
   const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("width", "16"); svg.setAttribute("height", "16"); svg.setAttribute("viewBox", "0 0 16 16");
-  svg.setAttribute("class", "ghdr-icon"); svg.setAttribute("data-change-icon", t);
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("class", "ghdr-icon");
+  svg.setAttribute("data-change-icon", t);
   const use = document.createElementNS(SVG_NS, "use");
   use.setAttribute("href", "#" + (getIconForType(t as never) || "diffs-icon-file-code"));
   svg.appendChild(use);
@@ -102,11 +144,19 @@ function layoutToggle(): HTMLElement {
 // so we can measure rendered change rows for the overview ruler.
 function findDiffShadow(): ShadowRoot | null {
   let shadow: ShadowRoot | null = null;
-  $("diff").querySelectorAll("*").forEach((el) => { if ((el as HTMLElement).shadowRoot) shadow = (el as HTMLElement).shadowRoot; });
+  $("diff")
+    .querySelectorAll("*")
+    .forEach((el) => {
+      if ((el as HTMLElement).shadowRoot) shadow = (el as HTMLElement).shadowRoot;
+    });
   return shadow;
 }
 
-export function clearOverviewRuler() { const o = $("ovr"); o.classList.remove("show"); o.replaceChildren(); }
+export function clearOverviewRuler() {
+  const o = $("ovr");
+  o.classList.remove("show");
+  o.replaceChildren();
+}
 
 // VSCode-style change overview: map every change row's position in the scrolled content to a
 // tick in a fixed right-edge ruler, so changes are visible in one skim of the whole file.
@@ -117,17 +167,24 @@ function renderOverviewRuler() {
   const diff = $("diff");
   const shadow = findDiffShadow();
   const contentH = diff.scrollHeight;
-  const rows = shadow ? Array.from(shadow.querySelectorAll<HTMLElement>("[data-line-type^='change-']")) : [];
+  const rows = shadow
+    ? Array.from(shadow.querySelectorAll<HTMLElement>("[data-line-type^='change-']"))
+    : [];
   // Only a map for a scrollable file — if it fits without scrolling, the changes are already
   // all on screen and the ruler is redundant noise. (+1px tolerance for sub-pixel rounding.)
-  if (!rows.length || !contentH || diff.scrollHeight <= diff.clientHeight + 1) { ruler.classList.remove("show"); return; }
+  if (!rows.length || !contentH || diff.scrollHeight <= diff.clientHeight + 1) {
+    ruler.classList.remove("show");
+    return;
+  }
   const diffTop = diff.getBoundingClientRect().top;
   const scrollTop = diff.scrollTop;
   // @pierre tags both the gutter cell and the code cell of a line with data-line-type, so each
   // line matches twice — dedupe by side + rounded position, then sort top-to-bottom.
   const byPos = new Map<string, { side: "add" | "del"; top: number; bottom: number }>();
   for (const row of rows) {
-    const side: "add" | "del" = (row.getAttribute("data-line-type") || "").includes("addition") ? "add" : "del";
+    const side: "add" | "del" = (row.getAttribute("data-line-type") || "").includes("addition")
+      ? "add"
+      : "del";
     const r = row.getBoundingClientRect();
     if (!r.height) continue;
     const top = r.top - diffTop + scrollTop;
@@ -138,7 +195,8 @@ function renderOverviewRuler() {
   const marks: { side: "add" | "del"; top: number; bottom: number }[] = [];
   for (const s of sorted) {
     const last = marks[marks.length - 1];
-    if (last && last.side === s.side && s.top - last.bottom <= s.bottom - s.top) last.bottom = s.bottom;
+    if (last && last.side === s.side && s.top - last.bottom <= s.bottom - s.top)
+      last.bottom = s.bottom;
     else marks.push({ ...s });
   }
   for (const m of marks) {
@@ -157,14 +215,26 @@ export async function render() {
   // Leaving the diff view (overview / markdown): just detach the active instance — its cached
   // wrapper survives in D.diffCache (renderOverview/renderMarkdownFile overwrite #diff's
   // content, detaching the wrapper, which we re-mount on return). No cleanUp → cache preserved.
-  const dropInstance = () => { D.instance = null; };
+  const dropInstance = () => {
+    D.instance = null;
+  };
   // Guided review: the Overview page takes over the center until a file is selected.
-  if (S.overviewOpen && hasGuide()) { cursorReset(); dropInstance(); renderOverview(); return; }
+  if (S.overviewOpen && hasGuide()) {
+    cursorReset();
+    dropInstance();
+    renderOverview();
+    return;
+  }
   const f = currentFile();
   const previewing = !!S.preview;
   // Markdown file in rendered mode: formatted preview with block-anchored comments,
   // instead of the @pierre/diffs view.
-  if (!previewing && S.state.mode === "file" && isMarkdownPath(f.path) && S.fileView === "rendered") {
+  if (
+    !previewing &&
+    S.state.mode === "file" &&
+    isMarkdownPath(f.path) &&
+    S.fileView === "rendered"
+  ) {
     cursorReset();
     dropInstance();
     applyLayoutClasses();
@@ -175,7 +245,10 @@ export async function render() {
   // `preview` — an unchanged file the reviewer opened) is shown as the file's content on one
   // side. For preview we strip the add-tint + indicators below so it reads as plain text, not
   // an "added" file; it stays line-selectable for comments.
-  const viewOnly = previewing || (S.state.mode === "file" && (f.oldFile.contents === "" || f.oldFile.contents === f.newFile.contents));
+  const viewOnly =
+    previewing ||
+    (S.state.mode === "file" &&
+      (f.oldFile.contents === "" || f.oldFile.contents === f.newFile.contents));
   // cacheKey lets @pierre reuse its highlighted token AST for the same content across renders
   // (and instances), so re-rendering after a decision — or re-opening a file — doesn't
   // re-tokenize. Keyed by content hash so it invalidates when the agent rewrites the file.
@@ -186,7 +259,8 @@ export async function render() {
   } else {
     const oldF = { ...f.oldFile, cacheKey: ckey(f.oldFile.contents) };
     fd = D.parseDiffFromFile(oldF, newF);
-    ensureChangesFromFileDiff(fd); fd = replayDecisions(fd);
+    ensureChangesFromFileDiff(fd);
+    fd = replayDecisions(fd);
   }
   // Preview reads as a plain file: remap @pierre's addition styling to its CONTEXT (unchanged)
   // styling — row tint, gutter cell bg, and gutter number color all to the neutral context
@@ -204,7 +278,13 @@ export async function render() {
   const headerActions = () => {
     const wrap = document.createElement("span");
     const filePath = currentFile().path;
-    const reset = () => { const b = document.createElement("button"); b.className = "diff-header-action undo"; b.textContent = "Reset"; b.onclick = () => resetReview(filePath); return b; };
+    const reset = () => {
+      const b = document.createElement("button");
+      b.className = "diff-header-action undo";
+      b.textContent = "Reset";
+      b.onclick = () => resetReview(filePath);
+      return b;
+    };
     if (fileFinished(filePath)) {
       // The file-tree badge carries the approved / changes-requested state; the header just
       // offers a quiet Reset to undo the sign-off.
@@ -230,26 +310,56 @@ export async function render() {
     wrap.className = "ghdr";
     wrap.style.setProperty("--ct-color", ctColor(file?.type));
 
-    const row1 = document.createElement("div"); row1.className = "ghdr-row1";
+    const row1 = document.createElement("div");
+    row1.className = "ghdr-row1";
     row1.appendChild(changeIcon(file?.type));
-    const name = document.createElement("span"); name.className = "ghdr-file"; name.textContent = currentFile().path; row1.appendChild(name);
+    const name = document.createElement("span");
+    name.className = "ghdr-file";
+    name.textContent = currentFile().path;
+    row1.appendChild(name);
     // Layout toggle right of the filename — only when Split actually applies (a two-sided diff).
     if (currentSplittable()) row1.appendChild(layoutToggle());
-    const grow = document.createElement("span"); grow.className = "ghdr-grow"; row1.appendChild(grow);
-    let add = 0, del = 0; for (const h of file?.hunks ?? []) { add += h.additionLines ?? 0; del += h.deletionLines ?? 0; }
-    const counts = document.createElement("span"); counts.className = "ghdr-counts"; counts.innerHTML = `<span class="a">+${add}</span><span class="d">−${del}</span>`; row1.appendChild(counts);
-    const acts = headerActions(); acts.className = "ghdr-actions"; row1.appendChild(acts);
+    const grow = document.createElement("span");
+    grow.className = "ghdr-grow";
+    row1.appendChild(grow);
+    let add = 0,
+      del = 0;
+    for (const h of file?.hunks ?? []) {
+      add += h.additionLines ?? 0;
+      del += h.deletionLines ?? 0;
+    }
+    const counts = document.createElement("span");
+    counts.className = "ghdr-counts";
+    counts.innerHTML = `<span class="a">+${add}</span><span class="d">−${del}</span>`;
+    row1.appendChild(counts);
+    const acts = headerActions();
+    acts.className = "ghdr-actions";
+    row1.appendChild(acts);
     wrap.appendChild(row1);
 
     if (entry) {
       // Group the AI guidance into a subtle card, set apart from the filename row + the code.
-      const guide = document.createElement("div"); guide.className = "ghdr-guide";
-      const row2 = document.createElement("div"); row2.className = "ghdr-row2";
-      const chip = document.createElement("span"); chip.className = "ghdr-cat" + (entry.critical ? " crit" : ""); chip.textContent = entry.category; row2.appendChild(chip);
-      const expl = document.createElement("span"); expl.className = "ghdr-expl"; expl.textContent = entry.summary; row2.appendChild(expl);
+      const guide = document.createElement("div");
+      guide.className = "ghdr-guide";
+      const row2 = document.createElement("div");
+      row2.className = "ghdr-row2";
+      const chip = document.createElement("span");
+      chip.className = "ghdr-cat" + (entry.critical ? " crit" : "");
+      chip.textContent = entry.category;
+      row2.appendChild(chip);
+      const expl = document.createElement("span");
+      expl.className = "ghdr-expl";
+      expl.textContent = entry.summary;
+      row2.appendChild(expl);
       guide.appendChild(row2);
       // Critical "why" gets its own readable callout within the card.
-      if (entry.critical && entry.why) { const why = document.createElement("div"); why.className = "ghdr-why"; why.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg> `; why.appendChild(document.createTextNode(entry.why)); guide.appendChild(why); }
+      if (entry.critical && entry.why) {
+        const why = document.createElement("div");
+        why.className = "ghdr-why";
+        why.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg> `;
+        why.appendChild(document.createTextNode(entry.why));
+        guide.appendChild(why);
+      }
       wrap.appendChild(guide);
     }
     return wrap;
@@ -258,12 +368,22 @@ export async function render() {
   // +/- counts, change-type icon, or guidance (all of which would mislabel an unchanged file
   // rendered as one-sided content). The Approve / Reset actions don't apply to a preview.
   const previewHeader = () => {
-    const wrap = document.createElement("div"); wrap.className = "ghdr";
-    const row1 = document.createElement("div"); row1.className = "ghdr-row1";
+    const wrap = document.createElement("div");
+    wrap.className = "ghdr";
+    const row1 = document.createElement("div");
+    row1.className = "ghdr-row1";
     row1.appendChild(changeIcon("file"));
-    const name = document.createElement("span"); name.className = "ghdr-file"; name.textContent = currentFile().path; row1.appendChild(name);
-    const grow = document.createElement("span"); grow.className = "ghdr-grow"; row1.appendChild(grow);
-    const tag = document.createElement("span"); tag.className = "ghdr-readonly"; tag.textContent = "Unchanged"; row1.appendChild(tag);
+    const name = document.createElement("span");
+    name.className = "ghdr-file";
+    name.textContent = currentFile().path;
+    row1.appendChild(name);
+    const grow = document.createElement("span");
+    grow.className = "ghdr-grow";
+    row1.appendChild(grow);
+    const tag = document.createElement("span");
+    tag.className = "ghdr-readonly";
+    tag.textContent = "Unchanged";
+    row1.appendChild(tag);
     wrap.appendChild(row1);
     return wrap;
   };
@@ -271,8 +391,21 @@ export async function render() {
   const expandUnchanged = S.settings.unchangedLines === "expand";
   const diffIndicators = previewing ? "none" : S.settings.diffIndicators;
   const opts = {
-    theme: { dark: S.settings.theme, light: "pierre-light" }, themeType: "dark" as const, diffStyle, diffIndicators, expandUnchanged, overflow: S.settings.overflow, hunkSeparators: S.settings.hunkSeparators, lineDiffType: S.settings.lineDiffType, enableLineSelection: true,
-    renderAnnotation, onLineNumberClick: handleLineNumberClick, onLineSelectionStart: handleDiffSelection, onLineSelectionChange: handleDiffSelection, onLineSelected: handleDiffSelection, onLineSelectionEnd: handleDiffSelection,
+    theme: { dark: S.settings.theme, light: "pierre-light" },
+    themeType: "dark" as const,
+    diffStyle,
+    diffIndicators,
+    expandUnchanged,
+    overflow: S.settings.overflow,
+    hunkSeparators: S.settings.hunkSeparators,
+    lineDiffType: S.settings.lineDiffType,
+    enableLineSelection: true,
+    renderAnnotation,
+    onLineNumberClick: handleLineNumberClick,
+    onLineSelectionStart: handleDiffSelection,
+    onLineSelectionChange: handleDiffSelection,
+    onLineSelected: handleDiffSelection,
+    onLineSelectionEnd: handleDiffSelection,
     renderHeaderMetadata: headerActions,
     // @pierre reserves a right-side gutter via `scrollbar-gutter: stable` on the code grid
     // (for a vertical scrollbar it hides) — drop it so rows fill the full width. previewCSS
@@ -303,16 +436,26 @@ export async function render() {
   // a genuinely new file/view tokenizes; the "Rendering…" indicator covers that one time.
   const key = diffKey(previewing);
   let entry = D.diffCache.get(key);
-  if (entry) D.diffCache.delete(key); // re-insert below → most-recently-used
-  else { const wrapper = document.createElement("div"); wrapper.className = "diff-wrap"; entry = { wrapper, inst: new D.FileDiff(opts) }; }
+  if (entry)
+    D.diffCache.delete(key); // re-insert below → most-recently-used
+  else {
+    const wrapper = document.createElement("div");
+    wrapper.className = "diff-wrap";
+    entry = { wrapper, inst: new D.FileDiff(opts) };
+  }
   D.diffCache.set(key, entry);
   D.instance = entry.inst;
   // Mount only this file's wrapper (replaceChildren detaches the previously-active wrapper —
   // it lives on in the Map — and removes any overview/markdown content). Skip when it's already
   // the sole child (a same-file re-render) so we don't detach/reattach and reset scroll.
-  if (host.firstElementChild !== entry.wrapper || host.childElementCount !== 1) host.replaceChildren(entry.wrapper);
+  if (host.firstElementChild !== entry.wrapper || host.childElementCount !== 1)
+    host.replaceChildren(entry.wrapper);
   entry.inst.setLineAnnotations?.(anns());
-  await entry.inst.render({ fileDiff: fd, containerWrapper: entry.wrapper, lineAnnotations: anns() });
+  await entry.inst.render({
+    fileDiff: fd,
+    containerWrapper: entry.wrapper,
+    lineAnnotations: anns(),
+  });
   afterRender();
   // Evict least-recently-used instances beyond the cap.
   while (D.diffCache.size > DIFF_CACHE_CAP) {
@@ -320,6 +463,9 @@ export async function render() {
     if (oldestKey === undefined) break;
     const evicted = D.diffCache.get(oldestKey)!;
     D.diffCache.delete(oldestKey);
-    if (evicted !== entry) { evicted.inst.cleanUp?.(); evicted.wrapper.remove(); }
+    if (evicted !== entry) {
+      evicted.inst.cleanUp?.();
+      evicted.wrapper.remove();
+    }
   }
 }

@@ -37,7 +37,10 @@ async function fetchIcon(id) {
   if (!res.ok) throw new Error(`${id}: HTTP ${res.status}`);
   const svg = await res.text();
   const vb = (svg.match(/viewBox="([^"]+)"/) || [])[1] || "0 0 24 24";
-  const body = svg.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "").trim();
+  const body = svg
+    .replace(/^[\s\S]*?<svg[^>]*>/, "")
+    .replace(/<\/svg>\s*$/, "")
+    .trim();
   return { vb, body };
 }
 
@@ -52,6 +55,7 @@ const header =
   `// Inlined SVG bodies (currentColor, duotone) for the icon sprite; re-run the script to swap sets.\n`;
 writeFileSync(
   new URL("../src/ui/icon-data.ts", import.meta.url),
-  header + `export const ICON_DATA: Record<string, { vb: string; body: string }> = ${JSON.stringify(out, null, 2)};\n`,
+  header +
+    `export const ICON_DATA: Record<string, { vb: string; body: string }> = ${JSON.stringify(out, null, 2)};\n`,
 );
 console.log("wrote src/ui/icon-data.ts");

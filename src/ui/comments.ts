@@ -21,7 +21,10 @@ export function editComment(id: string) {
 export async function deleteComment(id: string) {
   const comment = S.state.comments.find((c) => c.id === id);
   if (!comment || comment.role === "agent") return;
-  if (S.editingCommentId === id) { S.editingCommentId = null; S.composerOpen = false; }
+  if (S.editingCommentId === id) {
+    S.editingCommentId = null;
+    S.composerOpen = false;
+  }
   S.state.comments = S.state.comments.filter((c) => c.id !== id);
   render();
   await persist(); // await so the next poll can't re-add it before the save lands

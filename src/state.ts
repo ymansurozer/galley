@@ -1,8 +1,25 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { changeBlockContent, changeStableKeyFromBlock, fileAt, getGitRoot, getHead, git, parseUnifiedDiff, changeBlocks } from "./git.js";
-import type { ChangeState, Decision, ReviewComment, ReviewFile, ReviewMode, ReviewResult, ReviewState } from "./types.js";
+import {
+  changeBlockContent,
+  changeStableKeyFromBlock,
+  fileAt,
+  getGitRoot,
+  getHead,
+  git,
+  parseUnifiedDiff,
+  changeBlocks,
+} from "./git.js";
+import type {
+  ChangeState,
+  Decision,
+  ReviewComment,
+  ReviewFile,
+  ReviewMode,
+  ReviewResult,
+  ReviewState,
+} from "./types.js";
 
 export function nowIso() {
   return new Date().toISOString();
@@ -20,7 +37,15 @@ export function sanitizeSession(session: string) {
 type DiffSource = { files: ReviewFile[]; changes: ChangeState[]; rawDiff: string };
 
 function fileEntry(filePath: string, oldContents: string, newContents: string): ReviewFile {
-  return { oldPath: filePath, newPath: filePath, hunks: [], path: filePath, oldFile: { name: filePath, contents: oldContents }, newFile: { name: filePath, contents: newContents }, contentHash: hash(newContents) };
+  return {
+    oldPath: filePath,
+    newPath: filePath,
+    hunks: [],
+    path: filePath,
+    oldFile: { name: filePath, contents: oldContents },
+    newFile: { name: filePath, contents: newContents },
+    contentHash: hash(newContents),
+  };
 }
 
 // Parse a unified diff into review files + change blocks, fetching old/new file
@@ -36,7 +61,13 @@ async function assembleDiff(
   for (const f of parseUnifiedDiff(rawDiff)) {
     const filePath = f.newPath ?? f.oldPath ?? "unknown";
     const newContents = await fetchNew(f.newPath);
-    files.push({ ...f, path: filePath, oldFile: { name: filePath, contents: await fetchOld(f.oldPath) }, newFile: { name: filePath, contents: newContents }, contentHash: hash(newContents) });
+    files.push({
+      ...f,
+      path: filePath,
+      oldFile: { name: filePath, contents: await fetchOld(f.oldPath) },
+      newFile: { name: filePath, contents: newContents },
+      contentHash: hash(newContents),
+    });
     f.hunks.forEach((h, hunkIndex) => {
       changeBlocks(h).forEach((block) => {
         const firstAdd = block.find((l) => l.kind === "add");
@@ -44,7 +75,18 @@ async function assembleDiff(
         const side: "additions" | "deletions" = firstAdd ? "additions" : "deletions";
         const lineNumber = firstAdd?.newLine ?? firstDelete?.oldLine ?? h.newStart;
         const stableKey = changeStableKeyFromBlock(block);
-        changes.push({ id: `${filePath}:${stableKey}`, path: filePath, hunkIndex, side, lineNumber, stableKey, stageable, contentHash: hash(changeBlockContent(block)), title: `${block.filter((l) => l.kind === "delete").length} removed · ${block.filter((l) => l.kind === "add").length} added`, status: "pending" });
+        changes.push({
+          id: `${filePath}:${stableKey}`,
+          path: filePath,
+          hunkIndex,
+          side,
+          lineNumber,
+          stableKey,
+          stageable,
+          contentHash: hash(changeBlockContent(block)),
+          title: `${block.filter((l) => l.kind === "delete").length} removed · ${block.filter((l) => l.kind === "add").length} added`,
+          status: "pending",
+        });
       });
     });
   }
@@ -52,10 +94,18 @@ async function assembleDiff(
 }
 
 export async function resolveDefaultBranch(root: string): Promise<string> {
-  const sym = await git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], root).catch(() => "");
+  const sym = await git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], root).catch(
+    () => "",
+  );
   if (sym) return sym; // e.g. "origin/main"
   for (const b of ["main", "master"]) {
-    if (await git(["rev-parse", "--verify", b], root).then(() => true, () => false)) return b;
+    if (
+      await git(["rev-parse", "--verify", b], root).then(
+        () => true,
+        () => false,
+      )
+    )
+      return b;
   }
   return "HEAD";
 }
@@ -65,25 +115,46 @@ export async function resolveDefaultBranch(root: string): Promise<string> {
 // file  → one file (opts.path is absolute); tracked+changed = diff (stageable),
 //         untracked/new = full file as additions, tracked-unchanged = full file.
 // pr    → opts.base..HEAD (committed), verdict-only.
-export async function buildDiffSource(opts: { mode: ReviewMode; root: string; path?: string; staged?: boolean; base?: string }): Promise<DiffSource | null> {
+export async function buildDiffSource(opts: {
+  mode: ReviewMode;
+  root: string;
+  path?: string;
+  staged?: boolean;
+  base?: string;
+}): Promise<DiffSource | null> {
   const { mode, root } = opts;
   if (mode === "pr") {
     const base = opts.base ?? "HEAD";
     const rawDiff = await git(["diff", "--no-ext-diff", `${base}..HEAD`], root);
     if (!rawDiff.trim()) return null;
-    const { files, changes } = await assembleDiff(rawDiff, (p) => fileAt(root, p, base), (p) => fileAt(root, p, "HEAD"), false);
+    const { files, changes } = await assembleDiff(
+      rawDiff,
+      (p) => fileAt(root, p, base),
+      (p) => fileAt(root, p, "HEAD"),
+      false,
+    );
     return { files, changes, rawDiff };
   }
   if (mode === "file") {
     const abs = opts.path!;
     const rel = path.relative(root, abs);
     const key = rel.startsWith("..") ? abs : rel;
-    const tracked = !rel.startsWith("..") && (await git(["ls-files", "--error-unmatch", "--", rel], root).then(() => true, () => false));
+    const tracked =
+      !rel.startsWith("..") &&
+      (await git(["ls-files", "--error-unmatch", "--", rel], root).then(
+        () => true,
+        () => false,
+      ));
     const working = await fs.readFile(abs, "utf8").catch(() => "");
     if (tracked) {
       const rawDiff = await git(["diff", "--no-ext-diff", "--", rel], root);
       if (rawDiff.trim()) {
-        const { files, changes } = await assembleDiff(rawDiff, (p) => fileAt(root, p, "HEAD"), (p) => fileAt(root, p), true);
+        const { files, changes } = await assembleDiff(
+          rawDiff,
+          (p) => fileAt(root, p, "HEAD"),
+          (p) => fileAt(root, p),
+          true,
+        );
         return { files, changes, rawDiff };
       }
       return { files: [fileEntry(key, working, working)], changes: [], rawDiff: "" }; // tracked, unchanged → full file
@@ -96,21 +167,59 @@ export async function buildDiffSource(opts: { mode: ReviewMode; root: string; pa
   if (opts.path) args.push("--", opts.path);
   const rawDiff = await git(args, root);
   if (!rawDiff.trim()) return null;
-  const { files, changes } = await assembleDiff(rawDiff, (p) => fileAt(root, p, "HEAD"), (p) => (opts.staged ? fileAt(root, p, ":0") : fileAt(root, p)), true);
+  const { files, changes } = await assembleDiff(
+    rawDiff,
+    (p) => fileAt(root, p, "HEAD"),
+    (p) => (opts.staged ? fileAt(root, p, ":0") : fileAt(root, p)),
+    true,
+  );
   return { files, changes, rawDiff };
 }
 
-export async function buildReviewState(cwd: string, opts: { mode?: ReviewMode; path?: string; staged?: boolean; session: string; target?: string; base?: string }): Promise<ReviewState | null> {
+export async function buildReviewState(
+  cwd: string,
+  opts: {
+    mode?: ReviewMode;
+    path?: string;
+    staged?: boolean;
+    session: string;
+    target?: string;
+    base?: string;
+  },
+): Promise<ReviewState | null> {
   const mode = opts.mode ?? "repo";
-  const make = (root: string, source: DiffSource, extra: { staged: boolean; target?: string; base?: string }, head: string | null): ReviewState => ({
-    id: crypto.randomUUID(), session: sanitizeSession(opts.session), root, repoHash: hash(root), mode,
-    target: extra.target, base: extra.base, staged: extra.staged, head, baseDiffHash: hash(source.rawDiff),
-    createdAt: nowIso(), updatedAt: nowIso(), rawDiff: source.rawDiff, files: source.files,
-    comments: [], changes: source.changes, reviewedFiles: [], reviewedFileHashes: {}, stagedFiles: [], decisions: [],
+  const make = (
+    root: string,
+    source: DiffSource,
+    extra: { staged: boolean; target?: string; base?: string },
+    head: string | null,
+  ): ReviewState => ({
+    id: crypto.randomUUID(),
+    session: sanitizeSession(opts.session),
+    root,
+    repoHash: hash(root),
+    mode,
+    target: extra.target,
+    base: extra.base,
+    staged: extra.staged,
+    head,
+    baseDiffHash: hash(source.rawDiff),
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    rawDiff: source.rawDiff,
+    files: source.files,
+    comments: [],
+    changes: source.changes,
+    reviewedFiles: [],
+    reviewedFileHashes: {},
+    stagedFiles: [],
+    decisions: [],
   });
 
   if (mode === "file") {
-    const resolved = path.isAbsolute(opts.path ?? "") ? opts.path! : path.resolve(cwd, opts.path ?? "");
+    const resolved = path.isAbsolute(opts.path ?? "")
+      ? opts.path!
+      : path.resolve(cwd, opts.path ?? "");
     // Resolve symlinks (e.g. macOS /var → /private/var) so the path agrees with
     // getGitRoot's realpath and relative() doesn't wrongly escape the repo.
     const abs = await fs.realpath(resolved).catch(() => resolved);
@@ -118,17 +227,26 @@ export async function buildReviewState(cwd: string, opts: { mode?: ReviewMode; p
     const source = await buildDiffSource({ mode, root, path: abs });
     if (!source) return null;
     const r = path.relative(root, abs);
-    return make(root, source, { staged: false, target: r.startsWith("..") ? abs : r }, await getHead(root));
+    return make(
+      root,
+      source,
+      { staged: false, target: r.startsWith("..") ? abs : r },
+      await getHead(root),
+    );
   }
   if (mode === "pr") {
     const root = await getGitRoot(cwd);
-    const defaultBranch = opts.base ?? await resolveDefaultBranch(root);
+    const defaultBranch = opts.base ?? (await resolveDefaultBranch(root));
     const base = await git(["merge-base", defaultBranch, "HEAD"], root).catch(() => defaultBranch);
     const source = await buildDiffSource({ mode, root, base });
     if (!source) return null;
     return make(root, source, { staged: false, target: opts.target, base }, await getHead(root));
   }
-  const requested = opts.path ? (path.isAbsolute(opts.path) ? opts.path : path.resolve(cwd, opts.path)) : cwd;
+  const requested = opts.path
+    ? path.isAbsolute(opts.path)
+      ? opts.path
+      : path.resolve(cwd, opts.path)
+    : cwd;
   const stat = opts.path ? await fs.stat(requested).catch(() => undefined) : undefined;
   const discovery = opts.path ? (stat?.isDirectory() ? requested : path.dirname(requested)) : cwd;
   const root = await getGitRoot(discovery);
@@ -170,7 +288,18 @@ export async function findLiveDesks(root: string): Promise<DeskLock[]> {
   const out: DeskLock[] = [];
   for (const s of sessions) {
     const lock = await readDeskLock(root, s);
-    if (lock && (() => { try { process.kill(lock.pid, 0); return true; } catch { return false; } })()) out.push(lock);
+    if (
+      lock &&
+      (() => {
+        try {
+          process.kill(lock.pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      })()
+    )
+      out.push(lock);
   }
   return out;
 }
@@ -191,7 +320,10 @@ export async function persistReview(state: ReviewState) {
 export async function loadLatestReview(root: string, session: string) {
   const dir = await reviewDir(root, session);
   const entries = await fs.readdir(dir).catch(() => []);
-  for (const name of entries.filter((n) => n.endsWith(".json")).sort().reverse()) {
+  for (const name of entries
+    .filter((n) => n.endsWith(".json"))
+    .sort()
+    .reverse()) {
     const full = path.join(dir, name);
     const state = JSON.parse(await fs.readFile(full, "utf8")) as ReviewState;
     if (state.root !== root) continue;
@@ -206,7 +338,15 @@ export async function loadLatestReview(root: string, session: string) {
 }
 
 function decisionFromChange(c: ChangeState): Decision {
-  return { key: `${c.path}:${c.stableKey}`, status: c.status as "accepted" | "rejected", reviewedHash: c.reviewedHash, path: c.path, lineNumber: c.lineNumber, side: c.side, title: c.title };
+  return {
+    key: `${c.path}:${c.stableKey}`,
+    status: c.status as "accepted" | "rejected",
+    reviewedHash: c.reviewedHash,
+    path: c.path,
+    lineNumber: c.lineNumber,
+    side: c.side,
+    title: c.title,
+  };
 }
 
 // Decisions[] is the source of truth. For reviews persisted before it existed,
@@ -243,13 +383,22 @@ export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   // recorded hash — e.g. an old "viewed" session) drops back to pending for re-review.
   const fileHashes = new Map(base.files.map((file) => [file.path, file.contentHash]));
   const savedHashes = saved.reviewedFileHashes ?? {};
-  const reviewedFiles = saved.reviewedFiles.filter((file) => currentFiles.has(file) && savedHashes[file] && savedHashes[file] === fileHashes.get(file));
-  const reviewedFileHashes = Object.fromEntries(reviewedFiles.map((file) => [file, savedHashes[file]!]));
+  const reviewedFiles = saved.reviewedFiles.filter(
+    (file) =>
+      currentFiles.has(file) && savedHashes[file] && savedHashes[file] === fileHashes.get(file),
+  );
+  const reviewedFileHashes = Object.fromEntries(
+    reviewedFiles.map((file) => [file, savedHashes[file]!]),
+  );
   return {
     ...base,
     id: saved.id,
     createdAt: saved.createdAt,
-    comments: saved.comments.map((comment) => currentFiles.has(comment.path) ? comment : { ...comment, status: "stale" as const }).filter((comment) => currentFiles.has(comment.path) || comment.intent === "action"),
+    comments: saved.comments
+      .map((comment) =>
+        currentFiles.has(comment.path) ? comment : { ...comment, status: "stale" as const },
+      )
+      .filter((comment) => currentFiles.has(comment.path) || comment.intent === "action"),
     reviewedFiles,
     reviewedFileHashes,
     stagedFiles: saved.stagedFiles,
@@ -267,7 +416,9 @@ export async function syncGitState(state: ReviewState) {
   const stagedFiles = new Set(staged.split(/\r?\n/).filter(Boolean));
   const reviewFiles = new Set(state.files.map((file) => file.path));
   state.stagedFiles = [...stagedFiles].filter((file) => reviewFiles.has(file));
-  state.stagedChangeKeys = (state.stagedChangeKeys ?? []).filter((key) => stagedFiles.has(key.split(":")[0]));
+  state.stagedChangeKeys = (state.stagedChangeKeys ?? []).filter((key) =>
+    stagedFiles.has(key.split(":")[0]),
+  );
 }
 
 // Files the reviewer signed off as-is: finished (in reviewedFiles, content hash still current)
@@ -278,19 +429,31 @@ export function computeApprovedFiles(state: ReviewState): string[] {
   const fileHash = new Map(state.files.map((f) => [f.path, f.contentHash]));
   const decisions = effectiveDecisions(state);
   const hasReject = (p: string) => decisions.some((d) => d.path === p && d.status === "rejected");
-  const hasOpenChange = (p: string) => state.comments.some((c) => c.path === p && c.status === "open" && c.role !== "agent" && c.intent !== "question");
-  return (state.reviewedFiles ?? []).filter((p) => hashes[p] && hashes[p] === fileHash.get(p) && !hasReject(p) && !hasOpenChange(p));
+  const hasOpenChange = (p: string) =>
+    state.comments.some(
+      (c) => c.path === p && c.status === "open" && c.role !== "agent" && c.intent !== "question",
+    );
+  return (state.reviewedFiles ?? []).filter(
+    (p) => hashes[p] && hashes[p] === fileHash.get(p) && !hasReject(p) && !hasOpenChange(p),
+  );
 }
 
 export function buildReviewSummary(state: ReviewState) {
   const pr = state.mode === "pr";
-  const scope = pr ? `the PR/branch${state.target ? ` \`${state.target}\`` : ""} (committed changes)`
-    : state.mode === "file" ? `the file${state.target ? ` \`${state.target}\`` : ""}`
-    : state.staged ? "the staged diff" : "the working tree diff";
+  const scope = pr
+    ? `the PR/branch${state.target ? ` \`${state.target}\`` : ""} (committed changes)`
+    : state.mode === "file"
+      ? `the file${state.target ? ` \`${state.target}\`` : ""}`
+      : state.staged
+        ? "the staged diff"
+        : "the working tree diff";
   const out = [`Please address this review for ${scope}.`, ""];
-  out.push(pr
-    ? "These are committed changes. Amend the branch to address requested changes; leave approved hunks as-is."
-    : "Respect the user review decisions below: preserve accepted changes, avoid touching staged files unless necessary, and address rejected changes plus requested changes.", "");
+  out.push(
+    pr
+      ? "These are committed changes. Amend the branch to address requested changes; leave approved hunks as-is."
+      : "Respect the user review decisions below: preserve accepted changes, avoid touching staged files unless necessary, and address rejected changes plus requested changes.",
+    "",
+  );
   if (!pr && state.stagedFiles.length) {
     out.push("## Staged files");
     for (const file of state.stagedFiles) out.push(`- ${file}`);
@@ -316,7 +479,9 @@ export function buildReviewSummary(state: ReviewState) {
     out.push("");
   }
   // Questions are answered live (the await stream), so they're not change-requests.
-  const actionable = state.comments.filter((c) => c.status === "open" && c.role !== "agent" && c.intent !== "question");
+  const actionable = state.comments.filter(
+    (c) => c.status === "open" && c.role !== "agent" && c.intent !== "question",
+  );
   if (actionable.length) {
     out.push("## Requested changes");
     for (const c of actionable) {
@@ -330,10 +495,17 @@ export function buildReviewSummary(state: ReviewState) {
 export async function appendComment(
   root: string,
   session: string,
-  input: { path: string; side: "additions" | "deletions"; lineNumber: number; body: string; role: "user" | "agent" },
+  input: {
+    path: string;
+    side: "additions" | "deletions";
+    lineNumber: number;
+    body: string;
+    role: "user" | "agent";
+  },
 ): Promise<ReviewComment> {
   const saved = await loadLatestReview(root, session);
-  if (!saved) throw new Error(`No saved review for session "${session}" in ${root}. Open the desk first.`);
+  if (!saved)
+    throw new Error(`No saved review for session "${session}" in ${root}. Open the desk first.`);
   const now = nowIso();
   const comment: ReviewComment = {
     id: crypto.randomUUID(),
@@ -358,7 +530,9 @@ export function buildReviewResult(
 ): ReviewResult {
   const decisions = effectiveDecisions(state);
   const pick = (status: Decision["status"]) =>
-    decisions.filter((d) => d.status === status).map((d) => ({ path: d.path, lineNumber: d.lineNumber, side: d.side, title: d.title }));
+    decisions
+      .filter((d) => d.status === status)
+      .map((d) => ({ path: d.path, lineNumber: d.lineNumber, side: d.side, title: d.title }));
   return {
     session: state.session,
     repoRoot: state.root,

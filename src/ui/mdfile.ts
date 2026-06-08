@@ -46,7 +46,10 @@ export function renderMarkdownFile() {
   container.innerHTML = renderMarkdown(f.newFile.contents);
 
   const anchors = [...container.querySelectorAll<HTMLElement>("[data-line]")].filter(isAnchor);
-  for (const el of anchors) { el.classList.add("md-anchor"); el.title = "Click to comment"; }
+  for (const el of anchors) {
+    el.classList.add("md-anchor");
+    el.title = "Click to comment";
+  }
 
   // Click anywhere on a block to comment on it (ignore text selection, links, and clicks
   // inside an existing thread). Delegated so it survives the per-render rebuild.
@@ -62,12 +65,22 @@ export function renderMarkdownFile() {
   // Overlay comment threads at each comment's source line: inside the <li> for list
   // items (indented under the item), after the block otherwise.
   const byLine = new Map<number, ReviewComment[]>();
-  for (const c of currentComments()) (byLine.get(c.lineNumber) ?? byLine.set(c.lineNumber, []).get(c.lineNumber)!).push(c);
+  for (const c of currentComments())
+    (byLine.get(c.lineNumber) ?? byLine.set(c.lineNumber, []).get(c.lineNumber)!).push(c);
   for (const [line, comments] of byLine) {
     comments.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
     const thread = document.createElement("div");
     thread.className = "annotation md-thread";
-    thread.appendChild(buildCommentThread({ type: "thread", path: f.path, side: "additions", lineNumber: line, status: comments.some((c) => c.status === "open") ? "open" : "resolved", comments }));
+    thread.appendChild(
+      buildCommentThread({
+        type: "thread",
+        path: f.path,
+        side: "additions",
+        lineNumber: line,
+        status: comments.some((c) => c.status === "open") ? "open" : "resolved",
+        comments,
+      }),
+    );
     const el = anchorForLine(anchors, line);
     if (!el) container.appendChild(thread);
     else if (el.tagName === "LI") el.appendChild(thread);

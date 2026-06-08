@@ -51,11 +51,38 @@ import dockerfile from "shiki/dist/langs/dockerfile.mjs";
 // which is why we use it over comark; html:false drops raw HTML at the source, and
 // DOMPurify is the final gate before anything is innerHTML'd (incl. agent-authored).
 const THEMES: Record<string, unknown> = {
-  "material-theme-palenight": palenight, "material-theme-darker": materialDarker,
-  "github-dark": githubDark, "dracula": dracula, "ayu-dark": ayuDark,
-  "gruvbox-dark-medium": gruvbox, "everforest-dark": everforest, "dark-plus": darkPlus,
+  "material-theme-palenight": palenight,
+  "material-theme-darker": materialDarker,
+  "github-dark": githubDark,
+  dracula: dracula,
+  "ayu-dark": ayuDark,
+  "gruvbox-dark-medium": gruvbox,
+  "everforest-dark": everforest,
+  "dark-plus": darkPlus,
 };
-const LANGS = [javascript, typescript, tsx, json, html, css, python, go, rust, c, cpp, java, bash, sql, yaml, markdownLang, diff, toml, ruby, php, dockerfile];
+const LANGS = [
+  javascript,
+  typescript,
+  tsx,
+  json,
+  html,
+  css,
+  python,
+  go,
+  rust,
+  c,
+  cpp,
+  java,
+  bash,
+  sql,
+  yaml,
+  markdownLang,
+  diff,
+  toml,
+  ruby,
+  php,
+  dockerfile,
+];
 
 let md: MarkdownIt | null = null;
 let hl: Awaited<ReturnType<typeof createHighlighterCore>> | null = null;
@@ -66,7 +93,9 @@ const cache = new Map<string, string>();
 // so a comment can target an individual list item rather than the whole list.
 function sourceLine(mdi: MarkdownIt) {
   mdi.core.ruler.push("source_line", (state) => {
-    for (const t of state.tokens) if (t.map && (t.level === 0 || t.type === "list_item_open")) t.attrSet("data-line", String(t.map[0] + 1));
+    for (const t of state.tokens)
+      if (t.map && (t.level === 0 || t.type === "list_item_open"))
+        t.attrSet("data-line", String(t.map[0] + 1));
     return true;
   });
 }
@@ -84,7 +113,11 @@ function buildMd(theme: string): MarkdownIt {
 
 // All curated themes preload into one highlighter, so switching is instant.
 void (async () => {
-  hl = await createHighlighterCore({ themes: Object.values(THEMES) as never, langs: LANGS as never, engine: createJavaScriptRegexEngine() });
+  hl = await createHighlighterCore({
+    themes: Object.values(THEMES) as never,
+    langs: LANGS as never,
+    engine: createJavaScriptRegexEngine(),
+  });
   const want = loadSettings().theme;
   md = buildMd(THEMES[want] ? want : "github-dark");
   if (S.state) render();

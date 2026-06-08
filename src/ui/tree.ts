@@ -7,12 +7,18 @@ import type { TreeRow, TreeNode, TreeFile } from "./types";
 export function allDirPaths(): string[] {
   if (!S.state) return [];
   const changedPaths = S.state.files.map((f) => f.path);
-  const all = S.settings.showUnchanged && S.projectFiles.length ? [...new Set([...S.projectFiles, ...changedPaths])] : changedPaths;
+  const all =
+    S.settings.showUnchanged && S.projectFiles.length
+      ? [...new Set([...S.projectFiles, ...changedPaths])]
+      : changedPaths;
   const dirs = new Set<string>();
   for (const p of all) {
     const parts = p.split("/").filter(Boolean);
     let full = "";
-    for (let i = 0; i < parts.length - 1; i++) { full = full ? `${full}/${parts[i]}` : parts[i]!; dirs.add(full); }
+    for (let i = 0; i < parts.length - 1; i++) {
+      full = full ? `${full}/${parts[i]}` : parts[i]!;
+      dirs.add(full);
+    }
   }
   return [...dirs];
 }
@@ -21,12 +27,18 @@ export function allDirPaths(): string[] {
 // comment. These are what "expand all" opens (purely-unchanged folders stay closed).
 export function touchedDirPaths(): string[] {
   if (!S.state) return [];
-  const touched = new Set<string>([...(S.state.files ?? []).map((f) => f.path), ...(S.state.comments ?? []).map((c) => c.path)]);
+  const touched = new Set<string>([
+    ...(S.state.files ?? []).map((f) => f.path),
+    ...(S.state.comments ?? []).map((c) => c.path),
+  ]);
   const dirs = new Set<string>();
   for (const p of touched) {
     const parts = p.split("/").filter(Boolean);
     let full = "";
-    for (let i = 0; i < parts.length - 1; i++) { full = full ? `${full}/${parts[i]}` : parts[i]!; dirs.add(full); }
+    for (let i = 0; i < parts.length - 1; i++) {
+      full = full ? `${full}/${parts[i]}` : parts[i]!;
+      dirs.add(full);
+    }
   }
   return [...dirs];
 }
@@ -41,9 +53,10 @@ export function treeRows(): TreeRow[] {
   // A reviewed file must always appear, even if it isn't in the project listing (a new/
   // untracked file, or a stale listing): union the listing with the changed files when
   // showing unchanged; otherwise just the changed files.
-  const all = S.settings.showUnchanged && S.projectFiles.length
-    ? [...new Set([...S.projectFiles, ...changedPaths])]
-    : changedPaths;
+  const all =
+    S.settings.showUnchanged && S.projectFiles.length
+      ? [...new Set([...S.projectFiles, ...changedPaths])]
+      : changedPaths;
   all.forEach((path) => {
     const parts = path.split("/").filter(Boolean);
     let node = root;
@@ -51,7 +64,8 @@ export function treeRows(): TreeRow[] {
     let full = "";
     for (const part of parts.slice(0, -1)) {
       full = full ? `${full}/${part}` : part;
-      if (!node.dirs.has(part)) node.dirs.set(part, { name: part, full, dirs: new Map(), files: [], changed: false });
+      if (!node.dirs.has(part))
+        node.dirs.set(part, { name: part, full, dirs: new Map(), files: [], changed: false });
       node = node.dirs.get(part)!;
       stack.push(node);
     }
@@ -59,7 +73,13 @@ export function treeRows(): TreeRow[] {
     // A folder counts as part of the review (open by default) if it holds any reviewed file,
     // staged or not — so staging a file doesn't flip its folder to "unchanged" and collapse it.
     if (isChanged) stack.forEach((n) => (n.changed = true));
-    node.files.push({ name: parts.at(-1) || path, index: changed.get(path), changed: isChanged, path, tests: [] });
+    node.files.push({
+      name: parts.at(-1) || path,
+      index: changed.get(path),
+      changed: isChanged,
+      path,
+      tests: [],
+    });
   });
 
   function groupTests(node: TreeNode) {
@@ -68,7 +88,11 @@ export function treeRows(): TreeRow[] {
       const m = f.name.match(/^(.*)\.(test|spec)(\.[^.]+)$/);
       if (!m) continue;
       const parent = byName.get(`${m[1]}${m[3]}`);
-      if (parent) { parent.tests.push(f); if (f.changed && !S.state.stagedFiles?.includes(f.path)) parent.changed = true; f.folded = true; }
+      if (parent) {
+        parent.tests.push(f);
+        if (f.changed && !S.state.stagedFiles?.includes(f.path)) parent.changed = true;
+        f.folded = true;
+      }
     }
     node.files = node.files.filter((f) => !f.folded);
     for (const child of node.dirs.values()) groupTests(child);
@@ -96,9 +120,14 @@ export function treeRows(): TreeRow[] {
     // No file is "active" while the guide Overview is showing (nothing is being viewed yet).
     // While previewing an opened file, the previewed path is active (it may be unchanged, so
     // it has no fileIndex); otherwise the indexed review file is active.
-    const active = S.overviewOpen ? false : S.preview ? S.preview.path === file.path : file.index === S.fileIndex;
+    const active = S.overviewOpen
+      ? false
+      : S.preview
+        ? S.preview.path === file.path
+        : file.index === S.fileIndex;
     const hasTests = !isTest && file.tests.length > 0;
-    const changedTests = !isTest && file.tests.some((t) => t.changed && fileReviewState(t.path) === "pending");
+    const changedTests =
+      !isTest && file.tests.some((t) => t.changed && fileReviewState(t.path) === "pending");
     // "Changed" (cyan) filename = still needs attention: a pending changed file, or a child test
     // that's still pending. Approved / changes-requested files read as neutral (dealt with).
     const changedish = (file.changed && state === "pending") || changedTests;
@@ -111,7 +140,14 @@ export function treeRows(): TreeRow[] {
       kind: isTest ? "test" : "file",
       depth,
       name: file.name,
-      cls: [active ? "active" : "", changedish ? "changed" : "", isTest ? "test" : "", indent(depth)].filter(Boolean).join(" "),
+      cls: [
+        active ? "active" : "",
+        changedish ? "changed" : "",
+        isTest ? "test" : "",
+        indent(depth),
+      ]
+        .filter(Boolean)
+        .join(" "),
       path: file.path,
       fileIndex: file.index,
       testToggle: showTestToggle,
@@ -120,18 +156,35 @@ export function treeRows(): TreeRow[] {
       changeType: changedish ? changeType(file) : null,
       state: showTestToggle ? null : state,
     });
-    if (testOpen) file.tests.sort((a, b) => Number(b.changed) - Number(a.changed) || a.name.localeCompare(b.name)).forEach((t) => fileRow(t, depth + 1, true));
+    if (testOpen)
+      file.tests
+        .sort((a, b) => Number(b.changed) - Number(a.changed) || a.name.localeCompare(b.name))
+        .forEach((t) => fileRow(t, depth + 1, true));
   }
 
   function walk(node: TreeNode, depth: number) {
-    [...node.dirs.values()].sort((a, b) => a.name.localeCompare(b.name)).forEach((dir) => {
-      // Changed folders default open (collapsible via collapsedDirs); unchanged default
-      // closed (expandable via expandedDirs). Either way the chevron toggles.
-      const open = dir.changed ? !S.collapsedDirs.has(dir.full) : S.expandedDirs.has(dir.full);
-      rows.push({ key: "dir:" + dir.full, kind: "dir", depth, name: dir.name, cls: [dir.changed ? "changed" : "", indent(depth)].filter(Boolean).join(" "), full: dir.full, dirCaret: open ? "▾" : "▸", open, changed: dir.changed });
-      if (open) walk(dir, depth + 1);
-    });
-    node.files.sort((a, b) => a.name.localeCompare(b.name)).forEach((file) => fileRow(file, depth, false));
+    [...node.dirs.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach((dir) => {
+        // Changed folders default open (collapsible via collapsedDirs); unchanged default
+        // closed (expandable via expandedDirs). Either way the chevron toggles.
+        const open = dir.changed ? !S.collapsedDirs.has(dir.full) : S.expandedDirs.has(dir.full);
+        rows.push({
+          key: "dir:" + dir.full,
+          kind: "dir",
+          depth,
+          name: dir.name,
+          cls: [dir.changed ? "changed" : "", indent(depth)].filter(Boolean).join(" "),
+          full: dir.full,
+          dirCaret: open ? "▾" : "▸",
+          open,
+          changed: dir.changed,
+        });
+        if (open) walk(dir, depth + 1);
+      });
+    node.files
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach((file) => fileRow(file, depth, false));
   }
 
   groupTests(root);

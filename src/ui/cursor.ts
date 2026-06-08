@@ -11,14 +11,25 @@ import { render } from "./render";
 // rendered row on demand. The diff lives in @pierre's shadow DOM, so — like the overview ruler —
 // we read row rects and drive a host-level highlight bar instead of mutating shadow internals.
 
-type Row = { el: HTMLElement; side: Side; line: number; top: number; height: number; change: boolean };
+type Row = {
+  el: HTMLElement;
+  side: Side;
+  line: number;
+  top: number;
+  height: number;
+  change: boolean;
+};
 
 let cur: { side: Side; line: number } | null = null;
 let curEl: HTMLElement | null = null; // the rendered row, cached for cheap scroll repositioning
 
 function shadow(): ShadowRoot | null {
   let sh: ShadowRoot | null = null;
-  $("diff").querySelectorAll("*").forEach((el) => { if ((el as HTMLElement).shadowRoot) sh = (el as HTMLElement).shadowRoot; });
+  $("diff")
+    .querySelectorAll("*")
+    .forEach((el) => {
+      if ((el as HTMLElement).shadowRoot) sh = (el as HTMLElement).shadowRoot;
+    });
   return sh;
 }
 
@@ -38,18 +49,34 @@ function rows(): Row[] {
     if (!cell) return;
     const type = cell.getAttribute("data-line-type") || "";
     const col = span.closest<HTMLElement>("[data-additions],[data-deletions]");
-    const side: Side = type.includes("deletion") ? "deletions"
-      : type.includes("addition") ? "additions"
-      : col?.hasAttribute("data-deletions") ? "deletions" : "additions";
+    const side: Side = type.includes("deletion")
+      ? "deletions"
+      : type.includes("addition")
+        ? "additions"
+        : col?.hasAttribute("data-deletions")
+          ? "deletions"
+          : "additions";
     const line = parseInt(span.textContent || "", 10);
     if (!Number.isFinite(line)) return;
     const r = cell.getBoundingClientRect();
     if (!r.height) return;
-    out.push({ el: cell, side, line, top: r.top - diffTop + scrollTop, height: r.height, change: type.startsWith("change-") });
+    out.push({
+      el: cell,
+      side,
+      line,
+      top: r.top - diffTop + scrollTop,
+      height: r.height,
+      change: type.startsWith("change-"),
+    });
   });
   out.sort((a, b) => a.top - b.top || (a.side === b.side ? 0 : a.side === "additions" ? -1 : 1));
   const seen = new Set<number>();
-  return out.filter((r) => { const k = Math.round(r.top); if (seen.has(k)) return false; seen.add(k); return true; });
+  return out.filter((r) => {
+    const k = Math.round(r.top);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 function indexOfCur(list: Row[]): number {
@@ -64,7 +91,10 @@ function paint(r: Row) {
   bar.style.height = `${r.height}px`;
   bar.classList.add("show");
 }
-function hide() { curEl = null; $("cursorbar").classList.remove("show"); }
+function hide() {
+  curEl = null;
+  $("cursorbar").classList.remove("show");
+}
 
 // Cheap reposition for scroll: read the cached row's live rect (no full re-scan).
 export function cursorOnScroll() {
@@ -87,13 +117,20 @@ function landOn(r: Row | undefined, scroll = true) {
 // cursor is hidden until the reviewer navigates (no auto-highlighted first line), so when there's
 // no active cursor we stay hidden.
 export function cursorResync() {
-  if (!cur) { hide(); return; }
+  if (!cur) {
+    hide();
+    return;
+  }
   const r = rows().find((x) => x.side === cur!.side && x.line === cur!.line);
-  if (r) paint(r); else hide();
+  if (r) paint(r);
+  else hide();
 }
 
 // Drop the cursor (file switch, overview, markdown view) — clears the highlight entirely.
-export function cursorReset() { cur = null; hide(); }
+export function cursorReset() {
+  cur = null;
+  hide();
+}
 
 // Reveal the cursor on first use: land on the first change (else the first line). Returns the row.
 function ensureCursor(): Row | undefined {
@@ -108,9 +145,15 @@ function ensureCursor(): Row | undefined {
 export function cursorMoveLine(dir: 1 | -1) {
   const list = rows();
   if (!list.length) return;
-  if (!cur) { ensureCursor(); return; } // first press just reveals the cursor
+  if (!cur) {
+    ensureCursor();
+    return;
+  } // first press just reveals the cursor
   const i = indexOfCur(list);
-  if (i < 0) { landOn(dir === 1 ? list[0] : list[list.length - 1]); return; }
+  if (i < 0) {
+    landOn(dir === 1 ? list[0] : list[list.length - 1]);
+    return;
+  }
   landOn(list[Math.max(0, Math.min(list.length - 1, i + dir))]);
 }
 
@@ -118,11 +161,17 @@ export function cursorMoveLine(dir: 1 | -1) {
 export function cursorMoveHunk(dir: 1 | -1) {
   const list = rows();
   if (!list.length) return;
-  if (!cur) { ensureCursor(); return; } // first press just reveals the cursor (on the first change)
+  if (!cur) {
+    ensureCursor();
+    return;
+  } // first press just reveals the cursor (on the first change)
   const isStart = (j: number) => list[j].change && (j === 0 || !list[j - 1].change);
   const i = indexOfCur(list);
   for (let j = i + dir; j >= 0 && j < list.length; j += dir) {
-    if (isStart(j)) { landOn(list[j]); return; }
+    if (isStart(j)) {
+      landOn(list[j]);
+      return;
+    }
   }
   toast(dir === 1 ? "No more changes" : "No previous changes");
 }
@@ -130,7 +179,14 @@ export function cursorMoveHunk(dir: 1 | -1) {
 // The change (hunk) whose range covers the cursor line on its side.
 function cursorChange() {
   if (!cur) return null;
-  return currentChanges().find((c) => c.side === cur!.side && cur!.line >= c.lineNumber && cur!.line <= (c.endLine ?? c.lineNumber)) ?? null;
+  return (
+    currentChanges().find(
+      (c) =>
+        c.side === cur!.side &&
+        cur!.line >= c.lineNumber &&
+        cur!.line <= (c.endLine ?? c.lineNumber),
+    ) ?? null
+  );
 }
 
 // Open the comment composer anchored to the cursor line (keyboard equivalent of clicking a line).
@@ -153,20 +209,33 @@ export function cursorComment() {
 export function cursorVerdict(status: "accepted" | "rejected") {
   if (!cur) ensureCursor();
   const ch = cursorChange();
-  if (!ch) { toast("No change under the cursor"); return; }
+  if (!ch) {
+    toast("No change under the cursor");
+    return;
+  }
   acceptChange(ch.id, status);
 }
 
 function threadComments() {
   if (!cur) return [];
-  return S.state.comments.filter((c) => c.path === (S.preview?.path ?? S.state.files[S.fileIndex]?.path) && c.side === cur!.side && c.lineNumber === cur!.line);
+  return S.state.comments.filter(
+    (c) =>
+      c.path === (S.preview?.path ?? S.state.files[S.fileIndex]?.path) &&
+      c.side === cur!.side &&
+      c.lineNumber === cur!.line,
+  );
 }
 
 // Toggle resolve/reopen on the cursor line's thread.
 export function cursorResolve() {
   const thread = threadComments();
-  if (!thread.length) { toast("No comment on this line"); return; }
+  if (!thread.length) {
+    toast("No comment on this line");
+    return;
+  }
   const open = thread.some((c) => c.status === "open");
   thread.forEach((c) => (c.status = open ? "resolved" : "open"));
-  render(); persist(); toast(open ? "Resolved" : "Reopened");
+  render();
+  persist();
+  toast(open ? "Resolved" : "Reopened");
 }

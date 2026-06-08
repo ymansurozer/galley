@@ -6,7 +6,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { git, listProjectTree, patchForChange } from "./git.js";
-import { buildReviewResult, buildReviewState, buildReviewSummary, hash, mergeReviewState, nowIso, persistReview, syncGitState } from "./state.js";
+import {
+  buildReviewResult,
+  buildReviewState,
+  buildReviewSummary,
+  hash,
+  mergeReviewState,
+  nowIso,
+  persistReview,
+  syncGitState,
+} from "./state.js";
 import type { AwaitEvent, ReviewResult, ReviewState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -37,7 +46,10 @@ async function readBody(req: http.IncomingMessage, limit = 5_000_000) {
 }
 
 function json(res: http.ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" });
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "access-control-allow-origin": "*",
+  });
   res.end(JSON.stringify(body));
 }
 
@@ -50,7 +62,14 @@ function fail(res: http.ServerResponse, status: number, code: string, error: str
 // source via tsx, so __dirname is src/ — the served bundle lives in dist/ and
 // the page markup in src/ui/.
 async function firstExisting(...candidates: string[]) {
-  for (const p of candidates) if (await fs.stat(p).then(() => true, () => false)) return p;
+  for (const p of candidates)
+    if (
+      await fs.stat(p).then(
+        () => true,
+        () => false,
+      )
+    )
+      return p;
   return candidates[0];
 }
 
@@ -59,16 +78,25 @@ async function uiBundlePath() {
 }
 
 async function html() {
-  const file = await firstExisting(path.join(__dirname, "index.html"), path.join(process.cwd(), "src", "ui", "index.html"));
+  const file = await firstExisting(
+    path.join(__dirname, "index.html"),
+    path.join(process.cwd(), "src", "ui", "index.html"),
+  );
   return fs.readFile(file, "utf8");
 }
 
 async function applyPatchToIndex(root: string, patch: string) {
-  const tmp = path.join(await fs.mkdtemp(path.join(process.env.TMPDIR || "/tmp", "galley-")), `${crypto.randomUUID()}.diff`);
+  const tmp = path.join(
+    await fs.mkdtemp(path.join(process.env.TMPDIR || "/tmp", "galley-")),
+    `${crypto.randomUUID()}.diff`,
+  );
   await fs.writeFile(tmp, patch, "utf8");
   try {
     const baseArgs = ["apply", "--cached", "--unidiff-zero"];
-    const alreadyApplied = await git([...baseArgs, "--reverse", "--check", tmp], root).then(() => true, () => false);
+    const alreadyApplied = await git([...baseArgs, "--reverse", "--check", tmp], root).then(
+      () => true,
+      () => false,
+    );
     if (alreadyApplied) return "skipped" as const;
     await git([...baseArgs, tmp], root);
     return "applied" as const;
@@ -78,7 +106,8 @@ async function applyPatchToIndex(root: string, patch: string) {
 }
 
 async function openUrl(url: string) {
-  const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+  const command =
+    process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   await execFileAsync(command, args).catch(() => undefined);
 }
@@ -108,9 +137,16 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         const file = await uiBundlePath();
         const stat = await fs.stat(file).catch(() => null);
         const etag = stat ? `"${stat.size}-${Math.round(stat.mtimeMs)}"` : "";
-        if (etag && req.headers["if-none-match"] === etag) { res.writeHead(304); res.end(); return; }
+        if (etag && req.headers["if-none-match"] === etag) {
+          res.writeHead(304);
+          res.end();
+          return;
+        }
         const js = await fs.readFile(file, "utf8").catch(() => "");
-        res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", ...(etag ? { etag, "cache-control": "no-cache" } : {}) });
+        res.writeHead(200, {
+          "content-type": "text/javascript; charset=utf-8",
+          ...(etag ? { etag, "cache-control": "no-cache" } : {}),
+        });
         res.end(js);
         return;
       }
@@ -132,9 +168,17 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         const rel = url.searchParams.get("path") || "";
         const root = path.resolve(state.root);
         const abs = path.resolve(root, rel);
-        if (abs !== root && !abs.startsWith(root + path.sep)) return fail(res, 400, "BAD_PATH", "Path escapes the repo.", "Use a repo-relative path.");
+        if (abs !== root && !abs.startsWith(root + path.sep))
+          return fail(res, 400, "BAD_PATH", "Path escapes the repo.", "Use a repo-relative path.");
         const contents = await fs.readFile(abs, "utf8").catch(() => null);
-        if (contents === null) return fail(res, 404, "NOT_FOUND", `Cannot read "${rel}".`, "Check the path is a readable text file in the repo.");
+        if (contents === null)
+          return fail(
+            res,
+            404,
+            "NOT_FOUND",
+            `Cannot read "${rel}".`,
+            "Check the path is a readable text file in the repo.",
+          );
         return json(res, 200, { path: rel, contents });
       }
       if (req.method === "POST" && url.pathname === "/api/save") {
@@ -157,10 +201,32 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       }
       if (req.method === "POST" && url.pathname === "/api/ask") {
         // Reviewer clicked Ask: push a question to the agent now (out of band from Send).
-        const b = JSON.parse(await readBody(req)) as { path?: string; lineNumber?: number; side?: string; body?: string };
+        const b = JSON.parse(await readBody(req)) as {
+          path?: string;
+          lineNumber?: number;
+          side?: string;
+          body?: string;
+        };
         const text = (b.body ?? "").trim();
-        if (!b.path || !text) return fail(res, 422, "INVALID_QUESTION", "ask requires path and body", "Send { path, lineNumber, side, body } as JSON.");
-        emitEvent({ kind: "question", question: { path: b.path, lineNumber: Number(b.lineNumber ?? 1), side: b.side === "deletions" ? "deletions" : "additions", body: text, mode: state.mode, session: state.session } });
+        if (!b.path || !text)
+          return fail(
+            res,
+            422,
+            "INVALID_QUESTION",
+            "ask requires path and body",
+            "Send { path, lineNumber, side, body } as JSON.",
+          );
+        emitEvent({
+          kind: "question",
+          question: {
+            path: b.path,
+            lineNumber: Number(b.lineNumber ?? 1),
+            side: b.side === "deletions" ? "deletions" : "additions",
+            body: text,
+            mode: state.mode,
+            session: state.session,
+          },
+        });
         return json(res, 200, { ok: true });
       }
       if (req.method === "GET" && url.pathname === "/api/await-send") {
@@ -170,13 +236,34 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         const queued = eventQueue.shift();
         if (queued) return json(res, 200, queued);
         let settled = false;
-        const waiter = (ev: AwaitEvent) => { if (settled) return; settled = true; clearTimeout(timer); json(res, 200, ev); };
-        const drop = () => { const i = eventWaiters.indexOf(waiter); if (i >= 0) eventWaiters.splice(i, 1); };
+        const waiter = (ev: AwaitEvent) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          json(res, 200, ev);
+        };
+        const drop = () => {
+          const i = eventWaiters.indexOf(waiter);
+          if (i >= 0) eventWaiters.splice(i, 1);
+        };
         // Bounded long-poll for harnesses that pass --timeout; otherwise hold for an hour.
         const timeoutSec = Number(url.searchParams.get("timeout"));
-        const holdMs = Number.isFinite(timeoutSec) && timeoutSec > 0 ? timeoutSec * 1000 : 60 * 60 * 1000;
-        const timer = setTimeout(() => { if (settled) return; settled = true; drop(); res.writeHead(204); res.end(); }, holdMs);
-        req.on("close", () => { if (!settled) { settled = true; clearTimeout(timer); drop(); } });
+        const holdMs =
+          Number.isFinite(timeoutSec) && timeoutSec > 0 ? timeoutSec * 1000 : 60 * 60 * 1000;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          drop();
+          res.writeHead(204);
+          res.end();
+        }, holdMs);
+        req.on("close", () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            drop();
+          }
+        });
         eventWaiters.push(waiter);
         return;
       }
@@ -205,18 +292,44 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ok: true, empty: false, baseDiffHash: state.baseDiffHash });
       }
       if (req.method === "POST" && url.pathname === "/api/comment") {
-        const body = JSON.parse(await readBody(req)) as { path?: string; side?: string; lineNumber?: number; body?: string; role?: string };
+        const body = JSON.parse(await readBody(req)) as {
+          path?: string;
+          side?: string;
+          lineNumber?: number;
+          body?: string;
+          role?: string;
+        };
         const text = (body.body ?? "").trim();
-        if (!body.path || !text) return fail(res, 422, "INVALID_COMMENT", "comment requires path and body", "Send { path, lineNumber, side, body } as JSON.");
+        if (!body.path || !text)
+          return fail(
+            res,
+            422,
+            "INVALID_COMMENT",
+            "comment requires path and body",
+            "Send { path, lineNumber, side, body } as JSON.",
+          );
         const now = nowIso();
-        const comment = { id: crypto.randomUUID(), path: body.path, side: body.side === "deletions" ? "deletions" as const : "additions" as const, lineNumber: Number(body.lineNumber ?? 1), body: text, createdAt: now, updatedAt: now, status: "open" as const, intent: "note" as const, role: body.role === "user" ? "user" as const : "agent" as const };
+        const comment = {
+          id: crypto.randomUUID(),
+          path: body.path,
+          side: body.side === "deletions" ? ("deletions" as const) : ("additions" as const),
+          lineNumber: Number(body.lineNumber ?? 1),
+          body: text,
+          createdAt: now,
+          updatedAt: now,
+          status: "open" as const,
+          intent: "note" as const,
+          role: body.role === "user" ? ("user" as const) : ("agent" as const),
+        };
         state.comments.push(comment);
         await persistReview(state);
         return json(res, 200, { ok: true, commentId: comment.id });
       }
       if (req.method === "POST" && url.pathname === "/api/reset") {
         for (const file of state.files) {
-          await git(["restore", "--staged", "--", file.path], state.root).catch(async () => git(["reset", "HEAD", "--", file.path], state.root));
+          await git(["restore", "--staged", "--", file.path], state.root).catch(async () =>
+            git(["reset", "HEAD", "--", file.path], state.root),
+          );
         }
         state.comments = [];
         state.reviewedFiles = [];
@@ -225,12 +338,23 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         state.stagedChangeKeys = [];
         state.decisionFiles = [];
         state.decisions = [];
-        state.changes = state.changes.map((change) => ({ ...change, status: "pending", reviewedHash: undefined }));
+        state.changes = state.changes.map((change) => ({
+          ...change,
+          status: "pending",
+          reviewedHash: undefined,
+        }));
         await persistReview(state);
         return json(res, 200, { ok: true, state });
       }
       if (req.method === "POST" && url.pathname === "/api/stage") {
-        if (state.mode === "pr") return fail(res, 409, "STAGING_DISABLED", "Staging is unavailable in PR review mode.", "PR changes are committed; accept/reject are approve/request-changes verdicts.");
+        if (state.mode === "pr")
+          return fail(
+            res,
+            409,
+            "STAGING_DISABLED",
+            "Staging is unavailable in PR review mode.",
+            "PR changes are committed; accept/reject are approve/request-changes verdicts.",
+          );
         const { path: filePath } = JSON.parse(await readBody(req)) as { path: string };
         await git(["add", "--", filePath], state.root);
         if (!state.stagedFiles.includes(filePath)) state.stagedFiles.push(filePath);
@@ -238,16 +362,36 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/stage-change") {
-        if (state.mode === "pr") return fail(res, 409, "STAGING_DISABLED", "Staging is unavailable in PR review mode.", "PR changes are committed; accept/reject are approve/request-changes verdicts.");
-        const { path: filePath, stableKey } = JSON.parse(await readBody(req)) as { path: string; stableKey: string };
+        if (state.mode === "pr")
+          return fail(
+            res,
+            409,
+            "STAGING_DISABLED",
+            "Staging is unavailable in PR review mode.",
+            "PR changes are committed; accept/reject are approve/request-changes verdicts.",
+          );
+        const { path: filePath, stableKey } = JSON.parse(await readBody(req)) as {
+          path: string;
+          stableKey: string;
+        };
         const key = `${filePath}:${stableKey}`;
         state.stagedChangeKeys ??= [];
-        if (state.stagedChangeKeys.includes(key)) return json(res, 200, { ok: true, skipped: true });
+        if (state.stagedChangeKeys.includes(key))
+          return json(res, 200, { ok: true, skipped: true });
         let result: "applied" | "skipped";
         try {
-          result = await applyPatchToIndex(state.root, patchForChange(state.rawDiff, filePath, stableKey));
+          result = await applyPatchToIndex(
+            state.root,
+            patchForChange(state.rawDiff, filePath, stableKey),
+          );
         } catch (error) {
-          return fail(res, 409, "PATCH_CONFLICT", error instanceof Error ? error.message : String(error), "The working tree changed since the desk loaded. Reload it (GET /api/state) and retry.");
+          return fail(
+            res,
+            409,
+            "PATCH_CONFLICT",
+            error instanceof Error ? error.message : String(error),
+            "The working tree changed since the desk loaded. Reload it (GET /api/state) and retry.",
+          );
         }
         state.stagedChangeKeys.push(key);
         await persistReview(state);
@@ -255,15 +399,25 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       }
       if (req.method === "POST" && url.pathname === "/api/unstage") {
         const { path: filePath } = JSON.parse(await readBody(req)) as { path: string };
-        await git(["restore", "--staged", "--", filePath], state.root).catch(async () => git(["reset", "HEAD", "--", filePath], state.root));
+        await git(["restore", "--staged", "--", filePath], state.root).catch(async () =>
+          git(["reset", "HEAD", "--", filePath], state.root),
+        );
         state.stagedFiles = state.stagedFiles.filter((p) => p !== filePath);
-        state.stagedChangeKeys = (state.stagedChangeKeys ?? []).filter((key) => !key.startsWith(`${filePath}:`));
+        state.stagedChangeKeys = (state.stagedChangeKeys ?? []).filter(
+          (key) => !key.startsWith(`${filePath}:`),
+        );
         await persistReview(state);
         return json(res, 200, { ok: true });
       }
       fail(res, 404, "NOT_FOUND", "Not found", `See ${DOCS} for the route list.`);
     } catch (error) {
-      fail(res, 500, "INTERNAL", error instanceof Error ? error.message : String(error), "Unexpected server error; retry once, then reload the desk.");
+      fail(
+        res,
+        500,
+        "INTERNAL",
+        error instanceof Error ? error.message : String(error),
+        "Unexpected server error; retry once, then reload the desk.",
+      );
     }
   });
 

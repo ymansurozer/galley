@@ -9,7 +9,14 @@ const validInput = () => ({
   overview: "Adds rate limiting.",
   prDescription: "Closes #312.",
   files: [
-    { path: "src/middleware/rateLimit.ts", order: 2, category: "Core", summary: "The limiter.", critical: true, why: "reject path" },
+    {
+      path: "src/middleware/rateLimit.ts",
+      order: 2,
+      category: "Core",
+      summary: "The limiter.",
+      critical: true,
+      why: "reject path",
+    },
     { path: "src/config/limits.ts", order: 1, category: "Config", summary: "Constants." },
   ],
 });
@@ -21,7 +28,10 @@ test("validateGuide accepts a well-formed guide and sorts files by order", () =>
   assert.equal(r.guide.title, "Add API rate limiting");
   assert.equal(r.guide.overview, "Adds rate limiting.");
   assert.equal(r.guide.prDescription, "Closes #312.");
-  assert.deepEqual(r.guide.files.map((f) => f.path), ["src/config/limits.ts", "src/middleware/rateLimit.ts"]);
+  assert.deepEqual(
+    r.guide.files.map((f) => f.path),
+    ["src/config/limits.ts", "src/middleware/rateLimit.ts"],
+  );
   assert.equal(r.guide.files[1]!.critical, true);
   assert.equal(r.guide.files[1]!.why, "reject path");
 });
@@ -39,13 +49,13 @@ test("validateGuide rejects malformed input", () => {
   const cases: unknown[] = [
     null,
     "nope",
-    { files: [{ path: "a", summary: "s" }] },            // missing overview
+    { files: [{ path: "a", summary: "s" }] }, // missing overview
     { overview: "  ", files: [{ path: "a", summary: "s" }] }, // blank overview
-    { overview: "x" },                                    // missing files
-    { overview: "x", files: "no" },                       // files not array
-    { overview: "x", files: [] },                         // empty files
-    { overview: "x", files: [{ summary: "s" }] },          // entry missing path
-    { overview: "x", files: [{ path: "a" }] },             // entry missing summary
+    { overview: "x" }, // missing files
+    { overview: "x", files: "no" }, // files not array
+    { overview: "x", files: [] }, // empty files
+    { overview: "x", files: [{ summary: "s" }] }, // entry missing path
+    { overview: "x", files: [{ path: "a" }] }, // entry missing summary
   ];
   for (const input of cases) assert.equal(validateGuide(input).ok, false, JSON.stringify(input));
 });
@@ -53,16 +63,32 @@ test("validateGuide rejects malformed input", () => {
 // minimal state factory (mirrors state.test.ts)
 function state(over: Partial<ReviewState>): ReviewState {
   return {
-    id: "id", session: "s", root: "/r", repoHash: "h", mode: "repo", staged: false, head: null,
-    baseDiffHash: "base", createdAt: "t", rawDiff: "", files: [], comments: [],
-    changes: [], reviewedFiles: [], stagedFiles: [], ...over,
+    id: "id",
+    session: "s",
+    root: "/r",
+    repoHash: "h",
+    mode: "repo",
+    staged: false,
+    head: null,
+    baseDiffHash: "base",
+    createdAt: "t",
+    rawDiff: "",
+    files: [],
+    comments: [],
+    changes: [],
+    reviewedFiles: [],
+    stagedFiles: [],
+    ...over,
   };
 }
 
 test("mergeReviewState carries an attached guide across a reload", () => {
-  const guide: Guide = { overview: "o", files: [{ path: "a.ts", order: 0, category: "Config", summary: "s" }] };
-  const base = state({ baseDiffHash: "new" });          // freshly rebuilt diff — no guide
-  const saved = state({ guide });                        // live state with the attached guide
+  const guide: Guide = {
+    overview: "o",
+    files: [{ path: "a.ts", order: 0, category: "Config", summary: "s" }],
+  };
+  const base = state({ baseDiffHash: "new" }); // freshly rebuilt diff — no guide
+  const saved = state({ guide }); // live state with the attached guide
   const merged = mergeReviewState(base, saved);
   assert.deepEqual(merged.guide, guide);
   assert.equal(merged.baseDiffHash, "new");

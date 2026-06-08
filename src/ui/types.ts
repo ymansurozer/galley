@@ -1,4 +1,11 @@
-import type { ReviewState, ReviewComment, ChangeState, Decision, GuideFile, ReviewFile } from "../types";
+import type {
+  ReviewState,
+  ReviewComment,
+  ChangeState,
+  Decision,
+  GuideFile,
+  ReviewFile,
+} from "../types";
 import type { CategoryStep } from "./guide";
 
 export type Side = "additions" | "deletions";
@@ -14,10 +21,10 @@ export type Settings = {
   // Row add/remove tint emphasis: full (default), subtle (faint row + stronger word
   // emphasis), off (no row tint — focus entirely on the word diff).
   lineHighlight: "full" | "subtle" | "off";
-  theme: string;      // Shiki bundled dark theme — applies to the diff AND comment code
-  font: string;       // key into the FONTS map — code font (diff + comment/markdown code)
-  uiFont: string;     // key into the SANS_FONTS map — UI chrome font (non-code)
-  fontSize: number;   // px — code font size (diff + comment code)
+  theme: string; // Shiki bundled dark theme — applies to the diff AND comment code
+  font: string; // key into the FONTS map — code font (diff + comment/markdown code)
+  uiFont: string; // key into the SANS_FONTS map — UI chrome font (non-code)
+  fontSize: number; // px — code font size (diff + comment code)
   showUnchanged: boolean;
   // Diff view: "collapse" (default) folds long unchanged runs into a "N unmodified lines"
   // separator; "expand" renders every line (mapped to @pierre's expandUnchanged flag).
@@ -65,8 +72,21 @@ export type FileRow = {
 export type TreeRow = DirRow | FileRow;
 
 // Internal nodes used while building the tree (not rendered directly).
-export type TreeFile = { name: string; index: number | undefined; changed: boolean; path: string; tests: TreeFile[]; folded?: boolean };
-export type TreeNode = { name: string; full: string; dirs: Map<string, TreeNode>; files: TreeFile[]; changed: boolean };
+export type TreeFile = {
+  name: string;
+  index: number | undefined;
+  changed: boolean;
+  path: string;
+  tests: TreeFile[];
+  folded?: boolean;
+};
+export type TreeNode = {
+  name: string;
+  full: string;
+  dirs: Map<string, TreeNode>;
+  files: TreeFile[];
+  changed: boolean;
+};
 
 // ── Diff annotations (our payload handed to @pierre/diffs' renderAnnotation) ─
 export type ThreadMeta = {
@@ -78,7 +98,14 @@ export type ThreadMeta = {
   comments: ReviewComment[];
   changeId?: string;
 };
-export type ChangeMeta = { type: "change"; id: string; side: Side; lineNumber: number; title: string; path: string };
+export type ChangeMeta = {
+  type: "change";
+  id: string;
+  side: Side;
+  lineNumber: number;
+  title: string;
+  path: string;
+};
 export type AnnotationMeta = ThreadMeta | ChangeMeta;
 export type AnnotationInput = { side: Side; lineNumber: number; metadata: AnnotationMeta };
 
@@ -98,7 +125,10 @@ export type DiffHolder = {
   // its own wrapper element; only the active wrapper is mounted in #diff, the rest stay
   // detached (held here) with their DOM + @pierre highlight cache intact — so re-opening a
   // visited file re-mounts instantly without re-tokenizing.
-  diffCache: Map<string, { wrapper: HTMLElement; inst: import("@pierre/diffs").FileDiff<AnnotationMeta> }>;
+  diffCache: Map<
+    string,
+    { wrapper: HTMLElement; inst: import("@pierre/diffs").FileDiff<AnnotationMeta> }
+  >;
   fileDiff: import("@pierre/diffs").FileDiffMetadata | null;
 };
 

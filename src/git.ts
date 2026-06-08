@@ -88,7 +88,14 @@ export function parseUnifiedDiff(raw: string): DiffFile[] {
     diffPosition++;
     const text = rawLine.slice(1);
     if (prefix === " ") {
-      hunk.lines.push({ kind: "context", text, oldLine, newLine, diffPosition, hunkHeader: hunk.header });
+      hunk.lines.push({
+        kind: "context",
+        text,
+        oldLine,
+        newLine,
+        diffPosition,
+        hunkHeader: hunk.header,
+      });
       oldLine++;
       newLine++;
     } else if (prefix === "+") {
@@ -110,7 +117,10 @@ export async function fileAt(root: string, rel: string | undefined, ref?: string
     // the file looks like it has "no newline at end of file" and the last line
     // renders as a spurious diff.
     if (ref) {
-      const { stdout } = await execFileAsync("git", ["show", `${ref}:${rel}`], { cwd: root, maxBuffer: 50 * 1024 * 1024 });
+      const { stdout } = await execFileAsync("git", ["show", `${ref}:${rel}`], {
+        cwd: root,
+        maxBuffer: 50 * 1024 * 1024,
+      });
       return String(stdout);
     }
     return await fs.readFile(path.join(root, rel), "utf8");
@@ -122,7 +132,10 @@ export async function fileAt(root: string, rel: string | undefined, ref?: string
 export async function listProjectTree(root: string) {
   try {
     const tracked = await git(["ls-files"], root);
-    return tracked.split(/\r?\n/).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    return tracked
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
   } catch {
     return [];
   }
@@ -172,11 +185,15 @@ export function patchForChange(rawDiff: string, filePath: string, stableKey: str
   const candidates: Array<{ hunk: DiffHunk; block: DiffLine[]; score: number }> = [];
   for (const hunk of file.hunks) {
     for (const block of changeBlocks(hunk)) {
-      if (changeStableKeyFromBlock(block) === stableKey) candidates.push({ hunk, block, score: -1_000_000 });
+      if (changeStableKeyFromBlock(block) === stableKey)
+        candidates.push({ hunk, block, score: -1_000_000 });
       const adds = block.filter((l) => l.kind === "add");
       const deletes = block.filter((l) => l.kind === "delete");
       const side = adds.length > 0 ? "additions" : "deletions";
-      const line = side === "additions" ? adds.at(-1)?.newLine ?? adds[0]?.newLine ?? 0 : deletes.at(-1)?.oldLine ?? deletes[0]?.oldLine ?? 0;
+      const line =
+        side === "additions"
+          ? (adds.at(-1)?.newLine ?? adds[0]?.newLine ?? 0)
+          : (deletes.at(-1)?.oldLine ?? deletes[0]?.oldLine ?? 0);
       if (requestedSide && side !== requestedSide) continue;
       let score = Math.abs(line - requestedLine);
       if (requestedAdds >= 0) score += Math.abs(adds.length - requestedAdds) * 10;
@@ -190,9 +207,18 @@ export function patchForChange(rawDiff: string, filePath: string, stableKey: str
   const deletes = block.filter((l) => l.kind === "delete");
   const adds = block.filter((l) => l.kind === "add");
   const firstIndex = hunk.lines.indexOf(block[0]);
-  const prevContext = [...hunk.lines.slice(0, firstIndex)].reverse().find((l) => l.kind === "context");
-  const oldStart = deletes[0]?.oldLine ?? prevContext?.oldLine ?? Math.max(0, (adds[0]?.newLine ?? hunk.newStart) - 1);
-  const newStart = adds[0]?.newLine ?? prevContext?.newLine ?? Math.max(0, (deletes[0]?.oldLine ?? hunk.oldStart) - 1);
+  const prevContext = hunk.lines
+    .slice(0, firstIndex)
+    .reverse()
+    .find((l) => l.kind === "context");
+  const oldStart =
+    deletes[0]?.oldLine ??
+    prevContext?.oldLine ??
+    Math.max(0, (adds[0]?.newLine ?? hunk.newStart) - 1);
+  const newStart =
+    adds[0]?.newLine ??
+    prevContext?.newLine ??
+    Math.max(0, (deletes[0]?.oldLine ?? hunk.oldStart) - 1);
   return [
     `diff --git a/${filePath} b/${filePath}`,
     `--- a/${filePath}`,

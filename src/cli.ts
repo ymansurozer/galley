@@ -3,7 +3,19 @@ import http from "node:http";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { getBranch, getGitRoot, git } from "./git.js";
-import { appendComment, buildReviewState, deskLockPath, findLiveDesks, loadLatestReview, mergeReviewState, persistReview, readDeskLock, reviewDir, sanitizeSession, syncGitState } from "./state.js";
+import {
+  appendComment,
+  buildReviewState,
+  deskLockPath,
+  findLiveDesks,
+  loadLatestReview,
+  mergeReviewState,
+  persistReview,
+  readDeskLock,
+  reviewDir,
+  sanitizeSession,
+  syncGitState,
+} from "./state.js";
 import { validateGuide } from "./guide.js";
 import { startServer } from "./server.js";
 import type { ReviewMode } from "./types.js";
@@ -31,7 +43,12 @@ function resolveRepo(args: Record<string, string | boolean>) {
 }
 
 // Default session per mode: <branch> / file-<path> / pr-<ref>, overridable.
-function deskSession(mode: ReviewMode, target: string | undefined, branch: string, override?: string) {
+function deskSession(
+  mode: ReviewMode,
+  target: string | undefined,
+  branch: string,
+  override?: string,
+) {
   if (override) return sanitizeSession(override);
   if (mode === "file") return sanitizeSession(`file-${target ?? "file"}`);
   if (mode === "pr") return sanitizeSession(`pr-${target || branch || "pr"}`);
@@ -40,12 +57,17 @@ function deskSession(mode: ReviewMode, target: string | undefined, branch: strin
 
 // For await/comment/reload: honor --session, else auto-find the lone live desk
 // (so the agent needn't know the mode prefix), else fall back to the branch.
-async function resolveActionSession(root: string, args: Record<string, string | boolean>): Promise<string> {
+async function resolveActionSession(
+  root: string,
+  args: Record<string, string | boolean>,
+): Promise<string> {
   if (typeof args.session === "string") return sanitizeSession(args.session);
   const live = await findLiveDesks(root);
   if (live.length === 1) return live[0]!.session;
   if (live.length > 1) {
-    console.error(`Multiple live desks for this repo (${live.map((l) => l.session).join(", ")}); pass --session <id>.`);
+    console.error(
+      `Multiple live desks for this repo (${live.map((l) => l.session).join(", ")}); pass --session <id>.`,
+    );
     process.exit(1);
   }
   return sanitizeSession((await getBranch(root)) || "review");
@@ -82,25 +104,43 @@ async function runComment(args: Record<string, string | boolean>) {
   const filePath = typeof args.path === "string" ? args.path : "";
   const body = typeof args.body === "string" ? args.body.trim() : "";
   if (!filePath || !body) {
-    console.error("Usage: galley comment --path <file> --line <n> [--side additions|deletions] --body \"...\" [--session <id>] [--repo <path>]");
+    console.error(
+      'Usage: galley comment --path <file> --line <n> [--side additions|deletions] --body "..." [--session <id>] [--repo <path>]',
+    );
     process.exitCode = 1;
     return;
   }
   const side: "additions" | "deletions" = args.side === "deletions" ? "deletions" : "additions";
-  const payload = { path: filePath, side, lineNumber: Number(args.line ?? 1), body, role: "agent" as const };
+  const payload = {
+    path: filePath,
+    side,
+    lineNumber: Number(args.line ?? 1),
+    body,
+    role: "agent" as const,
+  };
   const lock = await readDeskLock(root, session);
   if (lock) {
     try {
-      const res = await fetch(`${lock.url}api/comment`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      const res = await fetch(`${lock.url}api/comment`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
       if (res.ok) {
         const json = (await res.json()) as { commentId?: string };
-        process.stdout.write(JSON.stringify({ ok: true, live: true, session, commentId: json.commentId }) + "\n");
+        process.stdout.write(
+          JSON.stringify({ ok: true, live: true, session, commentId: json.commentId }) + "\n",
+        );
         return;
       }
-    } catch { /* desk not reachable; fall through to offline append */ }
+    } catch {
+      /* desk not reachable; fall through to offline append */
+    }
   }
   const comment = await appendComment(root, session, payload);
-  process.stdout.write(JSON.stringify({ ok: true, live: false, session, commentId: comment.id }) + "\n");
+  process.stdout.write(
+    JSON.stringify({ ok: true, live: false, session, commentId: comment.id }) + "\n",
+  );
 }
 
 // `galley await --session <id>` — block until the next desk event, then print it
@@ -113,12 +153,15 @@ async function runAwait(args: Record<string, string | boolean>) {
   const session = await resolveActionSession(root, args);
   const lock = await readDeskLock(root, session);
   if (!lock) {
-    console.error(`No live desk for session "${session}". Start it with: galley --session ${session}`);
+    console.error(
+      `No live desk for session "${session}". Start it with: galley --session ${session}`,
+    );
     process.exitCode = 1;
     return;
   }
   let urlStr = `${lock.url}api/await-send`;
-  if (typeof args.timeout === "string" && Number(args.timeout) > 0) urlStr += `?timeout=${Number(args.timeout)}`;
+  if (typeof args.timeout === "string" && Number(args.timeout) > 0)
+    urlStr += `?timeout=${Number(args.timeout)}`;
   const res = await httpGetJson(urlStr).catch(() => null);
   if (!res || res.status === 204 || !res.body) return; // timed out, no event; caller re-runs
   if (res.body.kind) process.stdout.write(JSON.stringify(res.body) + "\n");
@@ -131,7 +174,9 @@ async function runReload(args: Record<string, string | boolean>) {
   const session = await resolveActionSession(root, args);
   const lock = await readDeskLock(root, session);
   if (!lock) {
-    console.error(`No live desk for session "${session}" to reload. Start it with: galley --session ${session}`);
+    console.error(
+      `No live desk for session "${session}" to reload. Start it with: galley --session ${session}`,
+    );
     process.exitCode = 1;
     return;
   }
@@ -142,61 +187,106 @@ async function runReload(args: Record<string, string | boolean>) {
     return;
   }
   const j = (await res.json()) as { baseDiffHash?: string; empty?: boolean };
-  process.stdout.write(JSON.stringify({ ok: true, live: true, session, baseDiffHash: j.baseDiffHash, empty: j.empty }) + "\n");
+  process.stdout.write(
+    JSON.stringify({
+      ok: true,
+      live: true,
+      session,
+      baseDiffHash: j.baseDiffHash,
+      empty: j.empty,
+    }) + "\n",
+  );
 }
 
 // Read + validate a guide JSON file for the `--guide` start flag. Returns the validated
 // guide, or null on any error (after printing why) so the caller can abort.
 function loadGuideArg(value: string | boolean | undefined) {
   if (value === undefined) return undefined;
-  if (typeof value !== "string") { console.error("--guide requires a path to a guide JSON file, e.g. --guide guide.json"); return null; }
-  const SCHEMA = "Expected JSON: { overview, prDescription?, files: [{ path, order, category, summary, critical?, why? }] }.";
+  if (typeof value !== "string") {
+    console.error("--guide requires a path to a guide JSON file, e.g. --guide guide.json");
+    return null;
+  }
+  const SCHEMA =
+    "Expected JSON: { overview, prDescription?, files: [{ path, order, category, summary, critical?, why? }] }.";
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(value, "utf8"));
   } catch (error) {
-    console.error(`Could not read guide file "${value}" as JSON: ${error instanceof Error ? error.message : String(error)}\n${SCHEMA}`);
+    console.error(
+      `Could not read guide file "${value}" as JSON: ${error instanceof Error ? error.message : String(error)}\n${SCHEMA}`,
+    );
     return null;
   }
   const result = validateGuide(parsed);
-  if (!result.ok) { console.error(`Invalid guide: ${result.reason}.\n${SCHEMA}`); return null; }
+  if (!result.ok) {
+    console.error(`Invalid guide: ${result.reason}.\n${SCHEMA}`);
+    return null;
+  }
   return result.guide;
 }
 
 // Launch a persistent desk in repo / file / pr mode.
-async function runDesk(mode: ReviewMode, target: string | undefined, args: Record<string, string | boolean>) {
+async function runDesk(
+  mode: ReviewMode,
+  target: string | undefined,
+  args: Record<string, string | boolean>,
+) {
   const repo = resolveRepo(args);
   const staged = args.diff === "staged" || args.staged === true;
   const root = await getGitRoot(repo).catch(() => repo);
   const branch = (await getBranch(root)) || "";
 
   if (mode === "pr" && target) {
-    const dirty = await git(["status", "--porcelain", "--untracked-files=no"], root).catch(() => "");
+    const dirty = await git(["status", "--porcelain", "--untracked-files=no"], root).catch(
+      () => "",
+    );
     if (dirty.trim()) {
-      console.error(`Working tree has uncommitted changes to tracked files — commit or stash before reviewing a PR (no checkout performed):\n${dirty}`);
+      console.error(
+        `Working tree has uncommitted changes to tracked files — commit or stash before reviewing a PR (no checkout performed):\n${dirty}`,
+      );
       process.exitCode = 1;
       return;
     }
     try {
       await git(["checkout", target], root);
     } catch (error) {
-      console.error(`Could not check out "${target}": ${error instanceof Error ? error.message : String(error)}`);
+      console.error(
+        `Could not check out "${target}": ${error instanceof Error ? error.message : String(error)}`,
+      );
       process.exitCode = 1;
       return;
     }
   }
 
-  const session = deskSession(mode, target, branch, typeof args.session === "string" ? args.session : undefined);
+  const session = deskSession(
+    mode,
+    target,
+    branch,
+    typeof args.session === "string" ? args.session : undefined,
+  );
   const base = await buildReviewState(repo, {
     mode,
     session,
     staged,
-    path: mode === "file" ? target : mode === "repo" ? (typeof args.path === "string" ? args.path : undefined) : undefined,
-    target: mode === "pr" ? (target || branch) : undefined,
+    path:
+      mode === "file"
+        ? target
+        : mode === "repo"
+          ? typeof args.path === "string"
+            ? args.path
+            : undefined
+          : undefined,
+    target: mode === "pr" ? target || branch : undefined,
     base: mode === "pr" && typeof args.base === "string" ? args.base : undefined,
   });
   if (!base) {
-    console.error(mode === "pr" ? "No PR changes to review (branch matches its base)." : mode === "file" ? "File not found or unreadable." : "No git diff found to review.");
+    console.error(
+      mode === "pr"
+        ? "No PR changes to review (branch matches its base)."
+        : mode === "file"
+          ? "File not found or unreadable."
+          : "No git diff found to review.",
+    );
     process.exitCode = 1;
     return;
   }
@@ -206,7 +296,10 @@ async function runDesk(mode: ReviewMode, target: string | undefined, args: Recor
   // valid JSON file when --guide is passed; survives reload via the state merge.
   if (args.guide !== undefined) {
     const guide = loadGuideArg(args.guide);
-    if (!guide) { process.exitCode = 1; return; }
+    if (!guide) {
+      process.exitCode = 1;
+      return;
+    }
     // Stamp the diff hash the guide was generated against; if a later reload advances the
     // diff past it, the desk flags the guide as possibly stale (slice 05).
     state.guide = { ...guide, baseDiffHash: state.baseDiffHash };
@@ -215,18 +308,46 @@ async function runDesk(mode: ReviewMode, target: string | undefined, args: Recor
   await persistReview(state);
 
   const lockFile = deskLockPath(await reviewDir(state.root, state.session));
-  const { url } = await startServer({ state, port: typeof args.port === "string" ? Number(args.port) : 0, open: args.open !== false });
+  const { url } = await startServer({
+    state,
+    port: typeof args.port === "string" ? Number(args.port) : 0,
+    open: args.open !== false,
+  });
 
-  writeFileSync(lockFile, JSON.stringify({ pid: process.pid, url, session: state.session, startedAt: new Date().toISOString() }) + "\n", "utf8");
-  const releaseLock = () => { try { unlinkSync(lockFile); } catch { /* already gone */ } };
+  writeFileSync(
+    lockFile,
+    JSON.stringify({
+      pid: process.pid,
+      url,
+      session: state.session,
+      startedAt: new Date().toISOString(),
+    }) + "\n",
+    "utf8",
+  );
+  const releaseLock = () => {
+    try {
+      unlinkSync(lockFile);
+    } catch {
+      /* already gone */
+    }
+  };
   let released = false;
-  const cleanup = () => { if (!released) { released = true; releaseLock(); } };
+  const cleanup = () => {
+    if (!released) {
+      released = true;
+      releaseLock();
+    }
+  };
   process.on("exit", cleanup);
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => { cleanup(); process.exit(130); });
+    process.on(signal, () => {
+      cleanup();
+      process.exit(130);
+    });
   }
 
-  const label = mode === "repo" ? state.session : `${mode}:${state.target ?? ""} [${state.session}]`;
+  const label =
+    mode === "repo" ? state.session : `${mode}:${state.target ?? ""} [${state.session}]`;
   console.error(`Galley ${label}: ${url}`);
   console.error("Live desk — the agent attaches with `galley await`. Ctrl-C to stop.");
 
@@ -244,12 +365,18 @@ async function main() {
   if (sub === "await") return runAwait(args);
   if (sub === "reload") return runReload(args);
   if (sub === "file") {
-    if (!positional) { console.error("Usage: galley file <path>"); process.exitCode = 1; return; }
+    if (!positional) {
+      console.error("Usage: galley file <path>");
+      process.exitCode = 1;
+      return;
+    }
     return runDesk("file", positional, args);
   }
   if (sub === "pr") return runDesk("pr", positional, args);
   if (sub) {
-    console.error(`Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref> | comment | await | reload.`);
+    console.error(
+      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref> | comment | await | reload.`,
+    );
     process.exitCode = 1;
     return;
   }

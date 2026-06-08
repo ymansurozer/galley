@@ -7,18 +7,25 @@ type ChangeStatus = ChangeState["status"];
 
 // The file the diff is currently showing. A `preview` (an unchanged file the reviewer opened
 // to read/comment on) takes precedence over the indexed review file when set.
-export function currentFile(): ReviewFile { return S.preview ?? S.state.files[S.fileIndex]; }
+export function currentFile(): ReviewFile {
+  return S.preview ?? S.state.files[S.fileIndex];
+}
 // Split view only makes sense for a two-sided diff. A new file (no old side), a deleted file
 // (no new side), or a view-only full file (old === new — including any preview) render
 // single-column, so split is a no-op — used to render them unified and to disable the toggle.
 export function currentSplittable(): boolean {
   const f = S.preview ?? S.state?.files?.[S.fileIndex];
   if (!f) return true;
-  const o = f.oldFile?.contents ?? "", n = f.newFile?.contents ?? "";
+  const o = f.oldFile?.contents ?? "",
+    n = f.newFile?.contents ?? "";
   return o !== "" && n !== "" && o !== n;
 }
-export function currentChanges(): ChangeState[] { return S.state.changes.filter((c) => c.path === currentFile().path); }
-export function currentComments(): ReviewComment[] { return S.state.comments.filter((c) => c.path === currentFile().path); }
+export function currentChanges(): ChangeState[] {
+  return S.state.changes.filter((c) => c.path === currentFile().path);
+}
+export function currentComments(): ReviewComment[] {
+  return S.state.comments.filter((c) => c.path === currentFile().path);
+}
 
 // ── File-level review state: pending / approved / changes-requested ──────────
 export type FileReviewState = "pending" | "approved" | "changes-requested";
@@ -27,8 +34,12 @@ export type FileReviewState = "pending" | "approved" | "changes-requested";
 // comment (open, by the user, not a question). Questions are answered live, so they don't count.
 // Mirrors the server's computeApprovedFiles so the desk and the handoff agree.
 export function fileObjections(path: string): boolean {
-  const rejected = (S.state.decisions ?? []).some((d) => d.path === path && d.status === "rejected");
-  const openChange = S.state.comments.some((c) => c.path === path && c.status === "open" && c.role !== "agent" && c.intent !== "question");
+  const rejected = (S.state.decisions ?? []).some(
+    (d) => d.path === path && d.status === "rejected",
+  );
+  const openChange = S.state.comments.some(
+    (c) => c.path === path && c.status === "open" && c.role !== "agent" && c.intent !== "question",
+  );
   return rejected || openChange;
 }
 
@@ -53,13 +64,18 @@ export function changeStableKey(part: ChangeContent) {
   return `${side}:${lineNumber}:${part.deletions || 0}:${part.additions || 0}`;
 }
 
-export function deriveChanges(diff: FileDiffMetadata, path: string, previous = new Map<string, ChangeState>()): ChangeState[] {
+export function deriveChanges(
+  diff: FileDiffMetadata,
+  path: string,
+  previous = new Map<string, ChangeState>(),
+): ChangeState[] {
   const derived: ChangeState[] = [];
   diff.hunks.forEach((h, hunkIndex) => {
     (h.hunkContent || []).forEach((part, contentIndex) => {
       if (part.type !== "change") return;
       const side = part.additions > 0 ? "additions" : "deletions";
-      const lineNumber = (side === "additions" ? part.additionLineIndex : part.deletionLineIndex) + 1;
+      const lineNumber =
+        (side === "additions" ? part.additionLineIndex : part.deletionLineIndex) + 1;
       const stableKey = changeStableKey(part);
       const id = `${path}:${stableKey}`;
       const prev = previous.get(id);
@@ -67,7 +83,24 @@ export function deriveChanges(diff: FileDiffMetadata, path: string, previous = n
       // whether the hunk happens to be staged.
       const decision = (S.state.decisions || []).find((d) => d.key === id);
       const status: ChangeStatus = decision?.status ?? "pending";
-      derived.push({ id, path, hunkIndex, changeIndex: contentIndex, stableKey, side, lineNumber, endLine: (side === "additions" ? part.additionLineIndex + (part.additions || 1) : part.deletionLineIndex + (part.deletions || 1)), title: `${part.deletions || 0} removed · ${part.additions || 0} added`, status, stageable: prev?.stageable, contentHash: prev?.contentHash, reviewedHash: decision?.reviewedHash ?? prev?.reviewedHash });
+      derived.push({
+        id,
+        path,
+        hunkIndex,
+        changeIndex: contentIndex,
+        stableKey,
+        side,
+        lineNumber,
+        endLine:
+          side === "additions"
+            ? part.additionLineIndex + (part.additions || 1)
+            : part.deletionLineIndex + (part.deletions || 1),
+        title: `${part.deletions || 0} removed · ${part.additions || 0} added`,
+        status,
+        stageable: prev?.stageable,
+        contentHash: prev?.contentHash,
+        reviewedHash: decision?.reviewedHash ?? prev?.reviewedHash,
+      });
     });
   });
   return derived;
@@ -86,19 +119,32 @@ export function findChangePosition(diff: FileDiffMetadata, stableKey: string) {
     const h = diff.hunks[hunkIndex];
     for (let changeIndex = 0; changeIndex < (h.hunkContent || []).length; changeIndex++) {
       const part = h.hunkContent[changeIndex];
-      if (part?.type === "change" && changeStableKey(part) === stableKey) return { hunkIndex, changeIndex };
+      if (part?.type === "change" && changeStableKey(part) === stableKey)
+        return { hunkIndex, changeIndex };
     }
   }
   return null;
 }
 
-export function applyDecisionToDiff(diff: FileDiffMetadata, change: ChangeState, status: ChangeStatus): FileDiffMetadata {
+export function applyDecisionToDiff(
+  diff: FileDiffMetadata,
+  change: ChangeState,
+  status: ChangeStatus,
+): FileDiffMetadata {
   const pos = change.stableKey ? findChangePosition(diff, change.stableKey) : null;
   if (!pos) return diff;
-  try { return D.diffAcceptRejectHunk(diff, pos.hunkIndex, { type: status === "accepted" ? "accept" : "reject", changeIndex: pos.changeIndex }); } catch { return diff; }
+  try {
+    return D.diffAcceptRejectHunk(diff, pos.hunkIndex, {
+      type: status === "accepted" ? "accept" : "reject",
+      changeIndex: pos.changeIndex,
+    });
+  } catch {
+    return diff;
+  }
 }
 
 export function replayDecisions(diff: FileDiffMetadata): FileDiffMetadata {
-  for (const change of currentChanges().filter((c) => c.status !== "pending")) diff = applyDecisionToDiff(diff, change, change.status);
+  for (const change of currentChanges().filter((c) => c.status !== "pending"))
+    diff = applyDecisionToDiff(diff, change, change.status);
   return diff;
 }
