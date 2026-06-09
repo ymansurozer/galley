@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
   unchangedLines: "collapse",
   progressBy: "lines",
   stageOnAccept: false,
+  editorCommand: "",
 };
 
 type FontDef = { label: string; stack: string; google: string | null };

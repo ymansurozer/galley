@@ -255,7 +255,7 @@ const HOTKEYS: Hotkey[] = [
   // View
   {
     combo: "v",
-    desc: "Split / unified",
+    desc: "Split / Stacked",
     group: "View",
     test: k("v"),
     when: inDiff,
@@ -268,6 +268,14 @@ const HOTKEYS: Hotkey[] = [
     test: k("m"),
     when: isMd,
     run: () => S.setFileView?.(S.fileView === "rendered" ? "source" : "rendered"),
+  },
+  {
+    combo: "⇧E",
+    desc: "Open in editor",
+    group: "View",
+    test: shift("E"),
+    when: inDiff,
+    run: () => S.openInEditor?.(),
   },
   // Finalize (⇧ trio) + app
   {

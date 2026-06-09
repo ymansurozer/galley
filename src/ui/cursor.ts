@@ -132,6 +132,10 @@ export function cursorReset() {
   hide();
 }
 
+export function cursorSelection() {
+  return cur ? { side: cur.side, lineNumber: cur.line } : null;
+}
+
 // Reveal the cursor on first use: land on the first change (else the first line). Returns the row.
 function ensureCursor(): Row | undefined {
   if (cur) return rows().find((x) => x.side === cur!.side && x.line === cur!.line);

@@ -130,7 +130,7 @@ function changeIcon(type: string | undefined): SVGElement {
 function layoutToggle(): HTMLElement {
   const wrap = document.createElement("span");
   wrap.className = "ghdr-layout";
-  wrap.setAttribute("data-tip", "Split / unified (v)");
+  wrap.setAttribute("data-tip", "Split / Stacked (v)");
   const mk = (label: string, style: "split" | "unified") => {
     const b = document.createElement("button");
     b.textContent = label;
@@ -141,6 +141,17 @@ function layoutToggle(): HTMLElement {
   mk("Split", "split");
   mk("Stacked", "unified");
   return wrap;
+}
+
+// Icon-only "jump to this file in the local editor" button — file-scoped, so it lives in
+// the file header rather than the app chrome (the top bar is for review-final actions).
+function openEditorButton(): HTMLElement {
+  const b = document.createElement("button");
+  b.className = "ghdr-open";
+  b.setAttribute("data-tip", "Open in editor (⇧E)");
+  b.innerHTML = `<svg class="ic"><use href="#gly-open-editor"></use></svg>`;
+  b.onclick = () => S.openInEditor?.();
+  return b;
 }
 
 // @pierre renders the diff into a shadow root mounted on some descendant of #diff. Find it
@@ -334,6 +345,7 @@ export async function render() {
     row1.appendChild(name);
     // Layout toggle right of the filename — only when Split actually applies (a two-sided diff).
     if (currentSplittable()) row1.appendChild(layoutToggle());
+    row1.appendChild(openEditorButton());
     const grow = document.createElement("span");
     grow.className = "ghdr-grow";
     row1.appendChild(grow);
@@ -412,6 +424,7 @@ export async function render() {
     name.className = "ghdr-file";
     name.textContent = currentFile().path;
     row1.appendChild(name);
+    row1.appendChild(openEditorButton());
     const grow = document.createElement("span");
     grow.className = "ghdr-grow";
     row1.appendChild(grow);

@@ -33,6 +33,9 @@ export type Settings = {
   // bigger change advances more) or "files" (every file counts the same).
   progressBy: "lines" | "files";
   stageOnAccept: boolean;
+  // Command template for "Open in editor" ({repo}/{file}/{line} placeholders). A machine
+  // preference like the rest — empty falls back to the OS opener (see src/editor.ts).
+  editorCommand: string;
 };
 
 // The line/range the action popover + composer currently target. These are DISPLAY
@@ -191,6 +194,7 @@ export interface Store {
   isMarkdownFile?: () => boolean;
   splitApplies?: () => boolean;
   applySettings?: () => void;
+  openInEditor?: () => Promise<void>;
   openSettings?: () => void;
   closeSettings?: () => void;
   hasGuide?: () => boolean;

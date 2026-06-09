@@ -191,7 +191,9 @@ A live desk writes `<sessionDir>/desk.lock` (with its `url`) and removes it on e
 
 ## Settings
 
-The desk has a gear-triggered settings panel (persisted per-browser): diff layout/intra-line/indicators/separators/wrapping, a shared code-highlight theme, mono font + size, show-unchanged-files, and an "Approve stages file" toggle. These are the human's display preferences — you don't set them, but note that with "Approve stages file" off, approving is verdict-only and `stagedFiles` may be empty even for approved files.
+The desk has a gear-triggered settings panel, persisted globally to `~/.galley/settings.json` (not per-browser — the desk's port changes, so localStorage can't hold them): diff layout/intra-line/indicators/separators/wrapping, a shared code-highlight theme, mono font + size, show-unchanged-files, and an "Approve stages file" toggle. These are the human's display preferences — you don't set them, but note that with "Approve stages file" off, approving is verdict-only and `stagedFiles` may be empty even for approved files.
+
+The **Editor command** setting ("Open in editor", `⇧E`) lives with the rest of them and supports `{repo}`, `{file}`, and `{line}` placeholders, for example `code -g {file}:{line}` or `cursor -g {file}:{line}`; empty falls back to the OS opener. Galley runs editor commands without a shell and only allows known GUI editor executables. Opening a file in the editor has no effect on review state.
 
 ## Errors
 

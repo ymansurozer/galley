@@ -20,6 +20,7 @@ import {
   writeGlobalSettings,
 } from "./state.js";
 import { validateGuide } from "./guide.js";
+import { resolveEditorCommand } from "./editor.js";
 import type { AwaitEvent, ReviewState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -30,6 +31,9 @@ export type ServerOptions = {
   state: ReviewState;
   port?: number;
   open?: boolean;
+  // Test seam: lets server.test.ts assert the resolved editor invocation without
+  // actually launching anything.
+  runEditorCommand?: (command: string, args: string[]) => Promise<void>;
 };
 
 export type ServerHandle = {
@@ -116,6 +120,16 @@ async function openUrl(url: string) {
   await execFileAsync(command, args).catch(() => undefined);
 }
 
+// Repo-relative path → absolute, or null if it is absolute or escapes the repo.
+// /api/open-editor hands this to a local process, so the boundary must be strict.
+function repoPath(root: string, rel: string) {
+  if (path.isAbsolute(rel)) return null;
+  const resolvedRoot = path.resolve(root);
+  const abs = path.resolve(resolvedRoot, rel);
+  if (abs !== resolvedRoot && !abs.startsWith(resolvedRoot + path.sep)) return null;
+  return abs;
+}
+
 export async function startServer(options: ServerOptions): Promise<ServerHandle> {
   const { state } = options;
   // The desk is a living surface: it keeps serving across rounds. `galley await` is a
@@ -192,6 +206,43 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             "Check the path is a readable text file in the repo.",
           );
         return json(res, 200, { path: rel, contents });
+      }
+      if (req.method === "POST" && url.pathname === "/api/open-editor") {
+        const body = JSON.parse(await readBody(req)) as { path?: string; lineNumber?: number };
+        const rel = body.path ?? "";
+        const abs = repoPath(state.root, rel);
+        if (!rel || !abs)
+          return fail(res, 400, "BAD_PATH", "Path escapes the repo.", "Use a repo-relative path.");
+        // The editor command is a reviewer/machine preference, so it lives in the global
+        // ~/.galley/settings.json with the rest of them (deliberately not per-repo).
+        const prefs = (await readGlobalSettings()) as { settings?: { editorCommand?: unknown } };
+        let cmd;
+        try {
+          cmd = resolveEditorCommand(String(prefs.settings?.editorCommand ?? ""), {
+            repo: path.resolve(state.root),
+            file: abs,
+            line: body.lineNumber,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const code = message.includes("not allowed")
+            ? "EDITOR_NOT_ALLOWED"
+            : "BAD_EDITOR_COMMAND";
+          return fail(res, 422, code, message, "Update the editor command in Settings.");
+        }
+        try {
+          if (options.runEditorCommand) await options.runEditorCommand(cmd.command, cmd.args);
+          else await execFileAsync(cmd.command, cmd.args, { timeout: 5000 });
+        } catch (error) {
+          return fail(
+            res,
+            500,
+            "EDITOR_FAILED",
+            error instanceof Error ? error.message : String(error),
+            "Check the editor command in Settings and try again.",
+          );
+        }
+        return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/save") {
         Object.assign(state, JSON.parse(await readBody(req)));

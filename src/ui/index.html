@@ -543,14 +543,14 @@
       gap: 1px;
       margin-left: 8px;
       padding: 1px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--line-strong);
       border-radius: var(--radius-sm)
     }
 
     .ghdr .ghdr-layout button {
       border: 0;
       background: transparent;
-      color: var(--ghost);
+      color: var(--muted);
       font-size: var(--text-2xs);
       line-height: 1.5;
       padding: 1px 6px;
@@ -558,12 +558,35 @@
     }
 
     .ghdr .ghdr-layout button:hover {
-      color: var(--muted)
+      color: var(--ink)
     }
 
     .ghdr .ghdr-layout button.active {
       background: var(--surface-raised);
-      color: var(--muted)
+      color: var(--ink)
+    }
+
+    /* Open-in-editor: icon-only, as quiet as the layout toggle — file-scoped action. */
+    .ghdr .ghdr-open {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      margin-left: 6px;
+      padding: 3px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      border-radius: var(--radius-xs)
+    }
+
+    .ghdr .ghdr-open:hover {
+      color: var(--ink);
+      background: var(--surface-raised)
+    }
+
+    .ghdr .ghdr-open .ic {
+      width: 13px;
+      height: 13px
     }
 
     .ghdr .ghdr-expl {
@@ -1978,7 +2001,8 @@
       align-items: center;
       gap: 12px;
       font-size: var(--text-sm);
-      color: var(--muted)
+      color: var(--muted);
+      white-space: nowrap
     }
 
     .set-grid label.check {
@@ -1988,9 +2012,11 @@
     }
 
     .set-grid select,
-    .set-grid input[type=number] {
+    .set-grid input[type=number],
+    .set-grid input[type=text] {
       width: 160px;
       min-width: 0;
+      flex: 0 0 auto;
       color: var(--ink);
       background: var(--bg);
       border: 1px solid var(--line);
@@ -2392,7 +2418,8 @@
                 @change="$store.g.settings.stageOnAccept = $event.target.value === 'stage'; $store.g.applySettings()">
                 <option value="stage" :selected="$store.g.settings.stageOnAccept">Stages file</option>
                 <option value="verdict" :selected="!$store.g.settings.stageOnAccept">Verdict only</option>
-              </select></label></div>
+              </select></label><label>Editor command<input type="text" placeholder="code -g {file}:{line}"
+                x-model="$store.g.settings.editorCommand" @change="$store.g.applySettings()"></label></div>
           </div>
           <div class="set-pane help-grid" x-show="$store.g.settingsTab==='shortcuts'" x-cloak>
             <template x-for="grp in $store.g.helpGroups()" :key="grp.group">
