@@ -310,7 +310,7 @@ export async function render() {
       if (chip) wrap.appendChild(chip);
       const button = document.createElement("button");
       button.className = "diff-header-action" + (objections ? " warn" : "");
-      button.innerHTML = `${objections ? "Mark reviewed" : "Approve"} <kbd>⇧A</kbd>`;
+      button.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} <kbd>⇧A</kbd>`;
       button.onclick = () => approveCurrentFile();
       wrap.appendChild(button);
     }
@@ -376,6 +376,26 @@ export async function render() {
         guide.appendChild(why);
       }
       wrap.appendChild(guide);
+    }
+    // Open threads whose anchor line no longer renders — shown as the diff's first row,
+    // below the action bar, so they stay actionable (they block approval until resolved).
+    const orphans = unanchoredThreads();
+    if (orphans.length) {
+      const strip = document.createElement("div");
+      strip.className = "unanchored-strip";
+      const head = document.createElement("div");
+      head.className = "unanchored-head";
+      head.textContent = `${orphans.length} comment thread${orphans.length === 1 ? "" : "s"} lost ${orphans.length === 1 ? "its" : "their"} place in this diff — resolve or reply here`;
+      strip.appendChild(head);
+      for (const t of orphans) {
+        // Reuse the annotation thread styling (it's all scoped under .annotation).
+        const box = document.createElement("div");
+        box.className = "annotation";
+        box.dataset.thread = `${t.side}:${t.lineNumber}`; // blockers jump target
+        box.appendChild(buildCommentThread(t));
+        strip.appendChild(box);
+      }
+      wrap.appendChild(strip);
     }
     return wrap;
   };
@@ -465,29 +485,8 @@ export async function render() {
   // Mount only this file's wrapper (replaceChildren detaches the previously-active wrapper —
   // it lives on in the Map — and removes any overview/markdown content). Skip when it's already
   // the sole child (a same-file re-render) so we don't detach/reattach and reset scroll.
-  // The unanchored strip is rebuilt fresh each render and slotted above the wrapper without
-  // touching it, so a same-file re-render keeps its scroll position.
-  host.querySelector(":scope > .unanchored-strip")?.remove();
   if (host.firstElementChild !== entry.wrapper || host.childElementCount !== 1)
     host.replaceChildren(entry.wrapper);
-  const orphans = previewing ? [] : unanchoredThreads();
-  if (orphans.length) {
-    const strip = document.createElement("div");
-    strip.className = "unanchored-strip";
-    const head = document.createElement("div");
-    head.className = "unanchored-head";
-    head.textContent = `${orphans.length} comment thread${orphans.length === 1 ? "" : "s"} lost ${orphans.length === 1 ? "its" : "their"} place in this diff — resolve or reply here`;
-    strip.appendChild(head);
-    for (const t of orphans) {
-      // Reuse the annotation thread styling (it's all scoped under .annotation).
-      const box = document.createElement("div");
-      box.className = "annotation";
-      box.dataset.thread = `${t.side}:${t.lineNumber}`; // blockers jump target
-      box.appendChild(buildCommentThread(t));
-      strip.appendChild(box);
-    }
-    host.insertBefore(strip, entry.wrapper);
-  }
   entry.inst.setLineAnnotations?.(anns());
   await entry.inst.render({
     fileDiff: fd,
