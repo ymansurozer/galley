@@ -29,6 +29,14 @@ export function hash(text: string) {
   return crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
+// Deterministic per-repo+session port (41000–50999). A restarted desk binds the same
+// origin, so an already-open tab self-heals through its state poll instead of dying on
+// a dead random port. Collisions with foreign processes fall back to a random port at
+// listen time (startServer).
+export function stablePort(root: string, session: string) {
+  return 41000 + (parseInt(hash(`${root}:${sanitizeSession(session)}`).slice(0, 8), 16) % 10000);
+}
+
 export function sanitizeSession(session: string) {
   const cleaned = session.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "");
   return cleaned || "review";
@@ -263,6 +271,29 @@ export async function reviewDir(root: string, session: string) {
   return dir;
 }
 
+// Global display preferences (~/.galley/settings.json) — deliberately NOT per-repo or
+// per-session: these are the reviewer's, and the desk's random port makes browser
+// localStorage useless for them (origin changes every launch).
+export function globalSettingsPath() {
+  const home = process.env.HOME || process.env.USERPROFILE || process.cwd();
+  return path.join(home, ".galley", "settings.json");
+}
+
+export async function readGlobalSettings(): Promise<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(globalSettingsPath(), "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {}; // missing or corrupt → client falls back to defaults
+  }
+}
+
+export async function writeGlobalSettings(data: unknown) {
+  const file = globalSettingsPath();
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(data, null, 2) + "\n", "utf8");
+}
+
 export function deskLockPath(dir: string) {
   return path.join(dir, "desk.lock");
 }
@@ -356,6 +387,65 @@ function effectiveDecisions(state: ReviewState): Decision[] {
   return state.changes.filter((c) => c.status !== "pending").map(decisionFromChange);
 }
 
+// The exact text of the line a comment anchors to, read from the review files' contents
+// (additions side = new file, deletions side = old file). Captured at comment creation;
+// re-anchoring matches against it after the agent's edits move things around.
+export function anchorTextFor(
+  files: ReviewFile[],
+  filePath: string,
+  side: "additions" | "deletions",
+  lineNumber: number,
+): string | undefined {
+  const file = files.find((f) => f.path === filePath);
+  if (!file) return undefined;
+  const contents = side === "deletions" ? file.oldFile?.contents : file.newFile?.contents;
+  return contents?.split("\n")[lineNumber - 1];
+}
+
+// Recover comment anchors after the diff is rebuilt. Open comments only (resolved threads
+// are done — they only render if their line still does). Exact text at the recorded line →
+// anchored; else the unique nearest line with exactly that text → move the anchor there;
+// ambiguous or vanished → flag `unanchored` so the desk shows the thread in its file-level
+// strip rather than silently dropping it (an open change request blocks approval, so it
+// must stay reachable). Legacy comments without anchorText can only be flagged when their
+// line is provably out of range.
+export function reanchorComments(comments: ReviewComment[], files: ReviewFile[]) {
+  for (const c of comments) {
+    if (c.status !== "open") continue;
+    const file = files.find((f) => f.path === c.path);
+    if (!file) continue; // file-level staleness is handled by the caller
+    const contents = c.side === "deletions" ? file.oldFile?.contents : file.newFile?.contents;
+    const lines = (contents ?? "").split("\n");
+    if (!c.anchorText) {
+      c.unanchored = c.lineNumber > lines.length;
+      continue;
+    }
+    if (lines[c.lineNumber - 1] === c.anchorText) {
+      c.unanchored = false;
+      continue;
+    }
+    const matches: number[] = [];
+    for (let i = 0; i < lines.length; i++) if (lines[i] === c.anchorText) matches.push(i + 1);
+    let best: number | undefined;
+    if (matches.length === 1) best = matches[0];
+    else if (matches.length > 1) {
+      matches.sort((a, b) => Math.abs(a - c.lineNumber) - Math.abs(b - c.lineNumber));
+      // A tie between equally-near lines is ambiguous — don't guess.
+      if (Math.abs(matches[0] - c.lineNumber) !== Math.abs(matches[1] - c.lineNumber))
+        best = matches[0];
+    }
+    if (best !== undefined && c.anchorText.trim() !== "") {
+      const delta = best - c.lineNumber;
+      c.lineNumber = best;
+      if (c.endLine !== undefined) c.endLine += delta;
+      c.unanchored = false;
+    } else {
+      c.unanchored = true;
+    }
+  }
+  return comments;
+}
+
 export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   if (!saved) return base;
   const currentFiles = new Set(base.files.map((file) => file.path));
@@ -377,7 +467,15 @@ export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
       stale.add(key); // agent rewrote this block since it was reviewed → re-review
     }
   }
-  decisions = decisions.filter((d) => !stale.has(d.key));
+  // An accepted decision whose change vanished is kept (accepting may have staged the
+  // hunk out of the diff). A REJECTED decision whose change vanished means the agent
+  // reworked the block away — the rejection was honored, and keeping it would leave an
+  // invisible objection that blocks approval forever. Drop it; whatever replaced the
+  // block shows up as a fresh pending change anyway.
+  const presentKeys = new Set(base.changes.map((c) => `${c.path}:${c.stableKey}`));
+  decisions = decisions.filter(
+    (d) => !stale.has(d.key) && (d.status !== "rejected" || presentKeys.has(d.key)),
+  );
   // A file's approval/sign-off survives reload only if the file is still present AND its
   // content hash is unchanged. A file whose content the agent rewrote (or that has no
   // recorded hash — e.g. an old "viewed" session) drops back to pending for re-review.
@@ -394,11 +492,14 @@ export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
     ...base,
     id: saved.id,
     createdAt: saved.createdAt,
-    comments: saved.comments
-      .map((comment) =>
-        currentFiles.has(comment.path) ? comment : { ...comment, status: "stale" as const },
-      )
-      .filter((comment) => currentFiles.has(comment.path) || comment.intent === "action"),
+    comments: reanchorComments(
+      saved.comments
+        .map((comment) =>
+          currentFiles.has(comment.path) ? comment : { ...comment, status: "stale" as const },
+        )
+        .filter((comment) => currentFiles.has(comment.path) || comment.intent === "action"),
+      base.files,
+    ),
     reviewedFiles,
     reviewedFileHashes,
     stagedFiles: saved.stagedFiles,
@@ -518,6 +619,7 @@ export async function appendComment(
     status: "open",
     intent: "note",
     role: input.role,
+    anchorText: anchorTextFor(saved.files, input.path, input.side, input.lineNumber),
   };
   saved.comments.push(comment);
   await persistReview(saved);

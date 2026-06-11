@@ -38,6 +38,12 @@ export type ReviewComment = {
   // "user" comments are the reviewer's; "agent" comments are replies posted
   // back by the coding agent via `galley comment` between sessions.
   role?: "user" | "agent";
+  // Exact text of the anchored line at creation time. Lets reload re-anchor the thread
+  // when the agent's edits shift the line (see reanchorComments).
+  anchorText?: string;
+  // Set by re-anchoring when the anchor can't be recovered (line gone or ambiguous);
+  // the desk shows these threads in a file-level strip instead of on a diff row.
+  unanchored?: boolean;
 };
 
 export type ChangeState = {
@@ -62,6 +68,12 @@ export type ChangeState = {
   // contentHash captured at the moment a decision was made; lets a reload
   // detect that the underlying code changed and the prior decision is stale.
   reviewedHash?: string;
+  // Where this block sits in the RENDERED (decision-replayed) diff — @pierre renumbers
+  // lines on every resolution, so these drift from lineNumber/endLine (the raw file
+  // lines, which stay canonical). Derived per render (syncDisplayAnchors), never trusted
+  // from persisted state.
+  displayLineNumber?: number;
+  displayEndLine?: number;
 };
 
 // An explicit, durable record of a user's accept/reject on a change block, keyed

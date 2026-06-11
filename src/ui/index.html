@@ -1095,6 +1095,28 @@
       line-height: 1.3
     }
 
+    /* Open comment threads whose anchor line no longer exists in the diff — shown as the
+       diff's first row (inside the file header, below the action bar) so they stay
+       actionable (they block approval until resolved). */
+    .unanchored-strip {
+      font-family: var(--sans);
+      margin: 5px 0 2px;
+      border: 1px solid rgba(224, 175, 104, .35);
+      background: rgba(224, 175, 104, .05);
+      border-radius: var(--radius-sm);
+      padding: 2px 0 4px
+    }
+
+    .unanchored-strip .unanchored-head {
+      color: var(--amber);
+      font-size: var(--text-xs);
+      padding: 7px 12px 2px
+    }
+
+    .unanchored-strip .annotation+.annotation {
+      border-top: 1px solid rgba(224, 175, 104, .18)
+    }
+
     .annotation {
       font-family: var(--sans);
       position: relative;
@@ -1585,6 +1607,114 @@
 
     .diff-header-action.warn:hover {
       background: rgba(224, 175, 104, .22)
+    }
+
+    /* The "N blockers" chip + jump list: what keeps a file from Approved, one click away. */
+    /* Quiet link-style trigger: it belongs to the Mark Reviewed action it precedes but is
+       secondary — text only, no fill. The asymmetric margins pull it toward the button
+       (and away from the +/− counts) so the grouping reads at a glance. */
+    .blockers {
+      position: relative;
+      display: inline-flex;
+      margin-left: 8px;
+      margin-right: -8px
+    }
+
+    .blockers-chip {
+      border: 0;
+      background: transparent;
+      padding: 3px 4px;
+      font-size: var(--text-sm);
+      line-height: 16px;
+      color: var(--amber)
+    }
+
+    .blockers-chip:hover,
+    .blockers.open .blockers-chip {
+      color: var(--amber-fg)
+    }
+
+    .blockers-pop {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: 40;
+      min-width: 280px;
+      max-width: 420px;
+      background: var(--panel);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+      padding: 4px
+    }
+
+    .blockers.open .blockers-pop {
+      display: block
+    }
+
+    .blockers-item {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      width: 100%;
+      text-align: left;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--ink);
+      padding: 6px 8px;
+      font-size: var(--text-sm);
+      line-height: 1.35
+    }
+
+    .blockers-item:hover {
+      background: var(--surface-raised)
+    }
+
+    .blockers-item .bk-kind {
+      flex: none;
+      font-size: var(--text-xs);
+      border-radius: var(--radius-sm);
+      padding: 1px 5px
+    }
+
+    .blockers-item .bk-kind.reject {
+      color: var(--red);
+      background: rgba(226, 110, 110, .1)
+    }
+
+    .blockers-item .bk-kind.change {
+      color: var(--amber);
+      background: rgba(224, 175, 104, .1)
+    }
+
+    .blockers-item .bk-where {
+      flex: none;
+      color: var(--muted);
+      font-size: var(--text-xs)
+    }
+
+    .blockers-item .bk-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted)
+    }
+
+    /* Flash a strip thread when jumped to from the blockers list. */
+    @keyframes blocker-flash {
+      0% {
+        background: rgba(224, 175, 104, .25)
+      }
+
+      100% {
+        background: transparent
+      }
+    }
+
+    .unanchored-strip .annotation.flash {
+      animation: blocker-flash 1.2s ease-out
     }
 
     .file-header-actions {

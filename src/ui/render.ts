@@ -6,18 +6,22 @@ import {
   currentSplittable,
   ensureChangesFromFileDiff,
   replayDecisions,
+  syncDisplayAnchors,
   fileFinished,
   fileObjections,
 } from "./changes";
 import type { AnnotationMeta } from "./types";
 import { applyLayoutClasses } from "./tree";
-import { annotations, renderAnnotation } from "./annotations";
+import { annotations, renderAnnotation, buildCommentThread } from "./annotations";
+import { unanchoredThreads } from "./unanchored";
+import { revealThreadLines } from "./expand";
 import {
   handleLineNumberClick,
   handleDiffSelection,
   attachDiffSelectionHandlers,
 } from "./selection";
 import { approveCurrentFile, resetReview } from "./decisions";
+import { blockersChip } from "./blockers";
 import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
 import { cursorResync, cursorReset } from "./cursor";
 import { hasGuide, renderOverview, currentGuideEntry } from "./guide";
@@ -221,6 +225,7 @@ export async function render() {
   if (S.overviewOpen && hasGuide()) {
     cursorReset();
     dropInstance();
+    D.lineMap = null;
     renderOverview();
     return;
   }
@@ -236,6 +241,7 @@ export async function render() {
   ) {
     cursorReset();
     dropInstance();
+    D.lineMap = null; // markdown anchors are block lines, not diff gutter numbers
     applyLayoutClasses();
     renderMarkdownFile();
     return;
@@ -255,11 +261,16 @@ export async function render() {
   let fd: FileDiffMetadata;
   if (viewOnly) {
     fd = D.parseDiffFromFile({ name: f.newFile.name, contents: "", cacheKey: "∅" }, newF);
+    D.lineMap = null;
   } else {
     const oldF = { ...f.oldFile, cacheKey: ckey(f.oldFile.contents) };
-    fd = D.parseDiffFromFile(oldF, newF);
-    ensureChangesFromFileDiff(fd);
-    fd = replayDecisions(fd);
+    // Changes (identity, raw anchors) derive from the raw diff; the rendered diff is the
+    // decision-replayed one, so display anchors must be re-read from it (resolutions
+    // renumber lines — see linemap.ts).
+    const rawFd = D.parseDiffFromFile(oldF, newF);
+    ensureChangesFromFileDiff(rawFd);
+    fd = replayDecisions(rawFd);
+    syncDisplayAnchors(fd);
   }
   // Preview reads as a plain file: remap @pierre's addition styling to its CONTEXT (unchanged)
   // styling — row tint, gutter cell bg, and gutter number color all to the neutral context
@@ -284,17 +295,22 @@ export async function render() {
       b.onclick = () => resetReview(filePath);
       return b;
     };
+    // The chip lists what keeps the file from Approved (rejected hunks, open change
+    // requests) with jump-to actions — rendered whenever objections exist, finished or not.
+    const chip = blockersChip();
     if (fileFinished(filePath)) {
       // The file-tree badge carries the approved / changes-requested state; the header just
-      // offers a quiet Reset to undo the sign-off.
+      // offers a quiet Reset to undo the sign-off (plus the blockers chip when relevant).
+      if (chip) wrap.appendChild(chip);
       wrap.appendChild(reset());
     } else {
       const objections = fileObjections(filePath);
       // Reset (clear in-progress hunk decisions) sits on the left; Approve is always far right.
       if (S.state.decisionFiles?.includes(filePath)) wrap.appendChild(reset());
+      if (chip) wrap.appendChild(chip);
       const button = document.createElement("button");
       button.className = "diff-header-action" + (objections ? " warn" : "");
-      button.innerHTML = `${objections ? "Mark reviewed" : "Approve"} <kbd>⇧A</kbd>`;
+      button.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} <kbd>⇧A</kbd>`;
       button.onclick = () => approveCurrentFile();
       wrap.appendChild(button);
     }
@@ -361,6 +377,26 @@ export async function render() {
       }
       wrap.appendChild(guide);
     }
+    // Open threads whose anchor line no longer renders — shown as the diff's first row,
+    // below the action bar, so they stay actionable (they block approval until resolved).
+    const orphans = unanchoredThreads();
+    if (orphans.length) {
+      const strip = document.createElement("div");
+      strip.className = "unanchored-strip";
+      const head = document.createElement("div");
+      head.className = "unanchored-head";
+      head.textContent = `${orphans.length} comment thread${orphans.length === 1 ? "" : "s"} lost ${orphans.length === 1 ? "its" : "their"} place in this diff — resolve or reply here`;
+      strip.appendChild(head);
+      for (const t of orphans) {
+        // Reuse the annotation thread styling (it's all scoped under .annotation).
+        const box = document.createElement("div");
+        box.className = "annotation";
+        box.dataset.thread = `${t.side}:${t.lineNumber}`; // blockers jump target
+        box.appendChild(buildCommentThread(t));
+        strip.appendChild(box);
+      }
+      wrap.appendChild(strip);
+    }
     return wrap;
   };
   // Preview gets its own minimal header: a neutral file icon + path + a read-only tag — no
@@ -420,6 +456,8 @@ export async function render() {
   const anns = () => annotations() as DiffLineAnnotation<AnnotationMeta>[];
   const afterRender = () => {
     setTimeout(() => attachDiffSelectionHandlers(), 0);
+    // Unfold collapsed regions hiding an open comment thread (once per rendered diff).
+    if (!previewing) revealThreadLines(key);
     // The overview ruler only makes sense when the whole file is shown (expand mode) and
     // there are real changes (not a preview). Measure after a frame so rows have laid out.
     if (!previewing && expandUnchanged) requestAnimationFrame(() => renderOverviewRuler());

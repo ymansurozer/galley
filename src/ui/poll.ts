@@ -28,6 +28,13 @@ export async function pollState() {
     toast("Diff updated");
     return;
   }
+  // A reload can swap the guide without changing the diff (agent regenerated it) —
+  // adopt it even when baseDiffHash is unchanged. Guides are small; the compare is cheap.
+  if (JSON.stringify(server.guide ?? null) !== JSON.stringify(S.state.guide ?? null)) {
+    S.state.guide = server.guide;
+    render();
+    toast("Guide updated");
+  }
   const localIds = new Set(S.state.comments.map((c) => c.id));
   const incoming = server.comments.filter((c) => !localIds.has(c.id));
   if (!incoming.length) return;

@@ -35,10 +35,10 @@ The review is the human's; the agent acts on the decisions and answers questions
 
 | Command                                                                                          | Role                                                                                                                                                                                                                                          |
 | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `galley …` (a mode above)                                                                        | Start the persistent desk (opens the tab, stays up until Ctrl-C). The banner prints to **stderr**; nothing is written to stdout.                                                                                                              |
+| `galley …` (a mode above)                                                                        | Start the persistent desk (opens the tab, stays up until Ctrl-C). The banner prints to **stderr**; nothing is written to stdout. **Idempotent**: if a desk is already live for the repo+session, this reuses it — the open tab gets a reload (and the new `--guide`, if passed) and no second tab/port is opened.                                                                                                              |
 | `galley await [--session <id>] [--timeout <s>]`                                                  | Block until the next desk **event**, print it as a tagged JSON envelope on stdout, and exit. Loop and branch on `kind`.                                                                                                                       |
 | `galley comment [--session <id>] --path <f> --line <n> [--side additions\|deletions] --body "…"` | Post an agent reply (an answer to a question, or a note). Appears in the open tab within ~1.5s, threaded under the matching human comment.                                                                                                    |
-| `galley reload [--session <id>]`                                                                 | Re-diff the working tree into the **live** desk so your code edits appear in the same tab — no restart needed. Decisions reconcile against the new diff (a hunk whose content you changed resets to pending; untouched decisions carry over). |
+| `galley reload [--session <id>] [--guide <file>]`                                                | Re-diff the working tree into the **live** desk so your code edits appear in the same tab — no restart needed. Decisions reconcile against the new diff (a hunk whose content you changed resets to pending; untouched decisions carry over). `--guide` swaps the attached review guide in the same round-trip. |
 
 `galley await` yields one of two events:
 
@@ -168,7 +168,7 @@ Optionally attach a **guided review** so the desk presents the changeset as a gu
 
 Run **`galley guide-spec`** for the authoritative schema, field meanings, and validation rules.
 
-The guide is attached at **start**, and survives `reload` and restarts. It is stamped against the diff it was generated for; once a `reload` advances the diff past that point, the desk flags it stale, so regenerate from the new diff and restart with a fresh `--guide`.
+The guide is attached at **start** and survives `reload` and restarts. It is stamped against the diff it was generated for; once a `reload` advances the diff past that point, the desk flags it stale. To refresh it, regenerate the guide from the new diff and swap it into the **live** desk — `galley reload --guide <new.json>`, or simply re-run the start command with the new `--guide` (a live desk is reused: same tab, guide swapped, diff reloaded). Never start a second desk for a fresh guide.
 
 ## Replying to the reviewer
 
@@ -182,6 +182,8 @@ galley comment --session <id> --path src/list.ts --line 33 --side additions \
 ## Surfacing your edits: reload vs restart
 
 The live desk shows the diff captured when it started. New comments stream in live, but your **code edits are not auto-re-diffed**. Run `galley reload` to re-diff the working tree into the open tab without losing the human's in-progress decisions — decisions reconcile against the new diff (a hunk whose content you changed resets to pending; untouched ones carry over). A full restart (`Ctrl-C`, then `galley --session <id>`) is only needed to change the diff source (e.g. working ↔ staged) or the mode.
+
+The reviewer keeps **one browser tab** across all rounds, and the desk is built to preserve it: starting is idempotent (a live desk is reused, never duplicated), and each repo+session binds a **stable port**, so even if the desk process died, restarting it reattaches to the same origin and the reviewer's open tab reconnects by itself within seconds — don't tell the reviewer to switch tabs. Pass an explicit `--session` or `--port` only when you genuinely want a second, separate desk.
 
 ## Concurrency: respect the desk lock
 

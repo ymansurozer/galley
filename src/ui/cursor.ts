@@ -1,6 +1,6 @@
 import { S, $, toast, persist } from "./store";
 import type { Side } from "./types";
-import { currentChanges } from "./changes";
+import { currentChanges, fromDisplayLine } from "./changes";
 import { acceptChange } from "./decisions";
 import { openCommentComposer } from "./selection";
 import { render } from "./render";
@@ -142,6 +142,25 @@ function ensureCursor(): Row | undefined {
   return r;
 }
 
+// Land the cursor on a specific rendered line (display space) and center it — used by the
+// blockers jump list. Retries once across two frames so a just-triggered collapsed-region
+// expansion (which rerenders) has laid out its rows.
+export function cursorJumpTo(side: Side, line: number) {
+  const land = () => {
+    const list = rows();
+    // Context rows dedupe to a single entry (additions preferred), so fall back to a
+    // line-only match before giving up.
+    const r =
+      list.find((x) => x.side === side && x.line === line) ?? list.find((x) => x.line === line);
+    if (!r) return false;
+    cur = { side: r.side, line: r.line };
+    paint(r);
+    r.el.scrollIntoView({ block: "center" });
+    return true;
+  };
+  if (!land()) requestAnimationFrame(() => requestAnimationFrame(() => land()));
+}
+
 export function cursorMoveLine(dir: 1 | -1) {
   const list = rows();
   if (!list.length) return;
@@ -176,15 +195,16 @@ export function cursorMoveHunk(dir: 1 | -1) {
   toast(dir === 1 ? "No more changes" : "No previous changes");
 }
 
-// The change (hunk) whose range covers the cursor line on its side.
+// The change (hunk) whose range covers the cursor line on its side. The cursor reads
+// rendered gutter numbers (display space), so compare against the display anchors.
 function cursorChange() {
   if (!cur) return null;
   return (
     currentChanges().find(
       (c) =>
         c.side === cur!.side &&
-        cur!.line >= c.lineNumber &&
-        cur!.line <= (c.endLine ?? c.lineNumber),
+        cur!.line >= (c.displayLineNumber ?? c.lineNumber) &&
+        cur!.line <= (c.displayEndLine ?? c.endLine ?? c.lineNumber),
     ) ?? null
   );
 }
@@ -218,11 +238,12 @@ export function cursorVerdict(status: "accepted" | "rejected") {
 
 function threadComments() {
   if (!cur) return [];
+  const raw = fromDisplayLine(cur.side, cur.line); // comments persist raw lines
   return S.state.comments.filter(
     (c) =>
       c.path === (S.preview?.path ?? S.state.files[S.fileIndex]?.path) &&
       c.side === cur!.side &&
-      c.lineNumber === cur!.line,
+      c.lineNumber === raw,
   );
 }
 

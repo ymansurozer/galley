@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { git, listProjectTree, patchForChange } from "./git.js";
 import {
+  anchorTextFor,
   buildReviewResult,
   buildReviewState,
   buildReviewSummary,
@@ -14,8 +15,11 @@ import {
   mergeReviewState,
   nowIso,
   persistReview,
+  readGlobalSettings,
   syncGitState,
+  writeGlobalSettings,
 } from "./state.js";
+import { validateGuide } from "./guide.js";
 import type { AwaitEvent, ReviewState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -159,6 +163,14 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         await syncGitState(state);
         return json(res, 200, state);
       }
+      // Display preferences, stored globally in ~/.galley/settings.json — the desk's
+      // random port makes browser localStorage (per-origin) useless for them.
+      if (req.method === "GET" && url.pathname === "/api/settings")
+        return json(res, 200, await readGlobalSettings());
+      if (req.method === "POST" && url.pathname === "/api/settings") {
+        await writeGlobalSettings(JSON.parse(await readBody(req)));
+        return json(res, 200, { ok: true });
+      }
       if (req.method === "GET" && url.pathname === "/api/tree") {
         await syncGitState(state);
         return json(res, 200, { files: await listProjectTree(state.root) });
@@ -270,6 +282,28 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (req.method === "POST" && url.pathname === "/api/reload") {
         // Re-diff and fold it into the live state so the open desk reflects the
         // agent's edits without a restart. Rebuilds using the stored mode params.
+        // An optional { guide } in the body swaps the attached guide in the same
+        // round-trip — the multi-round path: regenerate the guide, reload, same tab.
+        let newGuide: unknown;
+        try {
+          const raw = await readBody(req);
+          newGuide = raw ? (JSON.parse(raw) as { guide?: unknown }).guide : undefined;
+        } catch {
+          newGuide = undefined; // tolerate empty/non-JSON bodies (legacy callers)
+        }
+        let validatedGuide;
+        if (newGuide !== undefined) {
+          const result = validateGuide(newGuide);
+          if (!result.ok)
+            return fail(
+              res,
+              422,
+              "INVALID_GUIDE",
+              `Invalid guide: ${result.reason}.`,
+              "Run `galley guide-spec` for the schema.",
+            );
+          validatedGuide = result.guide;
+        }
         const base = await buildReviewState(state.root, {
           mode: state.mode,
           session: state.session,
@@ -287,6 +321,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });
         }
         Object.assign(state, mergeReviewState(base, state));
+        // The merge carries the old guide forward; a provided guide replaces it,
+        // stamped against the just-rebuilt diff so it isn't born stale.
+        if (validatedGuide) state.guide = { ...validatedGuide, baseDiffHash: state.baseDiffHash };
         await syncGitState(state);
         await persistReview(state);
         return json(res, 200, { ok: true, empty: false, baseDiffHash: state.baseDiffHash });
@@ -309,17 +346,20 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             "Send { path, lineNumber, side, body } as JSON.",
           );
         const now = nowIso();
+        const side = body.side === "deletions" ? ("deletions" as const) : ("additions" as const);
+        const lineNumber = Number(body.lineNumber ?? 1);
         const comment = {
           id: crypto.randomUUID(),
           path: body.path,
-          side: body.side === "deletions" ? ("deletions" as const) : ("additions" as const),
-          lineNumber: Number(body.lineNumber ?? 1),
+          side,
+          lineNumber,
           body: text,
           createdAt: now,
           updatedAt: now,
           status: "open" as const,
           intent: "note" as const,
           role: body.role === "user" ? ("user" as const) : ("agent" as const),
+          anchorText: anchorTextFor(state.files, body.path, side, lineNumber),
         };
         state.comments.push(comment);
         await persistReview(state);
@@ -421,7 +461,23 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     }
   });
 
-  await new Promise<void>((resolve) => server.listen(options.port ?? 0, "127.0.0.1", resolve));
+  // Prefer the requested (stable per-session) port; if a foreign process holds it,
+  // fall back to a random one rather than failing the launch.
+  await new Promise<void>((resolve, reject) => {
+    const preferred = options.port ?? 0;
+    const onError = (error: NodeJS.ErrnoException) => {
+      if (preferred !== 0 && (error.code === "EADDRINUSE" || error.code === "EACCES")) {
+        console.error(`Port ${preferred} is taken — falling back to a random port.`);
+        server.removeListener("error", onError);
+        server.listen(0, "127.0.0.1", resolve);
+      } else reject(error);
+    };
+    server.once("error", onError);
+    server.listen(preferred, "127.0.0.1", () => {
+      server.removeListener("error", onError);
+      resolve();
+    });
+  });
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : 0;
   const url = `http://127.0.0.1:${port}/`;

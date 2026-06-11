@@ -1,4 +1,5 @@
 import { S, $, toast, persist } from "./store";
+import { toDisplayLine } from "./changes";
 import { placeNearActionPop } from "./selection";
 import { render } from "./render";
 
@@ -8,7 +9,8 @@ import { render } from "./render";
 export function editComment(id: string) {
   const comment = S.state.comments.find((c) => c.id === id);
   if (!comment || comment.role === "agent") return;
-  S.selected = { side: comment.side, lineNumber: comment.lineNumber };
+  // Comments persist raw lines; S.selected is display space.
+  S.selected = { side: comment.side, lineNumber: toDisplayLine(comment.side, comment.lineNumber) };
   S.composerBody = comment.body;
   S.composerTitle = "Edit comment";
   S.editingCommentId = id;

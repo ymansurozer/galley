@@ -18,6 +18,6 @@ Then loop: `galley await --session <task-id>` blocks for the next event and prin
 - `{"kind":"question",…}` → answer **now** with `galley comment --path … --line … --side … --body "…"` at the question's location.
 - `{"kind":"review","result":{…}}` → act on `result`: revert **rejected**, make **requestedChanges**, leave **accepted** alone, leave **approvedFiles** (signed off as-is) untouched, don't touch **stagedFiles** unless a change requires it. (Editing an approved file invalidates its approval → it needs re-review next round.)
 
-After editing code, run `galley reload --session <task-id>` so your edits show in the open tab, then `galley await` again for the next round. The desk stays open across rounds — don't reopen it.
+After editing code, run `galley reload --session <task-id>` so your edits show in the open tab (add `--guide <file>` to swap in a regenerated guide), then `galley await` again for the next round. The desk stays open across rounds and the reviewer keeps **one tab**: starting is idempotent (a live desk is reused, never duplicated) and the port is stable per session, so even after a desk process dies, re-running the start command brings the same tab back to life — never open a second desk for the same session.
 
 Full reference (modes, options, exit semantics, `ReviewResult`): **`skills/galley/SKILL.md`**.

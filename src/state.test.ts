@@ -1,10 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
+  anchorTextFor,
   buildReviewResult,
   buildReviewSummary,
+  globalSettingsPath,
   mergeReviewState,
+  reanchorComments,
+  readGlobalSettings,
   sanitizeSession,
+  stablePort,
+  writeGlobalSettings,
 } from "./state.js";
 import type { ChangeState, Decision, ReviewComment, ReviewState } from "./types.js";
 
@@ -212,6 +221,103 @@ test("mergeReviewState drops an explicit decision that went stale (content chang
   assert.equal(merged.decisions!.length, 0); // and the decision is removed
 });
 
+test("mergeReviewState drops a REJECTED decision whose hunk left the diff (rework honored the rejection)", () => {
+  // The agent reworked the rejected block away: keeping the decision would leave an
+  // invisible objection that blocks approval forever.
+  const base = state({ files: [file("a.ts")], changes: [] });
+  const saved = state({
+    files: [file("a.ts")],
+    changes: [],
+    decisions: [
+      decision({ key: "a.ts:k1", path: "a.ts", status: "rejected", reviewedHash: "H" }),
+      decision({ key: "a.ts:k2", path: "a.ts", status: "accepted", reviewedHash: "H" }),
+    ],
+  });
+  const merged = mergeReviewState(base, saved);
+  assert.equal(merged.decisions!.length, 1); // accepted-vanished keeps its staged-out semantics
+  assert.equal(merged.decisions![0]!.status, "accepted");
+});
+
+test("mergeReviewState keeps a rejected decision whose hunk is still present and unchanged", () => {
+  const base = state({
+    files: [file("a.ts")],
+    changes: [change({ id: "a.ts:k1", path: "a.ts", stableKey: "k1", contentHash: "H" })],
+  });
+  const saved = state({
+    files: [file("a.ts")],
+    changes: [],
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts", status: "rejected", reviewedHash: "H" })],
+  });
+  const merged = mergeReviewState(base, saved);
+  assert.equal(merged.decisions!.length, 1);
+  assert.equal(merged.changes[0]!.status, "rejected");
+});
+
+// ── Re-anchoring ─────────────────────────────────────────────────────────────
+
+function contentsFile(path: string, newContents: string, oldContents = newContents) {
+  return {
+    path,
+    hunks: [],
+    oldFile: { name: path, contents: oldContents },
+    newFile: { name: path, contents: newContents },
+    contentHash: "H",
+  };
+}
+
+test("anchorTextFor reads the line from the right side's contents", () => {
+  const files = [contentsFile("a.ts", "n1\nn2\nn3", "o1\no2")];
+  assert.equal(anchorTextFor(files, "a.ts", "additions", 2), "n2");
+  assert.equal(anchorTextFor(files, "a.ts", "deletions", 2), "o2");
+  assert.equal(anchorTextFor(files, "a.ts", "additions", 9), undefined);
+  assert.equal(anchorTextFor(files, "b.ts", "additions", 1), undefined);
+});
+
+test("reanchorComments keeps a comment whose line still matches its anchor text", () => {
+  const files = [contentsFile("a.ts", "alpha\nbeta\ngamma")];
+  const c = comment({ id: "c1", path: "a.ts", lineNumber: 2, anchorText: "beta" });
+  reanchorComments([c], files);
+  assert.equal(c.lineNumber, 2);
+  assert.equal(c.unanchored, false);
+});
+
+test("reanchorComments moves a comment to the unique nearest matching line (endLine shifts too)", () => {
+  // Two lines inserted above: "beta" moved from 2 to 4.
+  const files = [contentsFile("a.ts", "x\nalpha\ny\nbeta\ngamma")];
+  const c = comment({ id: "c1", path: "a.ts", lineNumber: 2, endLine: 3, anchorText: "beta" });
+  reanchorComments([c], files);
+  assert.equal(c.lineNumber, 4);
+  assert.equal(c.endLine, 5);
+  assert.equal(c.unanchored, false);
+});
+
+test("reanchorComments flags an ambiguous or vanished anchor as unanchored", () => {
+  const files = [contentsFile("a.ts", "dup\nmid\ndup\nend")];
+  const tie = comment({ id: "c1", path: "a.ts", lineNumber: 2, anchorText: "dup" }); // 1 and 3 equidistant
+  const gone = comment({ id: "c2", path: "a.ts", lineNumber: 2, anchorText: "deleted line" });
+  reanchorComments([tie, gone], files);
+  assert.equal(tie.unanchored, true);
+  assert.equal(tie.lineNumber, 2); // left where it was
+  assert.equal(gone.unanchored, true);
+});
+
+test("reanchorComments skips resolved comments and flags legacy ones only when out of range", () => {
+  const files = [contentsFile("a.ts", "one\ntwo")];
+  const resolved = comment({
+    id: "c1",
+    path: "a.ts",
+    lineNumber: 9,
+    status: "resolved",
+    anchorText: "gone",
+  });
+  const legacyIn = comment({ id: "c2", path: "a.ts", lineNumber: 2 }); // no anchorText
+  const legacyOut = comment({ id: "c3", path: "a.ts", lineNumber: 7 });
+  reanchorComments([resolved, legacyIn, legacyOut], files);
+  assert.equal(resolved.unanchored, undefined); // untouched
+  assert.equal(legacyIn.unanchored, false);
+  assert.equal(legacyOut.unanchored, true);
+});
+
 test("buildReviewResult reads decisions, so a staged-out accepted hunk still appears in accepted[]", () => {
   const s = state({
     mode: "repo",
@@ -283,6 +389,38 @@ test("buildReviewSummary keeps repo wording in repo mode", () => {
     changes: [change({ id: "1", path: "a.ts", status: "accepted" })],
   });
   assert.match(buildReviewSummary(s), /## Accepted line changes/);
+});
+
+test("global settings: write→read round-trip; missing and corrupt files read as {}", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "galley-settings-"));
+  const prevHome = process.env.HOME;
+  const prevProfile = process.env.USERPROFILE;
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  try {
+    assert.deepEqual(await readGlobalSettings(), {}); // no file yet
+    await writeGlobalSettings({ settings: { theme: "pierre-dark" }, diffStyle: "unified" });
+    assert.deepEqual(await readGlobalSettings(), {
+      settings: { theme: "pierre-dark" },
+      diffStyle: "unified",
+    });
+    await fs.writeFile(globalSettingsPath(), "{not json", "utf8");
+    assert.deepEqual(await readGlobalSettings(), {}); // corrupt → defaults
+  } finally {
+    process.env.HOME = prevHome;
+    process.env.USERPROFILE = prevProfile;
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("stablePort is deterministic per repo+session and stays in range", () => {
+  const a = stablePort("/work/repo", "main");
+  assert.equal(a, stablePort("/work/repo", "main")); // deterministic
+  assert.ok(a >= 41000 && a < 51000);
+  assert.notEqual(a, stablePort("/work/repo", "feature-x")); // session-sensitive
+  assert.notEqual(a, stablePort("/other/repo", "main")); // repo-sensitive
+  // The raw session name and its sanitized form land on the same port (deskSession sanitizes).
+  assert.equal(stablePort("/work/repo", "feature/x"), stablePort("/work/repo", "feature-x"));
 });
 
 test("sanitizeSession normalizes branch names and falls back", () => {
