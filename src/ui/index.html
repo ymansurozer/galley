@@ -1616,21 +1616,24 @@
       margin-left: 4px
     }
 
-    /* Same soft treatment as the amber "Mark Reviewed" action it sits next to. */
+    /* Quiet link-style trigger: it belongs to the Mark Reviewed action next to it but is
+       secondary — text only, no fill, so it never competes with the button. */
     .blockers-chip {
       border: 0;
-      border-radius: var(--radius-sm);
-      padding: 3px 8px;
+      background: transparent;
+      padding: 3px 4px;
       font-size: var(--text-sm);
       line-height: 16px;
-      background: rgba(224, 175, 104, .14);
-      color: var(--amber-fg)
+      color: var(--amber);
+      text-decoration: underline;
+      text-decoration-color: rgba(224, 175, 104, .4);
+      text-underline-offset: 3px
     }
 
     .blockers-chip:hover,
     .blockers.open .blockers-chip {
-      background: rgba(224, 175, 104, .22);
-      color: var(--amber-fg)
+      color: var(--amber-fg);
+      text-decoration-color: rgba(224, 175, 104, .9)
     }
 
     .blockers-pop {
