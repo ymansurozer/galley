@@ -29,6 +29,14 @@ export function hash(text: string) {
   return crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
+// Deterministic per-repo+session port (41000–50999). A restarted desk binds the same
+// origin, so an already-open tab self-heals through its state poll instead of dying on
+// a dead random port. Collisions with foreign processes fall back to a random port at
+// listen time (startServer).
+export function stablePort(root: string, session: string) {
+  return 41000 + (parseInt(hash(`${root}:${sanitizeSession(session)}`).slice(0, 8), 16) % 10000);
+}
+
 export function sanitizeSession(session: string) {
   const cleaned = session.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "");
   return cleaned || "review";

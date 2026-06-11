@@ -14,6 +14,7 @@ import {
   readDeskLock,
   reviewDir,
   sanitizeSession,
+  stablePort,
   syncGitState,
 } from "./state.js";
 import { validateGuide } from "./guide.js";
@@ -96,6 +97,21 @@ function httpGetJson(urlStr: string): Promise<{ status: number; body: any }> {
   });
 }
 
+// A desk lock can outlive its process (crash, SIGKILL) — trust it only if the
+// server actually answers.
+async function deskAlive(url: string): Promise<boolean> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 1500);
+  try {
+    const res = await fetch(`${url}api/state`, { signal: ctrl.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // `galley comment --path <file> --line <n> [--side additions] --body "..."`
 // Posts an agent reply. If a live desk is running for the session, it goes over
 // HTTP so the open tab updates immediately; otherwise it is appended to the
@@ -169,8 +185,9 @@ async function runAwait(args: Record<string, string | boolean>) {
   if (res.body.kind) process.stdout.write(JSON.stringify(res.body) + "\n");
 }
 
-// `galley reload --session <id>` — re-diff the working tree into the live desk
-// so the agent's edits show up in the open tab without a restart.
+// `galley reload --session <id> [--guide <file>]` — re-diff the working tree into the
+// live desk so the agent's edits show up in the open tab without a restart; --guide
+// swaps the attached review guide in the same round-trip.
 async function runReload(args: Record<string, string | boolean>) {
   const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
   const session = await resolveActionSession(root, args);
@@ -182,7 +199,16 @@ async function runReload(args: Record<string, string | boolean>) {
     process.exitCode = 1;
     return;
   }
-  const res = await fetch(`${lock.url}api/reload`, { method: "POST" }).catch(() => null);
+  const guide = loadGuideArg(args.guide);
+  if (guide === null) {
+    process.exitCode = 1;
+    return;
+  }
+  const res = await fetch(`${lock.url}api/reload`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(guide ? { guide } : {}),
+  }).catch(() => null);
   if (!res || !res.ok) {
     console.error("Reload failed — is the desk still running?");
     process.exitCode = 1;
@@ -312,6 +338,29 @@ async function runDesk(
     branch,
     typeof args.session === "string" ? args.session : undefined,
   );
+  // Idempotent start: a live desk for this repo+session is reused — reload the diff
+  // (and swap the guide, if one was passed) into the open tab instead of opening a
+  // second desk on a new port. Use --session/--port for a genuinely separate desk.
+  const liveLock = await readDeskLock(root, session);
+  if (liveLock && (await deskAlive(liveLock.url))) {
+    const guide = loadGuideArg(args.guide);
+    if (guide === null) {
+      process.exitCode = 1;
+      return;
+    }
+    const res = await fetch(`${liveLock.url}api/reload`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(guide ? { guide } : {}),
+    }).catch(() => null);
+    if (res?.ok) {
+      console.error(
+        `Desk already live for session "${session}" — reloaded${guide ? " with the new guide" : ""} in the open tab: ${liveLock.url}`,
+      );
+      return;
+    }
+    console.error("Live desk did not accept the reload — starting a fresh one.");
+  }
   const base = await buildReviewState(repo, {
     mode,
     session,
@@ -356,9 +405,12 @@ async function runDesk(
   await persistReview(state);
 
   const lockFile = deskLockPath(await reviewDir(state.root, state.session));
+  // Default to the stable per-session port so a restarted desk keeps the same origin
+  // and an already-open tab reconnects by itself (startServer falls back to a random
+  // port if a foreign process holds it).
   const { url } = await startServer({
     state,
-    port: typeof args.port === "string" ? Number(args.port) : 0,
+    port: typeof args.port === "string" ? Number(args.port) : stablePort(state.root, state.session),
     open: args.open !== false,
   });
 
@@ -411,7 +463,8 @@ Usage:
   galley pr <ref|number|url>        Review a branch's commits vs its merge-base
   galley comment --path <f> --line <n> --body "..."   Post an agent reply into the desk
   galley await [--timeout <s>]      Block for the next desk event (question | review)
-  galley reload                     Re-diff the working tree into the open desk
+  galley reload [--guide <file>]    Re-diff the working tree into the open desk
+                                    (--guide swaps the attached review guide too)
   galley guide-spec                 Print the guide JSON schema + authoring rules
 
 Common flags:

@@ -12,6 +12,7 @@ import {
   reanchorComments,
   readGlobalSettings,
   sanitizeSession,
+  stablePort,
   writeGlobalSettings,
 } from "./state.js";
 import type { ChangeState, Decision, ReviewComment, ReviewState } from "./types.js";
@@ -410,6 +411,16 @@ test("global settings: write→read round-trip; missing and corrupt files read a
     process.env.USERPROFILE = prevProfile;
     await fs.rm(home, { recursive: true, force: true });
   }
+});
+
+test("stablePort is deterministic per repo+session and stays in range", () => {
+  const a = stablePort("/work/repo", "main");
+  assert.equal(a, stablePort("/work/repo", "main")); // deterministic
+  assert.ok(a >= 41000 && a < 51000);
+  assert.notEqual(a, stablePort("/work/repo", "feature-x")); // session-sensitive
+  assert.notEqual(a, stablePort("/other/repo", "main")); // repo-sensitive
+  // The raw session name and its sanitized form land on the same port (deskSession sanitizes).
+  assert.equal(stablePort("/work/repo", "feature/x"), stablePort("/work/repo", "feature-x"));
 });
 
 test("sanitizeSession normalizes branch names and falls back", () => {
