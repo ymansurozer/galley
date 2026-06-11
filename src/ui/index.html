@@ -1610,30 +1610,28 @@
     }
 
     /* The "N blockers" chip + jump list: what keeps a file from Approved, one click away. */
+    /* Quiet link-style trigger: it belongs to the Mark Reviewed action it precedes but is
+       secondary — text only, no fill. The asymmetric margins pull it toward the button
+       (and away from the +/− counts) so the grouping reads at a glance. */
     .blockers {
       position: relative;
       display: inline-flex;
-      margin-left: 4px
+      margin-left: 8px;
+      margin-right: -8px
     }
 
-    /* Quiet link-style trigger: it belongs to the Mark Reviewed action next to it but is
-       secondary — text only, no fill, so it never competes with the button. */
     .blockers-chip {
       border: 0;
       background: transparent;
       padding: 3px 4px;
       font-size: var(--text-sm);
       line-height: 16px;
-      color: var(--amber);
-      text-decoration: underline;
-      text-decoration-color: rgba(224, 175, 104, .4);
-      text-underline-offset: 3px
+      color: var(--amber)
     }
 
     .blockers-chip:hover,
     .blockers.open .blockers-chip {
-      color: var(--amber-fg);
-      text-decoration-color: rgba(224, 175, 104, .9)
+      color: var(--amber-fg)
     }
 
     .blockers-pop {
