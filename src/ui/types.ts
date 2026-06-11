@@ -11,8 +11,8 @@ import type { CategoryStep } from "./guide";
 export type Side = "additions" | "deletions";
 export type DiffStyle = "split" | "unified";
 
-// User preferences (persisted to localStorage), applied live. diffStyle stays separate
-// (its own toolbar toggle); these are the rest of the settings panel.
+// User preferences (persisted to ~/.galley/settings.json via /api/settings), applied live.
+// diffStyle stays separate (its own toolbar toggle); these are the rest of the settings panel.
 export type Settings = {
   lineDiffType: "word-alt" | "word" | "char" | "none";
   diffIndicators: "bars" | "classic" | "none";

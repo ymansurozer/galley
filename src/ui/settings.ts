@@ -12,7 +12,7 @@ export const DEFAULT_SETTINGS: Settings = {
   font: "jetbrains-mono",
   uiFont: "geist",
   fontSize: 12.5,
-  showUnchanged: true,
+  showUnchanged: false,
   unchangedLines: "collapse",
   progressBy: "lines",
   stageOnAccept: false,
@@ -67,20 +67,12 @@ export const SANS_FONTS: Record<string, FontDef> = {
   system: { label: "System", stack: "system-ui, -apple-system, 'Segoe UI', Roboto", google: null },
 };
 
+// Settings persist in ~/.galley/settings.json (via /api/settings), NOT localStorage —
+// localStorage is keyed by origin and each desk binds a random port, so anything stored
+// there evaporates between sessions. The store initializes with these defaults and the
+// init sequence in main.ts folds the server file in before first paint.
 export function loadSettings(): Settings {
-  try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem("galley.settings") || "{}") };
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
-}
-
-export function persistSettings(s: Settings) {
-  try {
-    localStorage.setItem("galley.settings", JSON.stringify(s));
-  } catch {
-    /* ignore quota */
-  }
+  return { ...DEFAULT_SETTINGS };
 }
 
 function ensureFont(key: string, google: string | null) {

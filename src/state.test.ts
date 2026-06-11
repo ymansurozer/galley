@@ -1,12 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   anchorTextFor,
   buildReviewResult,
   buildReviewSummary,
+  globalSettingsPath,
   mergeReviewState,
   reanchorComments,
+  readGlobalSettings,
   sanitizeSession,
+  writeGlobalSettings,
 } from "./state.js";
 import type { ChangeState, Decision, ReviewComment, ReviewState } from "./types.js";
 
@@ -382,6 +388,28 @@ test("buildReviewSummary keeps repo wording in repo mode", () => {
     changes: [change({ id: "1", path: "a.ts", status: "accepted" })],
   });
   assert.match(buildReviewSummary(s), /## Accepted line changes/);
+});
+
+test("global settings: write→read round-trip; missing and corrupt files read as {}", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "galley-settings-"));
+  const prevHome = process.env.HOME;
+  const prevProfile = process.env.USERPROFILE;
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  try {
+    assert.deepEqual(await readGlobalSettings(), {}); // no file yet
+    await writeGlobalSettings({ settings: { theme: "pierre-dark" }, diffStyle: "unified" });
+    assert.deepEqual(await readGlobalSettings(), {
+      settings: { theme: "pierre-dark" },
+      diffStyle: "unified",
+    });
+    await fs.writeFile(globalSettingsPath(), "{not json", "utf8");
+    assert.deepEqual(await readGlobalSettings(), {}); // corrupt → defaults
+  } finally {
+    process.env.HOME = prevHome;
+    process.env.USERPROFILE = prevProfile;
+    await fs.rm(home, { recursive: true, force: true });
+  }
 });
 
 test("sanitizeSession normalizes branch names and falls back", () => {

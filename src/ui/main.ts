@@ -1,6 +1,5 @@
 import Alpine from "alpinejs";
-import persistPlugin from "@alpinejs/persist";
-import { S, D, $, api, persist, toast } from "./store";
+import { S, D, $, api, persist, persistPrefs, toast } from "./store";
 import { loadDiffLib } from "./difflib";
 import { currentFile, currentSplittable, fromDisplayLine } from "./changes";
 import { openCommentComposer, closeComposerIfEmpty } from "./selection";
@@ -8,7 +7,7 @@ import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { render, deferRender } from "./render";
 import { pollState } from "./poll";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
-import { applyAppearance, persistSettings } from "./settings";
+import { applyAppearance, DEFAULT_SETTINGS } from "./settings";
 import { setMarkdownTheme } from "./markdown";
 import { ensureIcons } from "./icons";
 import {
@@ -26,7 +25,7 @@ import {
 } from "./guide";
 import { installKeys, helpGroups, confirmYes, confirmNo, askConfirm } from "./keys";
 import { cursorReset, cursorOnScroll } from "./cursor";
-import type { ReviewState, FileRow } from "./types";
+import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
 
 // Close the composer when clicking outside it (unless it has unsaved text).
 document.addEventListener(
@@ -148,7 +147,7 @@ S.rowClick = (r) => {
 S.openComposer = openCommentComposer;
 S.setStyle = (style) => {
   S.diffStyle = style;
-  localStorage.setItem("galley.diffStyle", style);
+  persistPrefs();
   render();
 };
 S.setFileView = (view) => {
@@ -159,7 +158,7 @@ S.setFileView = (view) => {
 // Apply + persist all settings: CSS vars (font/size), comment-code theme, and a re-render
 // (the diff reads S.settings.* in render()). Bound to every control's @change.
 S.applySettings = () => {
-  persistSettings(S.settings);
+  persistPrefs();
   applyAppearance(S.settings);
   setMarkdownTheme(S.settings.theme);
   render();
@@ -331,19 +330,42 @@ S.send = async () => {
   } else toast("Could not send review");
 };
 
-// Alpine: register the reactive store + persist plugin, then start.
+// Alpine: register the reactive store, then start.
 (window as any).Alpine = Alpine;
-Alpine.plugin(persistPlugin);
 Alpine.store("g", S);
 Alpine.start();
 
 // Init
 ensureIcons(); // file-tree icon sprite (folder/file/badges/stage)
-applyAppearance(S.settings); // persisted font + size before first paint
-await loadDiffLib();
-S.state = await api<ReviewState>("/api/state");
-S.projectFiles = (await api<{ files?: string[] }>("/api/tree")).files || [];
+// Display preferences live in ~/.galley/settings.json (localStorage is per-origin and the
+// port is random, so it can't hold them). Fold the file over the defaults before first paint.
+type Prefs = { settings?: Partial<Settings>; diffStyle?: DiffStyle };
+const [prefs, state, tree] = await Promise.all([
+  api<Prefs>("/api/settings").catch(() => ({}) as Prefs),
+  api<ReviewState>("/api/state"),
+  api<{ files?: string[] }>("/api/tree"),
+  loadDiffLib(),
+]);
+S.settings = { ...DEFAULT_SETTINGS, ...(prefs?.settings ?? {}) };
+if (prefs?.diffStyle === "split" || prefs?.diffStyle === "unified") S.diffStyle = prefs.diffStyle;
+applyAppearance(S.settings); // font + size before first paint
+setMarkdownTheme(S.settings.theme);
+S.state = state;
+S.projectFiles = tree.files || [];
 S.lastBaseDiffHash = S.state.baseDiffHash;
+// Tab title: name the session so multiple desks are distinguishable in the browser.
+// Repo mode → repo folder; file mode → file name; pr mode → the (truncated) ref.
+{
+  const base = (p?: string) => p?.replace(/\/+$/, "").split("/").pop() || "";
+  const ref = S.state.target ?? S.state.session ?? "";
+  const name =
+    S.state.mode === "file"
+      ? base(S.state.target)
+      : S.state.mode === "pr"
+        ? ref.slice(0, 32) + (ref.length > 32 ? "…" : "")
+        : base(S.state.root);
+  if (name) document.title = `Galley — ${name}`;
+}
 S.selected = {
   side: S.state.changes[0]?.side || "additions",
   lineNumber: S.state.changes[0]?.lineNumber || 1,

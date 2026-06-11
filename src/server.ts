@@ -15,7 +15,9 @@ import {
   mergeReviewState,
   nowIso,
   persistReview,
+  readGlobalSettings,
   syncGitState,
+  writeGlobalSettings,
 } from "./state.js";
 import type { AwaitEvent, ReviewState } from "./types.js";
 
@@ -159,6 +161,14 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (req.method === "GET" && url.pathname === "/api/state") {
         await syncGitState(state);
         return json(res, 200, state);
+      }
+      // Display preferences, stored globally in ~/.galley/settings.json — the desk's
+      // random port makes browser localStorage (per-origin) useless for them.
+      if (req.method === "GET" && url.pathname === "/api/settings")
+        return json(res, 200, await readGlobalSettings());
+      if (req.method === "POST" && url.pathname === "/api/settings") {
+        await writeGlobalSettings(JSON.parse(await readBody(req)));
+        return json(res, 200, { ok: true });
       }
       if (req.method === "GET" && url.pathname === "/api/tree") {
         await syncGitState(state);

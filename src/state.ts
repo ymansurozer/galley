@@ -263,6 +263,29 @@ export async function reviewDir(root: string, session: string) {
   return dir;
 }
 
+// Global display preferences (~/.galley/settings.json) — deliberately NOT per-repo or
+// per-session: these are the reviewer's, and the desk's random port makes browser
+// localStorage useless for them (origin changes every launch).
+export function globalSettingsPath() {
+  const home = process.env.HOME || process.env.USERPROFILE || process.cwd();
+  return path.join(home, ".galley", "settings.json");
+}
+
+export async function readGlobalSettings(): Promise<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(globalSettingsPath(), "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {}; // missing or corrupt → client falls back to defaults
+  }
+}
+
+export async function writeGlobalSettings(data: unknown) {
+  const file = globalSettingsPath();
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(data, null, 2) + "\n", "utf8");
+}
+
 export function deskLockPath(dir: string) {
   return path.join(dir, "desk.lock");
 }

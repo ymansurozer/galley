@@ -1,5 +1,5 @@
 import Alpine from "alpinejs";
-import type { Store, DiffHolder, DiffStyle } from "./types";
+import type { Store, DiffHolder } from "./types";
 import { loadSettings } from "./settings";
 
 // Single reactive source of truth: the imperative diff island mutates it directly,
@@ -11,7 +11,9 @@ export const S: Store = Alpine.reactive<Store>({
   projectFiles: [],
   expandedDirs: new Set<string>(),
   collapsedDirs: new Set<string>(),
-  diffStyle: (localStorage.getItem("galley.diffStyle") as DiffStyle) || "split",
+  // Display preferences come from ~/.galley/settings.json (fetched in main.ts init),
+  // not localStorage — origins change with the random port, files don't.
+  diffStyle: "split",
   fileIndex: 0,
   preview: null,
   rendering: false,
@@ -76,3 +78,10 @@ export const api = <T = unknown>(path: string, opts: RequestInit = {}): Promise<
 // review to ~/.galley/<repoHash>/<session>/.
 export const persist = () =>
   api("/api/save", { method: "POST", body: JSON.stringify(S.state) }).catch(() => {});
+// Display preferences (settings panel + the Split/Stacked toggle) save to the global
+// ~/.galley/settings.json so they survive port/session changes. Last write wins.
+export const persistPrefs = () =>
+  api("/api/settings", {
+    method: "POST",
+    body: JSON.stringify({ settings: S.settings, diffStyle: S.diffStyle }),
+  }).catch(() => {});

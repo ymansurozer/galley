@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@alpinejs/persist':
-        specifier: ^3.15.12
-        version: 3.15.12
       '@pierre/diffs':
         specifier: 1.2.4
         version: 1.2.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -71,9 +68,6 @@ importers:
         version: 6.0.3
 
 packages:
-
-  '@alpinejs/persist@3.15.12':
-    resolution: {integrity: sha512-vzDRf/3r8B5ihHvLYUkkg+XbJz4nNst+5jR5BM4Uff3BhdRenJlXKFnd3kYbM2Z/KCU65zg5neqOVhbNpytZ9A==}
 
   '@esbuild/aix-ppc64@0.28.0':
     resolution: {integrity: sha512-lhRUCeuOyJQURhTxl4WkpFTjIsbDayJHih5kZC1giwE+MhIzAb7mEsQMqMf18rHLsrb5qI1tafG20mLxEWcWlA==}
@@ -933,8 +927,6 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
-
-  '@alpinejs/persist@3.15.12': {}
 
   '@esbuild/aix-ppc64@0.28.0':
     optional: true
