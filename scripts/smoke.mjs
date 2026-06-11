@@ -52,6 +52,8 @@ try {
 
   desk = spawn("node", [CLI, "--repo", tmp, "--session", ID, "--port", String(PORT), "--no-open"], {
     stdio: "ignore",
+    // Keep the smoke hermetic: no update-check network call at desk start.
+    env: { ...process.env, GALLEY_NO_UPDATE_CHECK: "1" },
   });
   for (let i = 0; i < 60; i++) {
     try {

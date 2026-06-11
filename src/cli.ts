@@ -19,6 +19,7 @@ import {
 import { validateGuide } from "./guide.js";
 import { GUIDE_SPEC } from "./guidespec.js";
 import { startServer } from "./server.js";
+import { maybeOfferUpdate } from "./update.js";
 import type { ReviewMode } from "./types.js";
 
 function parseArgs(argv: string[]) {
@@ -258,6 +259,9 @@ async function runDesk(
   target: string | undefined,
   args: Record<string, string | boolean>,
 ) {
+  // Desk starts only — the agent subcommands must never block on a prompt. On a
+  // confirmed update this re-execs the new version with the same args and never returns.
+  await maybeOfferUpdate();
   const repo = resolveRepo(args);
   const staged = args.diff === "staged" || args.staged === true;
   const root = await getGitRoot(repo).catch(() => repo);
@@ -418,6 +422,9 @@ Common flags:
   --no-open         Don't open the browser
   -h, --help        Show this help
   -v, --version     Show version
+
+Env:
+  GALLEY_NO_UPDATE_CHECK=1   Skip the new-version check at desk start
 
 Docs: https://github.com/ymansurozer/galley`;
 
