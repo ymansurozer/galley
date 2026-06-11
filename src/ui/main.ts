@@ -346,7 +346,7 @@ const [prefs, state, tree] = await Promise.all([
   api<{ files?: string[] }>("/api/tree"),
   loadDiffLib(),
 ]);
-S.settings = { ...DEFAULT_SETTINGS, ...(prefs?.settings ?? {}) };
+S.settings = { ...DEFAULT_SETTINGS, ...prefs?.settings };
 if (prefs?.diffStyle === "split" || prefs?.diffStyle === "unified") S.diffStyle = prefs.diffStyle;
 applyAppearance(S.settings); // font + size before first paint
 setMarkdownTheme(S.settings.theme);

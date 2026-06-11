@@ -68,3 +68,34 @@ test("pr mode: base..HEAD committed changes → verdict-only (not stageable)", a
   assert.ok(src!.changes.length >= 1);
   assert.ok(src!.changes.every((c) => c.stageable === false));
 });
+
+// The old side must read from the INDEX, not HEAD: the UI re-diffs old/new contents
+// itself, so a HEAD baseline resurrects already-staged hunks as pending diff. (Staging
+// is what advances the review baseline between rounds — see buildDiffSource.)
+test("repo mode: staged content is the old-side baseline, not HEAD", async () => {
+  write("a.txt", "a\nROUND1\nc\n");
+  git(["add", "a.txt"]); // round 1: reviewed + staged
+  write("a.txt", "a\nROUND1\nc\nROUND2\n"); // round 2: agent edits again
+  const src = await buildDiffSource({ mode: "repo", root });
+  assert.ok(src);
+  assert.equal(src!.files[0]!.oldFile.contents, "a\nROUND1\nc\n"); // index, not HEAD
+  assert.equal(src!.files[0]!.newFile.contents, "a\nROUND1\nc\nROUND2\n");
+  assert.equal(src!.changes.length, 1); // only the round-2 edit is up for review
+  assert.equal(src!.changes[0]!.side, "additions");
+});
+
+test("repo mode: fully staged file with no further edits → no diff at all", async () => {
+  git(["checkout", "--", "a.txt"]); // working tree back to the index version
+  const src = await buildDiffSource({ mode: "repo", root });
+  assert.equal(src, null);
+});
+
+test("file mode: staged content is the old-side baseline, not HEAD", async () => {
+  write("a.txt", "a\nROUND1\nc\nFILE2\n");
+  const src = await buildDiffSource({ mode: "file", root, path: path.join(root, "a.txt") });
+  assert.ok(src);
+  assert.equal(src!.files[0]!.oldFile.contents, "a\nROUND1\nc\n"); // index, not HEAD
+  assert.equal(src!.changes.length, 1);
+  git(["restore", "--staged", "a.txt"]);
+  git(["checkout", "--", "a.txt"]);
+});
