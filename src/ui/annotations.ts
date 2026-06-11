@@ -1,5 +1,6 @@
 import { S, $, toast, persist } from "./store";
-import { currentComments, currentChanges } from "./changes";
+import { currentComments, currentChanges, currentFile, toDisplayLine } from "./changes";
+import { isUnanchored } from "./unanchored";
 import { acceptChange } from "./decisions";
 import { editComment, deleteComment } from "./comments";
 import { renderCommentBody } from "./markdown";
@@ -16,17 +17,28 @@ export function annotations(): AnnotationInput[] {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(c);
   }
+  const file = currentFile();
   for (const comments of groups.values()) {
     comments.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
     const first = comments[0];
+    // Open threads whose anchor is gone render in the strip above the diff instead
+    // (an annotation at a non-existent line would silently never attach).
+    if (
+      file &&
+      comments.some((c) => c.status === "open") &&
+      comments.some((c) => isUnanchored(c, file))
+    )
+      continue;
     const change = currentChanges().find(
       (ch) =>
         ch.status === "pending" && ch.side === first.side && ch.lineNumber === first.lineNumber,
     );
     if (change) seen.add(change.id);
+    // The annotation goes to @pierre in DISPLAY coordinates (it matches rendered gutter
+    // numbers); the metadata keeps the raw line so thread actions filter comments correctly.
     out.push({
       side: first.side,
-      lineNumber: first.lineNumber,
+      lineNumber: toDisplayLine(first.side, first.lineNumber),
       metadata: {
         type: "thread",
         path: first.path,
@@ -41,7 +53,7 @@ export function annotations(): AnnotationInput[] {
   for (const ch of currentChanges().filter((ch) => ch.status === "pending" && !seen.has(ch.id))) {
     out.push({
       side: ch.side,
-      lineNumber: ch.endLine ?? ch.lineNumber,
+      lineNumber: ch.displayEndLine ?? toDisplayLine(ch.side, ch.endLine ?? ch.lineNumber),
       metadata: {
         type: "change",
         id: ch.id,
@@ -91,7 +103,8 @@ export function buildCommentThread(c: ThreadMeta): HTMLElement {
   const reply = box.querySelector(".reply-thread") as HTMLButtonElement | null;
   if (reply)
     reply.onclick = () => {
-      S.selected = { side: c.side, lineNumber: c.lineNumber };
+      // S.selected is display space; the thread's anchor is raw.
+      S.selected = { side: c.side, lineNumber: toDisplayLine(c.side, c.lineNumber) };
       S.composerBody = "";
       S.composerTitle = selectionLabel();
       S.editingCommentId = null;

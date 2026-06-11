@@ -2,7 +2,7 @@ import Alpine from "alpinejs";
 import persistPlugin from "@alpinejs/persist";
 import { S, D, $, api, persist, toast } from "./store";
 import { loadDiffLib } from "./difflib";
-import { currentFile, currentSplittable } from "./changes";
+import { currentFile, currentSplittable, fromDisplayLine } from "./changes";
 import { openCommentComposer, closeComposerIfEmpty } from "./selection";
 import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { render, deferRender } from "./render";
@@ -273,12 +273,22 @@ const submitComment = (intent: "question" | "action") => {
     return;
   }
   const now = new Date().toISOString();
+  // S.selected carries rendered (display) gutter numbers; persist the raw file line so
+  // the anchor stays valid as decisions replay and across rounds.
+  const file = currentFile();
+  const side = S.selected.side;
+  const lineNumber = fromDisplayLine(side, S.selected.lineNumber);
+  const contents = side === "deletions" ? file.oldFile?.contents : file.newFile?.contents;
   const c = {
     id: crypto.randomUUID(),
-    path: currentFile().path,
-    side: S.selected.side,
-    lineNumber: S.selected.lineNumber,
-    endLine: S.selected.endLine,
+    path: file.path,
+    side,
+    lineNumber,
+    endLine:
+      S.selected.endLine === undefined ? undefined : fromDisplayLine(side, S.selected.endLine),
+    // Snapshot the anchored line's text so a reload can re-anchor the thread after the
+    // agent's edits shift it (reanchorComments).
+    anchorText: contents?.split("\n")[lineNumber - 1],
     createdAt: now,
     updatedAt: now,
     status: "open" as const,

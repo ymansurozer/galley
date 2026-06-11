@@ -45,6 +45,7 @@ export const D: DiffHolder = {
   instance: null,
   diffCache: new Map(),
   fileDiff: null,
+  lineMap: null,
 };
 
 export const $ = (id: string) => document.getElementById(id) as HTMLElement;

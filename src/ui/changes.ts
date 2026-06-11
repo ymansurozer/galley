@@ -1,6 +1,7 @@
 import type { ChangeContent, FileDiffMetadata } from "@pierre/diffs";
 import { S, D } from "./store";
-import type { ChangeState, ReviewComment, ReviewState } from "./types";
+import { buildLineMap, type DecidedPosition } from "./linemap";
+import type { ChangeState, ReviewComment, ReviewState, Side } from "./types";
 
 type ReviewFile = ReviewState["files"][number];
 type ChangeStatus = ChangeState["status"];
@@ -126,12 +127,29 @@ export function findChangePosition(diff: FileDiffMetadata, stableKey: string) {
   return null;
 }
 
+// Resolutions renumber lines but preserve hunk count and per-hunk content-entry count
+// 1:1 (a resolved change becomes a context entry at the same index), so the recorded
+// (hunkIndex, changeIndex) addresses the block in raw AND replayed diffs alike. The
+// stableKey lookup (which embeds a line number) only remains as a fallback for legacy
+// persisted changes that predate changeIndex — and is only sound against the raw diff.
+function changePosition(diff: FileDiffMetadata, change: ChangeState) {
+  const pos =
+    change.changeIndex !== undefined
+      ? { hunkIndex: change.hunkIndex, changeIndex: change.changeIndex }
+      : change.stableKey
+        ? findChangePosition(diff, change.stableKey)
+        : null;
+  if (!pos) return null;
+  const part = diff.hunks[pos.hunkIndex]?.hunkContent?.[pos.changeIndex];
+  return part?.type === "change" ? pos : null;
+}
+
 export function applyDecisionToDiff(
   diff: FileDiffMetadata,
   change: ChangeState,
   status: ChangeStatus,
 ): FileDiffMetadata {
-  const pos = change.stableKey ? findChangePosition(diff, change.stableKey) : null;
+  const pos = changePosition(diff, change);
   if (!pos) return diff;
   try {
     return D.diffAcceptRejectHunk(diff, pos.hunkIndex, {
@@ -143,8 +161,53 @@ export function applyDecisionToDiff(
   }
 }
 
+// Replay every decided block onto the raw diff, and rebuild the raw↔display line map
+// the rest of the render (annotations, cursor, selections) converts through.
 export function replayDecisions(diff: FileDiffMetadata): FileDiffMetadata {
-  for (const change of currentChanges().filter((c) => c.status !== "pending"))
-    diff = applyDecisionToDiff(diff, change, change.status);
+  const decided: DecidedPosition[] = [];
+  // Resolve every position against the RAW diff up front (the fallback lookup would
+  // mis-match against a partially resolved one), then apply by invariant indexes.
+  for (const change of currentChanges().filter((c) => c.status !== "pending")) {
+    const pos = changePosition(diff, change);
+    if (pos)
+      decided.push({ ...pos, status: change.status === "rejected" ? "rejected" : "accepted" });
+  }
+  decided.sort((a, b) => a.hunkIndex - b.hunkIndex || a.changeIndex - b.changeIndex);
+  D.lineMap = decided.length ? buildLineMap(diff, decided) : null;
+  for (const d of decided) {
+    try {
+      diff = D.diffAcceptRejectHunk(diff, d.hunkIndex, {
+        type: d.status === "accepted" ? "accept" : "reject",
+        changeIndex: d.changeIndex,
+      });
+    } catch {
+      // leave this block unresolved rather than aborting the replay
+    }
+  }
   return diff;
+}
+
+// Refresh pending changes' display anchors from the replayed diff: the annotation for a
+// block must sit at the line number @pierre will actually render, not the raw file line.
+export function syncDisplayAnchors(resolved: FileDiffMetadata) {
+  for (const c of currentChanges()) {
+    if (c.status !== "pending" || c.changeIndex === undefined) continue;
+    const part = resolved.hunks[c.hunkIndex]?.hunkContent?.[c.changeIndex];
+    if (part?.type !== "change") continue;
+    const lineNumber =
+      (c.side === "additions" ? part.additionLineIndex : part.deletionLineIndex) + 1;
+    c.displayLineNumber = lineNumber;
+    c.displayEndLine =
+      c.side === "additions"
+        ? part.additionLineIndex + (part.additions || 1)
+        : part.deletionLineIndex + (part.deletions || 1);
+  }
+}
+
+// Raw ↔ display conversions for the current file (identity until decisions replay).
+export function toDisplayLine(side: Side, line: number): number {
+  return D.lineMap ? D.lineMap.toDisplay(side, line) : line;
+}
+export function fromDisplayLine(side: Side, line: number): number {
+  return D.lineMap ? D.lineMap.fromDisplay(side, line) : line;
 }

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { git, listProjectTree, patchForChange } from "./git.js";
 import {
+  anchorTextFor,
   buildReviewResult,
   buildReviewState,
   buildReviewSummary,
@@ -309,17 +310,20 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             "Send { path, lineNumber, side, body } as JSON.",
           );
         const now = nowIso();
+        const side = body.side === "deletions" ? ("deletions" as const) : ("additions" as const);
+        const lineNumber = Number(body.lineNumber ?? 1);
         const comment = {
           id: crypto.randomUUID(),
           path: body.path,
-          side: body.side === "deletions" ? ("deletions" as const) : ("additions" as const),
-          lineNumber: Number(body.lineNumber ?? 1),
+          side,
+          lineNumber,
           body: text,
           createdAt: now,
           updatedAt: now,
           status: "open" as const,
           intent: "note" as const,
           role: body.role === "user" ? ("user" as const) : ("agent" as const),
+          anchorText: anchorTextFor(state.files, body.path, side, lineNumber),
         };
         state.comments.push(comment);
         await persistReview(state);

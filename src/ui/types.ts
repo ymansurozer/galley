@@ -35,7 +35,9 @@ export type Settings = {
   stageOnAccept: boolean;
 };
 
-// The line/range the action popover + composer currently target.
+// The line/range the action popover + composer currently target. These are DISPLAY
+// coordinates (the rendered diff's gutter numbers, which drift from real file lines once
+// decisions are replayed) — convert via D.lineMap before persisting (see submitComment).
 export type Selection = { side: Side; lineNumber: number; endLine?: number };
 
 // ── File-tree rows (pure data the x-for template renders) ──────────────────
@@ -130,6 +132,9 @@ export type DiffHolder = {
     { wrapper: HTMLElement; inst: import("@pierre/diffs").FileDiff<AnnotationMeta> }
   >;
   fileDiff: import("@pierre/diffs").FileDiffMetadata | null;
+  // Raw ↔ display line mapping for the current file's rendered (replayed) diff.
+  // Rebuilt by replayDecisions on every render; null = identity (no decisions / view-only).
+  lineMap: import("./linemap").LineMap | null;
 };
 
 // ── The single reactive store ──────────────────────────────────────────────
