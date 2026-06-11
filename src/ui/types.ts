@@ -49,6 +49,8 @@ export type DirRow = {
   depth: number;
   name: string;
   cls: string;
+  // Inline `--depth:N` custom property — .node derives padding + indent guides from it.
+  style: string;
   full: string;
   dirCaret: string;
   open: boolean;
@@ -61,6 +63,7 @@ export type FileRow = {
   depth: number;
   name: string;
   cls: string;
+  style: string;
   path: string;
   fileIndex: number | undefined;
   testToggle: boolean;

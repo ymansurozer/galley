@@ -790,7 +790,15 @@
       display: flex;
       gap: 6px;
       align-items: center;
-      padding: 3px 6px;
+      /* Indent + guide lines derive from --depth (set inline per row by treeRows) so any
+         nesting depth renders correctly — fixed per-level classes capped at 3 and made
+         deeper files sit flush with their folder. Guides are 1px lines every 14px,
+         clipped to the indent width via background-size. */
+      padding: 3px 6px 3px calc(6px + var(--depth, 0) * 14px);
+      background-image: repeating-linear-gradient(to right,
+          transparent 0 12px, var(--guide) 12px 13px, transparent 13px 14px);
+      background-size: calc(var(--depth, 0) * 14px) 100%;
+      background-repeat: no-repeat;
       color: var(--muted);
       font-size: var(--text-sm);
       line-height: 1.6;
@@ -804,14 +812,15 @@
       text-overflow: ellipsis
     }
 
+    /* background-color (not the shorthand) so the --depth guide image survives hover/active */
     .node:hover {
-      background: var(--surface-raised);
+      background-color: var(--surface-raised);
       color: var(--ink)
     }
 
     .node.active {
       color: var(--ink);
-      background: var(--panel3)
+      background-color: var(--panel3)
     }
 
     .node.active::before {
@@ -902,24 +911,6 @@
 
     .node.test {
       color: var(--ghost)
-    }
-
-    .indent-1 {
-      padding-left: 20px;
-      background: linear-gradient(var(--guide), var(--guide)) 12px 0 / 1px 100% no-repeat
-    }
-
-    .indent-2 {
-      padding-left: 34px;
-      background: linear-gradient(var(--guide), var(--guide)) 12px 0 / 1px 100% no-repeat,
-        linear-gradient(var(--guide), var(--guide)) 26px 0 / 1px 100% no-repeat
-    }
-
-    .indent-3 {
-      padding-left: 48px;
-      background: linear-gradient(var(--guide), var(--guide)) 12px 0 / 1px 100% no-repeat,
-        linear-gradient(var(--guide), var(--guide)) 26px 0 / 1px 100% no-repeat,
-        linear-gradient(var(--guide), var(--guide)) 40px 0 / 1px 100% no-repeat
     }
 
     .card {
@@ -2258,7 +2249,7 @@
           </button>
         </div>
         <div id="files"><template x-for="r in $store.g.treeRows()" :key="r.key">
-            <div class="node" :class="r.cls" @click="$store.g.rowClick(r)">
+            <div class="node" :class="r.cls" :style="r.style" @click="$store.g.rowClick(r)">
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='dir'"><use href="#gly-chevron"></use></svg>
               <svg class="ic folder" x-show="r.kind==='dir'"><use href="#gly-folder"></use></svg>
               <span class="chev-spacer" x-show="r.kind!=='dir'"></span>

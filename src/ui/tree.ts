@@ -108,7 +108,9 @@ export function treeRows(): TreeRow[] {
   }
 
   const rows: TreeRow[] = [];
-  const indent = (d: number) => `indent-${Math.min(d, 3)}`;
+  // Indentation is computed (--depth feeds calc() in .node), not a class set — fixed
+  // indent-N classes capped at 3 levels and flattened anything deeper.
+  const indent = (d: number) => (d ? `--depth:${d}` : "");
 
   function fileRow(file: TreeFile, depth: number, isTest: boolean) {
     const comments = S.state.comments.filter((c) => c.path === file.path);
@@ -140,14 +142,10 @@ export function treeRows(): TreeRow[] {
       kind: isTest ? "test" : "file",
       depth,
       name: file.name,
-      cls: [
-        active ? "active" : "",
-        changedish ? "changed" : "",
-        isTest ? "test" : "",
-        indent(depth),
-      ]
+      cls: [active ? "active" : "", changedish ? "changed" : "", isTest ? "test" : ""]
         .filter(Boolean)
         .join(" "),
+      style: indent(depth),
       path: file.path,
       fileIndex: file.index,
       testToggle: showTestToggle,
@@ -174,7 +172,8 @@ export function treeRows(): TreeRow[] {
           kind: "dir",
           depth,
           name: dir.name,
-          cls: [dir.changed ? "changed" : "", indent(depth)].filter(Boolean).join(" "),
+          cls: dir.changed ? "changed" : "",
+          style: indent(depth),
           full: dir.full,
           dirCaret: open ? "▾" : "▸",
           open,

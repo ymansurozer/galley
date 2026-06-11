@@ -157,9 +157,12 @@ export async function buildDiffSource(opts: {
     if (tracked) {
       const rawDiff = await git(["diff", "--no-ext-diff", "--", rel], root);
       if (rawDiff.trim()) {
+        // Old side reads from the INDEX (:0), not HEAD — `git diff` diffs working tree vs
+        // index, and the UI re-diffs old/new contents rather than rendering these hunks.
+        // A HEAD baseline would resurrect already-staged changes as pending diff.
         const { files, changes } = await assembleDiff(
           rawDiff,
-          (p) => fileAt(root, p, "HEAD"),
+          (p) => fileAt(root, p, ":0"),
           (p) => fileAt(root, p),
           true,
         );
@@ -175,9 +178,13 @@ export async function buildDiffSource(opts: {
   if (opts.path) args.push("--", opts.path);
   const rawDiff = await git(args, root);
   if (!rawDiff.trim()) return null;
+  // Each side must match what the diff was taken against, because the UI re-diffs the
+  // old/new contents itself instead of rendering these hunks. Unstaged diffs working
+  // tree vs INDEX, so old reads :0 — a HEAD baseline would resurrect already-staged
+  // changes as pending diff on every reload. Staged (--cached) diffs index vs HEAD.
   const { files, changes } = await assembleDiff(
     rawDiff,
-    (p) => fileAt(root, p, "HEAD"),
+    (p) => fileAt(root, p, opts.staged ? "HEAD" : ":0"),
     (p) => (opts.staged ? fileAt(root, p, ":0") : fileAt(root, p)),
     true,
   );
