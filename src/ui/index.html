@@ -466,7 +466,7 @@
     }
 
     /* Guided custom diff header (renderCustomHeader): row 1 = icon + file + counts + actions
-       (preserves @pierre's look); row 2 = category + guidance, left-aligned. */
+       (preserves @pierre's look); below it the guidance card = category label + markdown prose. */
     .ghdr {
       display: flex;
       flex-direction: column;
@@ -490,16 +490,16 @@
       align-self: flex-start;
       display: flex;
       flex-direction: column;
-      gap: 5px;
+      gap: 4px;
       /* center the 2px rule under the 15px change-type icon above (icon center − border) */
       margin-left: 6.5px;
-      padding: 1px 0 1px 12px;
-      border-left: 2px solid var(--ct-color, var(--line))
-    }
-
-    .ghdr .ghdr-row2 {
-      max-width: 72ch;
-      line-height: 1.45
+      margin-bottom: 2px;
+      max-width: 78ch;
+      padding: 7px 12px 8px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-left: 2px solid var(--ct-color, var(--line));
+      border-radius: 0 var(--radius) var(--radius) 0
     }
 
     .ghdr .ghdr-grow {
@@ -515,7 +515,6 @@
     }
 
     .ghdr .ghdr-cat {
-      margin-right: 7px;
       font-size: var(--text-2xs);
       font-weight: 700;
       letter-spacing: .08em;
@@ -589,16 +588,36 @@
       height: 13px
     }
 
-    .ghdr .ghdr-expl {
-      color: var(--muted)
+    /* The guidance is the primary reading content of a guided review — ink, not muted,
+       one step above the header's text-sm. */
+    .ghdr .ghdr-expl.md {
+      margin-top: 0;
+      max-width: 72ch;
+      color: var(--ink);
+      font-size: var(--text-md);
+      line-height: 1.55
     }
 
     .ghdr .ghdr-why {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
       max-width: 74ch;
+      color: var(--amber)
+    }
+
+    .ghdr .ghdr-why>.ic {
+      width: 12px;
+      height: 12px;
+      margin-top: 3px;
+      fill: currentColor
+    }
+
+    .ghdr .ghdr-why .md {
+      margin-top: 0;
       color: var(--amber);
       font-size: var(--text-xs);
-      line-height: 1.45;
-      white-space: normal
+      line-height: 1.45
     }
 
     .ghdr .ghdr-readonly {
@@ -628,49 +647,6 @@
       display: inline-flex;
       align-items: center;
       gap: 6px
-    }
-
-    .guidebar .gb-cat {
-      flex: 0 0 auto;
-      font-size: var(--text-2xs);
-      font-weight: 700;
-      letter-spacing: .06em;
-      text-transform: uppercase;
-      color: var(--cyan);
-      background: var(--cyan-bg);
-      border: 1px solid var(--cyan-line);
-      border-radius: var(--radius-pill);
-      padding: 2px 8px
-    }
-
-    .guidebar .gb-cat.crit {
-      color: var(--amber);
-      background: rgba(224, 175, 104, .08);
-      border-color: rgba(224, 175, 104, .45)
-    }
-
-    .guidebar .gb-file {
-      flex: 0 0 auto;
-      font-weight: 600;
-      color: var(--ink)
-    }
-
-    .guidebar .gb-expl {
-      flex: 1 1 auto;
-      min-width: 0;
-      color: var(--muted);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap
-    }
-
-    .guidebar .gb-why {
-      flex: 0 1 auto;
-      min-width: 0;
-      color: var(--amber);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap
     }
 
     #diff {
@@ -2073,10 +2049,8 @@
       margin-bottom: 4px
     }
 
-    .guide-overview .go-pr p {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.5
+    .guide-overview .go-pr .md {
+      margin-top: 0
     }
 
     .guide-overview .go-plan {

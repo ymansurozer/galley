@@ -164,7 +164,7 @@ If your harness can't hold a `galley await` long-poll open or background the des
 
 ## Guided review (optional)
 
-Optionally attach a **guided review** so the desk presents the changeset as a guided flow: an overview page, then the files in the order you choose, each with a summary and category, and the critical ones flagged. You generate the guide from the diff and attach it at start with `galley … --guide <file>`. Galley validates and renders it and runs no model; with no guide the desk works exactly the same.
+Optionally attach a **guided review** so the desk presents the changeset as a guided flow: an overview page, then the files in the order you choose, each with a summary and category, and the critical ones flagged. The prose fields (overview, summaries, why) render as markdown — use inline code for identifiers and lists for multi-point guidance. You generate the guide from the diff and attach it at start with `galley … --guide <file>`. Galley validates and renders it and runs no model; with no guide the desk works exactly the same.
 
 Run **`galley guide-spec`** for the authoritative schema, field meanings, and validation rules.
 

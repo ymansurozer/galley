@@ -23,6 +23,7 @@ import {
 import { approveCurrentFile, resetReview } from "./decisions";
 import { blockersChip } from "./blockers";
 import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
+import { renderMarkdown } from "./markdown";
 import { cursorResync, cursorReset } from "./cursor";
 import { hasGuide, renderOverview, currentGuideEntry } from "./guide";
 
@@ -366,25 +367,23 @@ export async function render() {
 
     if (entry) {
       // Group the AI guidance into a subtle card, set apart from the filename row + the code.
+      // The prose fields render as markdown (renderMarkdown sanitizes) — the guidance is the
+      // main reading content of a guided review, so identifiers/lists the agent writes survive.
       const guide = document.createElement("div");
       guide.className = "ghdr-guide";
-      const row2 = document.createElement("div");
-      row2.className = "ghdr-row2";
       const chip = document.createElement("span");
       chip.className = "ghdr-cat" + (entry.critical ? " crit" : "");
       chip.textContent = entry.category;
-      row2.appendChild(chip);
-      const expl = document.createElement("span");
-      expl.className = "ghdr-expl";
-      expl.textContent = entry.summary;
-      row2.appendChild(expl);
-      guide.appendChild(row2);
+      guide.appendChild(chip);
+      const expl = document.createElement("div");
+      expl.className = "ghdr-expl md";
+      expl.innerHTML = renderMarkdown(entry.summary);
+      guide.appendChild(expl);
       // Critical "why" gets its own readable callout within the card.
       if (entry.critical && entry.why) {
         const why = document.createElement("div");
         why.className = "ghdr-why";
-        why.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg> `;
-        why.appendChild(document.createTextNode(entry.why));
+        why.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><div class="md">${renderMarkdown(entry.why)}</div>`;
         guide.appendChild(why);
       }
       wrap.appendChild(guide);

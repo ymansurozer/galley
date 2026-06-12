@@ -25,6 +25,11 @@ The file is one JSON object:
   ]
 }
 
+Rendering:
+- the prose fields (overview, prDescription, summary, why) render as markdown — inline \`code\`
+  for identifiers/paths, emphasis, lists, links, and fenced code blocks all work. Use them;
+  raw HTML is stripped.
+
 Validation:
 - overview must be a non-empty string; files must be a non-empty array.
 - every file needs a non-empty path and a non-empty summary; all other fields are optional.

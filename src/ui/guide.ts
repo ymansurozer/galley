@@ -1,5 +1,6 @@
 import { S, $, esc } from "./store";
 import { fileReviewState } from "./changes";
+import { renderMarkdown } from "./markdown";
 
 // Whether the current review carries an agent-attached guide with at least one file.
 export function hasGuide(): boolean {
@@ -174,8 +175,8 @@ export function renderOverview() {
     <h1>${esc(title)}</h1>
     <div class="go-sub">${esc(S.state.mode)} · ${esc(S.state.session)} · ${S.state.files.length} files</div>
     ${guideStale() ? `<div class="go-stale"><svg class="ic"><use href="#gly-warn"></use></svg> This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
-    <p class="go-overview">${esc(g.overview)}</p>
-    ${g.prDescription ? `<div class="go-pr"><b>PR description</b><p>${esc(g.prDescription)}</p></div>` : ""}
+    <div class="go-overview md">${renderMarkdown(g.overview)}</div>
+    ${g.prDescription ? `<div class="go-pr"><b>PR description</b><div class="md">${renderMarkdown(g.prDescription)}</div></div>` : ""}
     ${plan ? `<div class="go-plan">${plan}</div>` : ""}
     <div class="go-actions"><button class="btn primary" id="guideStart">Start Review <kbd>↵</kbd></button></div>
   </div></div>`;
