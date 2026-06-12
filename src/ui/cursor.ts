@@ -1,4 +1,4 @@
-import { S, $, toast, persist } from "./store";
+import { S, D, $, toast, persist } from "./store";
 import type { Side } from "./types";
 import { currentChanges, fromDisplayLine } from "./changes";
 import { acceptChange } from "./decisions";
@@ -8,8 +8,10 @@ import { render } from "./render";
 // ── The diff line cursor ─────────────────────────────────────────────────────
 // Keyboard review needs a "current line" the diff doesn't otherwise have. We keep it as a
 // logical {side, line} (stable across re-renders, since line numbers are) and resolve it to a
-// rendered row on demand. The diff lives in @pierre's shadow DOM, so — like the overview ruler —
-// we read row rects and drive a host-level highlight bar instead of mutating shadow internals.
+// rendered row on demand. The highlight is @pierre's own line selection (setSelectedLines with
+// notify:false — paints without firing the selection callbacks, so no composer popup), so
+// pointer and keyboard share ONE highlight: a click seeds the cursor (cursorSyncTo) and the
+// arrows move the same selection from there.
 
 type Row = {
   el: HTMLElement;
@@ -18,10 +20,12 @@ type Row = {
   top: number;
   height: number;
   change: boolean;
+  // The split-view twin of a context row (see rows()): the deletions-side coordinates of the
+  // same visual line, kept so a cursor seeded from a left-column click still matches this row.
+  alt?: { side: Side; line: number };
 };
 
 let cur: { side: Side; line: number } | null = null;
-let curEl: HTMLElement | null = null; // the rendered row, cached for cheap scroll repositioning
 
 function shadow(): ShadowRoot | null {
   let sh: ShadowRoot | null = null;
@@ -36,7 +40,8 @@ function shadow(): ShadowRoot | null {
 // Every navigable code line in visual (top-to-bottom) order. @pierre tags each line's gutter with
 // a [data-line-number-content] span inside a [data-line-type] cell, within a [data-additions] /
 // [data-deletions] column (split) — that gives us side + number + row element. Context lines show
-// in both split columns at the same y; dedupe by rounded top (prefer the additions side).
+// in both split columns at the same y; merge by rounded top into one row (additions side as the
+// primary, the deletions twin preserved as `alt` so either coordinate matches).
 function rows(): Row[] {
   const sh = shadow();
   if (!sh) return [];
@@ -70,40 +75,39 @@ function rows(): Row[] {
     });
   });
   out.sort((a, b) => a.top - b.top || (a.side === b.side ? 0 : a.side === "additions" ? -1 : 1));
-  const seen = new Set<number>();
-  return out.filter((r) => {
+  const seen = new Map<number, Row>();
+  const list: Row[] = [];
+  for (const r of out) {
     const k = Math.round(r.top);
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
+    const kept = seen.get(k);
+    if (kept) {
+      kept.alt = { side: r.side, line: r.line };
+      continue;
+    }
+    seen.set(k, r);
+    list.push(r);
+  }
+  return list;
+}
+
+// A row matches on its primary coordinates or its split-view twin (`alt`).
+function matches(r: Row, side: Side, line: number): boolean {
+  return (
+    (r.side === side && r.line === line) || (r.alt?.side === side && r.alt?.line === line) || false
+  );
 }
 
 function indexOfCur(list: Row[]): number {
-  return cur ? list.findIndex((r) => r.side === cur!.side && r.line === cur!.line) : -1;
+  return cur ? list.findIndex((r) => matches(r, cur!.side, cur!.line)) : -1;
 }
 
-// Position the host highlight bar over a row (visible position = content top − scroll).
+// Paint the cursor as @pierre's native line selection. notify:false keeps the selection
+// callbacks (which open the comment composer) from firing on keyboard movement.
 function paint(r: Row) {
-  curEl = r.el;
-  const bar = $("cursorbar");
-  bar.style.top = `${r.top - $("diff").scrollTop}px`;
-  bar.style.height = `${r.height}px`;
-  bar.classList.add("show");
+  D.instance?.setSelectedLines({ start: r.line, end: r.line, side: r.side }, { notify: false });
 }
 function hide() {
-  curEl = null;
-  $("cursorbar").classList.remove("show");
-}
-
-// Cheap reposition for scroll: read the cached row's live rect (no full re-scan).
-export function cursorOnScroll() {
-  if (!curEl || !curEl.isConnected) return;
-  const r = curEl.getBoundingClientRect();
-  if (!r.height) return;
-  const bar = $("cursorbar");
-  bar.style.top = `${r.top - $("diff").getBoundingClientRect().top}px`;
-  bar.style.height = `${r.height}px`;
+  D.instance?.setSelectedLines(null, { notify: false });
 }
 
 function landOn(r: Row | undefined, scroll = true) {
@@ -113,15 +117,22 @@ function landOn(r: Row | undefined, scroll = true) {
   if (scroll) r.el.scrollIntoView({ block: "nearest" });
 }
 
-// Re-resolve the cursor after a render or scroll: keep the same logical line, just repaint. The
-// cursor is hidden until the reviewer navigates (no auto-highlighted first line), so when there's
-// no active cursor we stay hidden.
+// Adopt a pointer-made selection as the cursor position, so the arrows continue from the
+// clicked line instead of restarting at the first change. @pierre already painted the
+// selection itself — no repaint, no scroll.
+export function cursorSyncTo(side: Side, line: number) {
+  cur = { side, line };
+}
+
+// Re-resolve the cursor after a render: keep the same logical line, just repaint. The cursor
+// is hidden until the reviewer navigates or clicks (no auto-highlighted first line), so when
+// there's no active cursor we clear the selection instead.
 export function cursorResync() {
   if (!cur) {
     hide();
     return;
   }
-  const r = rows().find((x) => x.side === cur!.side && x.line === cur!.line);
+  const r = rows().find((x) => matches(x, cur!.side, cur!.line));
   if (r) paint(r);
   else hide();
 }
@@ -138,7 +149,7 @@ export function cursorSelection() {
 
 // Reveal the cursor on first use: land on the first change (else the first line). Returns the row.
 function ensureCursor(): Row | undefined {
-  if (cur) return rows().find((x) => x.side === cur!.side && x.line === cur!.line);
+  if (cur) return rows().find((x) => matches(x, cur!.side, cur!.line));
   const list = rows();
   if (!list.length) return undefined;
   const r = list.find((x) => x.change) ?? list[0];
@@ -152,10 +163,9 @@ function ensureCursor(): Row | undefined {
 export function cursorJumpTo(side: Side, line: number) {
   const land = () => {
     const list = rows();
-    // Context rows dedupe to a single entry (additions preferred), so fall back to a
-    // line-only match before giving up.
-    const r =
-      list.find((x) => x.side === side && x.line === line) ?? list.find((x) => x.line === line);
+    // Context rows merge to a single entry (additions primary, deletions twin in `alt`), so
+    // fall back to a line-only match before giving up.
+    const r = list.find((x) => matches(x, side, line)) ?? list.find((x) => x.line === line);
     if (!r) return false;
     cur = { side: r.side, line: r.line };
     paint(r);
@@ -217,7 +227,7 @@ function cursorChange() {
 export function cursorComment() {
   if (!cur) ensureCursor();
   if (!cur) return;
-  const r = rows().find((x) => x.side === cur!.side && x.line === cur!.line);
+  const r = rows().find((x) => matches(x, cur!.side, cur!.line));
   S.selected = { side: cur.side, lineNumber: cur.line };
   if (r) {
     const box = (document.querySelector(".main") as HTMLElement).getBoundingClientRect();

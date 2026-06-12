@@ -1,5 +1,6 @@
 import { S, $ } from "./store";
 import type { Side } from "./types";
+import { cursorSyncTo } from "./cursor";
 
 // Payload shapes coming out of @pierre/diffs' line callbacks are loosely
 // documented, so the extraction below is deliberately duck-typed.
@@ -81,6 +82,9 @@ export function showForDiffLine(payload: LinePayload, event?: PointerEvent) {
     lineNumber: payload.lineNumber,
     endLine: payload.endLine,
   };
+  // The pointer selection becomes the keyboard cursor too (one highlight, one position),
+  // so the arrows continue from the clicked line — the end of the range for a drag.
+  cursorSyncTo(normalizeSide(payload.side), payload.endLine ?? payload.lineNumber);
   $("popContext").textContent = selectionLabel();
   const e = event || payload.event;
   if (e?.clientX) placePopoverFromPoint(e.clientX, e.clientY);
