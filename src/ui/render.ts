@@ -26,6 +26,7 @@ import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
 import { renderMarkdown } from "./markdown";
 import { cursorResync, cursorReset } from "./cursor";
 import { hasGuide, renderOverview, currentGuideEntry } from "./guide";
+import { updateProgress } from "./progress";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
@@ -224,7 +225,21 @@ function renderOverviewRuler() {
   ruler.classList.add("show");
 }
 
+// Every progress-moving mutation (decision, approval, reset, reload) funnels through render,
+// so it is the progress strip's single repaint point. It must run AFTER the render work has
+// PAINTED, not merely after renderCenter returns: the transition clock starts at style-commit,
+// and a file switch's first frame is spent tokenizing + laying out the new diff DOM — a bar
+// started before (or during) that frame lands already-finished, i.e. no visible motion. The
+// double rAF puts the width change on the first idle frame after that paint.
 export async function render() {
+  try {
+    await renderCenter();
+  } finally {
+    requestAnimationFrame(() => requestAnimationFrame(updateProgress));
+  }
+}
+
+async function renderCenter() {
   clearOverviewRuler();
   const host = $("diff");
   // Leaving the diff view (overview / markdown): just detach the active instance — its cached

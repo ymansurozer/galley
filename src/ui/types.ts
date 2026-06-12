@@ -211,7 +211,6 @@ export interface Store {
   guidePrev?: () => void;
   guideAtStart?: () => boolean;
   guideAtLast?: () => boolean;
-  guideProgress?: () => { done: number; approved: number; total: number; pct: number };
   categorySteps?: () => CategoryStep[];
   jumpToCategory?: (category: string) => void;
   saveComment?: () => void;
