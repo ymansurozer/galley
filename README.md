@@ -59,6 +59,7 @@ I'm not saying this is *the* review surface. I built it in a week and I'm still 
 - **Guided review.** Your agent can attach a guide: an overview, the files in a sensible order, a per-file summary and category, and the risky ones flagged.
 - **Four review modes.** The working tree, the staged diff, a single file (tracked or not, like a plan, PRD, or issue), or a branch against its merge-base.
 - **Keyboard-first.** Intuitive navigation: move by file, line, or change, and accept, reject, comment, or approve without touching the mouse.
+- **Open in editor.** Configure a repo-scoped editor command and jump from the review desk to the current file and line.
 - **Customize** diff layout, intra-line, hunk separators, wrapping, code-highlight theme, and fonts.
 
 ## Principles
@@ -77,7 +78,7 @@ Immediate to-dos, in rough priority order.
 - [ ] **Anchor repair instead of stale-flagging**: when re-diffing on `reload`, try to re-anchor each guide entry to its nearest surviving section/line before declaring the guide stale, so a guide degrades gracefully across rounds (the agent edits between rounds, Galley's hot path) instead of invalidating wholesale on any drift. Keep clean "vanished → stale" semantics for anchors that genuinely no longer resolve.
 - [ ] **Command palette**: add a discoverable Cmd/Ctrl+Shift+P palette for common review actions: file filter, find in diffs, next/previous file or change, accept/reject/request change, approve file, toggle layout/settings/sidebar, open in editor, reload, and Send to Agent. Keep keyboard shortcuts as the fast path, but make every major action searchable.
 - [ ] **Commit/range/branch review modes**: expand beyond working/staged/file/PR branch reviews with `galley commit <ref>`, `galley range <base>..<head>` / `<base>...<head>`, and `galley branch <base>` so Galley can review historical or comparison diffs without requiring a dirty working tree.
-- [ ] **Open file in editor**: add a configurable editor command and UI/shortcut action to open the selected file at the current line from the review desk. Support placeholders like `{repo}`, `{file}`, and `{line}` and keep it safe for repo-relative paths.
+- [x] **Open file in editor**: add a configurable editor command and UI/shortcut action to open the selected file at the current line from the review desk. Support placeholders like `{repo}`, `{file}`, and `{line}` and keep it safe for repo-relative paths.
 - [ ] **Lazy diff/content loading + large/binary-file guards**: today every changed file's full contents are read and shipped up front; the only large-file handling is client-side render deferral. Move the guard to the data layer: classify each file by byte size and ship lightweight patch data first, hydrating full contents, highlighting, and rendered markdown on demand when a file is opened. Per-file `loadState` (`ready | deferred | too-large | binary | error`) with two byte tiers — an *eager* limit (~1 MiB, loaded up front) and a *manual* limit (~2 MiB, deferred until opened); over that is `too-large` (skipped with a summary + explicit load-anyway action), plus an image byte cap. Add **binary detection** (NUL-byte scan) so binaries are skipped rather than read as UTF-8 and handed to @pierre.
 
 ## License

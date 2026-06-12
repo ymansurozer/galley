@@ -23,6 +23,7 @@ const ICON_MAP = {
   "gly-arrow-left": "lucide:arrow-left",
   "gly-arrow-right": "lucide:arrow-right",
   "gly-warn": "lucide:triangle-alert",
+  "gly-open-editor": "lucide:square-arrow-out-up-right",
 };
 
 // Hand-drawn glyphs with no good library equivalent (status primitives). 24-unit viewBox to

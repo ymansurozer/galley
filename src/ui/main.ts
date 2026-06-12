@@ -24,7 +24,7 @@ import {
   firstFileOfCategory,
 } from "./guide";
 import { installKeys, helpGroups, confirmYes, confirmNo, askConfirm } from "./keys";
-import { cursorReset, cursorOnScroll } from "./cursor";
+import { cursorReset, cursorOnScroll, cursorSelection } from "./cursor";
 import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
 
 // Close the composer when clicking outside it (unless it has unsaved text).
@@ -252,6 +252,27 @@ S.isMarkdownFile = () => {
   return !!f && isMarkdownPath(f.path);
 };
 S.splitApplies = currentSplittable;
+// Jump from the desk into the local editor at the cursor's line. The cursor (and
+// S.selected) hold DISPLAY coordinates — replayed decisions renumber the rendered diff —
+// so convert to the real file line before handing it to an external process.
+S.openInEditor = async () => {
+  const file = currentFile();
+  if (!file?.path) {
+    toast("No file selected");
+    return;
+  }
+  const sel = cursorSelection() ?? S.selected;
+  const lineNumber = sel ? fromDisplayLine(sel.side, sel.lineNumber) : 1;
+  try {
+    const res = await api<{ ok?: boolean; error?: string }>("/api/open-editor", {
+      method: "POST",
+      body: JSON.stringify({ path: file.path, lineNumber }),
+    });
+    toast(res.ok ? "Opened in editor" : res.error || "Could not open editor");
+  } catch {
+    toast("Could not open editor");
+  }
+};
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
 // body and keeps the existing intent.
