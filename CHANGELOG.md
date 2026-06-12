@@ -1,6 +1,27 @@
 # Changelog
 
 
+## v0.2.4
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.2.3...v0.2.4)
+
+### 🚀 Enhancements
+
+- Go to line by typing its number ([#9](https://github.com/ymansurozer/galley/pull/9))
+- Render guide prose as markdown and promote guidance typography ([#11](https://github.com/ymansurozer/galley/pull/11))
+- Make review progress visible, animated, and always-on ([#12](https://github.com/ymansurozer/galley/pull/12))
+- Add walkthrough sidebar tab and overview file list ([#13](https://github.com/ymansurozer/galley/pull/13))
+- Ephemeral agent status line and agent-presence signal in the desk ([#14](https://github.com/ymansurozer/galley/pull/14))
+
+### 🩹 Fixes
+
+- Make the active Split/Stacked tab visibly selected ([#10](https://github.com/ymansurozer/galley/pull/10))
+- Keep the accept/reject bar directly under its hunk when a comment shares the line ([#15](https://github.com/ymansurozer/galley/pull/15))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.2.3
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.2.2...v0.2.3)
