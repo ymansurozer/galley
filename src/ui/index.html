@@ -1817,9 +1817,12 @@
       gap: 6px
     }
 
-    /* Keyboard hint chip — used in the help overlay, composer actions, and dialog buttons. */
+    /* Keyboard hint chip — used in the help overlay, composer actions, and dialog buttons.
+       Sans, not mono: key symbols (⇧ ⌘ ↵, arrows) are missing from the code webfonts, where
+       they'd fall back to the system mono's shrunken glyphs next to full-size letters. The sans
+       stack ends in the system UI font, whose symbols sit at cap height — the native look. */
     kbd {
-      font-family: var(--mono);
+      font-family: var(--sans);
       font-size: var(--text-2xs);
       line-height: 1;
       padding: 3px 5px;
@@ -2084,8 +2087,11 @@
     }
 
     .guide-overview .go-cat {
-      flex: 1 1 0;
+      /* auto basis: a segment is at least as wide as its label, then grows by file count —
+         with many categories the row wraps instead of squeezing every label to an ellipsis. */
+      flex: 1 1 auto;
       min-width: 84px;
+      max-width: 100%;
       display: flex;
       flex-direction: column;
       gap: 5px;
@@ -2115,7 +2121,12 @@
       letter-spacing: .05em;
       text-transform: uppercase;
       color: var(--muted);
-      white-space: nowrap
+      /* Long category names ellipsize instead of spilling over the count and the neighboring
+         segment (min-width beats the flex-child auto floor; the title attr has the full name). */
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0
     }
 
     .guide-overview .go-cat.crit .go-cat-lab {
@@ -2128,7 +2139,8 @@
 
     .guide-overview .go-cat-cnt {
       font-size: var(--text-2xs);
-      color: var(--ghost)
+      color: var(--ghost);
+      flex: none
     }
 
     .guide-overview .go-cat-bar {
