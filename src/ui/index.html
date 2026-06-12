@@ -698,23 +698,6 @@
       display: flex
     }
 
-    /* Keyboard line cursor: a host overlay bar glued to the focused diff row (the diff is in
-       @pierre's shadow, so we position over its rect rather than styling the row). */
-    .diff-cursor {
-      position: absolute;
-      left: 0;
-      right: 0;
-      z-index: 4;
-      display: none;
-      pointer-events: none;
-      background: color-mix(in srgb, var(--cyan) 11%, transparent);
-      border-left: 2px solid var(--cyan)
-    }
-
-    .diff-cursor.show {
-      display: block
-    }
-
     /* VSCode-style change overview: green/red ticks mapping the whole file to the gutter,
        so changes are visible in one skim. Shown only in "expand unchanged" mode. */
     .ovr {
@@ -2310,7 +2293,6 @@
           </span>
         </div>
         <div class="diff-area">
-          <div class="diff-cursor" id="cursorbar"></div>
           <div id="diff" x-ignore></div>
           <div class="ovr" id="ovr" x-ignore></div>
           <div class="diff-rendering" x-show="$store.g.rendering" x-cloak><span>Rendering…</span></div>

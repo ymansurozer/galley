@@ -24,7 +24,7 @@ import {
   firstFileOfCategory,
 } from "./guide";
 import { installKeys, helpGroups, confirmYes, confirmNo, askConfirm } from "./keys";
-import { cursorReset, cursorOnScroll, cursorSelection } from "./cursor";
+import { cursorReset, cursorSelection } from "./cursor";
 import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
 
 // Close the composer when clicking outside it (unless it has unsaved text).
@@ -395,17 +395,4 @@ if (S.state.files[S.fileIndex]) S.fileView = defaultFileView(S.state.files[S.fil
 // With a guide attached, land on the Overview page (the guided entry point).
 if (hasGuide()) S.overviewOpen = true;
 render();
-// Keep the line-cursor highlight glued to its row while scrolling the diff (rAF-throttled).
-let scrollRAF = 0;
-$("diff").addEventListener(
-  "scroll",
-  () => {
-    if (scrollRAF) return;
-    scrollRAF = requestAnimationFrame(() => {
-      scrollRAF = 0;
-      cursorOnScroll();
-    });
-  },
-  { passive: true },
-);
 setInterval(pollState, 1500);
