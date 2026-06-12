@@ -76,11 +76,26 @@ try {
     side: "additions",
     body: "why this change?",
   });
+  // No await is parked yet, so the question sits queued — the presence signal the
+  // UI renders as "No agent attached — question queued".
+  const queuedState = await getJson("/api/state");
+  assert.equal(queuedState.queuedQuestions, 1, "question queued with no listener");
+  console.log("✓ queuedQuestions reflects an undelivered question");
   const ev1 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
   assert.equal(ev1.kind, "question");
   assert.equal(ev1.question.body, "why this change?");
   assert.equal(ev1.question.lineNumber, 2);
   console.log("✓ await → question event");
+
+  // agent posts ephemeral activity while working → visible in the state payload
+  const status = JSON.parse(
+    cli("status", "--repo", tmp, "--session", ID, "--body", "Reading a.txt…"),
+  );
+  assert.ok(status.ok && status.live, "status accepted by the live desk");
+  const activeState = await getJson("/api/state");
+  assert.equal(activeState.agentActivity?.body, "Reading a.txt…");
+  assert.equal(activeState.queuedQuestions, 0, "question was delivered");
+  console.log("✓ status → ephemeral agentActivity in state");
 
   // agent answers via `galley comment`
   const reply = JSON.parse(
@@ -103,7 +118,9 @@ try {
     ),
   );
   assert.ok(reply.ok && reply.commentId, "comment posted");
-  console.log("✓ comment posted (answer)");
+  const answeredState = await getJson("/api/state");
+  assert.equal(answeredState.agentActivity, null, "agent answer cleared the activity line");
+  console.log("✓ comment posted (answer) — activity cleared");
 
   // human clicks Send → `galley await` yields a review event with a ReviewResult
   await post("/api/send", await getJson("/api/state"));

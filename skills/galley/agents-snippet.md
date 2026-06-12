@@ -15,7 +15,7 @@ When the user should review a plan, a PR, or code changes you've made, hand it t
 Optionally attach an AI **guided review** so the human gets an overview + a logical, annotated file order: add `--guide guide.json` to the start command (see the skill for the JSON schema).
 
 Then loop: `galley await --session <task-id>` blocks for the next event and prints a tagged JSON envelope.
-- `{"kind":"question",…}` → answer **now** with `galley comment --path … --line … --side … --body "…"` at the question's location.
+- `{"kind":"question",…}` → answer **now** with `galley comment --path … --line … --side … --body "…"` at the question's location. While gathering the answer (or acting on a review), post brief `galley status --session <task-id> --body "Reading X…"` lines — they show live next to the reviewer's waiting indicator so they're not staring at a static spinner.
 - `{"kind":"review","result":{…}}` → act on `result`: revert **rejected**, make **requestedChanges**, leave **accepted** alone, leave **approvedFiles** (signed off as-is) untouched, don't touch **stagedFiles** unless a change requires it. (Editing an approved file invalidates its approval → it needs re-review next round.)
 
 After editing code, run `galley reload --session <task-id>` so your edits show in the open tab (add `--guide <file>` to swap in a regenerated guide), then `galley await` again for the next round. The desk stays open across rounds and the reviewer keeps **one tab**: starting is idempotent (a live desk is reused, never duplicated) and the port is stable per session, so even after a desk process dies, re-running the start command brings the same tab back to life — never open a second desk for the same session.

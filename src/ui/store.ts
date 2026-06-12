@@ -18,6 +18,10 @@ export const S: Store = Alpine.reactive<Store>({
   preview: null,
   rendering: false,
   awaitingAgent: false,
+  agentActivity: null,
+  agentListening: false,
+  queuedQuestions: 0,
+  queuedReviews: 0,
   lastBaseDiffHash: null,
   selected: { side: "additions", lineNumber: 1 },
   // chrome UI flags (templates bind to these)

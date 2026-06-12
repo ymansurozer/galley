@@ -3,6 +3,7 @@ import type {
   ReviewComment,
   ChangeState,
   Decision,
+  DeskStatus,
   GuideFile,
   ReviewFile,
 } from "../types";
@@ -161,6 +162,12 @@ export interface Store {
   // True while a (non-cached) diff render is in flight — drives the "Rendering…" indicator.
   rendering: boolean;
   awaitingAgent: boolean;
+  // Transient desk-liveness from /api/state (DeskStatus fields). Held OUTSIDE
+  // S.state so they never ride a /api/save round-trip into the persisted review.
+  agentActivity: string | null;
+  agentListening: boolean;
+  queuedQuestions: number;
+  queuedReviews: number;
   lastBaseDiffHash: string | null;
   selected: Selection;
   composerOpen: boolean;
@@ -234,4 +241,4 @@ export interface Store {
   helpGroups?: () => { group: string; items: { combo: string; desc: string }[] }[];
 }
 
-export type { ReviewState, ReviewComment, ChangeState, Decision };
+export type { ReviewState, ReviewComment, ChangeState, Decision, DeskStatus };
