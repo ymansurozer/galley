@@ -168,6 +168,22 @@ export type ReviewState = {
   persistFile?: string;
 };
 
+// Transient desk-liveness fields injected into the /api/state response alongside
+// ReviewState. Deliberately NOT on ReviewState: anything on state is persisted by
+// persistReview and echoed back by the UI via /api/save, while these only describe
+// the live desk process.
+export type AgentActivity = { body: string; at: string };
+export type DeskStatus = {
+  // Latest `galley status` line, or null when none posted or stale (past the TTL).
+  agentActivity: AgentActivity | null;
+  // An await long-poll is parked right now — something is listening for events.
+  agentListening: boolean;
+  // Events emitted with no waiter parked sit in the queue undelivered; a non-zero
+  // count means "asked/sent, but nothing picked it up yet".
+  queuedQuestions: number;
+  queuedReviews: number;
+};
+
 // The structured payload printed to stdout (and written to result.json) when
 // the reviewer clicks "Send to agent". This is the handoff contract.
 export type ReviewResult = {

@@ -18,7 +18,7 @@ The review is the human's; the agent acts on the decisions and answers questions
 
 ## Review modes
 
-`galley` reviews in one of three modes. `await`/`comment`/`reload` auto-target the lone live desk for the repo, so you usually don't pass `--session`.
+`galley` reviews in one of three modes. `await`/`comment`/`status`/`reload` auto-target the lone live desk for the repo, so you usually don't pass `--session`.
 
 | Start command        | Mode           | What's reviewed                                                              | staging                                                                   |
 | -------------------- | -------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -38,6 +38,7 @@ The review is the human's; the agent acts on the decisions and answers questions
 | `galley …` (a mode above)                                                                        | Start the persistent desk (opens the tab, stays up until Ctrl-C). The banner prints to **stderr**; nothing is written to stdout. **Idempotent**: if a desk is already live for the repo+session, this reuses it — the open tab gets a reload (and the new `--guide`, if passed) and no second tab/port is opened.                                                                                                              |
 | `galley await [--session <id>] [--timeout <s>]`                                                  | Block until the next desk **event**, print it as a tagged JSON envelope on stdout, and exit. Loop and branch on `kind`.                                                                                                                       |
 | `galley comment [--session <id>] --path <f> --line <n> [--side additions\|deletions] --body "…"` | Post an agent reply (an answer to a question, or a note). Appears in the open tab within ~1.5s, threaded under the matching human comment.                                                                                                    |
+| `galley status [--session <id>] --body "…"`                                                      | Post an **ephemeral** one-line "what I'm doing now" (e.g. "Reading state.ts…") that shows live next to the reviewer's waiting indicator. Optional but recommended before long operations while answering a question or acting on a Send. Cleared by your next `galley comment`; goes stale after ~90s (keep posting during long work); never persisted; exits 0 even with no live desk. |
 | `galley reload [--session <id>] [--guide <file>]`                                                | Re-diff the working tree into the **live** desk so your code edits appear in the same tab — no restart needed. Decisions reconcile against the new diff (a hunk whose content you changed resets to pending; untouched decisions carry over). `--guide` swaps the attached review guide in the same round-trip. |
 
 `galley await` yields one of two events:
@@ -55,6 +56,7 @@ while ev=$(galley await --session <id>); do
   case "$(printf '%s' "$ev" | jq -r .kind)" in
     question)   # answer now, threaded at the question's location
       q=$(printf '%s' "$ev" | jq .question)
+      galley status --session <id> --body "Reading the file to answer…"  # live feedback while you work
       galley comment --session <id> \
         --path "$(jq -r .path <<<"$q")" --line "$(jq -r .lineNumber <<<"$q")" \
         --side "$(jq -r .side <<<"$q")" --body "…your answer…" ;;
@@ -109,7 +111,7 @@ Without `--timeout`, `await` holds the connection open until an event arrives. P
 }
 ```
 
-Read the file/diff for context (you have the repo), then answer with `galley comment` matching `path`/`lineNumber`/`side` so the reply threads under the question. Answer promptly — the human is waiting in the tab. Questions are resolved live and never appear in a `ReviewResult`.
+Read the file/diff for context (you have the repo), then answer with `galley comment` matching `path`/`lineNumber`/`side` so the reply threads under the question. Answer promptly — the human is waiting in the tab; if gathering the answer takes more than a moment, post `galley status --body "…"` lines so they see progress instead of a static spinner. Questions are resolved live and never appear in a `ReviewResult`.
 
 ## ReviewResult
 
