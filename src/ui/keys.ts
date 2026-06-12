@@ -299,6 +299,14 @@ const HOTKEYS: Hotkey[] = [
     run: () => S.setFileView?.(S.fileView === "rendered" ? "source" : "rendered"),
   },
   {
+    combo: "w",
+    desc: "Tree / Walkthrough sidebar",
+    group: "View",
+    when: () => hasGuide() && navigable(),
+    test: k("w"),
+    run: () => (S.sidebarTab = S.sidebarTab === "tree" ? "walkthrough" : "tree"),
+  },
+  {
     combo: "⇧E",
     desc: "Open in editor",
     group: "View",

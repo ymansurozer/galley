@@ -33,6 +33,7 @@ export const S: Store = Alpine.reactive<Store>({
   settingsTab: "settings",
   confirmMsg: "",
   overviewOpen: false,
+  sidebarTab: "tree",
   fileView: "rendered",
 });
 

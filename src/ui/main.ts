@@ -19,8 +19,8 @@ import {
   guideStale,
   nextFileIndex,
   prevFileIndex,
-  categorySteps,
   firstFileOfCategory,
+  walkthroughRows,
 } from "./guide";
 import { setBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo, askConfirm } from "./keys";
@@ -253,12 +253,13 @@ S.promptFinish = () => {
     () => S.send?.(),
   );
 };
-// Category stepper (count + fill): clicking a category jumps to its first unreviewed file.
-S.categorySteps = categorySteps;
+// Walkthrough category headers: clicking one jumps to its first unreviewed file.
 S.jumpToCategory = (cat) => {
   const i = firstFileOfCategory(cat);
   if (i !== null && i !== undefined) S.selectFile?.(i);
 };
+// Walkthrough sidebar tab: categories + files in guide order (plus the "Other" trailer).
+S.walkthroughRows = walkthroughRows;
 S.isMarkdownFile = () => {
   const f = S.state && S.state.mode === "file" && S.state.files[S.fileIndex];
   return !!f && isMarkdownPath(f.path);
@@ -406,7 +407,11 @@ S.selected = {
   lineNumber: S.state.changes[0]?.lineNumber || 1,
 };
 if (S.state.files[S.fileIndex]) S.fileView = defaultFileView(S.state.files[S.fileIndex]);
-// With a guide attached, land on the Overview page (the guided entry point).
-if (hasGuide()) S.overviewOpen = true;
+// With a guide attached, land on the Overview page (the guided entry point) and open the
+// sidebar on the user's preferred pane (`w` toggles it per-session from there).
+if (hasGuide()) {
+  S.overviewOpen = true;
+  S.sidebarTab = S.settings.sidebarDefault === "walkthrough" ? "walkthrough" : "tree";
+}
 render();
 setInterval(pollState, 1500);
