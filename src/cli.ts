@@ -161,6 +161,38 @@ async function runComment(args: Record<string, string | boolean>) {
   );
 }
 
+// `galley status --body "..."` — post an ephemeral "what I'm doing now" line that
+// shows next to the reviewer's waiting indicator. Unlike comment there is no
+// offline fallback: ephemeral status is meaningless without a live desk, and it
+// must never fail the agent loop — no desk just reports { live: false }, exit 0.
+async function runStatus(args: Record<string, string | boolean>) {
+  const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
+  const session = await resolveActionSession(root, args);
+  const body = typeof args.body === "string" ? args.body.trim() : "";
+  if (!body) {
+    console.error('Usage: galley status --body "..." [--session <id>] [--repo <path>]');
+    process.exitCode = 1;
+    return;
+  }
+  const lock = await readDeskLock(root, session);
+  if (lock) {
+    try {
+      const res = await fetch(`${lock.url}api/status`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ body }),
+      });
+      if (res.ok) {
+        process.stdout.write(JSON.stringify({ ok: true, live: true, session }) + "\n");
+        return;
+      }
+    } catch {
+      /* desk not reachable; report not-live below */
+    }
+  }
+  process.stdout.write(JSON.stringify({ ok: false, live: false, session }) + "\n");
+}
+
 // `galley await --session <id>` — block until the next desk event, then print it
 // to stdout as a tagged envelope and exit. The event is either
 //   {"kind":"question","question":{path,lineNumber,side,body,mode,session}}  — answer it now
@@ -462,6 +494,7 @@ Usage:
   galley file <path>                Review a single file or artifact (tracked or not)
   galley pr <ref|number|url>        Review a branch's commits vs its merge-base
   galley comment --path <f> --line <n> --body "..."   Post an agent reply into the desk
+  galley status --body "..."        Post an ephemeral "what I'm doing" line into the desk
   galley await [--timeout <s>]      Block for the next desk event (question | review)
   galley reload [--guide <file>]    Re-diff the working tree into the open desk
                                     (--guide swaps the attached review guide too)
@@ -497,6 +530,7 @@ async function main() {
   const positional = rest[0] && !rest[0].startsWith("--") ? rest[0] : undefined;
   const args = parseArgs(rest);
   if (sub === "comment") return runComment(args);
+  if (sub === "status") return runStatus(args);
   if (sub === "await") return runAwait(args);
   if (sub === "reload") return runReload(args);
   if (sub === "guide-spec") {
@@ -514,7 +548,7 @@ async function main() {
   if (sub === "pr") return runDesk("pr", positional, args);
   if (sub) {
     console.error(
-      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref|number|url> | comment | await | reload | guide-spec.`,
+      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref|number|url> | comment | status | await | reload | guide-spec.`,
     );
     process.exitCode = 1;
     return;

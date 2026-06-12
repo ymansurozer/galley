@@ -1,4 +1,4 @@
-import { S, $, toast, persist } from "./store";
+import { S, $, esc, toast, persist } from "./store";
 import { currentComments, currentChanges, currentFile, toDisplayLine } from "./changes";
 import { isUnanchored } from "./unanchored";
 import { acceptChange } from "./decisions";
@@ -67,6 +67,39 @@ export function annotations(): AnnotationInput[] {
   return out;
 }
 
+// The waiting indicator under an unanswered question has three states, derived per
+// poll tick from the desk-liveness fields: queued (the question never reached an
+// agent — nothing is awaiting), active (delivered, and the agent posted a `galley
+// status` line), or plain waiting. Desk-global by design: one desk, one agent.
+export function awaitingParts() {
+  const queued = S.queuedQuestions > 0;
+  return {
+    queued,
+    label: queued ? "No agent attached — question queued" : "Working",
+    activity: queued ? "" : (S.agentActivity ?? ""),
+  };
+}
+
+// Patch every mounted waiting indicator in place. Called from the 1.5s poll:
+// activity/presence changes alone must not trigger a full render() (it rebuilds
+// the diff DOM), so the indicator spans are updated directly.
+export function updateAwaitingDom() {
+  const parts = awaitingParts();
+  for (const el of document.querySelectorAll(".awaiting-answer")) {
+    el.classList.toggle("queued", parts.queued);
+    const label = el.querySelector(".awaiting-label");
+    if (label && label.textContent !== parts.label) label.textContent = parts.label;
+    const activity = el.querySelector(".agent-activity");
+    const text = parts.activity ? ` · ${parts.activity}` : "";
+    if (activity && activity.textContent !== text) activity.textContent = text;
+  }
+}
+
+function awaitingHtml() {
+  const parts = awaitingParts();
+  return `<div class="awaiting-answer${parts.queued ? " queued" : ""}"><span class="awaiting-label">${esc(parts.label)}</span><span class="agent-activity">${parts.activity ? esc(` · ${parts.activity}`) : ""}</span></div>`;
+}
+
 // The comment-box element for one thread (messages + reply/resolve/reopen + per-message
 // edit/delete). Shared by the diff annotations and the markdown-file view (mdfile.ts).
 export function buildCommentThread(c: ThreadMeta): HTMLElement {
@@ -96,7 +129,7 @@ export function buildCommentThread(c: ThreadMeta): HTMLElement {
             const actions = own
               ? `<span class="msg-actions"><button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>`
               : "";
-            return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span>${badge}<time>now${edited}</time>${actions}</div><div class="md">${renderCommentBody(m)}</div>${awaiting ? '<div class="awaiting-answer">Waiting for answer…</div>' : ""}</div>`;
+            return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span>${badge}<time>now${edited}</time>${actions}</div><div class="md">${renderCommentBody(m)}</div>${awaiting ? awaitingHtml() : ""}</div>`;
           })
           .join("");
   box.innerHTML = `${messages}<div class="thread-actions">${c.status === "resolved" ? '<button class="reopen-thread">Reopen</button>' : '<button class="reply-thread">Reply</button><button class="resolve-thread">Resolve</button>'}</div>`;

@@ -5,7 +5,7 @@ import { currentFile, currentSplittable, fromDisplayLine } from "./changes";
 import { openCommentComposer, closeComposerIfEmpty } from "./selection";
 import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { render, deferRender } from "./render";
-import { pollState } from "./poll";
+import { adoptDeskStatus, pollState } from "./poll";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
 import { applyAppearance, DEFAULT_SETTINGS } from "./settings";
 import { setMarkdownTheme } from "./markdown";
@@ -384,7 +384,7 @@ S.settings = { ...DEFAULT_SETTINGS, ...prefs?.settings };
 if (prefs?.diffStyle === "split" || prefs?.diffStyle === "unified") S.diffStyle = prefs.diffStyle;
 applyAppearance(S.settings); // font + size before first paint
 setMarkdownTheme(S.settings.theme);
-S.state = state;
+S.state = adoptDeskStatus(state);
 S.projectFiles = tree.files || [];
 S.lastBaseDiffHash = S.state.baseDiffHash;
 // Tab title: name the session so multiple desks are distinguishable in the browser.

@@ -1,12 +1,31 @@
 import { S, D, api, toast } from "./store";
 import { render } from "./render";
-import type { ReviewState } from "./types";
+import { updateAwaitingDom } from "./annotations";
+import type { DeskStatus, ReviewState } from "./types";
+
+// Pull the transient DeskStatus fields off a /api/state payload into the store and
+// return the bare ReviewState. They must never enter S.state: persist() posts
+// S.state back to /api/save, and the persisted review must not carry desk liveness.
+export function adoptDeskStatus(payload: ReviewState & Partial<DeskStatus>): ReviewState {
+  const { agentActivity, agentListening, queuedQuestions, queuedReviews, ...server } = payload;
+  S.agentActivity = agentActivity?.body ?? null;
+  S.agentListening = agentListening ?? false;
+  S.queuedQuestions = queuedQuestions ?? 0;
+  S.queuedReviews = queuedReviews ?? 0;
+  return server;
+}
 
 export async function pollState() {
   if (S.composerOpen || S.popoverOpen) return;
   let server: ReviewState | undefined;
   try {
-    server = await api<ReviewState>("/api/state");
+    const payload = await api<ReviewState & DeskStatus>("/api/state");
+    if (payload && Array.isArray(payload.comments)) {
+      server = adoptDeskStatus(payload);
+      // Activity/presence changes alone don't warrant a render — patch the
+      // waiting indicators in place every tick.
+      updateAwaitingDom();
+    }
   } catch {
     return;
   }

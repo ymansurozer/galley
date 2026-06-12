@@ -21,7 +21,7 @@ import {
 } from "./state.js";
 import { validateGuide } from "./guide.js";
 import { resolveEditorCommand } from "./editor.js";
-import type { AwaitEvent, ReviewState } from "./types.js";
+import type { AgentActivity, AwaitEvent, DeskStatus, ReviewState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +34,8 @@ export type ServerOptions = {
   // Test seam: lets server.test.ts assert the resolved editor invocation without
   // actually launching anything.
   runEditorCommand?: (command: string, args: string[]) => Promise<void>;
+  // Test seam: TTL for the ephemeral agent-activity line (default 90s).
+  statusTtlMs?: number;
 };
 
 export type ServerHandle = {
@@ -143,6 +145,32 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     else eventQueue.push(ev);
   };
 
+  // Ephemeral "what the agent is doing now" line (`galley status`). Lives only in
+  // this process — never on `state`, which persistReview serializes verbatim.
+  // Staleness is checked on read (no timers): a crashed agent's last line must not
+  // show as live activity forever.
+  const statusTtlMs = options.statusTtlMs ?? 90_000;
+  let agentActivity: AgentActivity | null = null;
+  const liveActivity = () => {
+    if (agentActivity && Date.now() - Date.parse(agentActivity.at) > statusTtlMs)
+      agentActivity = null;
+    return agentActivity;
+  };
+  const deskStatus = (): DeskStatus => ({
+    agentActivity: liveActivity(),
+    agentListening: eventWaiters.length > 0,
+    queuedQuestions: eventQueue.filter((e) => e.kind === "question").length,
+    queuedReviews: eventQueue.filter((e) => e.kind === "review").length,
+  });
+  // The UI's /api/save and /api/send post back its copy of the /api/state payload,
+  // which now carries the DeskStatus fields — drop them so Object.assign never
+  // copies them onto `state` (and from there into the persisted file).
+  const stripDeskStatus = (body: Record<string, unknown>) => {
+    for (const key of ["agentActivity", "agentListening", "queuedQuestions", "queuedReviews"])
+      delete body[key];
+    return body;
+  };
+
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -175,7 +203,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       }
       if (req.method === "GET" && url.pathname === "/api/state") {
         await syncGitState(state);
-        return json(res, 200, state);
+        return json(res, 200, { ...state, ...deskStatus() });
       }
       // Display preferences, stored globally in ~/.galley/settings.json — the desk's
       // random port makes browser localStorage (per-origin) useless for them.
@@ -245,12 +273,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/save") {
-        Object.assign(state, JSON.parse(await readBody(req)));
+        Object.assign(state, stripDeskStatus(JSON.parse(await readBody(req))));
         const file = await persistReview(state);
         return json(res, 200, { ok: true, file });
       }
       if (req.method === "POST" && url.pathname === "/api/send") {
-        Object.assign(state, JSON.parse(await readBody(req)));
+        Object.assign(state, stripDeskStatus(JSON.parse(await readBody(req))));
         await syncGitState(state);
         const file = await persistReview(state);
         const sessionDir = path.dirname(file);
@@ -413,8 +441,27 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           anchorText: anchorTextFor(state.files, body.path, side, lineNumber),
         };
         state.comments.push(comment);
+        // The reply the reviewer was waiting on has landed — the "what I'm doing
+        // now" line is obsolete the moment a real agent message exists.
+        if (comment.role === "agent") agentActivity = null;
         await persistReview(state);
         return json(res, 200, { ok: true, commentId: comment.id });
+      }
+      if (req.method === "POST" && url.pathname === "/api/status") {
+        // Ephemeral agent activity (`galley status`): a one-line "what I'm doing
+        // now" while the agent works on a question or review. Never persisted.
+        const body = JSON.parse(await readBody(req)) as { body?: string };
+        const text = (body.body ?? "").trim().slice(0, 200);
+        if (!text)
+          return fail(
+            res,
+            422,
+            "INVALID_STATUS",
+            "status requires a non-empty body",
+            'Send { body: "what you are doing" } as JSON.',
+          );
+        agentActivity = { body: text, at: nowIso() };
+        return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/reset") {
         for (const file of state.files) {
