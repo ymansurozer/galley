@@ -9,7 +9,7 @@ import { render } from "./render";
 import type { AnnotationInput, AnnotationMeta, ThreadMeta, ReviewComment } from "./types";
 
 export function annotations(): AnnotationInput[] {
-  const out: AnnotationInput[] = [];
+  const threads: AnnotationInput[] = [];
   const seen = new Set<string>();
   const groups = new Map<string, ReviewComment[]>();
   for (const c of currentComments()) {
@@ -36,7 +36,7 @@ export function annotations(): AnnotationInput[] {
     if (change) seen.add(change.id);
     // The annotation goes to @pierre in DISPLAY coordinates (it matches rendered gutter
     // numbers); the metadata keeps the raw line so thread actions filter comments correctly.
-    out.push({
+    threads.push({
       side: first.side,
       lineNumber: toDisplayLine(first.side, first.lineNumber),
       metadata: {
@@ -50,8 +50,9 @@ export function annotations(): AnnotationInput[] {
       },
     });
   }
+  const changes: AnnotationInput[] = [];
   for (const ch of currentChanges().filter((ch) => ch.status === "pending" && !seen.has(ch.id))) {
-    out.push({
+    changes.push({
       side: ch.side,
       lineNumber: ch.displayEndLine ?? toDisplayLine(ch.side, ch.endLine ?? ch.lineNumber),
       metadata: {
@@ -64,7 +65,10 @@ export function annotations(): AnnotationInput[] {
       },
     });
   }
-  return out;
+  // When a thread and a change land on the same display line, the decision bar
+  // must sit immediately under the hunk with the thread below it — annotations
+  // render in array order, so changes go first.
+  return [...changes, ...threads];
 }
 
 // The comment-box element for one thread (messages + reply/resolve/reopen + per-message
