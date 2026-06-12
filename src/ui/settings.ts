@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showUnchanged: false,
   unchangedLines: "collapse",
   progressBy: "lines",
+  sidebarDefault: "tree",
   stageOnAccept: false,
   editorCommand: "",
 };

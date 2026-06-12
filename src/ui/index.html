@@ -375,7 +375,8 @@
       overflow: hidden
     }
 
-    #files {
+    #files,
+    #walk {
       flex: 1 1 auto;
       min-height: 0;
       overflow: auto
@@ -959,6 +960,101 @@
 
     .node.test {
       color: var(--ghost)
+    }
+
+    /* Sidebar Tree/Walkthrough tabs (guided desks only) — the settings tabs, sized down. */
+    .tree-tabs {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 2px;
+      margin: 0 0 8px;
+      border-bottom: 1px solid var(--line)
+    }
+
+    .tree-tabs button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: var(--text-sm);
+      padding: 3px 8px 5px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px
+    }
+
+    .tree-tabs button:hover {
+      color: var(--ink)
+    }
+
+    .tree-tabs button.active {
+      color: var(--ink-bright);
+      border-bottom-color: var(--cyan)
+    }
+
+    .tree-tabs button kbd {
+      margin-left: 2px
+    }
+
+    /* Walkthrough rows: category headers read like the FILES label but are jump targets;
+       file rows reuse the .node treatment (active/hover/badges) with a one-level indent. */
+    .node.walk-cat {
+      margin-top: 8px;
+      color: var(--ghost);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-size: var(--text-2xs);
+      font-weight: 700
+    }
+
+    .node.walk-cat:first-child {
+      margin-top: 0
+    }
+
+    .node.walk-cat:hover {
+      color: var(--ink)
+    }
+
+    /* ± in a fixed-width right column so the numbers align across rows. */
+    #walk .status-pack i {
+      font-style: normal;
+      font-size: var(--text-2xs);
+      min-width: 3ch;
+      text-align: right
+    }
+
+    #walk .status-pack .add {
+      color: var(--green)
+    }
+
+    #walk .status-pack .del {
+      color: var(--red)
+    }
+
+    #walk .crit {
+      color: var(--amber);
+      width: 12px;
+      height: 12px
+    }
+
+    /* Per-file review state leads the row: empty circle = to do, green check-circle =
+       approved, amber alert-circle = changes requested. */
+    #walk .st {
+      width: 13px;
+      height: 13px;
+      flex: 0 0 auto
+    }
+
+    #walk .st.pending {
+      color: var(--ghost)
+    }
+
+    #walk .st.approved {
+      color: var(--green)
+    }
+
+    #walk .st.changes {
+      color: var(--amber)
     }
 
     .card {
@@ -2092,7 +2188,7 @@
     }
 
     .guide-overview .go-overview {
-      color: var(--muted);
+      color: var(--ink);
       line-height: 1.55;
       margin: 0 0 12px;
       font-size: var(--text-md)
@@ -2119,82 +2215,147 @@
       margin-top: 0
     }
 
-    .guide-overview .go-plan {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin: 2px 0 16px
+    /* Overview file list: the guide's files grouped by category, each row path + summary +
+       ±counts + a read-only state badge (decisions stay in the diff; clicking opens it). */
+    .guide-overview .go-files-h {
+      margin: 0 0 7px
     }
 
-    .guide-overview .go-cat {
-      /* auto basis: a segment is at least as wide as its label, then grows by file count —
-         with many categories the row wraps instead of squeezing every label to an ellipsis. */
-      flex: 1 1 auto;
-      min-width: 84px;
-      max-width: 100%;
+    .guide-overview .go-files {
       display: flex;
       flex-direction: column;
-      gap: 5px;
-      padding: 6px 9px;
+      gap: 10px;
+      margin: 0 0 18px
+    }
+
+    .guide-overview .go-files .add,
+    .guide-overview .go-files .del {
+      font-style: normal
+    }
+
+    .guide-overview .go-files .add {
+      color: var(--green)
+    }
+
+    .guide-overview .go-files .del {
+      color: var(--red)
+    }
+
+    .guide-overview .go-grp {
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background: var(--surface);
-      cursor: pointer;
-      text-align: left
+      overflow: hidden
     }
 
-    .guide-overview .go-cat:hover {
-      border-color: var(--line-strong);
-      background: var(--panel)
-    }
-
-    .guide-overview .go-cat-top {
+    .guide-overview .go-grp-h {
       display: flex;
       align-items: baseline;
       justify-content: space-between;
-      gap: 6px
+      gap: 8px;
+      padding: 7px 11px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel)
     }
 
-    .guide-overview .go-cat-lab {
+    .guide-overview .go-grp-name {
       font-size: var(--text-2xs);
       font-weight: 700;
       letter-spacing: .05em;
       text-transform: uppercase;
-      color: var(--muted);
-      /* Long category names ellipsize instead of spilling over the count and the neighboring
-         segment (min-width beats the flex-child auto floor; the title attr has the full name). */
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      min-width: 0
+      color: var(--muted)
     }
 
-    .guide-overview .go-cat.crit .go-cat-lab {
-      color: var(--amber)
-    }
-
-    .guide-overview .go-cat.done .go-cat-lab {
-      color: var(--green)
-    }
-
-    .guide-overview .go-cat-cnt {
+    .guide-overview .go-grp-meta {
       font-size: var(--text-2xs);
       color: var(--ghost);
       flex: none
     }
 
-    .guide-overview .go-cat-bar {
-      height: 4px;
-      border-radius: var(--radius-xs);
-      background: var(--line);
-      overflow: hidden
+    .guide-overview .go-file {
+      display: block;
+      width: 100%;
+      padding: 7px 11px;
+      border: 0;
+      border-top: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: var(--text-sm);
+      text-align: left;
+      cursor: pointer
     }
 
-    .guide-overview .go-cat-bar>i {
+    .guide-overview .go-file:first-of-type {
+      border-top: 0
+    }
+
+    .guide-overview .go-file:hover {
+      background: var(--surface-raised)
+    }
+
+    .guide-overview .go-file-top {
+      display: flex;
+      align-items: center;
+      gap: 7px
+    }
+
+    .guide-overview .go-file-path {
+      font-family: var(--mono);
+      font-size: var(--text-xs);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap
+    }
+
+    .guide-overview .go-file-path .fdir {
+      color: var(--ghost)
+    }
+
+    .guide-overview .go-file-path .fname {
+      color: var(--ink)
+    }
+
+    .guide-overview .go-file .crit {
+      flex: 0 0 auto;
+      width: 13px;
+      height: 13px;
+      color: var(--amber)
+    }
+
+    .guide-overview .go-file-stats {
+      margin-left: auto;
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: var(--text-2xs)
+    }
+
+    .guide-overview .go-file-stats .badge {
+      width: 13px;
+      height: 13px
+    }
+
+    .guide-overview .go-file-stats .badge.pending {
+      color: var(--cyan)
+    }
+
+    .guide-overview .go-file-stats .badge.approved {
+      color: var(--green)
+    }
+
+    .guide-overview .go-file-stats .badge.changes {
+      color: var(--amber)
+    }
+
+    .guide-overview .go-file-sum {
       display: block;
-      height: 100%;
-      background: var(--green);
-      transition: width .25s
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: var(--text-xs);
+      line-height: 1.5
     }
 
     .guide-overview .go-actions {
@@ -2336,14 +2497,19 @@
     </header>
     <main class="main">
       <aside class="tree">
-        <div class="label tree-title"><span>Files</span>
+        <div class="tree-tabs" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak>
+          <!-- The w hint sits on the INACTIVE tab — the one pressing w switches to. -->
+          <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.sidebarTab='tree'">Tree <kbd x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
+          <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.sidebarTab='walkthrough'">Walkthrough <kbd x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
+        </div>
+        <div class="label tree-title" x-show="!($store.g.hasGuide && $store.g.hasGuide()) || $store.g.sidebarTab==='tree'"><span>Files</span>
           <button class="tree-toggle" @click="$store.g.toggleAllDirs()"
             :title="$store.g.treeAnyOpen && $store.g.treeAnyOpen() ? 'Collapse all' : 'Expand all'">
             <svg class="ic" x-show="$store.g.treeAnyOpen && $store.g.treeAnyOpen()"><use href="#gly-collapse-all"></use></svg>
             <svg class="ic" x-show="!($store.g.treeAnyOpen && $store.g.treeAnyOpen())"><use href="#gly-expand-all"></use></svg>
           </button>
         </div>
-        <div id="files"><template x-for="r in $store.g.treeRows()" :key="r.key">
+        <div id="files" x-show="!($store.g.hasGuide && $store.g.hasGuide()) || $store.g.sidebarTab==='tree'"><template x-for="r in $store.g.treeRows()" :key="r.key">
             <div class="node" :class="r.cls" :style="r.style" @click="$store.g.rowClick(r)">
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='dir'"><use href="#gly-chevron"></use></svg>
               <svg class="ic folder" x-show="r.kind==='dir'"><use href="#gly-folder"></use></svg>
@@ -2359,6 +2525,25 @@
               </span>
             </div>
           </template></div>
+        <div id="walk" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'" x-cloak>
+          <template x-for="r in $store.g.walkthroughRows()" :key="r.key">
+            <div class="node" :class="r.kind==='cat' ? 'walk-cat' : r.cls" :style="r.kind==='cat' ? '' : r.style"
+              @click="r.kind==='cat' ? $store.g.jumpToCategory(r.category) : $store.g.selectFile(r.fileIndex)">
+              <span class="nm walk-cat-name" x-show="r.kind==='cat'" x-text="r.category" :title="r.category"></span>
+              <!-- File status leads the row (empty circle = to do); ± stay flush right below. -->
+              <svg class="ic st pending" x-show="r.kind==='file' && r.state==='pending'" title="Pending review"><use href="#gly-circle"></use></svg>
+              <svg class="ic st approved" x-show="r.kind==='file' && r.state==='approved'" title="Approved"><use href="#gly-check"></use></svg>
+              <svg class="ic st changes" x-show="r.kind==='file' && r.state==='changes-requested'" title="Changes requested"><use href="#gly-circle-alert"></use></svg>
+              <span class="nm" x-show="r.kind==='file'" x-text="r.name" :title="r.path"></span>
+              <svg class="ic crit" x-show="r.kind==='file' && r.critical" title="Critical"><use href="#gly-flag"></use></svg>
+              <span class="status-pack">
+                <svg class="ic badge approved" x-show="r.kind==='cat' && r.complete" title="All files reviewed"><use href="#gly-check"></use></svg>
+                <i class="add" x-show="r.kind==='file' && r.added" x-text="'+'+r.added"></i>
+                <i class="del" x-show="r.kind==='file' && r.removed" x-text="'−'+r.removed"></i>
+              </span>
+            </div>
+          </template>
+        </div>
         <button class="tree-settings" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg><span>Settings</span><kbd>⇧,</kbd></button>
       </aside>
       <div class="resizer" data-resize="left"></div>
@@ -2473,6 +2658,10 @@
                 @change="$store.g.settings.showUnchanged = $event.target.value === 'show'; $store.g.applySettings()">
                 <option value="show" :selected="$store.g.settings.showUnchanged">Show</option>
                 <option value="hide" :selected="!$store.g.settings.showUnchanged">Hide</option>
+              </select></label><label>Guided sidebar opens<select x-model="$store.g.settings.sidebarDefault"
+                @change="$store.g.applySettings()">
+                <option value="tree">Tree</option>
+                <option value="walkthrough">Walkthrough</option>
               </select></label></div>
           <div class="set-section">Behavior</div>
           <div class="set-grid"><label>Track progress by<select x-model="$store.g.settings.progressBy"

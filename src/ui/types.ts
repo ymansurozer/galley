@@ -6,7 +6,7 @@ import type {
   GuideFile,
   ReviewFile,
 } from "../types";
-import type { CategoryStep } from "./guide";
+import type { WalkRow } from "./walkthrough";
 
 export type Side = "additions" | "deletions";
 export type DiffStyle = "split" | "unified";
@@ -32,6 +32,8 @@ export type Settings = {
   // How guided-review progress is weighted: "lines" (changed lines per file — finishing a
   // bigger change advances more) or "files" (every file counts the same).
   progressBy: "lines" | "files";
+  // Which sidebar pane a guided desk opens with; `w` toggles per-session from there.
+  sidebarDefault: "tree" | "walkthrough";
   stageOnAccept: boolean;
   // Command template for "Open in editor" ({repo}/{file}/{line} placeholders). A machine
   // preference like the rest — empty falls back to the OS opener (see src/editor.ts).
@@ -179,6 +181,9 @@ export interface Store {
   // Guided review: when true (and a guide is attached) the center shows the Overview page
   // instead of the diff. Selecting any file (tree or Start) drops back to the diff.
   overviewOpen: boolean;
+  // Which sidebar pane is showing when a guide is attached (no guide → tabs hidden, tree
+  // only). Per-session like overviewOpen; settings.sidebarDefault seeds it at init.
+  sidebarTab: "tree" | "walkthrough";
   // file mode: how a markdown file is shown — "rendered" (comark/markdown-it preview,
   // comment on blocks) or "source" (@pierre/diffs raw/diff).
   fileView: "rendered" | "source";
@@ -211,8 +216,8 @@ export interface Store {
   guidePrev?: () => void;
   guideAtStart?: () => boolean;
   guideAtLast?: () => boolean;
-  categorySteps?: () => CategoryStep[];
   jumpToCategory?: (category: string) => void;
+  walkthroughRows?: () => WalkRow[];
   saveComment?: () => void;
   ask?: () => void;
   requestChange?: () => void;

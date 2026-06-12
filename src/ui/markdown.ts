@@ -139,6 +139,13 @@ export function renderMarkdown(text: string): string {
   return DOMPurify.sanitize(md.render(text || ""));
 }
 
+// One-line markdown (guide file summaries): inline rules only, no <p> wrapper. Block-only
+// syntax degrades gracefully to its inline text — guide summaries are spec'd as one-liners.
+export function renderMarkdownInline(text: string): string {
+  if (!md) return esc(text);
+  return DOMPurify.sanitize(md.renderInline(text || ""));
+}
+
 // Comment body → sanitized HTML, cached by id+updatedAt (so an edit re-renders).
 export function renderCommentBody(c: ReviewComment): string {
   const key = `${c.id}:${c.updatedAt}`;

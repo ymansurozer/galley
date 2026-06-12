@@ -1,6 +1,8 @@
 import { S, $, esc } from "./store";
 import { fileReviewState } from "./changes";
-import { renderMarkdown } from "./markdown";
+import { renderMarkdown, renderMarkdownInline } from "./markdown";
+import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
+import type { WalkGroup, WalkRow, WalkFile } from "./walkthrough";
 
 // Whether the current review carries an agent-attached guide with at least one file.
 export function hasGuide(): boolean {
@@ -48,12 +50,25 @@ export function prevFileIndex(cur: number): number | null {
 // finishing a big file advances the bar more than a tiny one. Min 1 so every file counts.
 function locByPath(): Map<string, number> {
   const m = new Map<string, number>();
-  for (const f of S.state?.files ?? []) {
-    let n = 0;
-    for (const h of f.hunks ?? []) for (const l of h.lines) if (l.kind !== "context") n++;
-    m.set(f.path, Math.max(n, 1));
-  }
+  for (const [path, s] of lineStats(S.state?.files ?? []))
+    m.set(path, Math.max(s.added + s.removed, 1));
   return m;
+}
+
+// Guide categories + their files (plus the trailing "Other" group of unlisted diff files) —
+// the data behind the Walkthrough sidebar tab and the Overview file list.
+export function walkGroups(): WalkGroup[] {
+  if (!hasGuide()) return [];
+  return walkthroughGroups(S.state.guide!.files, S.state.files ?? [], fileReviewState);
+}
+
+// Flat rows for the Walkthrough tab's x-for. Same active-path rule as the tree: nothing is
+// active on the Overview; a previewed file wins over the indexed review file.
+export function walkthroughRows(): WalkRow[] {
+  const activePath = S.overviewOpen
+    ? null
+    : (S.preview?.path ?? S.state?.files?.[S.fileIndex]?.path ?? null);
+  return walkRows(walkGroups(), activePath);
 }
 
 // Overall review progress for the guide-bar indicator, weighted by changed lines (LOC) rather
@@ -73,48 +88,6 @@ export function guideProgress(): { done: number; approved: number; total: number
     if (st === "approved") approved += w;
   }
   return { done, approved, total, pct: total ? Math.round((done / total) * 100) : 0 };
-}
-
-export type CategoryStep = {
-  category: string;
-  total: number;
-  done: number;
-  pct: number;
-  critical: boolean;
-  active: boolean;
-};
-
-// Per-category macro-progress for the stepper: distinct categories in guide order, each with
-// done/total **changed lines** (count + fill) and whether it holds the current file / a critical.
-export function categorySteps(): CategoryStep[] {
-  if (!hasGuide()) return [];
-  const byLines = S.settings.progressBy !== "files";
-  const loc = byLines ? locByPath() : null;
-  const curCat = !S.overviewOpen ? currentGuideEntry()?.category : undefined;
-  const out: CategoryStep[] = [];
-  const at = new Map<string, number>();
-  for (const g of S.state.guide!.files) {
-    let i = at.get(g.category);
-    if (i === undefined) {
-      i = out.length;
-      at.set(g.category, i);
-      out.push({
-        category: g.category,
-        total: 0,
-        done: 0,
-        pct: 0,
-        critical: false,
-        active: g.category === curCat,
-      });
-    }
-    const step = out[i]!;
-    const w = byLines ? (loc!.get(g.path) ?? 1) : 1;
-    step.total += w;
-    if (fileReviewState(g.path) !== "pending") step.done += w;
-    if (g.critical) step.critical = true;
-  }
-  for (const s of out) s.pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
-  return out;
 }
 
 // Jump target for a category click: its first not-yet-finished file (guide order), else its first.
@@ -154,20 +127,37 @@ export function guideStale(): boolean {
   );
 }
 
-// Render the Overview page into #diff: overview → optional PR description → the category
-// plan as a count+fill progress list → Start. Called by render() when overviewOpen &&
-// hasGuide(). Binds the Start button + per-category jumps.
+// One file row in the Overview list: path (dimmed dir, bright basename) + critical flag +
+// ±counts + a read-only review-state badge on top, the guide's one-line summary beneath.
+// Read-only by design — decisions stay where the diff is visible; clicking opens the file.
+function overviewFileRow(f: WalkFile): string {
+  const badge =
+    f.state === "approved"
+      ? `<svg class="ic badge approved" title="Approved"><use href="#gly-check"></use></svg>`
+      : f.state === "changes-requested"
+        ? `<svg class="ic badge changes" title="Changes requested"><use href="#gly-flag"></use></svg>`
+        : `<svg class="ic badge pending" title="Pending review"><use href="#gly-dot"></use></svg>`;
+  return `<button class="go-file" data-i="${f.fileIndex}">
+    <span class="go-file-top">
+      <span class="go-file-path"><span class="fdir">${esc(f.dir)}</span><span class="fname">${esc(f.name)}</span></span>
+      ${f.critical ? `<svg class="ic crit" title="Critical"><use href="#gly-flag"></use></svg>` : ""}
+      <span class="go-file-stats">${f.added ? `<i class="add">+${f.added}</i>` : ""}${f.removed ? `<i class="del">−${f.removed}</i>` : ""}${badge}</span>
+    </span>
+    ${f.summary ? `<span class="go-file-sum">${renderMarkdownInline(f.summary)}</span>` : ""}
+  </button>`;
+}
+
+// Render the Overview page into #diff: overview → optional PR description → the per-file
+// list grouped by category → Start. Called by render() when overviewOpen && hasGuide().
+// Binds the Start button + per-file jumps.
 export function renderOverview() {
   const g = S.state.guide!;
-  // Each category segment grows in proportion to how many files it holds (flex-grow = total).
-  const plan = categorySteps()
+  const fileList = walkGroups()
     .map(
-      (
-        c,
-      ) => `<button class="go-cat${c.critical ? " crit" : ""}${c.done === c.total ? " done" : ""}" data-cat="${esc(c.category)}" title="Jump to ${esc(c.category)} (${c.total} file${c.total === 1 ? "" : "s"})" style="flex-grow:${c.total}">
-      <span class="go-cat-top"><span class="go-cat-lab">${c.critical ? `<svg class="ic"><use href="#gly-flag"></use></svg> ` : ""}${esc(c.category)}</span><span class="go-cat-cnt">${c.done}/${c.total}</span></span>
-      <span class="go-cat-bar"><i style="width:${c.pct}%"></i></span>
-    </button>`,
+      (grp) => `<div class="go-grp">
+      <div class="go-grp-h"><span class="go-grp-name">${esc(grp.category)}</span><span class="go-grp-meta">${grp.total} file${grp.total === 1 ? "" : "s"}${grp.added ? ` · <i class="add">+${grp.added}</i>` : ""}${grp.removed ? ` <i class="del">−${grp.removed}</i>` : ""}</span></div>
+      ${grp.files.map(overviewFileRow).join("")}
+    </div>`,
     )
     .join("");
   const title = g.title || S.state.target || "Review";
@@ -177,14 +167,14 @@ export function renderOverview() {
     ${guideStale() ? `<div class="go-stale"><svg class="ic"><use href="#gly-warn"></use></svg> This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
     <div class="go-overview md">${renderMarkdown(g.overview)}</div>
     ${g.prDescription ? `<div class="go-pr"><b>PR description</b><div class="md">${renderMarkdown(g.prDescription)}</div></div>` : ""}
-    ${plan ? `<div class="go-plan">${plan}</div>` : ""}
+    ${fileList ? `<div class="label go-files-h">Files in this review</div><div class="go-files">${fileList}</div>` : ""}
     <div class="go-actions"><button class="btn primary" id="guideStart">Start Review <kbd>↵</kbd></button></div>
   </div></div>`;
   const start = $("diff").querySelector("#guideStart") as HTMLButtonElement | null;
   if (start) start.onclick = () => S.startGuided?.();
   $("diff")
-    .querySelectorAll<HTMLElement>(".go-cat")
+    .querySelectorAll<HTMLElement>(".go-file")
     .forEach((el) => {
-      el.onclick = () => S.jumpToCategory?.(el.dataset.cat!);
+      el.onclick = () => S.selectFile?.(Number(el.dataset.i));
     });
 }
