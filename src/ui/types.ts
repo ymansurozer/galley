@@ -164,6 +164,9 @@ export interface Store {
   composerOpen: boolean;
   popoverOpen: boolean;
   toastMsg: string;
+  // Pending "go to line" digits typed in the diff ("" = inactive). Drives the goline pill;
+  // ↵ / idle timeout commits the jump, Esc cancels (see cursor.ts goline section).
+  golineBuffer: string;
   composerTitle: string;
   composerBody: string;
   editingCommentId: string | null;
