@@ -19,10 +19,10 @@ import {
   guideStale,
   nextFileIndex,
   prevFileIndex,
-  guideProgress,
   categorySteps,
   firstFileOfCategory,
 } from "./guide";
+import { setBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo, askConfirm } from "./keys";
 import { cursorReset, cursorSelection } from "./cursor";
 import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
@@ -237,10 +237,22 @@ S.treeStep = (dir) => {
 S.helpGroups = helpGroups;
 S.confirmYes = confirmYes;
 S.confirmNo = confirmNo;
-// Fired after the last file is approved — offer to send the finished review back to the agent.
-S.promptFinish = () =>
-  askConfirm("You've reviewed every file. Send the review back to the agent?", () => S.send?.());
-S.guideProgress = guideProgress;
+// Fired after the last file is approved — a small receipt of the work done (files, lines,
+// comments, rejections) plus the offer to send the finished review back to the agent.
+S.promptFinish = () => {
+  const { files, lines, comments, rejections } = reviewStats();
+  const n = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
+  const extras = [
+    comments ? n(comments, "comment") : "",
+    rejections ? n(rejections, "rejected hunk") : "",
+  ].filter(Boolean);
+  const what = files === 1 ? "the file" : `all ${files} files`;
+  const tail = extras.length ? extras.join(", ") : "all clean";
+  askConfirm(
+    `You've reviewed ${what} — ${n(lines, "changed line")}, ${tail}. Send the review back to the agent?`,
+    () => S.send?.(),
+  );
+};
 // Category stepper (count + fill): clicking a category jumps to its first unreviewed file.
 S.categorySteps = categorySteps;
 S.jumpToCategory = (cat) => {
@@ -386,6 +398,8 @@ S.lastBaseDiffHash = S.state.baseDiffHash;
         ? ref.slice(0, 32) + (ref.length > 32 ? "…" : "")
         : base(S.state.root);
   if (name) document.title = `Galley — ${name}`;
+  // progress.ts prefixes the title with the review % — hand it the base to prefix.
+  setBaseTitle(document.title);
 }
 S.selected = {
   side: S.state.changes[0]?.side || "additions",

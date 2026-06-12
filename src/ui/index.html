@@ -171,7 +171,9 @@
     .app {
       height: 100%;
       display: grid;
-      grid-template-rows: 42px 1fr
+      /* Tall enough that the topbar buttons keep clear air above the progress strip riding
+         the bar's bottom edge. */
+      grid-template-rows: 48px 1fr
     }
 
     .top,
@@ -186,9 +188,53 @@
     }
 
     .top {
+      position: relative;
       grid-template-columns: 1fr auto 1fr;
       gap: 12px;
       border-bottom: 1px solid var(--line)
+    }
+
+    /* Review progress: a fill strip riding the topbar's bottom edge (covers the border as it
+       advances) + the "% reviewed" label beside the actions. progress.ts drives both. */
+    .top-progress {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 3px;
+      pointer-events: none
+    }
+
+    .top-progress>i {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: var(--green);
+      border-radius: 0 2px 2px 0;
+      transition: width .45s cubic-bezier(.22, .9, .34, 1)
+    }
+
+    .top-progress.pulse>i {
+      animation: prog-pulse .8s ease-out
+    }
+
+    @keyframes prog-pulse {
+      0% {
+        filter: brightness(1.7);
+        box-shadow: 0 0 10px 0 var(--green)
+      }
+
+      100% {
+        filter: brightness(1);
+        box-shadow: 0 0 0 0 transparent
+      }
+    }
+
+    .top-pct {
+      color: var(--muted);
+      font-size: var(--text-xs);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap
     }
 
     .bottom {
@@ -323,7 +369,51 @@
 
     .tree {
       border-right: 1px solid var(--line);
-      padding-top: 8px
+      padding-top: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden
+    }
+
+    #files {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto
+    }
+
+    /* Settings lives docked at the sidebar's far bottom; the topbar twin (.top-settings)
+       shows only when the tree is hidden (single-column / file mode) so it stays reachable. */
+    .tree-settings {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: auto -10px -10px;
+      padding: 10px 14px;
+      border: 0;
+      border-top: 1px solid var(--line);
+      background: none;
+      color: var(--muted);
+      font-size: var(--text-sm);
+      text-align: left
+    }
+
+    .tree-settings:hover {
+      color: var(--ink);
+      background: var(--surface-raised)
+    }
+
+    .tree-settings kbd {
+      margin-left: auto
+    }
+
+    .actions .top-settings {
+      display: none
+    }
+
+    body.single .actions .top-settings,
+    body.file-mode .actions .top-settings {
+      display: inline-flex
     }
 
     .right {
@@ -411,30 +501,6 @@
     .guidebar .gb-nav:disabled {
       opacity: .4;
       cursor: default
-    }
-
-    .guidebar .gb-progress {
-      flex: 0 0 auto;
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      color: var(--muted);
-      font-size: var(--text-xs)
-    }
-
-    .guidebar .gb-bar {
-      width: 60px;
-      height: 3px;
-      border-radius: var(--radius-xs);
-      overflow: hidden;
-      background: var(--line)
-    }
-
-    .guidebar .gb-bar>i {
-      display: block;
-      height: 100%;
-      background: var(--green);
-      transition: width .25s
     }
 
     .guidebar .gb-fill {
@@ -2262,10 +2328,11 @@
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
         </div>
       </div>
-      <div class="actions"><button class="btn icon" data-tip="Settings (⇧,)" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
+      <div class="actions"><span class="top-pct" id="progressPct" style="display:none"></span><button class="btn icon top-settings" data-tip="Settings (⇧,)" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
           class="btn danger" data-tip="Reset review (⇧R)" @click="$store.g.reset()">Reset Review</button><button class="btn primary"
           :disabled="$store.g.awaitingAgent" @click="$store.g.send()"><span
             x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send to Agent'">Send to Agent</span> <kbd>⇧S</kbd></button></div>
+      <div class="top-progress" id="progressStrip" style="display:none"><i id="progressFill"></i></div>
     </header>
     <main class="main">
       <aside class="tree">
@@ -2292,6 +2359,7 @@
               </span>
             </div>
           </template></div>
+        <button class="tree-settings" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg><span>Settings</span><kbd>⇧,</kbd></button>
       </aside>
       <div class="resizer" data-resize="left"></div>
       <section class="center">
@@ -2306,10 +2374,6 @@
           <span class="gb-stale" x-show="$store.g.guideStale && $store.g.guideStale()"
             title="Guide generated for an earlier diff — regenerate and restart with --guide to refresh"><svg class="ic"><use href="#gly-warn"></use></svg> Guide Stale</span>
           <span class="gb-fill"></span>
-          <span class="gb-progress" x-show="$store.g.guideProgress">
-            <span class="gb-bar"><i :style="`width:${$store.g.guideProgress().pct}%`"></i></span>
-            <span x-text="$store.g.guideProgress().pct + '% reviewed'"></span>
-          </span>
         </div>
         <div class="diff-area">
           <div id="diff" x-ignore></div>
