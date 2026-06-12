@@ -7,6 +7,10 @@ import {
   cursorComment,
   cursorVerdict,
   cursorResolve,
+  golineActive,
+  golineDigit,
+  golineCommit,
+  golineCancel,
 } from "./cursor";
 
 // ── Central keyboard map ─────────────────────────────────────────────────────
@@ -20,10 +24,11 @@ type Hotkey = {
   desc: string;
   group: Group;
   test: (e: KeyboardEvent) => boolean;
-  run: () => void;
+  run: (e: KeyboardEvent) => void;
   when?: () => boolean; // scope guard (default: anywhere not typing)
   typing?: boolean; // also fires while typing in the composer
   hide?: boolean; // omit from the help overlay
+  goline?: boolean; // part of the go-to-line gesture — doesn't cancel a pending digit buffer
 };
 
 // Scopes
@@ -48,6 +53,10 @@ const cmdShift = (key: string) => (e: KeyboardEvent) =>
 
 // Esc cascade: close the topmost transient surface.
 function escape() {
+  if (golineActive()) {
+    golineCancel();
+    return;
+  }
   if (S.confirmMsg) {
     S.confirmMsg = "";
     return;
@@ -176,6 +185,15 @@ const HOTKEYS: Hotkey[] = [
     hide: true,
   },
   {
+    combo: "1–9",
+    desc: "Go to line (↵ jump, esc cancel)",
+    group: "Navigate",
+    test: (e) => /^[0-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey,
+    when: inDiff,
+    run: (e) => golineDigit(e.key),
+    goline: true,
+  },
+  {
     combo: "o",
     desc: "Overview",
     group: "Navigate",
@@ -190,6 +208,17 @@ const HOTKEYS: Hotkey[] = [
     test: enter,
     when: inOverview,
     run: () => S.startGuided?.(),
+  },
+  // Goline commit must outrank "comment on line" while digits are pending — same key, same scope.
+  {
+    combo: "↵",
+    desc: "Jump to typed line",
+    group: "Navigate",
+    test: enter,
+    when: () => inDiff() && golineActive(),
+    run: () => golineCommit(),
+    goline: true,
+    hide: true,
   },
   // Comment
   {
@@ -320,7 +349,8 @@ const HOTKEYS: Hotkey[] = [
     group: "App",
     test: (e) => e.key === "Escape",
     typing: true,
-    run: escape,
+    run: escape, // cancels pending goline digits first (see escape()), so no dispatcher pre-cancel
+    goline: true,
   },
 ];
 
@@ -336,8 +366,11 @@ export function installKeys() {
       if (!h.test(e)) continue;
       if (typing && !h.typing) continue;
       if (h.when && !h.when()) continue;
+      // Any other action abandons pending goline digits — otherwise the idle timer would
+      // yank the cursor away ~800ms after e.g. a j/⇧Y that already moved on.
+      if (!h.goline) golineCancel();
       e.preventDefault();
-      h.run();
+      h.run(e);
       return;
     }
   });

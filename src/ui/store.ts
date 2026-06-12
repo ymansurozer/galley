@@ -24,6 +24,7 @@ export const S: Store = Alpine.reactive<Store>({
   composerOpen: false,
   popoverOpen: false,
   toastMsg: "",
+  golineBuffer: "",
   composerTitle: "New line",
   composerBody: "",
   editingCommentId: null,

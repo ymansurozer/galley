@@ -157,22 +157,56 @@ function ensureCursor(): Row | undefined {
   return r;
 }
 
-// Land the cursor on a specific rendered line (display space) and center it — used by the
-// blockers jump list. Retries once across two frames so a just-triggered collapsed-region
-// expansion (which rerenders) has laid out its rows.
+// Land the cursor on a specific rendered line (display space) and center it. Context rows merge
+// to a single entry (additions primary, deletions twin in `alt`), so fall back to a line-only
+// match before giving up.
+function landAt(side: Side, line: number): boolean {
+  const list = rows();
+  const r = list.find((x) => matches(x, side, line)) ?? list.find((x) => x.line === line);
+  if (!r) return false;
+  cur = { side: r.side, line: r.line };
+  paint(r);
+  r.el.scrollIntoView({ block: "center" });
+  return true;
+}
+
+// Jump used by the blockers list. Retries once across two frames so a just-triggered
+// collapsed-region expansion (which rerenders) has laid out its rows.
 export function cursorJumpTo(side: Side, line: number) {
-  const land = () => {
-    const list = rows();
-    // Context rows merge to a single entry (additions primary, deletions twin in `alt`), so
-    // fall back to a line-only match before giving up.
-    const r = list.find((x) => matches(x, side, line)) ?? list.find((x) => x.line === line);
-    if (!r) return false;
-    cur = { side: r.side, line: r.line };
-    paint(r);
-    r.el.scrollIntoView({ block: "center" });
-    return true;
-  };
-  if (!land()) requestAnimationFrame(() => requestAnimationFrame(() => land()));
+  if (!landAt(side, line))
+    requestAnimationFrame(() => requestAnimationFrame(() => landAt(side, line)));
+}
+
+// ── Go to line ───────────────────────────────────────────────────────────────
+// Typing digits in the diff accumulates a line number (shown as the goline pill); ↵ or a short
+// idle pause commits the jump, Esc cancels. Commit only moves the cursor — the existing ↵ /
+// ⇧Y / r bindings take over from the landed line, so the jump composes with every verb.
+
+let golineTimer: ReturnType<typeof setTimeout> | undefined;
+
+export function golineActive(): boolean {
+  return !!S.golineBuffer;
+}
+
+export function golineDigit(d: string) {
+  if (!S.golineBuffer && d === "0") return; // a leading 0 can't start a real line number
+  S.golineBuffer += d;
+  clearTimeout(golineTimer);
+  golineTimer = setTimeout(golineCommit, 800);
+}
+
+export function golineCancel() {
+  S.golineBuffer = "";
+  clearTimeout(golineTimer);
+}
+
+export function golineCommit() {
+  const n = parseInt(S.golineBuffer, 10);
+  golineCancel();
+  if (!Number.isFinite(n)) return;
+  // Prefer the additions/new side — the number a reviewer reads off the gutter. No retry:
+  // goline never triggers an expansion, so a miss means the line isn't rendered.
+  if (!landAt("additions", n)) toast(`Line ${n} isn't visible in this diff`);
 }
 
 export function cursorMoveLine(dir: 1 | -1) {

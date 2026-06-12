@@ -2192,6 +2192,39 @@
       display: block
     }
 
+    /* Go-to-line pill: mode indicator for pending typed digits (neutral, unlike the green toast). */
+    .goline {
+      position: absolute;
+      left: 50%;
+      bottom: 46px;
+      transform: translateX(-50%);
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      color: var(--ink);
+      border-radius: var(--radius-pill);
+      padding: 7px 12px;
+      font-size: var(--text-sm);
+      display: none;
+      align-items: center;
+      gap: 6px
+    }
+
+    .goline.show {
+      display: flex
+    }
+
+    .goline b {
+      color: var(--ink-bright)
+    }
+
+    .goline .goline-hint {
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 4px
+    }
+
     @media(max-width:1100px) {
       body {
         overflow: auto
@@ -2436,6 +2469,9 @@
         </div>
       </div>
       <div class="toast" id="toast" :class="{show: $store.g.toastMsg}" x-text="$store.g.toastMsg">saved</div>
+      <div class="goline" :class="{show: $store.g.golineBuffer}">Go to line&nbsp;<b
+          x-text="$store.g.golineBuffer"></b><span class="goline-hint"><kbd>↵</kbd> Jump · <kbd>esc</kbd>
+          Cancel</span></div>
     </main>
   </div>
   <script type="module" src="/ui.js"></script>
