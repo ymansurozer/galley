@@ -7,6 +7,10 @@ export const GUIDE_SPEC = `galley guided-review spec
 
 Attach a guide at start:  galley <mode> --guide <file.json>
 
+Write the guide file OUTSIDE the repo working tree (a temp path, e.g. one from \`mktemp\`, or
+a gitignored directory). Working-tree review mode surfaces untracked files, so a guide left in
+the repo would show up in the review as a stray addition — and could get committed by accident.
+
 The file is one JSON object:
 
 {

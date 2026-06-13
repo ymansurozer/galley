@@ -1,9 +1,10 @@
-import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { test, before, after } from "node:test";
+
 import { buildDiffSource } from "./state.js";
 
 let root: string;
@@ -98,4 +99,42 @@ test("file mode: staged content is the old-side baseline, not HEAD", async () =>
   assert.equal(src!.changes.length, 1);
   git(["restore", "--staged", "a.txt"]);
   git(["checkout", "--", "a.txt"]);
+});
+
+// `git diff` never lists untracked files, so the working review must surface them itself —
+// otherwise a brand-new file the agent created (but never `git add`ed) silently vanishes.
+test("repo mode: untracked file → full additions alongside tracked changes", async () => {
+  write("a.txt", "a\nUNTRACKED-NEIGHBOR\nc\n"); // a tracked change…
+  write("new.ts", "export const x = 1;\n"); // …and a brand-new untracked file
+  const src = await buildDiffSource({ mode: "repo", root });
+  assert.ok(src);
+  const newFile = src!.files.find((f) => f.path === "new.ts");
+  assert.ok(newFile, "untracked file should appear in the working diff");
+  assert.equal(newFile!.oldFile.contents, ""); // nothing to diff against → all additions
+  assert.equal(newFile!.newFile.contents, "export const x = 1;\n");
+  assert.equal(
+    src!.changes.filter((c) => c.path === "new.ts").length,
+    0, // no per-hunk changes — whole-file Approve stages it via `git add`
+  );
+  assert.ok(src!.changes.some((c) => c.path === "a.txt")); // tracked change still present
+  git(["checkout", "--", "a.txt"]);
+  rmSync(path.join(root, "new.ts"));
+});
+
+// Guards the early-return: with every tracked change staged, `git diff` is empty — but an
+// untracked-only working tree must still open a desk, not return null.
+test("repo mode: only untracked files, nothing else changed → non-null", async () => {
+  write("new.ts", "export const y = 2;\n");
+  const src = await buildDiffSource({ mode: "repo", root });
+  assert.ok(src, "untracked-only working tree should still produce a review");
+  assert.equal(src!.files.length, 1);
+  assert.equal(src!.files[0]!.path, "new.ts");
+  rmSync(path.join(root, "new.ts"));
+});
+
+test("repo mode: staged diff ignores untracked files", async () => {
+  write("new.ts", "export const z = 3;\n"); // untracked, never added
+  const src = await buildDiffSource({ mode: "repo", root, staged: true });
+  assert.equal(src, null); // nothing staged, and untracked must not leak into staged mode
+  rmSync(path.join(root, "new.ts"));
 });

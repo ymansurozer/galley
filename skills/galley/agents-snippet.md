@@ -12,7 +12,7 @@ When the user should review a plan, a PR, or code changes you've made, hand it t
 - **A markdown plan / single artifact** → `galley file <path> &`.
 - **A branch / PR** → `galley pr <ref> &`.
 
-Optionally attach an AI **guided review** so the human gets an overview + a logical, annotated file order: add `--guide guide.json` to the start command (see the skill for the JSON schema).
+Optionally attach an AI **guided review** so the human gets an overview + a logical, annotated file order: add `--guide <file>` to the start command (see the skill for the JSON schema). Write the guide file **outside the repo working tree** (a temp path or gitignored dir) — working-tree review surfaces untracked files, so a guide left in the repo shows up as a stray addition.
 
 Then loop: `galley await --session <task-id>` blocks for the next event and prints a tagged JSON envelope.
 - `{"kind":"question",…}` → answer **now** with `galley comment --path … --line … --side … --body "…"` at the question's location. While gathering the answer (or acting on a review), post brief `galley status --session <task-id> --body "Reading X…"` lines — they show live next to the reviewer's waiting indicator so they're not staring at a static spinner.
