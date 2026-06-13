@@ -1,11 +1,14 @@
-import crypto from "node:crypto";
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+
+import { resolveEditorCommand } from "./editor.js";
 import { git, listProjectTree, patchForChange } from "./git.js";
+import { validateGuide } from "./guide.js";
 import {
   anchorTextFor,
   buildReviewResult,
@@ -19,13 +22,11 @@ import {
   syncGitState,
   writeGlobalSettings,
 } from "./state.js";
-import { validateGuide } from "./guide.js";
-import { resolveEditorCommand } from "./editor.js";
 import type { AgentActivity, AwaitEvent, DeskStatus, ReviewState } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DOCS = "skills/galley/SKILL.md";
+const DOCS = "Run `galley spec` for the full agent contract.";
 
 export type ServerOptions = {
   state: ReviewState;
@@ -379,7 +380,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               422,
               "INVALID_GUIDE",
               `Invalid guide: ${result.reason}.`,
-              "Run `galley guide-spec` for the schema.",
+              "Run `galley spec` for the guided-review schema.",
             );
           validatedGuide = result.guide;
         }
