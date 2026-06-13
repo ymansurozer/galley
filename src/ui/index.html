@@ -665,7 +665,7 @@
       line-height: 1.55
     }
 
-    .ghdr .ghdr-why {
+    .ghdr .ghdr-flag {
       display: flex;
       align-items: flex-start;
       gap: 6px;
@@ -673,14 +673,14 @@
       color: var(--amber)
     }
 
-    .ghdr .ghdr-why>.ic {
+    .ghdr .ghdr-flag>.ic {
       width: 12px;
       height: 12px;
       margin-top: 3px;
       fill: currentColor
     }
 
-    .ghdr .ghdr-why .md {
+    .ghdr .ghdr-flag .md {
       margin-top: 0;
       color: var(--amber);
       font-size: var(--text-xs);
@@ -2237,7 +2237,7 @@
       margin-top: 0
     }
 
-    /* Overview file list: the guide's files grouped by category, each row path + summary +
+    /* Overview file list: the guide's files grouped by category, each row path + orientation +
        ±counts + a read-only state badge (decisions stay in the diff; clicking opens it). */
     .guide-overview .go-files-h {
       margin: 0 0 7px
@@ -2560,7 +2560,7 @@
               <svg class="ic st approved" x-show="r.kind==='file' && r.state==='approved'" title="Approved"><use href="#gly-check"></use></svg>
               <svg class="ic st changes" x-show="r.kind==='file' && r.state==='changes-requested'" title="Changes requested"><use href="#gly-circle-alert"></use></svg>
               <span class="nm" x-show="r.kind==='file'" x-text="r.name" :title="r.path"></span>
-              <svg class="ic crit" x-show="r.kind==='file' && r.critical" title="Critical"><use href="#gly-flag"></use></svg>
+              <svg class="ic crit" x-show="r.kind==='file' && r.flag" :title="r.flag"><use href="#gly-flag"></use></svg>
               <span class="status-pack">
                 <svg class="ic badge approved" x-show="r.kind==='cat' && r.complete" title="All files reviewed"><use href="#gly-check"></use></svg>
                 <i class="add" x-show="r.kind==='file' && r.added" x-text="'+'+r.added"></i>

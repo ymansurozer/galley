@@ -3,10 +3,11 @@ import type { Guide, GuideFile } from "./types.js";
 export type GuideValidation = { ok: true; guide: Guide } | { ok: false; reason: string };
 
 // Validate + normalize an agent-supplied guide. Required: a non-empty `overview` and a
-// non-empty `files` array whose every entry has a `path` and a `summary`. `order` and
-// `category` are optional (default to the entry's position / "Changes"); `critical`/`why`
-// are optional flags. Returns the normalized guide with files sorted by `order`, or a
-// reason the input was rejected. Pure — no IO — so it's the same check on the server and CLI.
+// non-empty `files` array whose every entry has a `path` and an `orientation`. `order` and
+// `category` are optional (default to the entry's position / "Changes"); `flag` is an
+// optional note whose presence raises the file's flag. Returns the normalized guide with
+// files sorted by `order`, or a reason the input was rejected. Pure — no IO — so it's the
+// same check on the server and CLI.
 export function validateGuide(input: unknown): GuideValidation {
   if (!input || typeof input !== "object") return { ok: false, reason: "guide must be an object" };
   const g = input as Record<string, unknown>;
@@ -22,16 +23,15 @@ export function validateGuide(input: unknown): GuideValidation {
     const f = raw as Record<string, unknown>;
     if (typeof f.path !== "string" || !f.path.trim())
       return { ok: false, reason: `guide.files[${i}].path must be a non-empty string` };
-    if (typeof f.summary !== "string" || !f.summary.trim())
-      return { ok: false, reason: `guide.files[${i}].summary must be a non-empty string` };
+    if (typeof f.orientation !== "string" || !f.orientation.trim())
+      return { ok: false, reason: `guide.files[${i}].orientation must be a non-empty string` };
     const file: GuideFile = {
       path: f.path,
       order: typeof f.order === "number" && Number.isFinite(f.order) ? f.order : i,
       category: typeof f.category === "string" && f.category.trim() ? f.category : "Changes",
-      summary: f.summary,
+      orientation: f.orientation,
     };
-    if (f.critical === true) file.critical = true;
-    if (typeof f.why === "string" && f.why.trim()) file.why = f.why;
+    if (typeof f.flag === "string" && f.flag.trim()) file.flag = f.flag;
     files.push(file);
   }
   files.sort((a, b) => a.order - b.order);

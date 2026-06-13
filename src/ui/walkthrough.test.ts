@@ -27,7 +27,7 @@ function file(path: string, ...hunkKinds: string[]) {
 }
 
 function guideFile(path: string, category: string, extra: Partial<GuideFile> = {}): GuideFile {
-  return { path, order: 0, category, summary: `about ${path}`, ...extra };
+  return { path, order: 0, category, orientation: `about ${path}`, ...extra };
 }
 
 const allPending = () => "pending" as FileReviewState;
@@ -61,7 +61,10 @@ test("walkthroughGroups groups by category in first-occurrence guide order", () 
 
 test("walkthroughGroups: roll-ups, basename split, and fileIndex into the diff list", () => {
   const groups = walkthroughGroups(
-    [guideFile("src/ui/a.ts", "Core", { critical: true }), guideFile("b.ts", "Core")],
+    [
+      guideFile("src/ui/a.ts", "Core", { flag: "check the reject path" }),
+      guideFile("b.ts", "Core"),
+    ],
     [file("b.ts", "d"), file("src/ui/a.ts", "aad")],
     (p) => (p === "b.ts" ? "approved" : "pending"),
   );
@@ -74,7 +77,7 @@ test("walkthroughGroups: roll-ups, basename split, and fileIndex into the diff l
   assert.equal(a.dir, "src/ui/");
   assert.equal(a.name, "a.ts");
   assert.equal(a.fileIndex, 1); // index into the diff's file list, not the guide's
-  assert.equal(a.critical, true);
+  assert.equal(a.flag, "check the reject path");
   assert.equal(core.files[1]!.state, "approved");
 });
 
@@ -90,7 +93,7 @@ test("walkthroughGroups skips guide entries absent from the diff (guideOrder rul
   );
 });
 
-test("walkthroughGroups puts unlisted diff files in a trailing Other group, summary-less", () => {
+test("walkthroughGroups puts unlisted diff files in a trailing Other group, orientation-less", () => {
   const groups = walkthroughGroups(
     [guideFile("a.ts", "Core")],
     [file("stray.ts", "a"), file("a.ts", "a")],
@@ -101,7 +104,7 @@ test("walkthroughGroups puts unlisted diff files in a trailing Other group, summ
   assert.equal(other.other, true);
   assert.equal(other.category, "Other");
   assert.deepEqual(
-    other.files.map((f) => [f.path, f.summary]),
+    other.files.map((f) => [f.path, f.orientation]),
     [["stray.ts", ""]],
   );
 });

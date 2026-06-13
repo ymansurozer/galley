@@ -127,8 +127,8 @@ export function guideStale(): boolean {
   );
 }
 
-// One file row in the Overview list: path (dimmed dir, bright basename) + critical flag +
-// ±counts + a read-only review-state badge on top, the guide's one-line summary beneath.
+// One file row in the Overview list: path (dimmed dir, bright basename) + flag icon +
+// ±counts + a read-only review-state badge on top, the guide's orientation beneath.
 // Read-only by design — decisions stay where the diff is visible; clicking opens the file.
 function overviewFileRow(f: WalkFile): string {
   const badge =
@@ -140,10 +140,10 @@ function overviewFileRow(f: WalkFile): string {
   return `<button class="go-file" data-i="${f.fileIndex}">
     <span class="go-file-top">
       <span class="go-file-path"><span class="fdir">${esc(f.dir)}</span><span class="fname">${esc(f.name)}</span></span>
-      ${f.critical ? `<svg class="ic crit" title="Critical"><use href="#gly-flag"></use></svg>` : ""}
+      ${f.flag ? `<svg class="ic crit" title="${esc(f.flag)}"><use href="#gly-flag"></use></svg>` : ""}
       <span class="go-file-stats">${f.added ? `<i class="add">+${f.added}</i>` : ""}${f.removed ? `<i class="del">−${f.removed}</i>` : ""}${badge}</span>
     </span>
-    ${f.summary ? `<span class="go-file-sum">${renderMarkdownInline(f.summary)}</span>` : ""}
+    ${f.orientation ? `<span class="go-file-sum">${renderMarkdownInline(f.orientation)}</span>` : ""}
   </button>`;
 }
 

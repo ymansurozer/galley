@@ -268,7 +268,7 @@ function loadGuideArg(value: string | boolean | undefined) {
     return null;
   }
   const SCHEMA =
-    "Expected JSON: { overview, prDescription?, files: [{ path, order, category, summary, critical?, why? }] }.";
+    "Expected JSON: { overview, prDescription?, files: [{ path, order, category, orientation, flag? }] }.";
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(value, "utf8"));
