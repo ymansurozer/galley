@@ -105,14 +105,15 @@ export type ReviewMode = "repo" | "file" | "pr";
 
 // A per-file entry in an agent-generated guided review. `order` drives Next/Prev
 // (general → specific); `category` is the stepper grouping (e.g. Config/Core/Wiring,
-// semantic, distinct from the folder); `critical` + `why` drive the flag + "why flagged".
+// semantic, distinct from the folder); `orientation` is the lens to read the file with
+// (role, problem, what to expect — not a changelog); `flag`, when present, raises the
+// flag for closer scrutiny and is its note. (Its presence is the flag — no separate bool.)
 export type GuideFile = {
   path: string;
   order: number;
   category: string;
-  summary: string;
-  critical?: boolean;
-  why?: string;
+  orientation: string;
+  flag?: string;
 };
 
 // The guided review the coding agent attaches (the desk renders it, runs no model).
@@ -162,7 +163,7 @@ export type ReviewState = {
   decisionFiles?: string[];
   // Explicit accept/reject records — the source of truth for decisions.
   decisions?: Decision[];
-  // Agent-generated guided review (overview + per-file summaries/order/category).
+  // Agent-generated guided review (overview + per-file orientation/order/category).
   // Optional: absent → no guide surfaces render.
   guide?: Guide;
   persistFile?: string;

@@ -30,8 +30,8 @@ export type WalkFile = {
   dir: string;
   name: string;
   fileIndex: number;
-  summary: string; // guide markdown ("" for files the guide didn't list)
-  critical: boolean;
+  orientation: string; // guide markdown ("" for files the guide didn't list)
+  flag: string; // flag note ("" = not flagged); presence raises the flag icon
   added: number;
   removed: number;
   state: FileReviewState;
@@ -66,8 +66,8 @@ export function walkthroughGroups(
       dir: path.slice(0, path.length - name.length),
       name,
       fileIndex,
-      summary: g?.summary ?? "",
-      critical: !!g?.critical,
+      orientation: g?.orientation ?? "",
+      flag: g?.flag ?? "",
       added: s.added,
       removed: s.removed,
       state: stateOf(path),

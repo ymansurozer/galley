@@ -28,7 +28,7 @@ const ANCHORS = [
   "one-paragraph changeset overview",
   "files (required, non-empty array)",
   "repo-relative; must be a file in the diff",
-  "shown in the file's diff header",
+  "Orientation, not a changelog",
   // the rest of the operational contract
   "reload vs restart",
   "desk.lock",

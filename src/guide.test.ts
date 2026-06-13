@@ -13,11 +13,10 @@ const validInput = () => ({
       path: "src/middleware/rateLimit.ts",
       order: 2,
       category: "Core",
-      summary: "The limiter.",
-      critical: true,
-      why: "reject path",
+      orientation: "The limiter.",
+      flag: "reject path",
     },
-    { path: "src/config/limits.ts", order: 1, category: "Config", summary: "Constants." },
+    { path: "src/config/limits.ts", order: 1, category: "Config", orientation: "Constants." },
   ],
 });
 
@@ -32,30 +31,29 @@ test("validateGuide accepts a well-formed guide and sorts files by order", () =>
     r.guide.files.map((f) => f.path),
     ["src/config/limits.ts", "src/middleware/rateLimit.ts"],
   );
-  assert.equal(r.guide.files[1]!.critical, true);
-  assert.equal(r.guide.files[1]!.why, "reject path");
+  assert.equal(r.guide.files[1]!.flag, "reject path");
 });
 
 test("validateGuide defaults missing order (by position) and category", () => {
-  const r = validateGuide({ overview: "x", files: [{ path: "a.ts", summary: "s" }] });
+  const r = validateGuide({ overview: "x", files: [{ path: "a.ts", orientation: "s" }] });
   assert.ok(r.ok);
   if (!r.ok) return;
   assert.equal(r.guide.files[0]!.order, 0);
   assert.equal(r.guide.files[0]!.category, "Changes");
-  assert.equal(r.guide.files[0]!.critical, undefined);
+  assert.equal(r.guide.files[0]!.flag, undefined);
 });
 
 test("validateGuide rejects malformed input", () => {
   const cases: unknown[] = [
     null,
     "nope",
-    { files: [{ path: "a", summary: "s" }] }, // missing overview
-    { overview: "  ", files: [{ path: "a", summary: "s" }] }, // blank overview
+    { files: [{ path: "a", orientation: "s" }] }, // missing overview
+    { overview: "  ", files: [{ path: "a", orientation: "s" }] }, // blank overview
     { overview: "x" }, // missing files
     { overview: "x", files: "no" }, // files not array
     { overview: "x", files: [] }, // empty files
-    { overview: "x", files: [{ summary: "s" }] }, // entry missing path
-    { overview: "x", files: [{ path: "a" }] }, // entry missing summary
+    { overview: "x", files: [{ orientation: "s" }] }, // entry missing path
+    { overview: "x", files: [{ path: "a" }] }, // entry missing orientation
   ];
   for (const input of cases) assert.equal(validateGuide(input).ok, false, JSON.stringify(input));
 });
@@ -85,7 +83,7 @@ function state(over: Partial<ReviewState>): ReviewState {
 test("mergeReviewState carries an attached guide across a reload", () => {
   const guide: Guide = {
     overview: "o",
-    files: [{ path: "a.ts", order: 0, category: "Config", summary: "s" }],
+    files: [{ path: "a.ts", order: 0, category: "Config", orientation: "s" }],
   };
   const base = state({ baseDiffHash: "new" }); // freshly rebuilt diff — no guide
   const saved = state({ guide }); // live state with the attached guide

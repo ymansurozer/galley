@@ -99,7 +99,7 @@ Then \`galley reload\` to surface your edits, and \`galley await\` for the next 
 
 ## Guided review (optional)
 Attach with \`galley <mode> --guide <file>\`: an overview page + files in your order, each with
-summary/category, critical ones flagged. Galley validates+renders it (markdown in prose fields,
+orientation/category, files worth scrutinizing flagged. Galley validates+renders it (markdown in prose fields,
 raw HTML stripped) and runs no model — content and order are yours. Write the guide OUTSIDE the
 working tree (a temp or gitignored path): working mode surfaces untracked files, so an in-repo
 guide shows as a stray addition. The guide is stamped to its diff and survives reload/restart;
@@ -114,14 +114,17 @@ One JSON object:
 - prDescription? — author/PR intent, shown on the overview page.
 - files (required, non-empty array) — one entry per reviewed file:
   - path (required, non-empty) — repo-relative; must be a file in the diff.
-  - summary (required, non-empty) — shown in the file's diff header.
+  - orientation (required, non-empty) — the lens to read this file with: its role, the
+    problem it solves, what to expect before opening it, what's non-obvious or worth
+    scrutinizing. Orientation, not a changelog — the reviewer already sees the diff. Shown
+    in the file's diff header.
   - order? — ascending review order; defaults to array position.
   - category? — group label (default "Changes").
-  - critical? — flags closer review; surfaces \`why\` when true.
-  - why? — shown when critical.
+  - flag? — raises a flag on the file for closer scrutiny; the text is the note (what to
+    double-check, what's risky). Omit unless the file genuinely warrants it.
 Validation: overview a non-empty string, files a non-empty array, every file a non-empty
-path+summary; an unreadable file / invalid JSON / schema violation aborts the launch naming the
-offending field.
+path+orientation; an unreadable file / invalid JSON / schema violation aborts the launch naming
+the offending field.
 
 ## Between rounds — reload vs restart, and the desk lock
 - Don't edit tracked files mid-round: the reviewer wouldn't see the edits and their in-flight

@@ -56,7 +56,7 @@ I'm not saying this is *the* review surface. I built it in a week and I'm still 
 - **Per-line comment threads.** Comment on any line. Ask a question and your agent answers live in the thread; leave a change request and it rides to the handoff.
 - **Per-change accept/reject.** Accept or reject individual changes, or sign off a whole file.
 - **A tight handoff loop.** Hit **Send to Agent** and your agent gets a structured review. It makes the edits, re-diffs into the same tab, and replies in place.
-- **Guided review.** Your agent can attach a guide: an overview, the files in a sensible order, a per-file summary and category, and the risky ones flagged.
+- **Guided review.** Your agent can attach a guide: an overview, the files in a sensible order, a per-file orientation (the lens to read it with) and category, and the risky ones flagged.
 - **Four review modes.** The working tree, the staged diff, a single file (tracked or not, like a plan, PRD, or issue), or a branch against its merge-base.
 - **Keyboard-first.** Intuitive navigation: move by file, line, or change, and accept, reject, comment, or approve without touching the mouse.
 - **Open in editor.** Configure a repo-scoped editor command and jump from the review desk to the current file and line.

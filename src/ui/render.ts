@@ -387,19 +387,19 @@ async function renderCenter() {
       const guide = document.createElement("div");
       guide.className = "ghdr-guide";
       const chip = document.createElement("span");
-      chip.className = "ghdr-cat" + (entry.critical ? " crit" : "");
+      chip.className = "ghdr-cat" + (entry.flag ? " crit" : "");
       chip.textContent = entry.category;
       guide.appendChild(chip);
       const expl = document.createElement("div");
       expl.className = "ghdr-expl md";
-      expl.innerHTML = renderMarkdown(entry.summary);
+      expl.innerHTML = renderMarkdown(entry.orientation);
       guide.appendChild(expl);
-      // Critical "why" gets its own readable callout within the card.
-      if (entry.critical && entry.why) {
-        const why = document.createElement("div");
-        why.className = "ghdr-why";
-        why.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><div class="md">${renderMarkdown(entry.why)}</div>`;
-        guide.appendChild(why);
+      // A flagged file gets its own readable callout within the card.
+      if (entry.flag) {
+        const flag = document.createElement("div");
+        flag.className = "ghdr-flag";
+        flag.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><div class="md">${renderMarkdown(entry.flag)}</div>`;
+        guide.appendChild(flag);
       }
       wrap.appendChild(guide);
     }
