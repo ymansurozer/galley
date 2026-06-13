@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+
 import {
   changeBlockContent,
   changeStableKeyFromBlock,
@@ -177,17 +178,34 @@ export async function buildDiffSource(opts: {
   if (opts.staged) args.push("--cached");
   if (opts.path) args.push("--", opts.path);
   const rawDiff = await git(args, root);
-  if (!rawDiff.trim()) return null;
   // Each side must match what the diff was taken against, because the UI re-diffs the
   // old/new contents itself instead of rendering these hunks. Unstaged diffs working
   // tree vs INDEX, so old reads :0 — a HEAD baseline would resurrect already-staged
   // changes as pending diff on every reload. Staged (--cached) diffs index vs HEAD.
-  const { files, changes } = await assembleDiff(
-    rawDiff,
-    (p) => fileAt(root, p, opts.staged ? "HEAD" : ":0"),
-    (p) => (opts.staged ? fileAt(root, p, ":0") : fileAt(root, p)),
-    true,
-  );
+  const { files, changes } = rawDiff.trim()
+    ? await assembleDiff(
+        rawDiff,
+        (p) => fileAt(root, p, opts.staged ? "HEAD" : ":0"),
+        (p) => (opts.staged ? fileAt(root, p, ":0") : fileAt(root, p)),
+        true,
+      )
+    : { files: [], changes: [] };
+  // `git diff` never reports untracked files (a brand-new file has no index/HEAD side to
+  // diff against), so the working review would silently drop any file the agent created but
+  // never `git add`ed. Surface them as full-file additions — same representation as file
+  // mode. They carry no stageable hunks; whole-file Approve stages them via `git add`
+  // (/api/stage), which doesn't rely on rawDiff. Staged mode is unaffected: untracked files
+  // are by definition not in the index.
+  if (!opts.staged) {
+    const lsArgs = ["ls-files", "--others", "--exclude-standard"];
+    if (opts.path) lsArgs.push("--", opts.path);
+    const untracked = (await git(lsArgs, root)).split(/\r?\n/).filter(Boolean);
+    for (const rel of untracked) {
+      const working = await fs.readFile(path.join(root, rel), "utf8").catch(() => "");
+      files.push(fileEntry(rel, "", working));
+    }
+  }
+  if (files.length === 0) return null;
   return { files, changes, rawDiff };
 }
 

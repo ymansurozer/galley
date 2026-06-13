@@ -168,6 +168,8 @@ If your harness can't hold a `galley await` long-poll open or background the des
 
 Optionally attach a **guided review** so the desk presents the changeset as a guided flow: an overview page, then the files in the order you choose, each with a summary and category, and the critical ones flagged. The prose fields (overview, summaries, why) render as markdown — use inline code for identifiers and lists for multi-point guidance. You generate the guide from the diff and attach it at start with `galley … --guide <file>`. Galley validates and renders it and runs no model; with no guide the desk works exactly the same.
 
+Write the guide file **outside the repo working tree** — a temp path (e.g. from `mktemp`) or a gitignored directory. Working-tree review mode surfaces untracked files, so a guide left in the repo would appear in the review as a stray addition (and risks being committed by accident).
+
 Run **`galley guide-spec`** for the authoritative schema, field meanings, and validation rules.
 
 The guide is attached at **start** and survives `reload` and restarts. It is stamped against the diff it was generated for; once a `reload` advances the diff past that point, the desk flags it stale. To refresh it, regenerate the guide from the new diff and swap it into the **live** desk — `galley reload --guide <new.json>`, or simply re-run the start command with the new `--guide` (a live desk is reused: same tab, guide swapped, diff reloaded). Never start a second desk for a fresh guide.
