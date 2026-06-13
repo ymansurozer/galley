@@ -1,6 +1,26 @@
 # Changelog
 
 
+## v0.3.0
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.2.4...v0.3.0)
+
+### 🩹 Fixes
+
+- Show untracked files in working-tree review ([#16](https://github.com/ymansurozer/galley/pull/16))
+
+### 💅 Refactors
+
+- ⚠️  Make `galley spec` the single source of truth for the agent contract ([#17](https://github.com/ymansurozer/galley/pull/17))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Make `galley spec` the single source of truth for the agent contract ([#17](https://github.com/ymansurozer/galley/pull/17))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.2.4
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.2.3...v0.2.4)
