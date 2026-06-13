@@ -1,8 +1,12 @@
 #!/usr/bin/env node
-import http from "node:http";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import http from "node:http";
 import path from "node:path";
+
 import { getBranch, getGitRoot, gh, git } from "./git.js";
+import { validateGuide } from "./guide.js";
+import { startServer } from "./server.js";
+import { SPEC } from "./spec.js";
 import {
   appendComment,
   buildReviewState,
@@ -17,11 +21,8 @@ import {
   stablePort,
   syncGitState,
 } from "./state.js";
-import { validateGuide } from "./guide.js";
-import { GUIDE_SPEC } from "./guidespec.js";
-import { startServer } from "./server.js";
-import { maybeOfferUpdate } from "./update.js";
 import type { ReviewMode } from "./types.js";
+import { maybeOfferUpdate } from "./update.js";
 
 function parseArgs(argv: string[]) {
   const out: Record<string, string | boolean> = { diff: "working", open: true };
@@ -498,7 +499,7 @@ Usage:
   galley await [--timeout <s>]      Block for the next desk event (question | review)
   galley reload [--guide <file>]    Re-diff the working tree into the open desk
                                     (--guide swaps the attached review guide too)
-  galley guide-spec                 Print the guide JSON schema + authoring rules
+  galley spec                       Print the full agent contract (modes, loop, ReviewResult, guide schema)
 
 Common flags:
   --repo <path>     Repo to review (default: cwd)
@@ -533,8 +534,8 @@ async function main() {
   if (sub === "status") return runStatus(args);
   if (sub === "await") return runAwait(args);
   if (sub === "reload") return runReload(args);
-  if (sub === "guide-spec") {
-    process.stdout.write(GUIDE_SPEC + "\n");
+  if (sub === "spec") {
+    process.stdout.write(SPEC + "\n");
     return;
   }
   if (sub === "file") {
@@ -548,7 +549,7 @@ async function main() {
   if (sub === "pr") return runDesk("pr", positional, args);
   if (sub) {
     console.error(
-      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref|number|url> | comment | status | await | reload | guide-spec.`,
+      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref|number|url> | comment | status | await | reload | spec.`,
     );
     process.exitCode = 1;
     return;
