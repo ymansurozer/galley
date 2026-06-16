@@ -39,6 +39,18 @@ test("lineStats counts adds and deletes per file, across hunks", () => {
   assert.deepEqual(stats.get("c.ts"), { added: 0, removed: 0 });
 });
 
+test("lineStats counts a hunk-less new file's whole content as additions", () => {
+  // New files have no old side, so git emits no hunk — count the new content as all-added.
+  const stats = lineStats([
+    { path: "new.ts", hunks: [], oldFile: { contents: "" }, newFile: { contents: "a\nb\nc\n" } },
+    { path: "nonl.ts", hunks: [], oldFile: { contents: "" }, newFile: { contents: "a\nb" } },
+    { path: "empty.ts", hunks: [], oldFile: { contents: "" }, newFile: { contents: "" } },
+  ]);
+  assert.deepEqual(stats.get("new.ts"), { added: 3, removed: 0 }); // trailing newline trimmed
+  assert.deepEqual(stats.get("nonl.ts"), { added: 2, removed: 0 }); // no trailing newline
+  assert.deepEqual(stats.get("empty.ts"), { added: 0, removed: 0 }); // empty new file stays 0
+});
+
 test("walkthroughGroups starts a new section each time the category changes (run-length)", () => {
   const groups = walkthroughGroups(
     [

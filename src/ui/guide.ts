@@ -146,7 +146,7 @@ export function renderOverview() {
   const fileList = walkGroups()
     .map(
       (grp) => `<div class="go-grp">
-      <div class="go-grp-h"><span class="go-grp-name">${esc(grp.category)}</span><span class="go-grp-meta">${grp.total} file${grp.total === 1 ? "" : "s"}${grp.added ? ` · <i class="add">+${grp.added}</i>` : ""}${grp.removed ? ` <i class="del">−${grp.removed}</i>` : ""}</span></div>
+      <div class="go-grp-h"><span class="go-grp-name">${esc(grp.category)}</span><span class="go-grp-meta">${grp.total} file${grp.total === 1 ? "" : "s"}${grp.added || grp.removed ? ` · <span class="go-grp-counts">${grp.added ? `<i class="add">+${grp.added}</i>` : ""}${grp.removed ? `<i class="del">−${grp.removed}</i>` : ""}</span>` : ""}</span></div>
       ${grp.files.map(overviewFileRow).join("")}
     </div>`,
     )
