@@ -1,6 +1,35 @@
 # Changelog
 
 
+## v0.4.0
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.3.0...v0.4.0)
+
+### 🚀 Enhancements
+
+- Confirm before sending a review to the agent ([#19](https://github.com/ymansurozer/galley/pull/19))
+- Attach an optional overall note when sending a review ([#20](https://github.com/ymansurozer/galley/pull/20))
+- Collapse the file tree into a drawer on narrow screens ([efecbf2](https://github.com/ymansurozer/galley/commit/efecbf2))
+
+### 🩹 Fixes
+
+- Keep walkthrough sections in provided order when a category repeats ([#21](https://github.com/ymansurozer/galley/pull/21))
+- Walkthrough indicators for new files + consistent churn spacing ([#22](https://github.com/ymansurozer/galley/pull/22))
+- Align sidebar tab bar and guide bar bottom borders ([#23](https://github.com/ymansurozer/galley/pull/23))
+
+### 💅 Refactors
+
+- ⚠️  Reframe guide file fields as orientation + flag ([#18](https://github.com/ymansurozer/galley/pull/18))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Reframe guide file fields as orientation + flag ([#18](https://github.com/ymansurozer/galley/pull/18))
+
+### ❤️ Contributors
+
+- Ymansurozer <ymansurozer@gmail.com>
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.3.0
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.2.4...v0.3.0)
