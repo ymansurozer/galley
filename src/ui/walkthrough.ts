@@ -47,10 +47,12 @@ export type WalkGroup = {
   total: number;
 };
 
-// Guide categories in first-occurrence order, files in guide order within each. Guide
-// entries absent from the diff are skipped (same rule as guideOrder); diff files absent
-// from the guide land in a trailing "Other" group — so these surfaces always cover
-// everything the progress strip counts and the two can never disagree.
+// Run-length grouping: categories and files in guide order, with a new section started each
+// time the category changes from the previous *shown* file — so a category the agent lists
+// non-contiguously yields separate sections instead of folding back up, and these surfaces
+// mirror guideOrder() exactly. Guide entries absent from the diff are skipped (same rule as
+// guideOrder); diff files absent from the guide land in a trailing "Other" group — so these
+// surfaces always cover everything the progress strip counts and the two can never disagree.
 export function walkthroughGroups(
   guideFiles: GuideFile[],
   files: FileLike[],
@@ -90,19 +92,19 @@ export function walkthroughGroups(
     if (f.state !== "pending") grp.done++;
   };
   const groups: WalkGroup[] = [];
-  const at = new Map<string, WalkGroup>();
   const listed = new Set<string>();
+  // Track only the current group: a skipped file (not in the diff) leaves no visible gap, so
+  // it must not split a run — hence the category compare happens against the last *shown* file.
+  let cur: WalkGroup | null = null;
   for (const g of guideFiles) {
     listed.add(g.path);
     const i = index.get(g.path);
     if (i === undefined) continue;
-    let grp = at.get(g.category);
-    if (!grp) {
-      grp = mkGroup(g.category, false);
-      at.set(g.category, grp);
-      groups.push(grp);
+    if (!cur || cur.category !== g.category) {
+      cur = mkGroup(g.category, false);
+      groups.push(cur);
     }
-    add(grp, mkFile(g.path, i, g));
+    add(cur, mkFile(g.path, i, g));
   }
   const other = mkGroup("Other", true);
   files.forEach((f, i) => {
@@ -126,17 +128,22 @@ export type WalkRow =
       added: number;
       removed: number;
       complete: boolean;
+      jumpIndex: number; // diff index a header click selects (first pending in the group, else its first)
     }
   | (WalkFile & { kind: "file"; key: string; cls: string; style: string });
 
 export function walkRows(groups: WalkGroup[], activePath: string | null): WalkRow[] {
   const rows: WalkRow[] = [];
-  for (const g of groups) {
+  groups.forEach((g, gi) => {
+    // First not-yet-finished file in THIS group, else its first — the rule the old
+    // firstFileOfCategory used, but scoped to the clicked occurrence, not the category name.
+    // Groups always carry ≥1 file (guide groups get one per add; Other is only pushed if it has any).
+    const target = g.files.find((f) => f.state === "pending") ?? g.files[0]!;
     rows.push({
       kind: "cat",
-      // "·other" can't collide with a guide category named "Other" (categories are
-      // free-form agent text; the marker isn't).
-      key: `cat:${g.other ? "·other" : g.category}`,
+      // The group index keeps the key unique when a category label repeats across runs;
+      // "·other" still distinguishes the synthetic trailer from a guide category named "Other".
+      key: `cat:${gi}:${g.other ? "·other" : g.category}`,
       category: g.category,
       other: g.other,
       total: g.total,
@@ -144,6 +151,7 @@ export function walkRows(groups: WalkGroup[], activePath: string | null): WalkRo
       added: g.added,
       removed: g.removed,
       complete: g.done === g.total,
+      jumpIndex: target.fileIndex,
     });
     for (const f of g.files)
       rows.push({
@@ -153,6 +161,6 @@ export function walkRows(groups: WalkGroup[], activePath: string | null): WalkRo
         cls: f.path === activePath ? "active" : "",
         style: "--depth:1",
       });
-  }
+  });
   return rows;
 }

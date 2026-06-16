@@ -90,15 +90,6 @@ export function guideProgress(): { done: number; approved: number; total: number
   return { done, approved, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }
 
-// Jump target for a category click: its first not-yet-finished file (guide order), else its first.
-export function firstFileOfCategory(category: string): number | null {
-  if (!hasGuide()) return null;
-  const byPath = new Map(S.state.files.map((f, i) => [f.path, i] as const));
-  const inCat = S.state.guide!.files.filter((g) => g.category === category);
-  const target = inCat.find((g) => fileReviewState(g.path) === "pending") ?? inCat[0];
-  return target ? (byPath.get(target.path) ?? null) : null;
-}
-
 // The guide entry for the file currently shown (or null) — drives the top guide bar.
 export function currentGuideEntry() {
   if (!hasGuide()) return null;

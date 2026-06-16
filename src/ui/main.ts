@@ -19,7 +19,6 @@ import {
   guideStale,
   nextFileIndex,
   prevFileIndex,
-  firstFileOfCategory,
   walkthroughRows,
 } from "./guide";
 import { setBaseTitle, reviewStats } from "./progress";
@@ -286,11 +285,6 @@ S.sendConfirm = () => {
 S.sendCancel = () => {
   S.sendOpen = false;
   S.sendNote = "";
-};
-// Walkthrough category headers: clicking one jumps to its first unreviewed file.
-S.jumpToCategory = (cat) => {
-  const i = firstFileOfCategory(cat);
-  if (i !== null && i !== undefined) S.selectFile?.(i);
 };
 // Walkthrough sidebar tab: categories + files in guide order (plus the "Other" trailer).
 S.walkthroughRows = walkthroughRows;
