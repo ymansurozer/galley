@@ -79,6 +79,9 @@ S.treeRows = treeRows;
 // which shows the "Rendering…" indicator only for a cold open of a big file.
 S.selectFile = (i) => {
   if (i < 0 || !S.state.files[i]) return; // ignore out-of-range selections
+  // Narrow-width drawer: opening a file is the drawer's whole purpose, so get it out of the
+  // way. The single funnel for tree/walkthrough clicks + next/prev + guide nav; no-op when shut.
+  S.treeDrawerOpen = false;
   S.overviewOpen = false;
   S.preview = null;
   S.fileIndex = i;

@@ -197,6 +197,10 @@ export interface Store {
   // Which sidebar pane is showing when a guide is attached (no guide → tabs hidden, tree
   // only). Per-session like overviewOpen; settings.sidebarDefault seeds it at init.
   sidebarTab: "tree" | "walkthrough";
+  // Narrow widths (≤1100px): the file tree is an off-canvas left drawer, hidden by default so
+  // the diff owns the screen. Toggled by the header hamburger / ⇧B; auto-closed on file select.
+  // Inert on desktop — the drawer styles are media-gated, so the tree stays side-by-side there.
+  treeDrawerOpen: boolean;
   // file mode: how a markdown file is shown — "rendered" (comark/markdown-it preview,
   // comment on blocks) or "source" (@pierre/diffs raw/diff).
   fileView: "rendered" | "source";
