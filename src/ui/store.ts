@@ -41,6 +41,7 @@ export const S: Store = Alpine.reactive<Store>({
   sendNote: "",
   overviewOpen: false,
   sidebarTab: "tree",
+  treeDrawerOpen: false,
   fileView: "rendered",
 });
 

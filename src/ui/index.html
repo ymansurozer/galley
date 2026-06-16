@@ -271,6 +271,34 @@
       border-radius: var(--radius-sm)
     }
 
+    /* Hamburger that opens the off-canvas file drawer — the topbar's only tree affordance once
+       the tree goes off-canvas. Hidden by default; revealed only under the ≤1100px media query
+       (and re-hidden in single-file / file-mode, which have no tree). */
+    .nav-toggle {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      margin-left: -4px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer
+    }
+
+    .nav-toggle:hover {
+      background: var(--surface-raised);
+      color: var(--ink)
+    }
+
+    /* Scrim behind the open file drawer; CSS-gated to narrow widths (see media query). */
+    .tree-backdrop {
+      display: none
+    }
+
     .actions {
       justify-self: end;
       display: flex;
@@ -425,6 +453,12 @@
     body.single .actions .top-settings,
     body.file-mode .actions .top-settings {
       display: inline-flex
+    }
+
+    /* No tree exists in these modes (tree is display:none below), so suppress the drawer toggle. */
+    body.single .nav-toggle,
+    body.file-mode .nav-toggle {
+      display: none !important
     }
 
     .right {
@@ -2482,35 +2516,61 @@
       margin-left: 4px
     }
 
+    /* Narrow widths: the file tree leaves the flow and becomes an off-canvas left drawer, so the
+       app stays a fixed-height single column with the diff filling it (the core surface owns the
+       screen) — no more tree-on-top page-scroll stacking. The tree is hidden by default and slides
+       in over a dimmed backdrop when opened (hamburger / ⇧B); selecting a file auto-closes it. */
     @media(max-width:1100px) {
-      body {
-        overflow: auto
-      }
-
-      .app {
-        height: auto;
-        min-height: 100%
-      }
-
       .main {
-        grid-template-columns: 1fr
+        grid-template-columns: minmax(0, 1fr)
       }
 
       .resizer {
         display: none
       }
 
-      .tree,
-      .right {
-        border: 0;
-        border-bottom: 1px solid var(--line)
+      .nav-toggle {
+        display: inline-flex
       }
 
+      .tree {
+        position: fixed;
+        top: 48px;
+        left: 0;
+        bottom: 0;
+        width: min(86vw, 300px);
+        z-index: 30;
+        border-right: 1px solid var(--line);
+        box-shadow: 8px 0 24px rgba(0, 0, 0, .35);
+        transform: translateX(-100%);
+        transition: transform .18s ease
+      }
+
+      .tree.drawer-open {
+        transform: translateX(0)
+      }
+
+      .tree-backdrop.open {
+        display: block;
+        position: fixed;
+        inset: 48px 0 0 0;
+        z-index: 29;
+        background: rgba(0, 0, 0, .5)
+      }
+
+      /* Float the comment surfaces over the diff rather than in-flow — an in-flow element would
+         add a row to the now fixed-height single column and clip the diff. */
       .action-pop,
       .composer {
-        position: static;
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        top: auto;
         width: auto;
-        margin: 12px
+        max-width: none;
+        margin: 0;
+        z-index: 40
       }
     }
 
@@ -2538,7 +2598,8 @@
 <body>
   <div class="app" x-data>
     <header class="top">
-      <div class="brand"><svg class="brand-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#hb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#hb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#hb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="hb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span></div>
+      <div class="brand"><button class="nav-toggle" data-tip="Files (⇧B)" aria-label="Toggle file tree"
+          @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="brand-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#hb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#hb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#hb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="hb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span></div>
       <div class="toggles">
         <div class="toggle" x-show="$store.g.isMarkdownFile()" data-tip="Rendered / source (m)"><button :class="{active: $store.g.fileView==='rendered'}"
             @click="$store.g.setFileView('rendered')">Rendered</button><button
@@ -2555,7 +2616,7 @@
       <div class="top-progress" id="progressStrip" style="display:none"><i id="progressFill"></i></div>
     </header>
     <main class="main">
-      <aside class="tree">
+      <aside class="tree" :class="{'drawer-open': $store.g.treeDrawerOpen}">
         <div class="tree-tabs" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak>
           <!-- The w hint sits on the INACTIVE tab — the one pressing w switches to. -->
           <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.sidebarTab='tree'">Tree <kbd x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
@@ -2605,6 +2666,8 @@
         </div>
         <button class="tree-settings" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg><span>Settings</span><kbd>⇧,</kbd></button>
       </aside>
+      <!-- Narrow-width only (CSS-gated): dims the diff behind the open file drawer; tap to close. -->
+      <div class="tree-backdrop" :class="{open: $store.g.treeDrawerOpen}" @click="$store.g.treeDrawerOpen=false"></div>
       <div class="resizer" data-resize="left"></div>
       <section class="center">
         <div class="guidebar" x-show="$store.g.showGuideBar && $store.g.showGuideBar()" x-cloak>

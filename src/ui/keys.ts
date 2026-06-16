@@ -74,7 +74,11 @@ function escape() {
     S.composerOpen = false;
     S.popoverOpen = false;
     S.editingCommentId = null;
+    return;
   }
+  // Lowest priority: the narrow-width file drawer. Closes only once every transient surface
+  // above it is gone, so Esc dismisses a composer/modal opened over the drawer first.
+  if (S.treeDrawerOpen) S.treeDrawerOpen = false;
 }
 
 // Stage a destructive action behind a confirm dialog (Enter confirms, Esc cancels).
@@ -322,6 +326,15 @@ const HOTKEYS: Hotkey[] = [
     when: () => hasGuide() && navigable(),
     test: k("w"),
     run: () => (S.sidebarTab = S.sidebarTab === "tree" ? "walkthrough" : "tree"),
+  },
+  {
+    combo: "⇧B",
+    desc: "Files drawer (narrow screens)",
+    group: "View",
+    when: navigable,
+    test: shift("B"),
+    // Toggles the off-canvas file tree at narrow widths; inert on desktop (drawer is media-gated).
+    run: () => (S.treeDrawerOpen = !S.treeDrawerOpen),
   },
   {
     combo: "⇧E",
