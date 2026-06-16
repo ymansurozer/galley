@@ -79,6 +79,11 @@
       --radius-xl: 12px;
       --radius-pill: 999px;
 
+      /* Height of the secondary bar directly under the top header — shared by the sidebar
+         Tree/Walkthrough tab strip (.tree-tabs) and the guide bar (.guidebar) so their bottom
+         borders form one continuous line across the column seam. Keep both in sync. */
+      --subbar-h: 40px;
+
       /* Gap between the +added / −removed (and state badge) churn indicators, kept in sync
          across every surface that renders them: sidebar walkthrough, Overview group headers
          + file rows, and the diff header. */
@@ -468,8 +473,8 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 7px 12px;
-      min-height: 38px;
+      padding: 0 12px;
+      height: var(--subbar-h);
       background: var(--surface);
       border-bottom: 1px solid var(--line);
       font-size: var(--text-sm)
@@ -971,8 +976,11 @@
     .tree-tabs {
       flex: 0 0 auto;
       display: flex;
+      align-items: stretch;
       gap: 2px;
-      margin: 0 0 8px;
+      height: var(--subbar-h);
+      margin: -8px -10px 8px;
+      padding: 0 4px;
       border-bottom: 1px solid var(--line)
     }
 
@@ -982,7 +990,9 @@
       color: var(--muted);
       font: inherit;
       font-size: var(--text-sm);
-      padding: 3px 8px 5px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 8px;
       cursor: pointer;
       border-bottom: 2px solid transparent;
       margin-bottom: -1px
