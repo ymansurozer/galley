@@ -33,7 +33,7 @@ type Hotkey = {
 
 // Scopes
 const inComposer = () => S.composerOpen;
-const inModal = () => S.settingsOpen || !!S.confirmMsg;
+const inModal = () => S.settingsOpen || !!S.confirmMsg || S.sendOpen;
 const inOverview = () => !!S.overviewOpen && hasGuide();
 const inDiff = () => !inComposer() && !inModal() && !inOverview();
 const navigable = () => !inComposer() && !inModal();
@@ -59,6 +59,11 @@ function escape() {
   }
   if (S.confirmMsg) {
     S.confirmMsg = "";
+    return;
+  }
+  if (S.sendOpen) {
+    S.sendOpen = false;
+    S.sendNote = "";
     return;
   }
   if (S.settingsOpen) {
@@ -99,6 +104,18 @@ const HOTKEYS: Hotkey[] = [
     test: enter,
     when: () => !!S.confirmMsg,
     run: confirmYes,
+    hide: true,
+  },
+  // Send modal: ⌘↵ sends (typing:true — focus is in the note box). Plain Enter has no matching
+  // typing hotkey, so it falls through to a textarea newline; Esc cancels via the escape cascade.
+  {
+    combo: "⌘↵",
+    desc: "Send to agent",
+    group: "App",
+    test: cmd("Enter"),
+    when: () => S.sendOpen,
+    typing: true,
+    run: () => S.sendConfirm?.(),
     hide: true,
   },
   // Navigate

@@ -2079,6 +2079,20 @@
       pointer-events: none
     }
 
+    .modal.send .btn kbd {
+      pointer-events: none
+    }
+
+    .modal.send textarea {
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 84px;
+      margin-top: 12px;
+      padding: 8px;
+      font-size: var(--text-sm);
+      resize: vertical
+    }
+
     .btn.icon {
       padding: 3px 9px;
       font-size: var(--text-xl);
@@ -2718,6 +2732,15 @@
           <p x-text="$store.g.confirmMsg"></p>
           <div class="modal-actions"><button class="btn" @click="$store.g.confirmNo()">Cancel <kbd>Esc</kbd></button><button
               class="btn primary" @click="$store.g.confirmYes()">Confirm <kbd>↵</kbd></button></div>
+        </div>
+      </div>
+      <div class="modal-backdrop" id="sendModal" :class="{show: $store.g.sendOpen}" @click.self="$store.g.sendCancel()">
+        <div class="modal send">
+          <p x-text="$store.g.sendMsg"></p>
+          <textarea id="sendNote" x-model="$store.g.sendNote"
+            placeholder="Overall note (optional) — an overall remark, or what to do after applying"></textarea>
+          <div class="modal-actions"><button class="btn" @click="$store.g.sendCancel()">Cancel <kbd>Esc</kbd></button><button
+              class="btn primary" @click="$store.g.sendConfirm()">Send <kbd>⌘↵</kbd></button></div>
         </div>
       </div>
       <div class="toast" id="toast" :class="{show: $store.g.toastMsg}" x-text="$store.g.toastMsg">saved</div>

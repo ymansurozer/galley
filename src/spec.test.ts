@@ -22,6 +22,7 @@ const ANCHORS = [
   // result + acting
   "ReviewResult",
   "approvedFiles",
+  "overallNote",
   "How to act on a review",
   // guided review schema (folded in from the old guide-spec)
   "Guide JSON schema",
