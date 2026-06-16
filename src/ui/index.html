@@ -79,6 +79,11 @@
       --radius-xl: 12px;
       --radius-pill: 999px;
 
+      /* Gap between the +added / −removed (and state badge) churn indicators, kept in sync
+         across every surface that renders them: sidebar walkthrough, Overview group headers
+         + file rows, and the diff header. */
+      --churn-gap: 5px;
+
       /* ── Type scale ── */
       --text-2xs: 10px;
       --text-xs: 11px;
@@ -698,7 +703,7 @@
       flex: 0 0 auto;
       display: inline-flex;
       font-family: var(--mono);
-      gap: 6px
+      gap: var(--churn-gap)
     }
 
     .ghdr .ghdr-counts .a {
@@ -938,7 +943,7 @@
       margin-left: auto;
       display: inline-flex;
       align-items: center;
-      gap: 5px
+      gap: var(--churn-gap)
     }
 
     .node .badge {
@@ -1018,9 +1023,7 @@
     /* ± in a fixed-width right column so the numbers align across rows. */
     #walk .status-pack i {
       font-style: normal;
-      font-size: var(--text-2xs);
-      min-width: 3ch;
-      text-align: right
+      font-size: var(--text-2xs)
     }
 
     #walk .status-pack .add {
@@ -2308,6 +2311,13 @@
       flex: none
     }
 
+    /* Counts in a group header: inline-flex so the +/− gap matches the file rows below. */
+    .guide-overview .go-grp-counts {
+      display: inline-flex;
+      align-items: baseline;
+      gap: var(--churn-gap)
+    }
+
     .guide-overview .go-file {
       display: block;
       width: 100%;
@@ -2365,7 +2375,7 @@
       flex: 0 0 auto;
       display: inline-flex;
       align-items: center;
-      gap: 7px;
+      gap: var(--churn-gap);
       font-size: var(--text-2xs)
     }
 
