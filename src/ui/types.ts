@@ -185,6 +185,12 @@ export interface Store {
   // backs the destructive shortcuts (⇧R / ⇧S); confirmMsg is the prompt text, "" when closed.
   settingsTab: "settings" | "shortcuts";
   confirmMsg: string;
+  // The Send modal (⇧S / Send button): a receipt (sendMsg) plus an optional overall note the
+  // reviewer types for the agent. sendOpen toggles it; sendNote is ephemeral (cleared each open,
+  // never persisted). ⌘↵ sends, Enter is a newline, Esc cancels.
+  sendOpen: boolean;
+  sendMsg: string;
+  sendNote: string;
   // Guided review: when true (and a guide is attached) the center shows the Overview page
   // instead of the diff. Selecting any file (tree or Start) drops back to the diff.
   overviewOpen: boolean;
@@ -229,7 +235,7 @@ export interface Store {
   ask?: () => void;
   requestChange?: () => void;
   reset?: () => Promise<void>;
-  send?: () => Promise<void>;
+  send?: (overallNote?: string) => Promise<void>;
   // Keyboard navigation (keys.ts): file stepping in either mode, confirm-dialog answers, and the
   // grouped binding list the help overlay renders.
   nextFile?: () => void;
@@ -239,6 +245,8 @@ export interface Store {
   confirmNo?: () => void;
   promptFinish?: () => void;
   confirmSend?: () => void;
+  sendConfirm?: () => void;
+  sendCancel?: () => void;
   helpGroups?: () => { group: string; items: { combo: string; desc: string }[] }[];
 }
 

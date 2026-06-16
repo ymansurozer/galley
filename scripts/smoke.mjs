@@ -122,14 +122,22 @@ try {
   assert.equal(answeredState.agentActivity, null, "agent answer cleared the activity line");
   console.log("✓ comment posted (answer) — activity cleared");
 
-  // human clicks Send → `galley await` yields a review event with a ReviewResult
-  await post("/api/send", await getJson("/api/state"));
+  // human clicks Send → `galley await` yields a review event with a ReviewResult.
+  // Attach an overall note and confirm it round-trips as both a field and the lead summary section.
+  const NOTE = "After applying, run the formatter and update the changelog.";
+  await post("/api/send", { ...(await getJson("/api/state")), overallNote: NOTE });
   const ev2 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
   assert.equal(ev2.kind, "review");
   assert.equal(ev2.result.mode, "repo");
   for (const k of ["requestedChanges", "accepted", "rejected", "stagedFiles"])
     assert.ok(Array.isArray(ev2.result[k]), `result.${k} is an array`);
-  console.log("✓ await → review event (ReviewResult shape ok)");
+  assert.equal(ev2.result.overallNote, NOTE, "overallNote round-trips on the result");
+  assert.ok(
+    ev2.result.summaryMarkdown.includes("## Overall note") &&
+      ev2.result.summaryMarkdown.includes(NOTE),
+    "overallNote leads summaryMarkdown",
+  );
+  console.log("✓ await → review event (ReviewResult shape + overallNote ok)");
 
   console.log("\nSMOKE PASS");
 } catch (error) {

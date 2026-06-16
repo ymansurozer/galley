@@ -77,6 +77,10 @@ The \`result\` field of a review event:
 - summaryMarkdown — a ready-to-use prompt body (the arrays below are for acting precisely)
 - accepted[], rejected[]: {path, lineNumber, side, title}
 - requestedChanges[]: {path, lineNumber, side, body}
+- overallNote? — an optional note about the WHOLE review (absent if the reviewer left it blank):
+  an overall remark, or an afterthought instruction for what to do after applying the review
+  (e.g. "after applying, run the formatter"). When present it's also the first section of
+  summaryMarkdown ("## Overall note"). It is NOT tied to any line and not a per-line change.
 - stagedFiles[], approvedFiles[]
 - artifacts: {resultJson, summaryMd, sessionDir}, all under
   ~/.galley/<repoHash>/<session>/ where repoHash = sha256(abs repo root)[:16]

@@ -564,7 +564,7 @@ export function computeApprovedFiles(state: ReviewState): string[] {
   );
 }
 
-export function buildReviewSummary(state: ReviewState) {
+export function buildReviewSummary(state: ReviewState, overallNote?: string) {
   const pr = state.mode === "pr";
   const scope = pr
     ? `the PR/branch${state.target ? ` \`${state.target}\`` : ""} (committed changes)`
@@ -580,6 +580,10 @@ export function buildReviewSummary(state: ReviewState) {
       : "Respect the user review decisions below: preserve accepted changes, avoid touching staged files unless necessary, and address rejected changes plus requested changes.",
     "",
   );
+  // The reviewer's overall note leads the body: it frames the whole review (an overall remark, or
+  // an instruction for what to do after applying), so an agent reading this prompt sees it first.
+  const note = overallNote?.trim();
+  if (note) out.push("## Overall note", note, "");
   if (!pr && state.stagedFiles.length) {
     out.push("## Staged files");
     for (const file of state.stagedFiles) out.push(`- ${file}`);
@@ -654,12 +658,14 @@ export async function appendComment(
 export function buildReviewResult(
   state: ReviewState,
   artifacts: { resultJson: string; summaryMd: string; sessionDir: string },
+  overallNote?: string,
 ): ReviewResult {
   const decisions = effectiveDecisions(state);
   const pick = (status: Decision["status"]) =>
     decisions
       .filter((d) => d.status === status)
       .map((d) => ({ path: d.path, lineNumber: d.lineNumber, side: d.side, title: d.title }));
+  const note = overallNote?.trim();
   return {
     session: state.session,
     repoRoot: state.root,
@@ -669,12 +675,13 @@ export function buildReviewResult(
     staged: state.staged,
     head: state.head,
     baseDiffHash: state.baseDiffHash,
-    summaryMarkdown: buildReviewSummary(state),
+    summaryMarkdown: buildReviewSummary(state, note),
     accepted: pick("accepted"),
     rejected: pick("rejected"),
     requestedChanges: state.comments
       .filter((c) => c.status === "open" && c.role !== "agent" && c.intent !== "question")
       .map((c) => ({ path: c.path, lineNumber: c.lineNumber, side: c.side, body: c.body })),
+    overallNote: note || undefined,
     stagedFiles: state.stagedFiles,
     approvedFiles: computeApprovedFiles(state),
     artifacts,

@@ -167,7 +167,15 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // which now carries the DeskStatus fields — drop them so Object.assign never
   // copies them onto `state` (and from there into the persisted file).
   const stripDeskStatus = (body: Record<string, unknown>) => {
-    for (const key of ["agentActivity", "agentListening", "queuedQuestions", "queuedReviews"])
+    // overallNote rides in the /api/send body too, but it's a per-Send instruction read out before
+    // this strip — drop it here so Object.assign never persists it onto the saved review.
+    for (const key of [
+      "agentActivity",
+      "agentListening",
+      "queuedQuestions",
+      "queuedReviews",
+      "overallNote",
+    ])
       delete body[key];
     return body;
   };
@@ -279,14 +287,22 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ok: true, file });
       }
       if (req.method === "POST" && url.pathname === "/api/send") {
-        Object.assign(state, stripDeskStatus(JSON.parse(await readBody(req))));
+        const body = JSON.parse(await readBody(req));
+        // overallNote is read here, before stripDeskStatus drops it: it's an ephemeral, per-Send
+        // instruction threaded straight into the result, never copied onto `state` or persisted.
+        const overallNote = typeof body.overallNote === "string" ? body.overallNote.trim() : "";
+        Object.assign(state, stripDeskStatus(body));
         await syncGitState(state);
         const file = await persistReview(state);
         const sessionDir = path.dirname(file);
         const summaryMd = path.join(sessionDir, `${state.id}-send-review.md`);
         const resultJson = path.join(sessionDir, `${state.id}-result.json`);
-        await fs.writeFile(summaryMd, buildReviewSummary(state) + "\n", "utf8");
-        const payload = buildReviewResult(state, { resultJson, summaryMd, sessionDir });
+        await fs.writeFile(summaryMd, buildReviewSummary(state, overallNote) + "\n", "utf8");
+        const payload = buildReviewResult(
+          state,
+          { resultJson, summaryMd, sessionDir },
+          overallNote,
+        );
         await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
         res.on("finish", () => emitEvent({ kind: "review", result: payload }));
         return json(res, 200, { ok: true, sent: true, summaryMd, resultJson });

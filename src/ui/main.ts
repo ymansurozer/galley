@@ -23,7 +23,7 @@ import {
   walkthroughRows,
 } from "./guide";
 import { setBaseTitle, reviewStats } from "./progress";
-import { installKeys, helpGroups, confirmYes, confirmNo, askConfirm } from "./keys";
+import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import { cursorReset, cursorSelection } from "./cursor";
 import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
 
@@ -239,6 +239,15 @@ S.confirmYes = confirmYes;
 S.confirmNo = confirmNo;
 // Pluralize a count with its noun: plural(1, "file") → "1 file", plural(3, "file") → "3 files".
 const plural = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
+// Open the Send modal: a receipt of what's about to go, plus an empty (always fresh) note box.
+// An attached agent picks the review up the instant it's sent, so there's no taking it back —
+// this is the moment to look, and to leave an overall instruction for the whole review.
+const openSendModal = (msg: string) => {
+  S.sendMsg = msg;
+  S.sendNote = "";
+  S.sendOpen = true;
+  setTimeout(() => $("sendNote")?.focus(), 0); // after Alpine shows it (mirrors the composer)
+};
 // Fired after the last file is approved — a small receipt of the work done (files, lines,
 // comments, rejections) plus the offer to send the finished review back to the agent.
 S.promptFinish = () => {
@@ -249,16 +258,14 @@ S.promptFinish = () => {
   ].filter(Boolean);
   const what = files === 1 ? "the file" : `all ${files} files`;
   const tail = extras.length ? extras.join(", ") : "all clean";
-  askConfirm(
+  openSendModal(
     `You've reviewed ${what} — ${plural(lines, "changed line")}, ${tail}. Send the review back to the agent?`,
-    () => S.send?.(),
   );
 };
-// Every manual send — the Send button and ⇧S — routes through this receipt-style confirm: a
+// Every manual send — the Send button and ⇧S — routes through this receipt-style modal: a
 // glance at what's about to go (files, lines, comments, rejections) before the one-way handoff.
-// An attached agent picks the review up the instant it's sent, so there's no taking it back —
-// this is the moment to look. Cancel leaves the review untouched. (The button used to call
-// send() directly with no confirm at all, which made accidental sends too easy.)
+// (The button used to call send() directly with no confirm at all, which made accidental sends
+// too easy.)
 S.confirmSend = () => {
   const { files, lines, comments, rejections } = reviewStats();
   const parts = [
@@ -267,9 +274,18 @@ S.confirmSend = () => {
     comments ? plural(comments, "comment") : "",
     rejections ? plural(rejections, "rejected hunk") : "",
   ].filter(Boolean);
-  askConfirm(`You're about to send your review: ${parts.join(", ")}. Send to the agent?`, () =>
-    S.send?.(),
-  );
+  openSendModal(`You're about to send your review: ${parts.join(", ")}. Send to the agent?`);
+};
+// Confirm the Send modal: the typed note (trimmed; empty → omitted) rides along as the one-time
+// overall instruction. Cancel leaves the review untouched.
+S.sendConfirm = () => {
+  const note = S.sendNote.trim();
+  S.sendOpen = false;
+  S.send?.(note);
+};
+S.sendCancel = () => {
+  S.sendOpen = false;
+  S.sendNote = "";
 };
 // Walkthrough category headers: clicking one jumps to its first unreviewed file.
 S.jumpToCategory = (cat) => {
@@ -371,10 +387,12 @@ S.reset = async () => {
   }
   toast("Reset review");
 };
-S.send = async () => {
+S.send = async (overallNote = "") => {
   const r = await api<{ sent?: boolean }>("/api/send", {
     method: "POST",
-    body: JSON.stringify(S.state),
+    // overallNote is a one-time instruction for the whole review; the server reads it off the
+    // body and never persists it onto the saved state (see /api/send + stripDeskStatus).
+    body: JSON.stringify({ ...S.state, overallNote }),
   });
   if (r && r.sent) {
     S.awaitingAgent = true;
