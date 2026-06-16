@@ -237,20 +237,38 @@ S.treeStep = (dir) => {
 S.helpGroups = helpGroups;
 S.confirmYes = confirmYes;
 S.confirmNo = confirmNo;
+// Pluralize a count with its noun: plural(1, "file") → "1 file", plural(3, "file") → "3 files".
+const plural = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
 // Fired after the last file is approved — a small receipt of the work done (files, lines,
 // comments, rejections) plus the offer to send the finished review back to the agent.
 S.promptFinish = () => {
   const { files, lines, comments, rejections } = reviewStats();
-  const n = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
   const extras = [
-    comments ? n(comments, "comment") : "",
-    rejections ? n(rejections, "rejected hunk") : "",
+    comments ? plural(comments, "comment") : "",
+    rejections ? plural(rejections, "rejected hunk") : "",
   ].filter(Boolean);
   const what = files === 1 ? "the file" : `all ${files} files`;
   const tail = extras.length ? extras.join(", ") : "all clean";
   askConfirm(
-    `You've reviewed ${what} — ${n(lines, "changed line")}, ${tail}. Send the review back to the agent?`,
+    `You've reviewed ${what} — ${plural(lines, "changed line")}, ${tail}. Send the review back to the agent?`,
     () => S.send?.(),
+  );
+};
+// Every manual send — the Send button and ⇧S — routes through this receipt-style confirm: a
+// glance at what's about to go (files, lines, comments, rejections) before the one-way handoff.
+// An attached agent picks the review up the instant it's sent, so there's no taking it back —
+// this is the moment to look. Cancel leaves the review untouched. (The button used to call
+// send() directly with no confirm at all, which made accidental sends too easy.)
+S.confirmSend = () => {
+  const { files, lines, comments, rejections } = reviewStats();
+  const parts = [
+    plural(files, "file"),
+    plural(lines, "changed line"),
+    comments ? plural(comments, "comment") : "",
+    rejections ? plural(rejections, "rejected hunk") : "",
+  ].filter(Boolean);
+  askConfirm(`You're about to send your review: ${parts.join(", ")}. Send to the agent?`, () =>
+    S.send?.(),
   );
 };
 // Walkthrough category headers: clicking one jumps to its first unreviewed file.

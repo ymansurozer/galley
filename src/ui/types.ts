@@ -238,6 +238,7 @@ export interface Store {
   confirmYes?: () => void;
   confirmNo?: () => void;
   promptFinish?: () => void;
+  confirmSend?: () => void;
   helpGroups?: () => { group: string; items: { combo: string; desc: string }[] }[];
 }
 

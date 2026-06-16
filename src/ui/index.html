@@ -2516,7 +2516,7 @@
           x-show="$store.g.awaitingAgent && ($store.g.queuedReviews > 0 || $store.g.agentActivity)"
           x-text="$store.g.queuedReviews > 0 ? 'No agent attached — review queued' : $store.g.agentActivity"></span><span class="top-pct" id="progressPct" style="display:none"></span><button class="btn icon top-settings" data-tip="Settings (⇧,)" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
           class="btn danger" data-tip="Reset review (⇧R)" @click="$store.g.reset()">Reset Review</button><button class="btn primary"
-          :disabled="$store.g.awaitingAgent" @click="$store.g.send()"><span
+          :disabled="$store.g.awaitingAgent" @click="$store.g.confirmSend()"><span
             x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send to Agent'">Send to Agent</span> <kbd>⇧S</kbd></button></div>
       <div class="top-progress" id="progressStrip" style="display:none"><i id="progressFill"></i></div>
     </header>

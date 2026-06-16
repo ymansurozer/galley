@@ -340,7 +340,7 @@ const HOTKEYS: Hotkey[] = [
     group: "App",
     test: shift("S"),
     when: navigable,
-    run: () => askConfirm("Send this review to the agent?", () => S.send?.()),
+    run: () => S.confirmSend?.(),
   },
   {
     combo: "⇧,",
