@@ -2567,7 +2567,7 @@
         <div id="walk" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'" x-cloak>
           <template x-for="r in $store.g.walkthroughRows()" :key="r.key">
             <div class="node" :class="r.kind==='cat' ? 'walk-cat' : r.cls" :style="r.kind==='cat' ? '' : r.style"
-              @click="r.kind==='cat' ? $store.g.jumpToCategory(r.category) : $store.g.selectFile(r.fileIndex)">
+              @click="r.kind==='cat' ? $store.g.selectFile(r.jumpIndex) : $store.g.selectFile(r.fileIndex)">
               <span class="nm walk-cat-name" x-show="r.kind==='cat'" x-text="r.category" :title="r.category"></span>
               <!-- File status leads the row (empty circle = to do); ± stay flush right below. -->
               <svg class="ic st pending" x-show="r.kind==='file' && r.state==='pending'" title="Pending review"><use href="#gly-circle"></use></svg>

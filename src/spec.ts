@@ -123,7 +123,8 @@ One JSON object:
     scrutinizing. Orientation, not a changelog — the reviewer already sees the diff. Shown
     in the file's diff header.
   - order? — ascending review order; defaults to array position.
-  - category? — group label (default "Changes").
+  - category? — group label (default "Changes"). Files group by adjacency in review order, so a
+    label repeated non-adjacently makes a second section — keep a category's files together.
   - flag? — raises a flag on the file for closer scrutiny; the text is the note (what to
     double-check, what's risky). Omit unless the file genuinely warrants it.
 Validation: overview a non-empty string, files a non-empty array, every file a non-empty

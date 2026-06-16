@@ -229,7 +229,6 @@ export interface Store {
   guidePrev?: () => void;
   guideAtStart?: () => boolean;
   guideAtLast?: () => boolean;
-  jumpToCategory?: (category: string) => void;
   walkthroughRows?: () => WalkRow[];
   saveComment?: () => void;
   ask?: () => void;

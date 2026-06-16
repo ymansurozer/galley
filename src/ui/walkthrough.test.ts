@@ -39,7 +39,7 @@ test("lineStats counts adds and deletes per file, across hunks", () => {
   assert.deepEqual(stats.get("c.ts"), { added: 0, removed: 0 });
 });
 
-test("walkthroughGroups groups by category in first-occurrence guide order", () => {
+test("walkthroughGroups starts a new section each time the category changes (run-length)", () => {
   const groups = walkthroughGroups(
     [
       guideFile("core/a.ts", "Core"),
@@ -49,13 +49,36 @@ test("walkthroughGroups groups by category in first-occurrence guide order", () 
     [file("docs/d.md", "a"), file("core/a.ts", "aa"), file("core/b.ts", "d")],
     allPending,
   );
+  // The trailing Core does NOT fold back up — it is its own section, so the display mirrors
+  // the guide order (Core → Docs → Core) instead of collapsing to two groups.
   assert.deepEqual(
     groups.map((g) => g.category),
-    ["Core", "Docs"],
+    ["Core", "Docs", "Core"],
   );
   assert.deepEqual(
     groups[0]!.files.map((f) => f.path),
-    ["core/a.ts", "core/b.ts"],
+    ["core/a.ts"],
+  );
+  assert.deepEqual(
+    groups[2]!.files.map((f) => f.path),
+    ["core/b.ts"],
+  );
+});
+
+test("walkthroughGroups keeps a run together across a guide entry absent from the diff", () => {
+  // gone.ts (Other category, not in the diff) is skipped without splitting the Core run.
+  const groups = walkthroughGroups(
+    [guideFile("a.ts", "Core"), guideFile("gone.ts", "Tests"), guideFile("b.ts", "Core")],
+    [file("a.ts", "a"), file("b.ts", "a")],
+    allPending,
+  );
+  assert.deepEqual(
+    groups.map((g) => g.category),
+    ["Core"],
+  );
+  assert.deepEqual(
+    groups[0]!.files.map((f) => f.path),
+    ["a.ts", "b.ts"],
   );
 });
 
@@ -142,4 +165,34 @@ test("walkRows: no active row while the Overview is showing (null activePath)", 
   const groups = walkthroughGroups([guideFile("a.ts", "Core")], [file("a.ts", "a")], allPending);
   const rows = walkRows(groups, null);
   assert.ok(rows.every((r) => r.kind === "cat" || r.cls === ""));
+});
+
+test("walkRows: a repeated category yields distinct keys and per-occurrence jumpIndex", () => {
+  // Core appears twice (positions 0 and 2 of the guide); the diff orders them differently.
+  const groups = walkthroughGroups(
+    [guideFile("core/a.ts", "Core"), guideFile("t/b.ts", "Tests"), guideFile("core/c.ts", "Core")],
+    [file("t/b.ts", "a"), file("core/a.ts", "a"), file("core/c.ts", "a")],
+    allPending,
+  );
+  const cats = walkRows(groups, null).filter((r) => r.kind === "cat");
+  assert.deepEqual(
+    cats.map((c) => c.category),
+    ["Core", "Tests", "Core"],
+  );
+  // Keys must be unique so Alpine's x-for never reuses a header DOM node across runs.
+  assert.equal(new Set(cats.map((c) => c.key)).size, cats.length);
+  // Each Core header jumps to ITS OWN file (diff indices: a.ts=1, c.ts=2), not the first Core.
+  assert.equal(cats[0]!.kind === "cat" && cats[0]!.jumpIndex, 1);
+  assert.equal(cats[2]!.kind === "cat" && cats[2]!.jumpIndex, 2);
+});
+
+test("walkRows: a category-header jumpIndex prefers the group's first pending file", () => {
+  // core/a is approved, core/c is pending → the header should land on core/c (diff index 2).
+  const groups = walkthroughGroups(
+    [guideFile("core/a.ts", "Core"), guideFile("core/c.ts", "Core")],
+    [file("x.ts", "a"), file("core/a.ts", "a"), file("core/c.ts", "a")],
+    (p) => (p === "core/a.ts" ? "approved" : "pending"),
+  );
+  const cat = walkRows(groups, null).find((r) => r.kind === "cat");
+  assert.equal(cat!.kind === "cat" && cat!.jumpIndex, 2);
 });
