@@ -5,7 +5,20 @@ import type { FileReviewState } from "./types";
 // (these are parameterized like linemap.ts so they stay testable under node:test).
 
 export type LineStat = { added: number; removed: number };
-type FileLike = { path: string; hunks?: DiffHunk[] };
+type FileLike = {
+  path: string;
+  hunks?: DiffHunk[];
+  oldFile?: { contents: string };
+  newFile?: { contents: string };
+};
+
+// Lines in a file's content, trimming one trailing newline so the count matches git's
+// `@@ -0,0 +1,N @@` (and what @pierre renders) rather than over-counting by one.
+function lineCount(s: string): number {
+  if (!s) return 0;
+  const n = s.split("\n").length;
+  return s.endsWith("\n") ? n - 1 : n;
+}
 
 // Per-file +added/−removed from the parsed hunks. Distinct from guide.ts's progress
 // weighting (which collapses both sides into one min-1 count): these are display numbers.
@@ -19,6 +32,12 @@ export function lineStats(files: FileLike[]): Map<string, LineStat> {
         if (l.kind === "add") added++;
         else if (l.kind === "delete") removed++;
       }
+    // A new file has no old side, so git emits no hunk and the loop above finds nothing
+    // (same "new file" test as tree.ts's changeType). Count its whole content as additions
+    // so the walkthrough shows an indicator, not a blank. PR-mode new files arrive with a
+    // hunk, so the gate leaves their count untouched.
+    if (added === 0 && removed === 0 && !f.oldFile?.contents && f.newFile?.contents)
+      added = lineCount(f.newFile.contents);
     m.set(f.path, { added, removed });
   }
   return m;
