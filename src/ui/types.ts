@@ -204,6 +204,9 @@ export interface Store {
   // file mode: how a markdown file is shown — "rendered" (comark/markdown-it preview,
   // comment on blocks) or "source" (@pierre/diffs raw/diff).
   fileView: "rendered" | "source";
+  // True once the diff pane is scrolled past its header — reveals the floating Approve button
+  // so sign-off is reachable without scrolling back up to the header. Reset on every file switch.
+  diffScrolled: boolean;
 
   treeRows?: () => TreeRow[];
   selectFile?: (i: number) => void;
@@ -217,6 +220,11 @@ export interface Store {
   setStyle?: (style: DiffStyle) => void;
   setFileView?: (view: "rendered" | "source") => void;
   isMarkdownFile?: () => boolean;
+  // Sign off on the current file from the floating button (same action as the header ⇧A).
+  approveFile?: () => void;
+  // Drives the floating Approve button: null hides it (overview, preview, or finished file),
+  // else the pending file's sign-off flavor — "clean" (Approve) or "changes" (Mark Reviewed).
+  fabState?: () => "clean" | "changes" | null;
   splitApplies?: () => boolean;
   applySettings?: () => void;
   openInEditor?: () => Promise<void>;

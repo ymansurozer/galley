@@ -1,7 +1,14 @@
 import Alpine from "alpinejs";
 import { S, D, $, api, persist, persistPrefs, toast } from "./store";
 import { loadDiffLib } from "./difflib";
-import { currentFile, currentSplittable, fromDisplayLine } from "./changes";
+import {
+  currentFile,
+  currentSplittable,
+  fromDisplayLine,
+  fileFinished,
+  fileObjections,
+} from "./changes";
+import { approveCurrentFile } from "./decisions";
 import { openCommentComposer, closeComposerIfEmpty } from "./selection";
 import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { render, deferRender } from "./render";
@@ -84,6 +91,7 @@ S.selectFile = (i) => {
   S.treeDrawerOpen = false;
   S.overviewOpen = false;
   S.preview = null;
+  S.diffScrolled = false; // the new file renders at the top (see render.ts) — hide the floating action
   S.fileIndex = i;
   S.fileView = defaultFileView(S.state.files[i]);
   D.fileDiff = null;
@@ -156,6 +164,16 @@ S.setFileView = (view) => {
   S.fileView = view;
   D.fileDiff = null;
   render();
+};
+// Floating sign-off button (mirrors the header's ⇧A action): shown only once the diff is
+// scrolled past its header, and only for a pending changed file — not the Overview, a preview
+// (unchanged, not approvable), or an already-finished file (which offers Reset, not Approve).
+S.approveFile = () => approveCurrentFile();
+S.fabState = () => {
+  if (S.overviewOpen || S.preview) return null;
+  const path = S.state?.files?.[S.fileIndex]?.path;
+  if (!path || fileFinished(path)) return null;
+  return fileObjections(path) ? "changes" : "clean";
 };
 // Apply + persist all settings: CSS vars (font/size), comment-code theme, and a re-render
 // (the diff reads S.settings.* in render()). Bound to every control's @change.
@@ -447,4 +465,10 @@ if (hasGuide()) {
   S.sidebarTab = S.settings.sidebarDefault === "walkthrough" ? "walkthrough" : "tree";
 }
 render();
+// Reveal the floating Approve button once the diff scrolls past its (non-sticky) header. #diff
+// is the persistent scroll container (x-ignore), so this listener is attached once and survives
+// every re-render/file switch.
+$("diff").addEventListener("scroll", () => {
+  S.diffScrolled = $("diff").scrollTop > 140;
+});
 setInterval(pollState, 1500);

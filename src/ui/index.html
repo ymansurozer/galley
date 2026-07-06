@@ -785,6 +785,50 @@
       display: flex
     }
 
+    /* Floating sign-off: the header's Approve/Mark-reviewed scrolls out of view on a long file,
+       so mirror it in the SAME spot — pinned to the diff pane's top-right — revealed once scrolled
+       (diffScrolled). Styled like the header's .diff-header-action so it reads as the same button
+       staying put, not a new affordance; a soft shadow lifts it off the code it floats over. */
+    .diff-fab {
+      position: absolute;
+      top: 12px;
+      right: 20px;
+      z-index: 9;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: var(--accept);
+      color: var(--on-accent);
+      font-family: var(--sans);
+      font-size: var(--text-sm);
+      line-height: 16px;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, .35)
+    }
+
+    .diff-fab:hover {
+      background: var(--accept-hover);
+      color: var(--on-accent)
+    }
+
+    .diff-fab.warn {
+      background: rgba(224, 175, 104, .14);
+      color: var(--amber-fg)
+    }
+
+    .diff-fab.warn:hover {
+      background: rgba(224, 175, 104, .22)
+    }
+
+    .diff-fab kbd {
+      color: rgba(255, 255, 255, .95);
+      background: rgba(0, 0, 0, .22);
+      border-color: rgba(255, 255, 255, .2)
+    }
+
     /* VSCode-style change overview: green/red ticks mapping the whole file to the gutter,
        so changes are visible in one skim. Shown only in "expand unchanged" mode. */
     .ovr {
@@ -2707,6 +2751,11 @@
           <div id="diff" x-ignore></div>
           <div class="ovr" id="ovr" x-ignore></div>
           <div class="diff-rendering" x-show="$store.g.rendering" x-cloak><span>Rendering…</span></div>
+          <button class="diff-fab" x-cloak
+            x-show="$store.g.fabState && $store.g.diffScrolled && $store.g.fabState()"
+            :class="{warn: $store.g.fabState && $store.g.fabState()==='changes'}"
+            @click="$store.g.approveFile && $store.g.approveFile()"><span
+              x-text="$store.g.fabState && $store.g.fabState()==='changes' ? 'Mark Reviewed' : 'Approve'">Approve</span> <kbd>⇧A</kbd></button>
         </div>
       </section>
       <div class="action-pop" id="actionPop" :class="{show: $store.g.popoverOpen}">
