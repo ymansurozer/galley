@@ -13,6 +13,9 @@ export function isMarkdownPath(path: string): boolean {
 // one opens as source so you see the diff first. The toolbar toggle overrides per file.
 export function defaultFileView(f: ReturnType<typeof currentFile>): "rendered" | "source" {
   if (!isMarkdownPath(f.path)) return "source";
+  // An explicit preference wins; "auto" (the default) keeps the smart rule below.
+  const pref = S.settings.markdownView;
+  if (pref === "rendered" || pref === "source") return pref;
   const changed = f.oldFile.contents !== "" && f.oldFile.contents !== f.newFile.contents;
   return changed ? "source" : "rendered";
 }

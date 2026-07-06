@@ -1729,15 +1729,37 @@
       justify-content: center
     }
 
+    /* Rendered markdown reads as a document, not a full-bleed diff pane: a centered, capped
+       reading column (~68ch) with symmetric gutters instead of the old left-aligned 880px. */
     .md-file {
-      padding: 14px 18px 24px 30px;
-      max-width: 880px
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 28px 32px 64px
     }
 
     .md-file.md {
       color: var(--ink);
       font-size: var(--text-md);
-      line-height: 1.62
+      line-height: 1.7
+    }
+
+    .md-file.md h1,
+    .md-file.md h2,
+    .md-file.md h3 {
+      line-height: 1.3;
+      margin-top: 1.4em
+    }
+
+    .md-file.md h1:first-child,
+    .md-file.md h2:first-child {
+      margin-top: 0
+    }
+
+    .md-file.md p,
+    .md-file.md ul,
+    .md-file.md ol,
+    .md-file.md blockquote {
+      margin: 0 0 1em
     }
 
     .md-anchor {
@@ -2860,6 +2882,11 @@
                 @change="$store.g.applySettings()">
                 <option value="lines">Diff lines</option>
                 <option value="files">Files</option>
+              </select></label><label>Markdown files<select x-model="$store.g.settings.markdownView"
+                @change="$store.g.applySettings()">
+                <option value="auto">Auto</option>
+                <option value="rendered">Rendered</option>
+                <option value="source">Source</option>
               </select></label><label>Approve<select
                 @change="$store.g.settings.stageOnAccept = $event.target.value === 'stage'; $store.g.applySettings()">
                 <option value="stage" :selected="$store.g.settings.stageOnAccept">Stages file</option>

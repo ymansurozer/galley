@@ -35,6 +35,9 @@ export type Settings = {
   progressBy: "lines" | "files";
   // Which sidebar pane a guided desk opens with; `w` toggles per-session from there.
   sidebarDefault: "tree" | "walkthrough";
+  // Default view for a markdown file: "auto" (new/unchanged → rendered, changed → source so the
+  // diff shows first), or force "rendered"/"source". The toolbar toggle still overrides per file.
+  markdownView: "auto" | "rendered" | "source";
   stageOnAccept: boolean;
   // Command template for "Open in editor" ({repo}/{file}/{line} placeholders). A machine
   // preference like the rest — empty falls back to the OS opener (see src/editor.ts).
