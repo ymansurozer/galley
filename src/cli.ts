@@ -309,7 +309,18 @@ async function resolvePrRef(ref: string, root: string): Promise<{ head: string; 
   if (!info.headRefName || !info.baseRefName)
     throw new Error(`PR "${ref}" did not resolve to a head/base branch.`);
   await gh(["pr", "checkout", ref], root);
-  return { head: info.headRefName, base: info.baseRefName };
+  // `gh pr checkout` updates the HEAD but never refreshes the base branch, so a merge-base against
+  // a stale local base makes a long-lived PR show unrelated mainline commits (the reported "PR diff
+  // is wrong"). Refresh the base ref and diff against the remote-tracking tip, matching GitHub's
+  // three-dot "Files changed". Best-effort: offline / a fork base not on `origin` falls back to the
+  // bare branch name (prior behavior). --quiet keeps rev-parse from printing on the miss path.
+  await git(["fetch", "origin", info.baseRefName], root).catch(() => {});
+  const remoteBase = `origin/${info.baseRefName}`;
+  const base = await git(["rev-parse", "--verify", "--quiet", remoteBase], root).then(
+    () => remoteBase,
+    () => info.baseRefName!,
+  );
+  return { head: info.headRefName, base };
 }
 
 // Launch a persistent desk in repo / file / pr mode.
