@@ -7,6 +7,8 @@ import {
   cursorComment,
   cursorVerdict,
   cursorResolve,
+  cursorReset,
+  cursorSelection,
   golineActive,
   golineDigit,
   golineCommit,
@@ -74,6 +76,13 @@ function escape() {
     S.composerOpen = false;
     S.popoverOpen = false;
     S.editingCommentId = null;
+    cursorReset(); // also drop the line highlight the composer/popover was anchored to
+    return;
+  }
+  // A lone line selection (keyboard cursor, or a click that left the highlight without an open
+  // surface): Esc clears it. Below the surfaces above so Esc dismisses a composer/modal first.
+  if (cursorSelection()) {
+    cursorReset();
     return;
   }
   // Lowest priority: the narrow-width file drawer. Closes only once every transient surface

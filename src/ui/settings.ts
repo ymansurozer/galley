@@ -132,4 +132,10 @@ export function applyAppearance(s: Settings) {
   root.setProperty("--diffs-font-family", monoStack);
   root.setProperty("--diffs-font-size", `${s.fontSize}px`);
   applyLineHighlight(s.lineHighlight);
+  // Tone down @pierre's line-selection highlight (the [data-selected-line] wash). Its default
+  // mix target is the bright "modified" blue, which reads as distracting on a review surface —
+  // override it with a muted steel so a selected/cursored row is a calm, low-saturation tint.
+  // @pierre registers these as @property <color>, so they must be concrete colors set at :root.
+  root.setProperty("--diffs-bg-selection-override", "rgb(96,120,155)");
+  root.setProperty("--diffs-bg-selection-number-override", "rgb(96,120,155)");
 }
