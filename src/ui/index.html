@@ -1387,9 +1387,22 @@
       color: var(--amber-fg)
     }
 
+    /* Each message reads as a small card so a back-and-forth Q&A thread is scannable: neutral
+       for the reviewer, a cyan left bar for the agent's replies. Square left edge with a thick
+       straight rule (no radius) so the accent reads as a solid bar down the message's left side. */
     .annotation .msg {
-      margin: 0 0 14px 0;
-      padding-right: 0
+      margin: 0 0 8px 0;
+      padding: 8px 10px;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--line-strong)
+    }
+
+    .annotation .msg.agent {
+      background: rgba(0, 168, 255, .06);
+      border-color: rgba(0, 168, 255, .16);
+      border-left-color: var(--cyan)
     }
 
     .annotation .msg:last-child {
@@ -1536,23 +1549,24 @@
 
     .annotation p {
       margin: 7px 0 0;
-      color: var(--muted);
-      line-height: 1.45
+      color: var(--ink);
+      line-height: 1.5
     }
 
     .annotation .msg.agent p {
-      color: var(--muted)
+      color: var(--ink)
     }
 
     .md {
-      color: var(--muted);
-      line-height: 1.5;
+      color: var(--ink);
+      line-height: 1.55;
       font-size: var(--text-sm);
-      margin-top: 7px
+      margin-top: 6px;
+      overflow-wrap: break-word
     }
 
     .annotation .msg.agent .md {
-      color: var(--muted)
+      color: var(--ink)
     }
 
     .md>:first-child {

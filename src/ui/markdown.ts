@@ -85,6 +85,10 @@ const LANGS = [
 ];
 
 let md: MarkdownIt | null = null;
+// A second renderer for comment bodies with `breaks: true`, so a single newline a reviewer types
+// renders as a line break (people write comments as chat, not markdown source). File/guide
+// markdown keeps the standard soft-break behavior via `md`, so hard-wrapped prose isn't shredded.
+let mdComment: MarkdownIt | null = null;
 let hl: Awaited<ReturnType<typeof createHighlighterCore>> | null = null;
 const cache = new Map<string, string>();
 
@@ -103,8 +107,8 @@ function sourceLine(mdi: MarkdownIt) {
 // Shiki's highlighter loads async (wasm + grammars); markdown-it render is sync once
 // ready. Until then renderMarkdown returns an escaped-text fallback; on ready we
 // repaint once so any fallbacks upgrade to rendered markdown.
-function buildMd(theme: string): MarkdownIt {
-  return new MarkdownIt({ html: false, linkify: true })
+function buildMd(theme: string, breaks = false): MarkdownIt {
+  return new MarkdownIt({ html: false, linkify: true, breaks })
     .use(footnote)
     .use(taskLists, { label: true })
     .use(fromHighlighter(hl as never, { theme, fallbackLanguage: "text" as never })) // unknown fences → plain
@@ -119,7 +123,9 @@ void (async () => {
     engine: createJavaScriptRegexEngine(),
   });
   const want = loadSettings().theme;
-  md = buildMd(THEMES[want] ? want : "github-dark");
+  const theme = THEMES[want] ? want : "github-dark";
+  md = buildMd(theme);
+  mdComment = buildMd(theme, true);
   if (S.state) render();
 })();
 
@@ -128,7 +134,9 @@ void (async () => {
 export function setMarkdownTheme(name: string) {
   if (!hl) return;
   // Diff-only themes (e.g. pierre-dark) aren't Shiki bundles → render comment code in github-dark.
-  md = buildMd(THEMES[name] ? name : "github-dark");
+  const theme = THEMES[name] ? name : "github-dark";
+  md = buildMd(theme);
+  mdComment = buildMd(theme, true);
   cache.clear();
 }
 
@@ -151,8 +159,8 @@ export function renderCommentBody(c: ReviewComment): string {
   const key = `${c.id}:${c.updatedAt}`;
   const cached = cache.get(key);
   if (cached !== undefined) return cached;
-  if (!md) return `<p>${esc(c.body)}</p>`; // not ready yet — don't cache the fallback
-  const html = renderMarkdown(c.body);
+  if (!mdComment) return `<p>${esc(c.body)}</p>`; // not ready yet — don't cache the fallback
+  const html = DOMPurify.sanitize(mdComment.render(c.body || ""));
   cache.set(key, html);
   return html;
 }

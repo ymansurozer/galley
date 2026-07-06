@@ -104,6 +104,23 @@ function awaitingHtml() {
   return `<div class="awaiting-answer${parts.queued ? " queued" : ""}"><span class="awaiting-label">${esc(parts.label)}</span><span class="agent-activity">${parts.activity ? esc(` · ${parts.activity}`) : ""}</span></div>`;
 }
 
+// Coarse relative time for a message ("now", "5m ago", "3h ago", "2d ago", else a date). The
+// thread rebuilds on every render/poll, so this refreshes often enough without a live ticker.
+function relTime(iso?: string): string {
+  if (!iso) return "";
+  const t = +new Date(iso);
+  if (!Number.isFinite(t)) return "";
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 45) return "now";
+  const m = s / 60;
+  if (m < 60) return `${Math.round(m)}m ago`;
+  const h = m / 60;
+  if (h < 24) return `${Math.round(h)}h ago`;
+  const d = h / 24;
+  if (d < 7) return `${Math.round(d)}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 // The comment-box element for one thread (messages + reply/resolve/reopen + per-message
 // edit/delete). Shared by the diff annotations and the markdown-file view (mdfile.ts).
 export function buildCommentThread(c: ThreadMeta): HTMLElement {
@@ -133,7 +150,7 @@ export function buildCommentThread(c: ThreadMeta): HTMLElement {
             const actions = own
               ? `<span class="msg-actions"><button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>`
               : "";
-            return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span>${badge}<time>now${edited}</time>${actions}</div><div class="md">${renderCommentBody(m)}</div>${awaiting ? awaitingHtml() : ""}</div>`;
+            return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div><div class="md">${renderCommentBody(m)}</div>${awaiting ? awaitingHtml() : ""}</div>`;
           })
           .join("");
   box.innerHTML = `${messages}<div class="thread-actions">${c.status === "resolved" ? '<button class="reopen-thread">Reopen</button>' : '<button class="reply-thread">Reply</button><button class="resolve-thread">Resolve</button>'}</div>`;
