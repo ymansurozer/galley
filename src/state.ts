@@ -427,12 +427,63 @@ export function anchorTextFor(
   return contents?.split("\n")[lineNumber - 1];
 }
 
+// Sørensen–Dice similarity on character bigrams (whitespace-normalized), 0..1. Cheap and good
+// at "same line, lightly edited" — the case a comment loses its exact anchor to.
+function lineSimilarity(a: string, b: string): number {
+  const na = a.trim().replace(/\s+/g, " ");
+  const nb = b.trim().replace(/\s+/g, " ");
+  if (na === nb) return 1;
+  if (na.length < 2 || nb.length < 2) return 0;
+  const grams = (s: string) => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < s.length - 1; i++) {
+      const g = s.slice(i, i + 2);
+      m.set(g, (m.get(g) ?? 0) + 1);
+    }
+    return m;
+  };
+  const A = grams(na);
+  const B = grams(nb);
+  let inter = 0;
+  let total = na.length - 1 + (nb.length - 1);
+  for (const [g, ca] of A) {
+    const cb = B.get(g);
+    if (cb) inter += Math.min(ca, cb);
+  }
+  return total > 0 ? (2 * inter) / total : 0;
+}
+
+// Best-effort fallback when a comment's anchor text no longer appears verbatim: the most similar
+// surviving line (Dice ≥ 0.6), preferring the closest to the old position on a near-tie. Returns
+// the 1-based line, or undefined when nothing is similar enough (then the thread detaches cleanly).
+function nearestSimilarLine(
+  lines: string[],
+  anchorText: string,
+  oldLine: number,
+): number | undefined {
+  if (anchorText.trim() === "") return undefined;
+  let best: { line: number; sim: number } | undefined;
+  for (let i = 0; i < lines.length; i++) {
+    const sim = lineSimilarity(lines[i]!, anchorText);
+    if (sim < 0.6) continue;
+    const line = i + 1;
+    if (
+      !best ||
+      sim > best.sim + 0.05 ||
+      (Math.abs(sim - best.sim) <= 0.05 && Math.abs(line - oldLine) < Math.abs(best.line - oldLine))
+    )
+      best = { line, sim };
+  }
+  return best?.line;
+}
+
 // Recover comment anchors after the diff is rebuilt. Open comments only (resolved threads
 // are done — they only render if their line still does). Exact text at the recorded line →
-// anchored; else the unique nearest line with exactly that text → move the anchor there;
-// ambiguous or vanished → flag `unanchored` so the desk shows the thread in its file-level
-// strip rather than silently dropping it (an open change request blocks approval, so it
-// must stay reachable). Legacy comments without anchorText can only be flagged when their
+// anchored; else the unique nearest line with exactly that text → move the anchor there; else a
+// best-effort fuzzy match keeps a lightly-edited line's thread near its old spot; only when
+// nothing is similar enough do we flag `unanchored` so the desk shows the thread in its
+// file-level strip rather than silently dropping it (an open change request blocks approval, so
+// it must stay reachable). Legacy comments without anchorText can only be flagged when their
 // line is provably out of range.
 export function reanchorComments(comments: ReviewComment[], files: ReviewFile[]) {
   for (const c of comments) {
@@ -459,6 +510,12 @@ export function reanchorComments(comments: ReviewComment[], files: ReviewFile[])
       if (Math.abs(matches[0] - c.lineNumber) !== Math.abs(matches[1] - c.lineNumber))
         best = matches[0];
     }
+    // Best-effort: the anchor text appears NOWHERE now (the line was edited, not merely moved), so
+    // try the nearest similar surviving line before giving up — a comment on a line the agent only
+    // tweaked should stay put, not fall to the strip. (An ambiguous exact-match tie stays
+    // unanchored: the text still exists verbatim, just in >1 equally-near places — don't guess.)
+    if (best === undefined && matches.length === 0)
+      best = nearestSimilarLine(lines, c.anchorText, c.lineNumber);
     if (best !== undefined && c.anchorText.trim() !== "") {
       const delta = best - c.lineNumber;
       c.lineNumber = best;
