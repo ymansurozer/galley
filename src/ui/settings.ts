@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
   unchangedLines: "collapse",
   progressBy: "lines",
   sidebarDefault: "tree",
+  markdownView: "auto",
   stageOnAccept: false,
   editorCommand: "",
 };
