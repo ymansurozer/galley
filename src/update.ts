@@ -11,7 +11,7 @@ import readline from "node:readline";
 // failure path is silent or a one-line warning — an update check must never break
 // a launch.
 
-const PKG = "@ymansurozer/galley";
+const PKG = "galley-diff";
 const CHECK_TTL_MS = 24 * 60 * 60 * 1000; // one registry hit per day
 const FETCH_TIMEOUT_MS = 2500;
 
