@@ -2657,7 +2657,6 @@
               <span class="nm" x-show="r.kind==='file'" x-text="r.name" :title="r.path"></span>
               <svg class="ic crit" x-show="r.kind==='file' && r.flag" :title="r.flag"><use href="#gly-flag"></use></svg>
               <span class="status-pack">
-                <svg class="ic badge approved" x-show="r.kind==='cat' && r.complete" title="All files reviewed"><use href="#gly-check"></use></svg>
                 <i class="add" x-show="r.kind==='file' && r.added" x-text="'+'+r.added"></i>
                 <i class="del" x-show="r.kind==='file' && r.removed" x-text="'−'+r.removed"></i>
               </span>
