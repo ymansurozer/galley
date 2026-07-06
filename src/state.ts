@@ -621,64 +621,6 @@ export function computeApprovedFiles(state: ReviewState): string[] {
   );
 }
 
-export function buildReviewSummary(state: ReviewState, overallNote?: string) {
-  const pr = state.mode === "pr";
-  const scope = pr
-    ? `the PR/branch${state.target ? ` \`${state.target}\`` : ""} (committed changes)`
-    : state.mode === "file"
-      ? `the file${state.target ? ` \`${state.target}\`` : ""}`
-      : state.staged
-        ? "the staged diff"
-        : "the working tree diff";
-  const out = [`Please address this review for ${scope}.`, ""];
-  out.push(
-    pr
-      ? "These are committed changes. Amend the branch to address requested changes; leave approved hunks as-is."
-      : "Respect the user review decisions below: preserve accepted changes, avoid touching staged files unless necessary, and address rejected changes plus requested changes.",
-    "",
-  );
-  // The reviewer's overall note leads the body: it frames the whole review (an overall remark, or
-  // an instruction for what to do after applying), so an agent reading this prompt sees it first.
-  const note = overallNote?.trim();
-  if (note) out.push("## Overall note", note, "");
-  if (!pr && state.stagedFiles.length) {
-    out.push("## Staged files");
-    for (const file of state.stagedFiles) out.push(`- ${file}`);
-    out.push("");
-  }
-  const approved = computeApprovedFiles(state);
-  if (approved.length) {
-    out.push("## Approved files (signed off — leave as-is)");
-    for (const file of approved) out.push(`- ${file}`);
-    out.push("");
-  }
-  const decisions = effectiveDecisions(state);
-  const accepted = decisions.filter((d) => d.status === "accepted");
-  const rejected = decisions.filter((d) => d.status === "rejected");
-  if (accepted.length) {
-    out.push(pr ? "## Approved hunks" : "## Accepted line changes");
-    for (const d of accepted) out.push(`- ${d.path}:${d.lineNumber} (${d.side}) ${d.title}`);
-    out.push("");
-  }
-  if (rejected.length) {
-    out.push(pr ? "## Hunks needing changes" : "## Rejected line changes");
-    for (const d of rejected) out.push(`- ${d.path}:${d.lineNumber} (${d.side}) ${d.title}`);
-    out.push("");
-  }
-  // Questions are answered live (the await stream), so they're not change-requests.
-  const actionable = state.comments.filter(
-    (c) => c.status === "open" && c.role !== "agent" && c.intent !== "question",
-  );
-  if (actionable.length) {
-    out.push("## Requested changes");
-    for (const c of actionable) {
-      out.push(`- ${c.path}:${c.lineNumber} (${c.side})`);
-      out.push(`  ${c.body}`);
-    }
-  }
-  return out.join("\n");
-}
-
 export async function appendComment(
   root: string,
   session: string,
@@ -714,7 +656,7 @@ export async function appendComment(
 
 export function buildReviewResult(
   state: ReviewState,
-  artifacts: { resultJson: string; summaryMd: string; sessionDir: string },
+  artifacts: { resultJson: string; sessionDir: string },
   overallNote?: string,
 ): ReviewResult {
   const decisions = effectiveDecisions(state);
@@ -732,7 +674,6 @@ export function buildReviewResult(
     staged: state.staged,
     head: state.head,
     baseDiffHash: state.baseDiffHash,
-    summaryMarkdown: buildReviewSummary(state, note),
     accepted: pick("accepted"),
     rejected: pick("rejected"),
     requestedChanges: state.comments

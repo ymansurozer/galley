@@ -6,7 +6,6 @@ import path from "node:path";
 import {
   anchorTextFor,
   buildReviewResult,
-  buildReviewSummary,
   globalSettingsPath,
   mergeReviewState,
   reanchorComments,
@@ -357,7 +356,7 @@ test("buildReviewResult reads decisions, so a staged-out accepted hunk still app
       }),
     ],
   });
-  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
   assert.equal(r.accepted.length, 1);
   assert.equal(r.accepted[0]!.path, "a.ts");
   assert.equal(r.accepted[0]!.lineNumber, 4);
@@ -376,43 +375,17 @@ test("buildReviewResult excludes questions from requestedChanges, keeps an actio
       comment({ id: "a", path: "a.ts", lineNumber: 4, body: "rename this", intent: "action" }),
     ],
   });
-  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
   assert.equal(r.requestedChanges.length, 1);
   assert.equal(r.requestedChanges[0]!.body, "rename this");
 });
 
 test("buildReviewResult carries mode/target/base", () => {
   const s = state({ mode: "pr", target: "feature-x", base: "abc123" });
-  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
   assert.equal(r.mode, "pr");
   assert.equal(r.target, "feature-x");
   assert.equal(r.base, "abc123");
-});
-
-test("buildReviewSummary uses PR wording and omits staged files in pr mode", () => {
-  const s = state({
-    mode: "pr",
-    target: "feature-x",
-    stagedFiles: ["a.ts"],
-    changes: [
-      change({ id: "1", path: "a.ts", status: "accepted", stageable: false }),
-      change({ id: "2", path: "b.ts", status: "rejected", stageable: false }),
-    ],
-  });
-  const md = buildReviewSummary(s);
-  assert.match(md, /PR\/branch `feature-x`/);
-  assert.match(md, /## Approved hunks/);
-  assert.match(md, /## Hunks needing changes/);
-  assert.doesNotMatch(md, /Staged files/);
-  assert.doesNotMatch(md, /Accepted line changes/);
-});
-
-test("buildReviewSummary keeps repo wording in repo mode", () => {
-  const s = state({
-    mode: "repo",
-    changes: [change({ id: "1", path: "a.ts", status: "accepted" })],
-  });
-  assert.match(buildReviewSummary(s), /## Accepted line changes/);
 });
 
 test("global settings: write→read round-trip; missing and corrupt files read as {}", async () => {
@@ -492,7 +465,7 @@ test("buildReviewResult.approvedFiles includes a clean signed-off file", () => {
     reviewedFiles: ["a.ts"],
     reviewedFileHashes: { "a.ts": "H" },
   });
-  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(r.approvedFiles, ["a.ts"]);
 });
 
@@ -503,7 +476,7 @@ test("buildReviewResult.approvedFiles excludes a signed-off file with a rejected
     reviewedFileHashes: { "a.ts": "H" },
     decisions: [decision({ key: "a.ts:k1", path: "a.ts", status: "rejected" })],
   });
-  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(r.approvedFiles, []);
 });
 
@@ -531,6 +504,6 @@ test("buildReviewResult.approvedFiles excludes a signed-off file with an open ac
       }),
     ],
   });
-  const r = buildReviewResult(s, { resultJson: "r.json", summaryMd: "s.md", sessionDir: "d" });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(r.approvedFiles, ["b.ts"]); // a.ts has an open change request; b.ts only a question
 });
