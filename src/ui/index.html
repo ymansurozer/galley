@@ -2559,18 +2559,26 @@
       }
 
       /* Float the comment surfaces over the diff rather than in-flow — an in-flow element would
-         add a row to the now fixed-height single column and clip the diff. */
+         add a row to the now fixed-height single column and clip the diff. As a bottom sheet:
+         !important beats the inline top/left the JS placer writes (placeNearActionPop) — without
+         it a fixed element carrying both an inline `top` and this `bottom` stretches full-height.
+         max-height keeps a long draft from overflowing the viewport (the textarea scrolls). */
       .action-pop,
       .composer {
         position: fixed;
-        left: 12px;
-        right: 12px;
-        bottom: 12px;
-        top: auto;
+        left: 12px !important;
+        right: 12px !important;
+        bottom: 12px !important;
+        top: auto !important;
         width: auto;
         max-width: none;
+        max-height: 60vh;
         margin: 0;
         z-index: 40
+      }
+
+      .composer textarea {
+        max-height: 34vh
       }
     }
 
