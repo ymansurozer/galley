@@ -32,9 +32,16 @@ export async function pollState() {
   if (!server || !Array.isArray(server.comments)) return;
   if (server.baseDiffHash !== S.lastBaseDiffHash) {
     S.lastBaseDiffHash = server.baseDiffHash;
+    // Keep the reviewer on the same file across a reload. File order/membership can change (the
+    // agent added, removed, or reordered files), so re-find the current path in the new list
+    // rather than trusting the numeric index — otherwise the shown file, and guided auto-advance
+    // (which resolves "next" from the current index), silently jump to whatever now sits there.
+    const curPath = S.state?.files?.[S.fileIndex]?.path;
     S.state = server;
     D.fileDiff = null;
-    if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
+    const remapped = curPath ? S.state.files.findIndex((f) => f.path === curPath) : -1;
+    if (remapped >= 0) S.fileIndex = remapped;
+    else if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
     S.awaitingAgent = false;
     // The diff changed (e.g. a reload added files) — refresh the project listing too so
     // the tree reflects newly tracked files, not the listing fetched at startup.
