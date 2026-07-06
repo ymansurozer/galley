@@ -6,15 +6,20 @@ import type { DiffFile, DiffHunk, DiffLine } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
+// Cap on a single git/gh stdout. Generous because a whole-PR `git diff` or a `git show` of a large
+// generated/vendored file can be big; exceeding it rejects (git()) or degrades a file to a spurious
+// full add/delete (fileAt swallows the error), so a too-small cap silently corrupts a large diff.
+const MAX_BUFFER = 256 * 1024 * 1024;
+
 export async function git(args: string[], cwd: string) {
-  const { stdout } = await execFileAsync("git", args, { cwd, maxBuffer: 50 * 1024 * 1024 });
+  const { stdout } = await execFileAsync("git", args, { cwd, maxBuffer: MAX_BUFFER });
   return String(stdout).trimEnd();
 }
 
 // Thin wrapper around the GitHub CLI, used only to resolve a PR number/URL to its branch.
 // Kept optional: callers catch failures (gh missing or unauthenticated) and report them.
 export async function gh(args: string[], cwd: string) {
-  const { stdout } = await execFileAsync("gh", args, { cwd, maxBuffer: 50 * 1024 * 1024 });
+  const { stdout } = await execFileAsync("gh", args, { cwd, maxBuffer: MAX_BUFFER });
   return String(stdout).trimEnd();
 }
 
@@ -126,7 +131,7 @@ export async function fileAt(root: string, rel: string | undefined, ref?: string
     if (ref) {
       const { stdout } = await execFileAsync("git", ["show", `${ref}:${rel}`], {
         cwd: root,
-        maxBuffer: 50 * 1024 * 1024,
+        maxBuffer: MAX_BUFFER,
       });
       return String(stdout);
     }
