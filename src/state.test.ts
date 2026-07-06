@@ -301,6 +301,30 @@ test("reanchorComments flags an ambiguous or vanished anchor as unanchored", () 
   assert.equal(gone.unanchored, true);
 });
 
+test("reanchorComments best-effort re-anchors a lightly-edited line to the nearest similar one", () => {
+  // The anchored line "const total = a + b;" was tweaked to "...a + b + c;" — same line, edited,
+  // so its exact text is gone. It should stay put (near its old spot), not fall to the strip.
+  const files = [
+    contentsFile("a.ts", "function sum() {\n  const total = a + b + c;\n  return total;\n}"),
+  ];
+  const c = comment({
+    id: "c1",
+    path: "a.ts",
+    lineNumber: 2,
+    anchorText: "  const total = a + b;",
+  });
+  reanchorComments([c], files);
+  assert.equal(c.unanchored, false);
+  assert.equal(c.lineNumber, 2);
+});
+
+test("reanchorComments leaves a comment unanchored when no surviving line is similar", () => {
+  const files = [contentsFile("a.ts", "wholly\ndifferent\ncontent\nhere")];
+  const c = comment({ id: "c1", path: "a.ts", lineNumber: 2, anchorText: "const total = a + b;" });
+  reanchorComments([c], files);
+  assert.equal(c.unanchored, true);
+});
+
 test("reanchorComments skips resolved comments and flags legacy ones only when out of range", () => {
   const files = [contentsFile("a.ts", "one\ntwo")];
   const resolved = comment({
