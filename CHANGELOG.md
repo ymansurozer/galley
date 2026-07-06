@@ -1,6 +1,71 @@
 # Changelog
 
 
+## v0.5.0
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.4.0...v0.5.0)
+
+### 🚀 Enhancements
+
+- Redesign comment threads with bubbles and rich text ([#36](https://github.com/ymansurozer/galley/pull/36))
+- Add a floating approve button when scrolled ([#37](https://github.com/ymansurozer/galley/pull/37))
+- Improve markdown file rendering and add a default-view setting ([#38](https://github.com/ymansurozer/galley/pull/38))
+
+### 🩹 Fixes
+
+- Open each file scrolled to the top ([#25](https://github.com/ymansurozer/galley/pull/25))
+- Keep guided auto-advance working across reloads ([#26](https://github.com/ymansurozer/galley/pull/26))
+- Diff PRs against the up-to-date base to avoid unrelated changes ([#27](https://github.com/ymansurozer/galley/pull/27))
+- Keep approved test files visible in the tree ([#28](https://github.com/ymansurozer/galley/pull/28))
+- Keep comments near their line when the code is lightly edited ([#31](https://github.com/ymansurozer/galley/pull/31))
+- Drop the redundant checkmark on walkthrough category rows ([#33](https://github.com/ymansurozer/galley/pull/33))
+- Cap the comment composer height on narrow screens ([#34](https://github.com/ymansurozer/galley/pull/34))
+- Calmer line-selection highlight that clears on Escape ([#35](https://github.com/ymansurozer/galley/pull/35))
+
+### 💅 Refactors
+
+- Drop summaryMarkdown and the duplicate review artifact ([#32](https://github.com/ymansurozer/galley/pull/32))
+
+### 📖 Documentation
+
+- Add PRD for moved-code badges ([#29](https://github.com/ymansurozer/galley/pull/29))
+
+### 🏡 Chore
+
+- Rename npm package to galley-diff ([#30](https://github.com/ymansurozer/galley/pull/30))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
+## v0.4.0
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.3.0...v0.4.0)
+
+### 🚀 Enhancements
+
+- Confirm before sending a review to the agent ([#19](https://github.com/ymansurozer/galley/pull/19))
+- Attach an optional overall note when sending a review ([#20](https://github.com/ymansurozer/galley/pull/20))
+- Collapse the file tree into a drawer on narrow screens ([#24](https://github.com/ymansurozer/galley/pull/24))
+
+### 🩹 Fixes
+
+- Keep walkthrough sections in provided order when a category repeats ([#21](https://github.com/ymansurozer/galley/pull/21))
+- Walkthrough indicators for new files + consistent churn spacing ([#22](https://github.com/ymansurozer/galley/pull/22))
+- Align sidebar tab bar and guide bar bottom borders ([#23](https://github.com/ymansurozer/galley/pull/23))
+
+### 💅 Refactors
+
+- ⚠️  Reframe guide file fields as orientation + flag ([#18](https://github.com/ymansurozer/galley/pull/18))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Reframe guide file fields as orientation + flag ([#18](https://github.com/ymansurozer/galley/pull/18))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.3.0
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.2.4...v0.3.0)
