@@ -123,7 +123,7 @@ try {
   console.log("✓ comment posted (answer) — activity cleared");
 
   // human clicks Send → `galley await` yields a review event with a ReviewResult.
-  // Attach an overall note and confirm it round-trips as both a field and the lead summary section.
+  // Attach an overall note and confirm it round-trips as a field on the structured result.
   const NOTE = "After applying, run the formatter and update the changelog.";
   await post("/api/send", { ...(await getJson("/api/state")), overallNote: NOTE });
   const ev2 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
@@ -132,11 +132,13 @@ try {
   for (const k of ["requestedChanges", "accepted", "rejected", "stagedFiles"])
     assert.ok(Array.isArray(ev2.result[k]), `result.${k} is an array`);
   assert.equal(ev2.result.overallNote, NOTE, "overallNote round-trips on the result");
+  // The contract is the structured arrays only — no prose summary field, no duplicate .md artifact.
+  assert.equal(ev2.result.summaryMarkdown, undefined, "no summaryMarkdown field on the result");
   assert.ok(
-    ev2.result.summaryMarkdown.includes("## Overall note") &&
-      ev2.result.summaryMarkdown.includes(NOTE),
-    "overallNote leads summaryMarkdown",
+    ev2.result.artifacts?.resultJson && ev2.result.artifacts?.sessionDir,
+    "artifacts carry resultJson + sessionDir",
   );
+  assert.equal(ev2.result.artifacts.summaryMd, undefined, "no summaryMd artifact");
   console.log("✓ await → review event (ReviewResult shape + overallNote ok)");
 
   console.log("\nSMOKE PASS");

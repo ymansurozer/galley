@@ -13,7 +13,6 @@ import {
   anchorTextFor,
   buildReviewResult,
   buildReviewState,
-  buildReviewSummary,
   hash,
   mergeReviewState,
   nowIso,
@@ -295,17 +294,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         await syncGitState(state);
         const file = await persistReview(state);
         const sessionDir = path.dirname(file);
-        const summaryMd = path.join(sessionDir, `${state.id}-send-review.md`);
         const resultJson = path.join(sessionDir, `${state.id}-result.json`);
-        await fs.writeFile(summaryMd, buildReviewSummary(state, overallNote) + "\n", "utf8");
-        const payload = buildReviewResult(
-          state,
-          { resultJson, summaryMd, sessionDir },
-          overallNote,
-        );
+        const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
         await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
         res.on("finish", () => emitEvent({ kind: "review", result: payload }));
-        return json(res, 200, { ok: true, sent: true, summaryMd, resultJson });
+        return json(res, 200, { ok: true, sent: true, resultJson });
       }
       if (req.method === "POST" && url.pathname === "/api/ask") {
         // Reviewer clicked Ask: push a question to the agent now (out of band from Send).

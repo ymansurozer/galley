@@ -196,20 +196,18 @@ export type ReviewResult = {
   staged: boolean;
   head: string | null;
   baseDiffHash: string;
-  summaryMarkdown: string;
   accepted: Array<{ path: string; lineNumber: number; side: string; title: string }>;
   rejected: Array<{ path: string; lineNumber: number; side: string; title: string }>;
   requestedChanges: Array<{ path: string; lineNumber: number; side: string; body: string }>;
   // An optional note the reviewer attached at Send time about the whole review — an overall
   // remark, or an afterthought instruction for what to do after applying it. Ephemeral: captured
   // per Send, never persisted into ReviewState, so a one-off instruction can't silently re-send.
-  // When present it is also rendered as the first section of summaryMarkdown.
   overallNote?: string;
   stagedFiles: string[];
   // Files the reviewer signed off as-is (no rejected hunks, no open requested-change
   // comments, approval still current): the agent should leave these unchanged.
   approvedFiles: string[];
-  artifacts: { resultJson: string; summaryMd: string; sessionDir: string };
+  artifacts: { resultJson: string; sessionDir: string };
 };
 
 // A question the reviewer asked (intent "question") that the agent should answer now.

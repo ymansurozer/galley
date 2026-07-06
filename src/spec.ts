@@ -74,16 +74,15 @@ await yields exactly one:
 ## ReviewResult
 The \`result\` field of a review event:
 - session, repoRoot, mode, staged, head (sha|null), baseDiffHash (hash of the reviewed diff)
-- summaryMarkdown — a ready-to-use prompt body (the arrays below are for acting precisely)
 - accepted[], rejected[]: {path, lineNumber, side, title}
 - requestedChanges[]: {path, lineNumber, side, body}
 - overallNote? — an optional note about the WHOLE review (absent if the reviewer left it blank):
   an overall remark, or an afterthought instruction for what to do after applying the review
-  (e.g. "after applying, run the formatter"). When present it's also the first section of
-  summaryMarkdown ("## Overall note"). It is NOT tied to any line and not a per-line change.
+  (e.g. "after applying, run the formatter"). It is NOT tied to any line and not a per-line change.
 - stagedFiles[], approvedFiles[]
-- artifacts: {resultJson, summaryMd, sessionDir}, all under
+- artifacts: {resultJson, sessionDir}, both under
   ~/.galley/<repoHash>/<session>/ where repoHash = sha256(abs repo root)[:16]
+The arrays above ARE the review — act on them directly; there's no prose summary to parse.
 Each changed file ends pending | approved (no objections → listed in approvedFiles) |
 changes-requested (a rejected hunk and/or a requested change). Editing a file's content
 invalidates its approval → after \`galley reload\` it returns to pending for re-review.
@@ -99,6 +98,8 @@ file-poller sees Sends but not Asks.
 - approvedFiles → signed off as-is; leave the whole file unless a requested change forces a touch
   (which re-opens it for re-review).
 - stagedFiles → already staged by the reviewer; don't touch unless a requested change requires it.
+In pr mode the diff is committed changes: amend the branch/commits to apply the review, leaving
+approved hunks as-is (rather than editing the working tree).
 Then \`galley reload\` to surface your edits, and \`galley await\` for the next round.
 
 ## Guided review (optional)
