@@ -6,7 +6,7 @@
 
 **An integrated review environment (IRE) for code you didn't write by hand.**
 
-[![CI](https://github.com/ymansurozer/galley/actions/workflows/ci.yml/badge.svg)](https://github.com/ymansurozer/galley/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/@ymansurozer/galley.svg)](https://www.npmjs.com/package/@ymansurozer/galley) [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![CI](https://github.com/ymansurozer/galley/actions/workflows/ci.yml/badge.svg)](https://github.com/ymansurozer/galley/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/galley-diff.svg)](https://www.npmjs.com/package/galley-diff) [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 <img src="assets/screenshot.png" alt="Galley — a guided review: pending changes with accept/reject, a question waiting on the agent, and a change request" width="80%" />
 
@@ -27,8 +27,8 @@ I'm not saying this is *the* review surface. I built it in a week and I'm still 
 1. **Install the CLI** (needs **Node 20+** and **git**):
 
    ```bash
-   npm install -g @ymansurozer/galley        # global, for any repo
-   # or: npm install -D @ymansurozer/galley   # per-project
+   npm install -g galley-diff        # global, for any repo
+   # or: npm install -D galley-diff   # per-project
    ```
 
 2. **Teach your agent to drive it.** Install the skill for on-demand use:

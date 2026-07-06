@@ -33,29 +33,29 @@ test("currentVersion reads the package version", () => {
 
 test("detectInstall: project-local installs are notice-only", () => {
   const cwd = "/work/repo";
-  const local = detectInstall("/work/repo/node_modules/@ymansurozer/galley/dist/cli.js", cwd);
+  const local = detectInstall("/work/repo/node_modules/galley-diff/dist/cli.js", cwd);
   assert.equal(local.kind, "local");
-  assert.deepEqual(local.command, ["npm", "i", "-D", "@ymansurozer/galley@latest"]);
+  assert.deepEqual(local.command, ["npm", "i", "-D", "galley-diff@latest"]);
 });
 
 test("detectInstall: global installs pick the manager from the path", () => {
   const cwd = "/work/repo";
-  assert.deepEqual(
-    detectInstall("/usr/local/lib/node_modules/@ymansurozer/galley/dist/cli.js", cwd),
-    { kind: "global", command: ["npm", "i", "-g", "@ymansurozer/galley@latest"] },
-  );
+  assert.deepEqual(detectInstall("/usr/local/lib/node_modules/galley-diff/dist/cli.js", cwd), {
+    kind: "global",
+    command: ["npm", "i", "-g", "galley-diff@latest"],
+  });
   assert.deepEqual(
     detectInstall(
-      "/Users/u/Library/pnpm/global/5/.pnpm/@ymansurozer+galley@0.2.1/node_modules/@ymansurozer/galley/dist/cli.js",
+      "/Users/u/Library/pnpm/global/5/.pnpm/galley-diff@0.2.1/node_modules/galley-diff/dist/cli.js",
       cwd,
     ),
-    { kind: "global", command: ["pnpm", "add", "-g", "@ymansurozer/galley@latest"] },
+    { kind: "global", command: ["pnpm", "add", "-g", "galley-diff@latest"] },
   );
   assert.deepEqual(
-    detectInstall("/Users/u/.bun/install/global/node_modules/@ymansurozer/galley/dist/cli.js", cwd),
+    detectInstall("/Users/u/.bun/install/global/node_modules/galley-diff/dist/cli.js", cwd),
     {
       kind: "global",
-      command: ["bun", "add", "-g", "@ymansurozer/galley@latest"],
+      command: ["bun", "add", "-g", "galley-diff@latest"],
     },
   );
 });

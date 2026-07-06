@@ -18,7 +18,7 @@ Reach for Galley when the user should review something turn-by-turn: **code chan
 
 ## Getting the tool
 
-`galley` is a small Node CLI (Node 20+ and `git` required). To use it across any repo, install it globally: `npm install -g @ymansurozer/galley`. To use it in just one project, add it there as a dev dependency (`npm install -D @ymansurozer/galley`) and run it with `npx @ymansurozer/galley`. Either way, invoke it as `galley …`.
+`galley` is a small Node CLI (Node 20+ and `git` required). To use it across any repo, install it globally: `npm install -g galley-diff`. To use it in just one project, add it there as a dev dependency (`npm install -D galley-diff`) and run it with `npx galley-diff`. Either way, invoke it as `galley …`.
 
 ## Quickstart
 
