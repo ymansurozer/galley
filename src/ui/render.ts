@@ -512,14 +512,18 @@ async function renderCenter() {
   // Mount only this file's wrapper (replaceChildren detaches the previously-active wrapper —
   // it lives on in the Map — and removes any overview/markdown content). Skip when it's already
   // the sole child (a same-file re-render) so we don't detach/reattach and reset scroll.
-  if (host.firstElementChild !== entry.wrapper || host.childElementCount !== 1)
-    host.replaceChildren(entry.wrapper);
+  const mountedNew = host.firstElementChild !== entry.wrapper || host.childElementCount !== 1;
+  if (mountedNew) host.replaceChildren(entry.wrapper);
   entry.inst.setLineAnnotations?.(anns());
   await entry.inst.render({
     fileDiff: fd,
     containerWrapper: entry.wrapper,
     lineAnnotations: anns(),
   });
+  // A genuine file/view switch starts at the top. #diff is the persistent scroll container, so
+  // replaceChildren preserves its previous scrollTop — a tall next file would otherwise open
+  // mid-scroll. A same-file re-render (a decision applied) skips this and keeps its scroll.
+  if (mountedNew) host.scrollTop = 0;
   afterRender();
   // Evict least-recently-used instances beyond the cap.
   while (D.diffCache.size > DIFF_CACHE_CAP) {
