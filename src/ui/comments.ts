@@ -1,6 +1,5 @@
-import { S, $, toast, persist } from "./store";
+import { S, toast, persist } from "./store";
 import { toDisplayLine } from "./changes";
-import { placeNearActionPop } from "./selection";
 import { render } from "./render";
 
 // Edit & delete the reviewer's own comments. Agent replies (role "agent") are
@@ -9,15 +8,13 @@ import { render } from "./render";
 export function editComment(id: string) {
   const comment = S.state.comments.find((c) => c.id === id);
   if (!comment || comment.role === "agent") return;
-  // Comments persist raw lines; S.selected is display space.
+  // Comments persist raw lines; S.selected is display space. The edit renders in place
+  // inside the thread (see buildCommentThread) — render() mounts it and restores focus.
   S.selected = { side: comment.side, lineNumber: toDisplayLine(comment.side, comment.lineNumber) };
   S.composerBody = comment.body;
-  S.composerTitle = "Edit comment";
   S.editingCommentId = id;
-  S.popoverOpen = false;
-  placeNearActionPop($("composer"));
   S.composerOpen = true;
-  setTimeout(() => $("commentBody").focus(), 0); // after Alpine shows it
+  render();
 }
 
 export async function deleteComment(id: string) {

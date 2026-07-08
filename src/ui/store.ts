@@ -26,10 +26,8 @@ export const S: Store = Alpine.reactive<Store>({
   selected: { side: "additions", lineNumber: 1 },
   // chrome UI flags (templates bind to these)
   composerOpen: false,
-  popoverOpen: false,
   toastMsg: "",
   golineBuffer: "",
-  composerTitle: "New line",
   composerBody: "",
   editingCommentId: null,
   settings: loadSettings(),

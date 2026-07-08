@@ -1,10 +1,16 @@
-import { S, $, esc, toast, persist } from "./store";
-import { currentComments, currentChanges, currentFile, toDisplayLine } from "./changes";
+import { S, esc, toast, persist } from "./store";
+import {
+  currentComments,
+  currentChanges,
+  currentFile,
+  toDisplayLine,
+  fromDisplayLine,
+} from "./changes";
 import { isUnanchored } from "./unanchored";
 import { acceptChange } from "./decisions";
 import { editComment, deleteComment } from "./comments";
 import { renderCommentBody } from "./markdown";
-import { selectionLabel, placeNearActionPop } from "./selection";
+import { buildComposer, buildEditor, composerTargets, openComposer } from "./composer";
 import { render } from "./render";
 import type { AnnotationInput, AnnotationMeta, ThreadMeta, ReviewComment } from "./types";
 
@@ -65,10 +71,32 @@ export function annotations(): AnnotationInput[] {
       },
     });
   }
+  // A new line comment (not a reply, not an edit) opens as its own composer annotation
+  // under the selected line. Suppressed only when an OPEN thread already sits there — that
+  // thread hosts the reply composer itself (in the diff, or in the unanchored strip). A
+  // resolved thread renders as a collapsed summary and never hosts a composer, so the new
+  // comment still needs its own row. S.selected is display space; groups are keyed raw.
+  const composers: AnnotationInput[] = [];
+  if (file && S.composerOpen && !S.editingCommentId) {
+    const rawSel = fromDisplayLine(S.selected.side, S.selected.lineNumber);
+    const group = groups.get(`${S.selected.side}:${rawSel}`);
+    const openThreadHere = !!group && group.some((c) => c.status === "open");
+    if (!openThreadHere)
+      composers.push({
+        side: S.selected.side,
+        lineNumber: S.selected.lineNumber,
+        metadata: {
+          type: "composer",
+          side: S.selected.side,
+          lineNumber: S.selected.lineNumber,
+          path: file.path,
+        },
+      });
+  }
   // When a thread and a change land on the same display line, the decision bar
   // must sit immediately under the hunk with the thread below it — annotations
-  // render in array order, so changes go first.
-  return [...changes, ...threads];
+  // render in array order, so changes go first, the composer last.
+  return [...changes, ...threads, ...composers];
 }
 
 // The waiting indicator under an unanswered question has three states, derived per
@@ -126,12 +154,14 @@ function relTime(iso?: string): string {
 export function buildCommentThread(c: ThreadMeta): HTMLElement {
   const box = document.createElement("div");
   box.className = "comment-box";
+  const replyOpen = composerTargets(c.side, c.lineNumber);
   const messages =
     c.status === "resolved"
       ? `<div class="thread-summary"><b>${c.comments.length}</b> comment${c.comments.length === 1 ? "" : "s"} <span>(Resolved)</span><button class="reopen-inline">Reopen</button></div>`
       : c.comments
           .map((m) => {
             const own = m.role !== "agent";
+            const editing = S.editingCommentId === m.id;
             const edited =
               m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
             const badge =
@@ -147,24 +177,39 @@ export function buildCommentThread(c: ThreadMeta): HTMLElement {
               !c.comments.some(
                 (x) => x.role === "agent" && +new Date(x.createdAt) > +new Date(m.createdAt),
               );
-            const actions = own
-              ? `<span class="msg-actions"><button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>`
-              : "";
-            return `<div class="msg ${own ? "" : "agent"}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div><div class="md">${renderCommentBody(m)}</div>${awaiting ? awaitingHtml() : ""}</div>`;
+            const actions =
+              own && !editing
+                ? `<span class="msg-actions"><button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>`
+                : "";
+            // The body is left empty for the message being edited — buildEditor replaces it
+            // below (it needs live DOM wiring, not an innerHTML string).
+            const body = editing ? "" : `<div class="md">${renderCommentBody(m)}</div>`;
+            return `<div class="msg ${own ? "" : "agent"}${editing ? " editing" : ""}" data-id="${m.id}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div>${body}${awaiting ? awaitingHtml() : ""}</div>`;
           })
           .join("");
-  box.innerHTML = `${messages}<div class="thread-actions">${c.status === "resolved" ? '<button class="reopen-thread">Reopen</button>' : '<button class="reply-thread">Reply</button><button class="resolve-thread">Resolve</button>'}</div>`;
+  // Reply hides while its own composer is open (only Resolve stays); the composer card sits
+  // between the last message and the action bar.
+  const foot =
+    c.status === "resolved"
+      ? '<div class="thread-actions"><button class="reopen-thread">Reopen</button></div>'
+      : replyOpen
+        ? '<div class="thread-actions"><button class="resolve-thread">Resolve</button></div>'
+        : '<div class="thread-actions"><button class="reply-thread">Reply</button><button class="resolve-thread">Resolve</button></div>';
+  box.innerHTML = `${messages}${foot}`;
+  // Mount the in-place editor into the message being edited.
+  if (S.editingCommentId && c.status !== "resolved") {
+    const msgEl = box.querySelector(`.msg[data-id="${S.editingCommentId}"]`);
+    msgEl?.appendChild(buildEditor());
+  }
+  // Mount the reply composer above the action bar.
+  if (replyOpen && c.status !== "resolved")
+    box.querySelector(".thread-actions")?.before(buildComposer());
   const reply = box.querySelector(".reply-thread") as HTMLButtonElement | null;
   if (reply)
     reply.onclick = () => {
       // S.selected is display space; the thread's anchor is raw.
       S.selected = { side: c.side, lineNumber: toDisplayLine(c.side, c.lineNumber) };
-      S.composerBody = "";
-      S.composerTitle = selectionLabel();
-      S.editingCommentId = null;
-      placeNearActionPop($("composer"));
-      S.composerOpen = true;
-      setTimeout(() => $("commentBody").focus(), 0);
+      openComposer();
     };
   box
     .querySelectorAll(".edit-comment")
@@ -204,6 +249,14 @@ export function buildCommentThread(c: ThreadMeta): HTMLElement {
 // metadata we tucked into it is our own typed AnnotationMeta.
 export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   const c = a.metadata;
+  // A new-comment composer injected under the selected line (reply/edit render inside a
+  // thread instead — see buildCommentThread).
+  if (c.type === "composer") {
+    const el = document.createElement("div");
+    el.className = "annotation composer-annotation";
+    el.appendChild(buildComposer());
+    return el;
+  }
   const change =
     c.type === "change"
       ? S.state.changes.find((x) => x.id === c.id)

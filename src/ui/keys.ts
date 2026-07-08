@@ -1,6 +1,7 @@
 import { S } from "./store";
 import { hasGuide } from "./guide";
 import { approveCurrentFile } from "./decisions";
+import { closeComposer } from "./composer";
 import {
   cursorMoveLine,
   cursorMoveHunk,
@@ -72,11 +73,9 @@ function escape() {
     S.settingsOpen = false;
     return;
   }
-  if (S.composerOpen || S.popoverOpen || S.editingCommentId) {
-    S.composerOpen = false;
-    S.popoverOpen = false;
-    S.editingCommentId = null;
-    cursorReset(); // also drop the line highlight the composer/popover was anchored to
+  if (S.composerOpen || S.editingCommentId) {
+    cursorReset(); // also drop the line highlight the composer was anchored to
+    closeComposer(); // rebuilds the diff so the inline composer's DOM goes away
     return;
   }
   // A lone line selection (keyboard cursor, or a click that left the highlight without an open

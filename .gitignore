@@ -8,3 +8,4 @@ dist/
 
 # Playwright MCP test artifacts (screenshots/snapshots)
 .playwright-mcp/
+.desk/

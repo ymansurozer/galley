@@ -1,43 +1,21 @@
 import { S, $ } from "./store";
 import type { Side } from "./types";
 import { cursorSyncTo } from "./cursor";
+import { openComposer, closeComposer } from "./composer";
 
 // Payload shapes coming out of @pierre/diffs' line callbacks are loosely
 // documented, so the extraction below is deliberately duck-typed.
 type LinePayload = { lineNumber: number; side?: unknown; endLine?: number; event?: PointerEvent };
 
-let lastSelectionPointer: { clientX: number; clientY: number } | null = null;
 let dragSelectionStart: LinePayload | null = null;
 let suppressSelectionUntil = 0;
 let ignoreNextLineClick = false;
 
-export function placePopoverFromPoint(clientX: number, clientY: number) {
-  const box = (document.querySelector(".main") as HTMLElement).getBoundingClientRect();
-  const pop = $("actionPop");
-  pop.style.left = `${Math.max(292, Math.min(box.width - 320, clientX - box.left + 12))}px`;
-  pop.style.top = `${Math.max(58, Math.min(box.height - 220, clientY - box.top + 8))}px`;
-}
-
-export function placeNearActionPop(el: HTMLElement) {
-  const pop = $("actionPop");
-  if (pop.style.left && pop.style.top) {
-    el.style.left = pop.style.left;
-    el.style.top = pop.style.top;
-  } else if (lastSelectionPointer) {
-    placePopoverFromPoint(lastSelectionPointer.clientX, lastSelectionPointer.clientY);
-    el.style.left = pop.style.left;
-    el.style.top = pop.style.top;
-  }
-}
-
+// A line click/drag opens an inline composer anchored under the selected line (option B —
+// no intermediate action pop). The composer is a `composer` annotation the diff render
+// injects at S.selected, so there's nothing to position at the pointer.
 export function openCommentComposer() {
-  placeNearActionPop($("composer"));
-  S.popoverOpen = false;
-  S.composerBody = "";
-  S.composerTitle = selectionLabel();
-  S.editingCommentId = null; // a fresh composer creates a new comment, never edits
-  S.composerOpen = true;
-  setTimeout(() => $("commentBody").focus(), 0); // after Alpine shows it
+  openComposer();
 }
 
 function selectedEndpoint(range: any) {
@@ -70,13 +48,7 @@ function linePayloadFromPointerEvent(e: PointerEvent): LinePayload | null {
   }
   return null;
 }
-export function selectionLabel() {
-  const side = S.selected.side === "deletions" ? "Old" : "New";
-  const a = S.selected.lineNumber,
-    b = S.selected.endLine;
-  return b && b !== a ? `${side} lines ${Math.min(a, b)}–${Math.max(a, b)}` : `${side} line ${a}`;
-}
-export function showForDiffLine(payload: LinePayload, event?: PointerEvent) {
+export function showForDiffLine(payload: LinePayload) {
   S.selected = {
     side: normalizeSide(payload.side),
     lineNumber: payload.lineNumber,
@@ -85,26 +57,17 @@ export function showForDiffLine(payload: LinePayload, event?: PointerEvent) {
   // The pointer selection becomes the keyboard cursor too (one highlight, one position),
   // so the arrows continue from the clicked line — the end of the range for a drag.
   cursorSyncTo(normalizeSide(payload.side), payload.endLine ?? payload.lineNumber);
-  $("popContext").textContent = selectionLabel();
-  const e = event || payload.event;
-  if (e?.clientX) placePopoverFromPoint(e.clientX, e.clientY);
-  else if (lastSelectionPointer)
-    placePopoverFromPoint(lastSelectionPointer.clientX, lastSelectionPointer.clientY);
   openCommentComposer();
 }
 export function composerHasText() {
   return S.composerOpen && S.composerBody.trim().length > 0;
 }
-export function closeComposerIfEmpty() {
-  if (S.composerOpen && !composerHasText()) {
-    S.composerOpen = false;
-    S.editingCommentId = null;
-  }
+export function closeComposerIfEmpty(deferRender = false) {
+  if (S.composerOpen && !composerHasText()) closeComposer(deferRender);
 }
 export function handleDiffSelection(range: any) {
   if (Date.now() < suppressSelectionUntil) return;
   if (!range) {
-    S.popoverOpen = false;
     closeComposerIfEmpty();
     ignoreNextLineClick = true;
     setTimeout(() => (ignoreNextLineClick = false), 0);
@@ -121,20 +84,17 @@ export function handleLineNumberClick(...args: any[]) {
   const payload = args.map(extractLinePayload).find(Boolean);
   if (!payload) return;
   const side = normalizeSide(payload.side);
+  // Re-clicking the composer's own line closes it (when empty) instead of reopening.
   if (S.composerOpen && S.selected.lineNumber === payload.lineNumber && S.selected.side === side) {
-    if (!composerHasText()) S.composerOpen = false;
+    if (!composerHasText()) closeComposer();
     suppressSelectionUntil = Date.now() + 350;
     return;
   }
-  showForDiffLine(
-    payload,
-    args.find((a) => a && typeof a === "object" && "clientX" in a),
-  );
+  showForDiffLine(payload);
 }
 export function attachDiffSelectionHandlers() {
   const root = $("diff");
   root.onpointerdown = (e: PointerEvent) => {
-    lastSelectionPointer = { clientX: e.clientX, clientY: e.clientY };
     dragSelectionStart = linePayloadFromPointerEvent(e);
   };
   root.onpointerup = (e: PointerEvent) => {
@@ -144,7 +104,7 @@ export function attachDiffSelectionHandlers() {
       dragSelectionStart.lineNumber === end.lineNumber &&
       normalizeSide(dragSelectionStart.side) === normalizeSide(end.side);
     if (same) return;
-    showForDiffLine({ ...dragSelectionStart, endLine: end.lineNumber }, e);
+    showForDiffLine({ ...dragSelectionStart, endLine: end.lineNumber });
     dragSelectionStart = null;
   };
 }

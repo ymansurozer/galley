@@ -257,19 +257,12 @@ function cursorChange() {
   );
 }
 
-// Open the comment composer anchored to the cursor line (keyboard equivalent of clicking a line).
+// Open the comment composer anchored to the cursor line (keyboard equivalent of clicking a
+// line). The composer renders inline at S.selected, so there's nothing to position.
 export function cursorComment() {
   if (!cur) ensureCursor();
   if (!cur) return;
-  const r = rows().find((x) => matches(x, cur!.side, cur!.line));
   S.selected = { side: cur.side, lineNumber: cur.line };
-  if (r) {
-    const box = (document.querySelector(".main") as HTMLElement).getBoundingClientRect();
-    const top = r.top - $("diff").scrollTop + $("diff").getBoundingClientRect().top;
-    const pop = $("composer");
-    pop.style.left = `${Math.max(292, Math.min(box.width - 360, $("diff").getBoundingClientRect().left - box.left + 60))}px`;
-    pop.style.top = `${Math.max(58, Math.min(box.height - 220, top - box.top + r.height + 4))}px`;
-  }
   openCommentComposer();
 }
 

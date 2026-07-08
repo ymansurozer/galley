@@ -120,7 +120,17 @@ export type ChangeMeta = {
   title: string;
   path: string;
 };
-export type AnnotationMeta = ThreadMeta | ChangeMeta;
+// An inline composer slot injected on the fly for a new line comment (reply/edit render
+// inside the thread, not as their own annotation). lineNumber is the display line the
+// composer anchors under — it re-derives from S.selected on every render, so it tracks
+// the selection across decision replays like any other annotation.
+export type ComposerMeta = {
+  type: "composer";
+  side: Side;
+  lineNumber: number;
+  path: string;
+};
+export type AnnotationMeta = ThreadMeta | ChangeMeta | ComposerMeta;
 export type AnnotationInput = { side: Side; lineNumber: number; metadata: AnnotationMeta };
 
 // ── @pierre/diffs imperative island ────────────────────────────────────────
@@ -173,13 +183,13 @@ export interface Store {
   queuedReviews: number;
   lastBaseDiffHash: string | null;
   selected: Selection;
+  // An inline composer (new / reply / edit) is open. Exactly one at a time; the composer's
+  // text lives in composerBody so it survives the diff DOM rebuild (see composer.ts).
   composerOpen: boolean;
-  popoverOpen: boolean;
   toastMsg: string;
   // Pending "go to line" digits typed in the diff ("" = inactive). Drives the goline pill;
   // ↵ / idle timeout commits the jump, Esc cancels (see cursor.ts goline section).
   golineBuffer: string;
-  composerTitle: string;
   composerBody: string;
   editingCommentId: string | null;
   settings: Settings;
@@ -219,7 +229,6 @@ export interface Store {
   treeAnyOpen?: () => boolean;
   toggleTestDir?: (key: string) => void;
   rowClick?: (r: TreeRow) => void;
-  openComposer?: () => void;
   setStyle?: (style: DiffStyle) => void;
   setFileView?: (view: "rendered" | "source") => void;
   isMarkdownFile?: () => boolean;

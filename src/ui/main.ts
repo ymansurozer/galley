@@ -9,7 +9,7 @@ import {
   fileObjections,
 } from "./changes";
 import { approveCurrentFile } from "./decisions";
-import { openCommentComposer, closeComposerIfEmpty } from "./selection";
+import { closeComposerIfEmpty } from "./selection";
 import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { render, deferRender } from "./render";
 import { adoptDeskStatus, pollState } from "./poll";
@@ -33,14 +33,18 @@ import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import { cursorReset, cursorSelection } from "./cursor";
 import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
 
-// Close the composer when clicking outside it (unless it has unsaved text).
+// Close the inline composer when clicking outside it (unless it has unsaved text). The
+// composer/editor live inside the diff DOM now, so match their containers directly.
 document.addEventListener(
   "pointerdown",
   (e) => {
     if (!S.composerOpen) return;
-    const target = e.target as Node;
-    if ($("composer").contains(target) || $("actionPop").contains(target)) return;
-    closeComposerIfEmpty();
+    const target = e.target as HTMLElement;
+    if (target.closest?.(".composer-card, .msg-edit")) return;
+    // Defer the closing render: this fires on pointerdown, before the click reaches a diff
+    // control (Keep/Undo/Reply). Rendering now rebuilds the diff and destroys that control,
+    // so the browser drops the pending click and the user's press is swallowed.
+    closeComposerIfEmpty(true);
   },
   true,
 );
@@ -154,7 +158,6 @@ S.rowClick = (r) => {
   else if (r.fileIndex !== undefined) S.selectFile?.(r.fileIndex);
   else S.previewFile?.(r.path);
 };
-S.openComposer = openCommentComposer;
 S.setStyle = (style) => {
   S.diffStyle = style;
   persistPrefs();

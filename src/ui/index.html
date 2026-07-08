@@ -601,15 +601,16 @@
       align-self: flex-start;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 5px;
       /* center the 2px rule under the 15px change-type icon above (icon center − border) */
       margin-left: 6.5px;
       margin-bottom: 2px;
       max-width: 78ch;
-      padding: 7px 12px 8px;
+      padding: 10px 14px 12px;
       background: var(--surface);
       border: 1px solid var(--line);
-      border-left: 2px solid var(--ct-color, var(--line));
+      /* cyan accent — the guide card joins the comment-thread card family (design decision) */
+      border-left: 2px solid var(--cyan);
       border-radius: 0 var(--radius) var(--radius) 0
     }
 
@@ -706,29 +707,36 @@
       max-width: 72ch;
       color: var(--ink);
       font-size: var(--text-md);
-      line-height: 1.55
+      line-height: 1.6
     }
 
+    /* The flag is a bordered amber callout box (not a bare text row) — the one thing on the
+       card that says "decide this before approving". */
     .ghdr .ghdr-flag {
       display: flex;
       align-items: flex-start;
-      gap: 6px;
+      gap: 8px;
       max-width: 74ch;
+      margin-top: 5px;
+      padding: 8px 11px;
+      border: 1px solid rgba(224, 175, 104, .35);
+      background: rgba(224, 175, 104, .06);
+      border-radius: var(--radius-sm);
       color: var(--amber)
     }
 
     .ghdr .ghdr-flag>.ic {
-      width: 12px;
-      height: 12px;
+      width: 13px;
+      height: 13px;
       margin-top: 3px;
       fill: currentColor
     }
 
     .ghdr .ghdr-flag .md {
       margin-top: 0;
-      color: var(--amber);
-      font-size: var(--text-xs);
-      line-height: 1.45
+      color: var(--amber-fg);
+      font-size: var(--text-md);
+      line-height: 1.5
     }
 
     .ghdr .ghdr-readonly {
@@ -1183,72 +1191,6 @@
       resize: vertical
     }
 
-    .action-pop,
-    .composer {
-      position: absolute;
-      right: auto;
-      left: 320px;
-      top: 150px;
-      z-index: 10;
-      border: 1px solid var(--line);
-      background: rgba(8, 11, 12, .98);
-      border-radius: var(--radius-xl);
-      box-shadow: 0 24px 100px rgba(0, 0, 0, .6);
-      padding: 8px;
-      display: none
-    }
-
-    .action-pop {
-      width: 270px;
-      padding: 7px
-    }
-
-    .pop-context {
-      color: var(--ghost);
-      font-size: var(--text-2xs);
-      text-transform: uppercase;
-      letter-spacing: .1em;
-      padding: 3px 7px 7px;
-      border-bottom: 1px solid rgba(34, 42, 45, .75);
-      margin-bottom: 4px
-    }
-
-    .composer {
-      width: 420px;
-      padding: 7px
-    }
-
-    .composer-head {
-      color: var(--ghost);
-      font-size: var(--text-2xs);
-      text-transform: uppercase;
-      letter-spacing: .1em;
-      padding: 3px 7px 7px;
-      margin-bottom: 4px
-    }
-
-    .composer textarea {
-      min-height: 92px;
-      padding: 8px;
-      font-size: var(--text-sm)
-    }
-
-    .composer-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 6px;
-      margin-top: 8px
-    }
-
-    .composer-actions .btn {
-      padding: 4px 8px;
-      font-size: var(--text-sm);
-      line-height: 16px;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px
-    }
-
     /* kbd chips inside buttons don't intercept clicks. On a colored/solid button (primary, the
        diff verdict + approve actions) the default dark chip is unreadable, so use a subtle
        translucent chip with light text that reads on any button color. */
@@ -1275,50 +1217,6 @@
 
     .show {
       display: block
-    }
-
-    .choice {
-      display: grid;
-      grid-template-columns: 20px 1fr;
-      gap: 6px;
-      align-items: center;
-      padding: 7px;
-      border: 0;
-      background: transparent;
-      border-radius: var(--radius);
-      color: var(--muted);
-      font-size: var(--text-sm);
-      width: 100%;
-      text-align: left
-    }
-
-    .choice:hover {
-      background: var(--panel)
-    }
-
-    .choice span:first-child {
-      display: grid;
-      place-items: center;
-      width: 18px;
-      height: 18px;
-      border: 1px solid var(--cyan-line);
-      border-radius: var(--radius-sm);
-      color: var(--cyan);
-      font-size: var(--text-xs);
-      background: var(--cyan-bg)
-    }
-
-    .choice b {
-      color: var(--ink);
-      font-weight: 700
-    }
-
-    .choice small {
-      display: block;
-      margin-top: 1px;
-      color: var(--muted);
-      font-size: var(--text-xs);
-      line-height: 1.3
     }
 
     /* Open comment threads whose anchor line no longer exists in the diff — shown as the
@@ -1368,7 +1266,7 @@
 
     .annotation .comment-box {
       position: relative;
-      padding: 10px 12px
+      padding: 11px 16px 12px
     }
 
     .annotation .thread-actions {
@@ -1433,12 +1331,14 @@
 
     /* Each message reads as a small card so a back-and-forth Q&A thread is scannable: neutral
        for the reviewer, a cyan left bar for the agent's replies. Square left edge with a thick
-       straight rule (no radius) so the accent reads as a solid bar down the message's left side. */
+       straight rule (no radius) so the accent reads as a solid bar down the message's left side.
+       Roomier padding + a ~76ch measure so the body reads as prose, not a form field. */
     .annotation .msg {
-      margin: 0 0 8px 0;
-      padding: 8px 10px;
+      max-width: 76ch;
+      margin: 0 0 10px 0;
+      padding: 11px 14px 12px;
       border-radius: 0 var(--radius) var(--radius) 0;
-      background: var(--surface);
+      background: var(--panel);
       border: 1px solid var(--line);
       border-left: 3px solid var(--line-strong)
     }
@@ -1487,8 +1387,9 @@
 
     .annotation .meta {
       display: flex;
-      gap: 6px;
+      gap: 8px;
       align-items: baseline;
+      margin-bottom: 5px;
       color: var(--muted);
       font-size: var(--text-xs)
     }
@@ -1527,9 +1428,12 @@
       background: rgba(255, 77, 109, .1)
     }
 
+    /* Uppercase outline pills — Question cyan, Change requested amber (per the design). */
     .annotation .intent-badge {
       font-size: var(--text-2xs);
-      border: 0;
+      font-weight: 600;
+      letter-spacing: .05em;
+      text-transform: uppercase;
       padding: 1px 7px;
       border-radius: var(--radius-pill);
       line-height: 15px
@@ -1537,12 +1441,14 @@
 
     .annotation .intent-badge.q {
       color: var(--cyan-fg);
-      background: rgba(0, 168, 255, .12)
+      border: 1px solid var(--cyan-line-strong);
+      background: var(--cyan-bg)
     }
 
     .annotation .intent-badge.a {
       color: var(--amber);
-      background: rgba(224, 175, 104, .13)
+      border: 1px solid rgba(224, 175, 104, .4);
+      background: rgba(224, 175, 104, .07)
     }
 
     .annotation .awaiting-answer {
@@ -1579,15 +1485,18 @@
     }
 
     .annotation .author {
-      color: var(--ink);
-      font-weight: 700
+      font-size: var(--text-sm);
+      font-weight: 600;
+      color: var(--ink-bright)
     }
 
     .annotation .author.agent {
-      color: var(--cyan)
+      color: var(--cyan-fg)
     }
 
     .annotation time {
+      font-family: var(--mono);
+      font-size: var(--text-2xs);
       color: var(--ghost)
     }
 
@@ -1611,6 +1520,153 @@
 
     .annotation .msg.agent .md {
       color: var(--ink)
+    }
+
+    /* The message body reads as prose at the reading scale. Scoped to the thread — the base
+       .md (rendered markdown files) keeps its own smaller size. Both flow through the type
+       tokens, so the Settings font/size knobs still apply. */
+    .annotation .md {
+      font-size: var(--text-md);
+      line-height: 1.6
+    }
+
+    .annotation .md code {
+      font-size: var(--text-sm);
+      background: var(--panel3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xs);
+      padding: .5px 4px
+    }
+
+    /* Inline composer (new comment / reply): the same card family as a message, so replying
+       feels like adding the next message rather than summoning a dialog. */
+    .annotation .composer-card {
+      max-width: 76ch;
+      margin: 0 0 10px;
+      padding: 10px 14px 11px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--line-strong);
+      border-radius: 0 var(--radius) var(--radius) 0
+    }
+
+    .annotation .composer-card:focus-within {
+      border-color: var(--line-strong);
+      border-left-color: var(--cyan-line-strong)
+    }
+
+    .annotation .composer-input {
+      width: 100%;
+      min-height: 54px;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: var(--text-md);
+      line-height: 1.6;
+      padding: 0;
+      resize: vertical
+    }
+
+    .annotation .composer-input:focus {
+      outline: none
+    }
+
+    .annotation .composer-input::placeholder {
+      color: var(--ghost)
+    }
+
+    .annotation .crow {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line)
+    }
+
+    .annotation .crow .spacer {
+      flex: 1
+    }
+
+    .annotation .cbtn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--muted);
+      border-radius: var(--radius-sm);
+      padding: 3px 10px;
+      font-size: var(--text-xs);
+      line-height: 16px
+    }
+
+    .annotation .cbtn:hover {
+      border-color: var(--line-strong);
+      color: var(--ink);
+      background: var(--surface-raised)
+    }
+
+    /* Composer intents follow the badge mapping: Ask = cyan (question), Request change = amber. */
+    .annotation .cbtn.ask {
+      color: var(--cyan-fg);
+      border-color: var(--cyan-line-strong);
+      background: var(--cyan-bg)
+    }
+
+    .annotation .cbtn.ask:hover {
+      color: var(--cyan-fg);
+      background: var(--cyan-bg-strong)
+    }
+
+    .annotation .cbtn.req {
+      color: var(--amber);
+      border-color: rgba(224, 175, 104, .35);
+      background: rgba(224, 175, 104, .06)
+    }
+
+    .annotation .cbtn.req:hover {
+      border-color: rgba(224, 175, 104, .6);
+      color: var(--amber-fg)
+    }
+
+    .annotation .cbtn kbd {
+      pointer-events: none
+    }
+
+    /* Inline edit: the message body swaps for a textarea inside the same card (amber accent). */
+    .annotation .msg.editing {
+      border-left-color: var(--amber)
+    }
+
+    .annotation .msg.editing .msg-actions {
+      display: none
+    }
+
+    .annotation .composer-edit {
+      width: 100%;
+      min-height: 44px;
+      margin-top: 2px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: var(--text-md);
+      line-height: 1.6;
+      padding: 7px 9px;
+      resize: vertical
+    }
+
+    .annotation .composer-edit:focus {
+      outline: none;
+      border-color: var(--line-strong)
+    }
+
+    .annotation .editrow {
+      border-top: 0;
+      padding-top: 6px
     }
 
     .md>:first-child {
@@ -2780,20 +2836,6 @@
               x-text="$store.g.fabState && $store.g.fabState()==='changes' ? 'Mark Reviewed' : 'Approve'">Approve</span> <kbd>⇧A</kbd></button>
         </div>
       </section>
-      <div class="action-pop" id="actionPop" :class="{show: $store.g.popoverOpen}">
-        <div class="pop-context" id="popContext">New line</div><button class="choice"
-          @click="$store.g.openComposer()"><span>c</span>
-          <div><b>Comment</b><small>Add note on selection</small></div>
-        </button>
-      </div>
-      <div class="composer" id="composer" :class="{show: $store.g.composerOpen}">
-        <div class="composer-head"><span x-text="$store.g.composerTitle">New line</span></div><textarea id="commentBody"
-          x-model="$store.g.composerBody"></textarea>
-        <div class="composer-actions"><button class="btn" x-show="!$store.g.editingCommentId"
-            @click="$store.g.ask()">Ask <kbd>⌘⇧↵</kbd></button><button class="btn primary" x-show="!$store.g.editingCommentId"
-            @click="$store.g.requestChange()">Request change <kbd>⌘↵</kbd></button><button class="btn primary"
-            x-show="$store.g.editingCommentId" @click="$store.g.saveComment()">Save <kbd>⌘↵</kbd></button></div>
-      </div>
       <div class="modal-backdrop" id="settingsModal" :class="{show: $store.g.settingsOpen}"
         @click.self="$store.g.closeSettings()">
         <div class="modal settings">

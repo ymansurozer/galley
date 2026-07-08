@@ -13,6 +13,7 @@ import {
 import type { AnnotationMeta } from "./types";
 import { applyLayoutClasses } from "./tree";
 import { annotations, renderAnnotation, buildCommentThread } from "./annotations";
+import { restoreComposerFocus } from "./composer";
 import { unanchoredThreads } from "./unanchored";
 import { revealThreadLines } from "./expand";
 import {
@@ -235,6 +236,10 @@ export async function render() {
   try {
     await renderCenter();
   } finally {
+    // The diff DOM (and any inline composer inside it) was just rebuilt from scratch —
+    // re-focus the open composer and restore its caret from the store, so typing survives
+    // a render triggered mid-compose (e.g. accepting a change while replying).
+    restoreComposerFocus();
     requestAnimationFrame(() => requestAnimationFrame(updateProgress));
   }
 }

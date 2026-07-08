@@ -16,7 +16,7 @@ export function adoptDeskStatus(payload: ReviewState & Partial<DeskStatus>): Rev
 }
 
 export async function pollState() {
-  if (S.composerOpen || S.popoverOpen) return;
+  if (S.composerOpen) return;
   let server: ReviewState | undefined;
   try {
     const payload = await api<ReviewState & DeskStatus>("/api/state");

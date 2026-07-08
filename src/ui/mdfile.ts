@@ -2,7 +2,7 @@ import { S, $ } from "./store";
 import { currentFile, currentComments } from "./changes";
 import { renderMarkdown } from "./markdown";
 import { buildCommentThread } from "./annotations";
-import { placePopoverFromPoint, placeNearActionPop, selectionLabel } from "./selection";
+import { buildComposer, openComposer } from "./composer";
 import type { ReviewComment } from "./types";
 
 export function isMarkdownPath(path: string): boolean {
@@ -20,16 +20,11 @@ export function defaultFileView(f: ReturnType<typeof currentFile>): "rendered" |
   return changed ? "source" : "rendered";
 }
 
-function openComposerAt(lineNumber: number, clientX: number, clientY: number) {
+// A markdown-block line has no display/raw split (D.lineMap is null here), so the source
+// line is the anchor directly. The composer renders inline via renderMarkdownFile below.
+function openComposerAt(lineNumber: number) {
   S.selected = { side: "additions", lineNumber };
-  S.composerBody = "";
-  S.editingCommentId = null;
-  S.composerTitle = selectionLabel();
-  S.popoverOpen = false;
-  placePopoverFromPoint(clientX, clientY);
-  placeNearActionPop($("composer"));
-  S.composerOpen = true;
-  setTimeout(() => $("commentBody").focus(), 0);
+  openComposer();
 }
 
 // A commentable block is any element carrying a source line, except the list
@@ -62,7 +57,7 @@ export function renderMarkdownFile() {
     if (!window.getSelection()?.isCollapsed) return; // user is selecting text
     const el = target.closest<HTMLElement>("[data-line]");
     if (!el || !isAnchor(el)) return; // clicked the list container gutter, not an item
-    openComposerAt(Number(el.dataset.line), e.clientX, e.clientY);
+    openComposerAt(Number(el.dataset.line));
   });
 
   // Overlay comment threads at each comment's source line: inside the <li> for list
@@ -88,6 +83,18 @@ export function renderMarkdownFile() {
     if (!el) container.appendChild(thread);
     else if (el.tagName === "LI") el.appendChild(thread);
     else el.after(thread);
+  }
+
+  // A new line comment (no existing thread on that line) opens an inline composer under
+  // its block; a reply/edit renders inside the thread above via buildCommentThread.
+  if (S.composerOpen && !S.editingCommentId && !byLine.has(S.selected.lineNumber)) {
+    const card = document.createElement("div");
+    card.className = "annotation md-thread composer-annotation";
+    card.appendChild(buildComposer());
+    const el = anchorForLine(anchors, S.selected.lineNumber);
+    if (!el) container.appendChild(card);
+    else if (el.tagName === "LI") el.appendChild(card);
+    else el.after(card);
   }
 }
 
