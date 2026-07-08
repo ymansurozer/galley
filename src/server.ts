@@ -18,11 +18,18 @@ import {
   mergeReviewState,
   nowIso,
   persistReview,
+  questionPayload,
   readGlobalSettings,
   syncGitState,
   writeGlobalSettings,
 } from "./state.js";
-import type { AgentActivity, AwaitEvent, DeskStatus, ReviewState } from "./types.js";
+import type {
+  AgentActivity,
+  AwaitEvent,
+  DeskStatus,
+  QuestionPayload,
+  ReviewState,
+} from "./types.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -301,7 +308,14 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         const resultJson = path.join(sessionDir, `${state.id}-result.json`);
         const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
         await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
-        res.on("finish", () => emitEvent({ kind: "review", result: payload }));
+        res.on("finish", () => {
+          // Drop any still-queued questions: the review supersedes them (their unanswered ones
+          // ride out in result.openQuestions), so stale question events never dribble in after
+          // the round lands. This is also the invariant the await-send batch drain relies on.
+          for (let i = eventQueue.length - 1; i >= 0; i--)
+            if (eventQueue[i].kind === "question") eventQueue.splice(i, 1);
+          emitEvent({ kind: "review", result: payload });
+        });
         return json(res, 200, { ok: true, sent: true, resultJson });
       }
       if (req.method === "POST" && url.pathname === "/api/ask") {
@@ -321,23 +335,37 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             "ask requires path and body",
             "Send { path, lineNumber, side, body } as JSON.",
           );
-        emitEvent({
-          kind: "question",
-          question: {
-            path: b.path,
-            lineNumber: Number(b.lineNumber ?? 1),
-            side: b.side === "deletions" ? "deletions" : "additions",
-            body: text,
-            mode: state.mode,
-            session: state.session,
-          },
+        // Bake the singular into a one-element `questions` here so a question handed straight
+        // to a parked waiter already carries the array — batching only has to merge on drain.
+        const question = questionPayload(state, {
+          path: b.path,
+          lineNumber: Number(b.lineNumber ?? 1),
+          side: b.side === "deletions" ? "deletions" : "additions",
+          body: text,
         });
+        emitEvent({ kind: "question", question, questions: [question] });
         return json(res, 200, { ok: true });
       }
       if (req.method === "GET" && url.pathname === "/api/await-send") {
         // Long-poll the tagged event stream: resolves with the next queued event
         // ({kind:"question"|"review"}). Lets the agent learn of questions and Sends
         // without the desk process exiting.
+        // When the head is a question, drain ALL queued questions into one event (the reviewer
+        // can fire several before the agent returns) — singular `question` is the oldest,
+        // `questions` holds them in arrival order. Safe because a Send flushes every queued
+        // question before enqueuing its review (see /api/send), so a review can never sit
+        // between two queued questions; draining all questions can't skip past a review.
+        if (eventQueue[0]?.kind === "question") {
+          const batched: QuestionPayload[] = [];
+          for (let i = eventQueue.length - 1; i >= 0; i--) {
+            const ev = eventQueue[i];
+            if (ev.kind === "question") {
+              batched.unshift(...ev.questions);
+              eventQueue.splice(i, 1);
+            }
+          }
+          return json(res, 200, { kind: "question", question: batched[0], questions: batched });
+        }
         const queued = eventQueue.shift();
         if (queued) return json(res, 200, queued);
         let settled = false;

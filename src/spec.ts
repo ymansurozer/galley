@@ -53,7 +53,8 @@ done
 \`\`\`
 - \`galley await [--timeout <s>]\` — block for the next event, print one tagged JSON envelope,
   exit. No --timeout → holds open; --timeout <s> → empty stdout (204) after <s>s, re-poll. Exit
-  non-zero = no live desk (start one).
+  non-zero = no live desk (start one). After handling ANY event, await again immediately — more
+  may already be queued (the human keeps working while you act).
 - \`galley comment --path <f> --line <n> [--side additions|deletions] --body "…"\` — agent reply.
   Live desk → posts over HTTP (~1.5s), threaded under the matching human comment; no desk →
   appended to the saved review. Match path/line/side. Agent comments are never echoed back as
@@ -67,13 +68,17 @@ done
 
 ## Events
 await yields exactly one:
-- {"kind":"question","question":{path,lineNumber,side,body,mode,session}} — reviewer wants an
-  answer NOW. A question asks for an ANSWER, not a code change: answering is READ-ONLY — read the
-  file for context, answer with \`galley comment\` at path/lineNumber/side. NEVER edit tracked
-  files in response (same rule as "Between rounds"). The only exception: the question's own text
-  explicitly asks for an immediate change — then treat it as actionable, and still follow the
-  between-rounds discipline (edit, then \`galley reload\`). Questions are a live side-channel:
-  NEVER in a Send/ReviewResult. Slow answer → post \`galley status\` lines so the human sees
+- {"kind":"question","question":{path,lineNumber,side,body,mode,session},"questions":[…]} —
+  reviewer wants an answer NOW. \`questions\` holds every question batched into this delivery
+  (the human can fire several before you return), arrival order; \`question\` is the oldest, kept
+  for compatibility. Answer EACH one. A question asks for an ANSWER, not a code change:
+  answering is READ-ONLY — read the file for context, answer with \`galley comment\` at
+  path/lineNumber/side.
+  NEVER edit tracked files in response (same rule as "Between rounds"). The only exception: the
+  question's own text explicitly asks for an immediate change — then treat it as actionable, and
+  still follow the between-rounds discipline (edit, then \`galley reload\`). Questions are a live
+  side-channel: NEVER in a Send/ReviewResult (except openQuestions below, which folds any you
+  never answered into the round). Slow answer → post \`galley status\` lines so the human sees
   progress, not a static spinner.
 - {"kind":"review","result":{…ReviewResult…}} — reviewer clicked Send. Act on result.
 
@@ -86,6 +91,10 @@ The \`result\` field of a review event:
   an overall remark, or an afterthought instruction for what to do after applying the review
   (e.g. "after applying, run the formatter"). It is NOT tied to any line and not a per-line change.
 - stagedFiles[], approvedFiles[]
+- openQuestions[]: {path,lineNumber,side,body,mode,session} — questions the reviewer asked but you
+  never answered, folded into this Send and superseding any queued live question events. Answer
+  each with \`galley comment\` (same READ-ONLY discipline as a live question) as part of acting on
+  the round.
 - artifacts: {resultJson, sessionDir}, both under
   ~/.galley/<repoHash>/<session>/ where repoHash = sha256(abs repo root)[:16]
 The arrays above ARE the review — act on them directly; there's no prose summary to parse.

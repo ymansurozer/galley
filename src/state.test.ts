@@ -467,6 +467,50 @@ test("buildReviewResult excludes questions from requestedChanges, keeps an actio
   assert.equal(r.requestedChanges[0]!.body, "rename this");
 });
 
+test("buildReviewResult.openQuestions lists unanswered questions and drops answered ones", () => {
+  const s = state({
+    session: "sess",
+    mode: "repo",
+    comments: [
+      comment({
+        id: "open",
+        path: "a.ts",
+        lineNumber: 4,
+        body: "why here?",
+        intent: "question",
+        role: "user",
+        createdAt: "2026-01-01T00:00:00Z",
+      }),
+      // Answered: a later agent reply lands in the same thread (same path/side/line).
+      comment({
+        id: "answered",
+        path: "a.ts",
+        lineNumber: 7,
+        body: "and this?",
+        intent: "question",
+        role: "user",
+        createdAt: "2026-01-01T00:00:00Z",
+      }),
+      comment({
+        id: "reply",
+        path: "a.ts",
+        lineNumber: 7,
+        body: "because X",
+        intent: "note",
+        role: "agent",
+        createdAt: "2026-01-01T00:01:00Z",
+      }),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.equal(r.openQuestions.length, 1);
+  assert.equal(r.openQuestions[0]!.body, "why here?");
+  assert.equal(r.openQuestions[0]!.lineNumber, 4);
+  // Same shape as an await question — mode/session threaded through.
+  assert.equal(r.openQuestions[0]!.mode, "repo");
+  assert.equal(r.openQuestions[0]!.session, "sess");
+});
+
 test("buildReviewResult carries mode/target/base", () => {
   const s = state({ mode: "pr", target: "feature-x", base: "abc123" });
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });

@@ -87,6 +87,34 @@ try {
   assert.equal(ev1.question.lineNumber, 2);
   console.log("✓ await → question event");
 
+  // Two more questions fired back-to-back with no await parked → they batch: a single await
+  // hands over BOTH, oldest first, with the singular `question` kept for compatibility.
+  await post("/api/ask", {
+    path: "a.txt",
+    lineNumber: 2,
+    side: "additions",
+    body: "batched one?",
+  });
+  await post("/api/ask", {
+    path: "a.txt",
+    lineNumber: 2,
+    side: "additions",
+    body: "batched two?",
+  });
+  const batchState = await getJson("/api/state");
+  assert.equal(batchState.queuedQuestions, 2, "both questions queued with no listener");
+  const evBatch = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  assert.equal(evBatch.kind, "question");
+  assert.equal(evBatch.questions.length, 2, "both questions delivered in one event");
+  assert.deepEqual(
+    evBatch.questions.map((q) => q.body),
+    ["batched one?", "batched two?"],
+  );
+  assert.equal(evBatch.question.body, "batched one?", "singular question is the oldest");
+  const drainedState = await getJson("/api/state");
+  assert.equal(drainedState.queuedQuestions, 0, "batch drained in one await");
+  console.log("✓ multiple questions batch into one await event");
+
   // agent posts ephemeral activity while working → visible in the state payload
   const status = JSON.parse(
     cli("status", "--repo", tmp, "--session", ID, "--body", "Reading a.txt…"),

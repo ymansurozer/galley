@@ -192,6 +192,90 @@ test("an unconsumed question surfaces as queuedQuestions", async () => {
   });
 });
 
+test("multiple questions asked before an await batch into one event, oldest first", async () => {
+  await withServer(async (handle) => {
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "first?" });
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 2, body: "second?" });
+    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+      kind: string;
+      question: { body: string };
+      questions: { body: string }[];
+    };
+    assert.equal(ev.kind, "question");
+    assert.equal(ev.questions.length, 2);
+    assert.deepEqual(
+      ev.questions.map((q) => q.body),
+      ["first?", "second?"],
+    );
+    assert.deepEqual(ev.question, ev.questions[0]); // singular is the oldest
+    // Both drained — nothing left queued for the UI's waiting indicator.
+    const st = await getState(handle.url);
+    assert.equal(st.queuedQuestions, 0);
+  });
+});
+
+test("Send flushes queued questions and folds the unanswered ones into openQuestions", async () => {
+  await withServer(async (handle, _root, st) => {
+    // Two open question comments the reviewer left (the source for openQuestions), plus the
+    // matching live question events (the source for the queue) — two independent representations.
+    st.comments.push(
+      {
+        id: "q1",
+        path: "a.ts",
+        side: "additions",
+        lineNumber: 1,
+        body: "why q1?",
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+        status: "open",
+        intent: "question",
+        role: "user",
+      },
+      {
+        id: "q2",
+        path: "a.ts",
+        side: "additions",
+        lineNumber: 2,
+        body: "why q2?",
+        createdAt: "2026-01-01T00:00:01Z",
+        updatedAt: "2026-01-01T00:00:01Z",
+        status: "open",
+        intent: "question",
+        role: "user",
+      },
+    );
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why q1?" });
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 2, body: "why q2?" });
+
+    const sent = (await post(handle.url, "api/send", await getState(handle.url)).then((r) =>
+      r.json(),
+    )) as { sent?: boolean };
+    assert.equal(sent.sent, true);
+
+    // The review is emitted on the send response's 'finish'; poll until it lands. The queued
+    // questions are flushed in the same step, so queuedQuestions must be 0 by then.
+    let status = await getState(handle.url);
+    for (let i = 0; i < 100 && status.queuedReviews === 0; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      status = await getState(handle.url);
+    }
+    assert.equal(status.queuedReviews, 1);
+    assert.equal(status.queuedQuestions, 0); // superseded questions flushed
+
+    // Next await is the review (not a stale question), carrying both unanswered questions.
+    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+      kind: string;
+      result: { openQuestions: { body: string }[] };
+    };
+    assert.equal(ev.kind, "review");
+    assert.deepEqual(ev.result.openQuestions.map((q) => q.body).sort(), ["why q1?", "why q2?"]);
+
+    // Nothing dribbles in after the round: a bounded await times out (204).
+    const after = await fetch(`${handle.url}api/await-send?timeout=1`);
+    assert.equal(after.status, 204);
+  });
+});
+
 test("save strips transient desk-status keys so they never persist on state", async () => {
   await withServer(async (handle, _root, st) => {
     const payload = await getState(handle.url);

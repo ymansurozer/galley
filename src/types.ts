@@ -220,6 +220,12 @@ export type ReviewResult = {
   // Files the reviewer signed off as-is (no rejected hunks, no open requested-change
   // comments, approval still current): the agent should leave these unchanged.
   approvedFiles: string[];
+  // Questions still unanswered when the reviewer hit Send — folded into the round so an
+  // agent that missed the live await still owes an answer. Every open question comment
+  // (intent "question", no later agent reply in its thread), same shape as an await
+  // question. Answer each via `galley comment`; answering stays read-only — edits come
+  // only from the round's requested changes.
+  openQuestions: QuestionPayload[];
   artifacts: { resultJson: string; sessionDir: string };
 };
 
@@ -237,4 +243,8 @@ export type QuestionPayload = {
 // "question" → answer it now with `galley comment`; "review" → act on the Send.
 export type AwaitEvent =
   | { kind: "review"; result: ReviewResult }
-  | { kind: "question"; question: QuestionPayload };
+  // `question` is the oldest of the batch (kept for compatibility); `questions` carries every
+  // question delivered together, arrival order — a reviewer can fire several before the agent
+  // comes back, so one await hands them all over. Answer each. A lone question arrives as a
+  // one-element `questions`, so consumers can always read the array uniformly.
+  | { kind: "question"; question: QuestionPayload; questions: QuestionPayload[] };

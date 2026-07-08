@@ -15,6 +15,7 @@ import {
 import type {
   ChangeState,
   Decision,
+  QuestionPayload,
   ReviewComment,
   ReviewFile,
   ReviewMode,
@@ -676,6 +677,45 @@ export async function appendComment(
   return comment;
 }
 
+// The single QuestionPayload constructor — shared by /api/ask (live question event) and
+// computeOpenQuestions (questions folded into a Send) so the two payload shapes can't drift.
+export function questionPayload(
+  state: Pick<ReviewState, "mode" | "session">,
+  q: { path: string; lineNumber: number; side: "additions" | "deletions"; body: string },
+): QuestionPayload {
+  return {
+    path: q.path,
+    lineNumber: q.lineNumber,
+    side: q.side,
+    body: q.body,
+    mode: state.mode,
+    session: state.session,
+  };
+}
+
+// Questions the reviewer asked but the agent hasn't answered yet. Mirrors the UI's "answered"
+// heuristic (src/ui/annotations.ts): an open question comment is unanswered until a later agent
+// reply lands in the same thread (same path/side/line). These ride out on the Send's ReviewResult
+// so an agent that never saw the live await still owes each an answer.
+export function computeOpenQuestions(state: ReviewState): QuestionPayload[] {
+  return state.comments
+    .filter(
+      (c) =>
+        c.intent === "question" &&
+        c.status === "open" &&
+        c.role !== "agent" &&
+        !state.comments.some(
+          (r) =>
+            r.role === "agent" &&
+            r.path === c.path &&
+            r.side === c.side &&
+            r.lineNumber === c.lineNumber &&
+            +new Date(r.createdAt) > +new Date(c.createdAt),
+        ),
+    )
+    .map((c) => questionPayload(state, c));
+}
+
 export function buildReviewResult(
   state: ReviewState,
   artifacts: { resultJson: string; sessionDir: string },
@@ -704,6 +744,7 @@ export function buildReviewResult(
     overallNote: note || undefined,
     stagedFiles: state.stagedFiles,
     approvedFiles: computeApprovedFiles(state),
+    openQuestions: computeOpenQuestions(state),
     artifacts,
   };
 }

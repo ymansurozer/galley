@@ -22,10 +22,15 @@ const ANCHORS = [
   // a question is READ-ONLY: answer it, don't edit code in response (guards issue 04)
   "answering is READ-ONLY",
   "NEVER edit tracked",
+  // question batching + immediate re-await (issue 05)
+  "batched into this delivery",
+  "await again immediately",
   // result + acting
   "ReviewResult",
   "approvedFiles",
   "overallNote",
+  // unanswered questions fold into the Send (issue 05)
+  "openQuestions",
   "How to act on a review",
   // guided review schema (folded in from the old guide-spec)
   "Guide JSON schema",
