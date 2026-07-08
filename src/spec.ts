@@ -40,6 +40,8 @@ while ev=$(galley await --session <id>); do
   [ -z "$ev" ] && continue                               # --timeout fired, no event
   case "$(jq -r .kind <<<"$ev")" in
     question)  # answer NOW at the question's path/line/side; thread under it
+      # READ-ONLY: a question wants an answer, not a code change — don't edit files (unless its
+      # text explicitly asks for one; then edit + galley reload). See "Between rounds".
       q=$(jq .question <<<"$ev")
       galley status --session <id> --body "Reading X to answer…"        # live progress
       galley comment --session <id> --path "$(jq -r .path<<<"$q")" \\
@@ -66,9 +68,13 @@ done
 ## Events
 await yields exactly one:
 - {"kind":"question","question":{path,lineNumber,side,body,mode,session}} — reviewer wants an
-  answer NOW. Read the file for context, answer with \`galley comment\` at path/lineNumber/side.
-  Questions are a live side-channel: NEVER in a Send/ReviewResult. Slow answer → post \`galley
-  status\` lines so the human sees progress, not a static spinner.
+  answer NOW. A question asks for an ANSWER, not a code change: answering is READ-ONLY — read the
+  file for context, answer with \`galley comment\` at path/lineNumber/side. NEVER edit tracked
+  files in response (same rule as "Between rounds"). The only exception: the question's own text
+  explicitly asks for an immediate change — then treat it as actionable, and still follow the
+  between-rounds discipline (edit, then \`galley reload\`). Questions are a live side-channel:
+  NEVER in a Send/ReviewResult. Slow answer → post \`galley status\` lines so the human sees
+  progress, not a static spinner.
 - {"kind":"review","result":{…ReviewResult…}} — reviewer clicked Send. Act on result.
 
 ## ReviewResult

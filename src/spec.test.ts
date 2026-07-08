@@ -19,6 +19,9 @@ const ANCHORS = [
   "galley status",
   '"kind":"question"',
   '"kind":"review"',
+  // a question is READ-ONLY: answer it, don't edit code in response (guards issue 04)
+  "answering is READ-ONLY",
+  "NEVER edit tracked",
   // result + acting
   "ReviewResult",
   "approvedFiles",
