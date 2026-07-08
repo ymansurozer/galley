@@ -7,6 +7,7 @@ import {
   anchorTextFor,
   buildReviewResult,
   globalSettingsPath,
+  mergeReviewerSave,
   mergeReviewState,
   reanchorComments,
   readGlobalSettings,
@@ -84,6 +85,92 @@ test("mergeReviewState carries a prior decision when content is unchanged", () =
   assert.equal(merged.changes[0]!.status, "accepted");
   assert.equal(merged.changes[0]!.reviewedHash, "H");
   assert.equal(merged.baseDiffHash, "new"); // adopts the fresh diff hash
+});
+
+test("mergeReviewerSave replaces only the reviewer-owned fields, leaving server state intact", () => {
+  const live = state({
+    rawDiff: "SERVER DIFF",
+    files: [file("a.ts")],
+    changes: [change({ id: "a.ts:k1", path: "a.ts", stableKey: "k1" })],
+    baseDiffHash: "server-hash",
+  });
+  mergeReviewerSave(live, {
+    decisions: [
+      {
+        key: "a.ts:k1",
+        status: "accepted",
+        path: "a.ts",
+        lineNumber: 1,
+        side: "additions",
+        title: "t",
+      },
+    ],
+    comments: [comment({ id: "c1", path: "a.ts" })],
+    reviewedFiles: ["a.ts"],
+    reviewedFileHashes: { "a.ts": "FH" },
+    decisionFiles: ["a.ts"],
+  });
+  assert.deepEqual(live.reviewedFiles, ["a.ts"]);
+  assert.deepEqual(live.reviewedFileHashes, { "a.ts": "FH" });
+  assert.deepEqual(live.decisionFiles, ["a.ts"]);
+  assert.equal(live.decisions![0]!.status, "accepted");
+  assert.equal(live.comments[0]!.id, "c1");
+  // Server-owned fields are untouched — the wire never carries them.
+  assert.equal(live.rawDiff, "SERVER DIFF");
+  assert.equal(live.baseDiffHash, "server-hash");
+  assert.equal(live.changes.length, 1);
+});
+
+test("mergeReviewerSave ignores non-reviewer fields from a stale full-state body", () => {
+  // A stale open tab may POST the whole old ReviewState; only the slice is adopted.
+  const live = state({ rawDiff: "SERVER DIFF", baseDiffHash: "server-hash" });
+  mergeReviewerSave(live, {
+    reviewedFiles: ["a.ts"],
+    rawDiff: "CLIENT-OWNED DIFF SHOULD BE IGNORED",
+    baseDiffHash: "client-hash",
+    files: [file("evil.ts")],
+    id: "spoofed",
+  });
+  assert.deepEqual(live.reviewedFiles, ["a.ts"]);
+  assert.equal(live.rawDiff, "SERVER DIFF");
+  assert.equal(live.baseDiffHash, "server-hash");
+  assert.equal(live.files.length, 0);
+  assert.equal(live.id, "id");
+});
+
+test("mergeReviewerSave leaves a field untouched when the body omits it", () => {
+  const live = state({ reviewedFiles: ["keep.ts"], comments: [comment({ id: "c0", path: "x" })] });
+  mergeReviewerSave(live, { comments: [] }); // only comments present
+  assert.deepEqual(live.reviewedFiles, ["keep.ts"]); // omitted → unchanged
+  assert.deepEqual(live.comments, []); // present → replaced wholesale
+});
+
+test("mergeReviewerSave then mergeReviewState: a slim-saved decision survives a desk restart", () => {
+  // Save via the slim wire, persist, reload: the decision must reconcile across restart.
+  const saved = state({});
+  mergeReviewerSave(saved, {
+    decisions: [
+      {
+        key: "a.ts:k1",
+        status: "accepted",
+        reviewedHash: "H",
+        path: "a.ts",
+        lineNumber: 1,
+        side: "additions",
+        title: "t",
+      },
+    ],
+    reviewedFiles: ["a.ts"],
+    reviewedFileHashes: { "a.ts": "FH" },
+  });
+  const base = state({
+    baseDiffHash: "reload",
+    files: [file("a.ts", "FH")],
+    changes: [change({ id: "a.ts:k1", path: "a.ts", stableKey: "k1", contentHash: "H" })],
+  });
+  const merged = mergeReviewState(base, saved);
+  assert.equal(merged.changes[0]!.status, "accepted");
+  assert.deepEqual(merged.reviewedFiles, ["a.ts"]);
 });
 
 test("mergeReviewState resets a decision to pending when content changed (staleness)", () => {

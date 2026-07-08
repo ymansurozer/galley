@@ -14,6 +14,7 @@ import {
   buildReviewResult,
   buildReviewState,
   hash,
+  mergeReviewerSave,
   mergeReviewState,
   nowIso,
   persistReview,
@@ -281,7 +282,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/save") {
-        Object.assign(state, stripDeskStatus(JSON.parse(await readBody(req))));
+        // Merge only the reviewer-owned slice; the diff, file contents, changes, and desk
+        // metadata stay authoritative here. Pick from whatever body arrives so a stale open
+        // tab still posting the old full-state body keeps working (extra fields ignored).
+        mergeReviewerSave(state, JSON.parse(await readBody(req)));
         const file = await persistReview(state);
         return json(res, 200, { ok: true, file });
       }

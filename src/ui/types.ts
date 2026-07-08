@@ -6,6 +6,7 @@ import type {
   DeskStatus,
   GuideFile,
   ReviewFile,
+  ReviewerSave,
 } from "../types";
 import type { WalkRow } from "./walkthrough";
 
@@ -273,4 +274,4 @@ export interface Store {
   helpGroups?: () => { group: string; items: { combo: string; desc: string }[] }[];
 }
 
-export type { ReviewState, ReviewComment, ChangeState, Decision, DeskStatus };
+export type { ReviewState, ReviewComment, ChangeState, Decision, DeskStatus, ReviewerSave };

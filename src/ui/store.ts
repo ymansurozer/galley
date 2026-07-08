@@ -1,6 +1,7 @@
 import Alpine from "alpinejs";
 import type { Store, DiffHolder } from "./types";
 import { loadSettings } from "./settings";
+import { createSaver, reviewerSlice } from "./save";
 
 // Single reactive source of truth: the imperative diff island mutates it directly,
 // and the Alpine-driven chrome (tree, toolbar, composer, modals, toast) renders from it.
@@ -82,11 +83,17 @@ export const api = <T = unknown>(path: string, opts: RequestInit = {}): Promise<
   fetch(path, { headers: { "content-type": "application/json" }, ...opts }).then(
     (r) => r.json() as Promise<T>,
   );
+// Post only the reviewer-owned slice (see reviewerSlice in save.ts) — never the whole
+// (multi-MB) ReviewState. Saves coalesce so rapid approvals don't saturate connections.
+export const saver = createSaver(
+  () => reviewerSlice(S.state),
+  (payload) => api("/api/save", { method: "POST", body: JSON.stringify(payload) }),
+);
 // Instant auto-save: there is no manual Save button, so every state mutation
 // (decision, comment, stage/unstage, approval) MUST call persist() to write the
-// review to ~/.galley/<repoHash>/<session>/.
-export const persist = () =>
-  api("/api/save", { method: "POST", body: JSON.stringify(S.state) }).catch(() => {});
+// review to ~/.galley/<repoHash>/<session>/. Saves coalesce (see save.ts): at most one
+// in flight, rapid triggers collapse into a single trailing save.
+export const persist = () => saver.trigger();
 // Display preferences (settings panel + the Split/Stacked toggle) save to the global
 // ~/.galley/settings.json so they survive port/session changes. Last write wins.
 export const persistPrefs = () =>

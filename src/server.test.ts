@@ -208,6 +208,65 @@ test("save strips transient desk-status keys so they never persist on state", as
   });
 });
 
+test("save merges the reviewer-owned slice and leaves server-owned state authoritative", async () => {
+  await withServer(async (handle, _root, st) => {
+    st.rawDiff = "SERVER DIFF";
+    // The real slim wire: only reviewer-owned fields, no rawDiff and no file contents.
+    const res = await post(handle.url, "api/save", {
+      decisions: [
+        {
+          key: "a.ts:k1",
+          status: "accepted",
+          path: "a.ts",
+          lineNumber: 1,
+          side: "additions",
+          title: "t",
+        },
+      ],
+      comments: [],
+      reviewedFiles: ["a.ts"],
+      reviewedFileHashes: { "a.ts": "H" },
+      decisionFiles: ["a.ts"],
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(st.reviewedFiles, ["a.ts"]);
+    assert.deepEqual(st.decisionFiles, ["a.ts"]);
+    assert.equal(st.decisions?.[0]?.status, "accepted");
+    // Server-owned fields are untouched — the wire never carried them.
+    assert.equal(st.rawDiff, "SERVER DIFF");
+    assert.equal(st.files.length, 1);
+    assert.equal(st.files[0]?.newFile.contents, "hello\n");
+  });
+});
+
+test("save from a stale full-state tab ignores server-owned fields in the body", async () => {
+  await withServer(async (handle, _root, st) => {
+    const before = st.files[0]!.newFile.contents;
+    // A stale tab POSTs the whole old ReviewState — the server must pick only the slice.
+    await post(handle.url, "api/save", {
+      reviewedFiles: ["a.ts"],
+      rawDiff: "CLIENT DIFF SHOULD BE IGNORED",
+      baseDiffHash: "client-hash",
+      files: [
+        {
+          path: "evil.ts",
+          hunks: [],
+          oldFile: { name: "evil.ts", contents: "" },
+          newFile: { name: "evil.ts", contents: "x" },
+          contentHash: "E",
+        },
+      ],
+      id: "spoofed",
+    });
+    assert.deepEqual(st.reviewedFiles, ["a.ts"]);
+    assert.equal(st.rawDiff, "");
+    assert.equal(st.baseDiffHash, "base");
+    assert.equal(st.id, "id");
+    assert.equal(st.files.length, 1);
+    assert.equal(st.files[0]?.newFile.contents, before);
+  });
+});
+
 test("settings API round-trips editorCommand", async () => {
   await withServer(async (handle) => {
     await fetch(`${handle.url}api/settings`, {

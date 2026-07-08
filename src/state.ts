@@ -20,6 +20,7 @@ import type {
   ReviewMode,
   ReviewResult,
   ReviewState,
+  ReviewerSave,
 } from "./types.js";
 
 export function nowIso() {
@@ -362,6 +363,27 @@ export async function findLiveDesks(root: string): Promise<DeskLock[]> {
 
 function reviewFileName(state: ReviewState) {
   return `${state.createdAt.replace(/[:.]/g, "-")}-${state.id}.json`;
+}
+
+// Merge the reviewer-owned slice posted to /api/save onto the live state. Only these
+// fields are mutated from the browser; everything else (rawDiff, files, changes, guide,
+// desk metadata) stays server-authoritative. We pick each key from whatever body arrives
+// and replace wholesale (snapshot semantics, latest wins) — a key absent from the body is
+// left untouched. Picking (rather than Object.assign) is what lets a stale open tab keep
+// working: it may POST the whole old ReviewState, and we simply ignore everything but these.
+const REVIEWER_SAVE_KEYS = [
+  "decisions",
+  "comments",
+  "reviewedFiles",
+  "reviewedFileHashes",
+  "decisionFiles",
+] as const satisfies ReadonlyArray<keyof ReviewerSave>;
+export function mergeReviewerSave(state: ReviewState, body: unknown) {
+  if (!body || typeof body !== "object") return;
+  const incoming = body as Record<string, unknown>;
+  for (const key of REVIEWER_SAVE_KEYS) {
+    if (incoming[key] !== undefined) (state as Record<string, unknown>)[key] = incoming[key];
+  }
 }
 
 export async function persistReview(state: ReviewState) {

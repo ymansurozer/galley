@@ -169,6 +169,19 @@ export type ReviewState = {
   persistFile?: string;
 };
 
+// The reviewer-owned slice the browser posts to /api/save. Only these fields are mutated
+// from the tab; everything else on ReviewState (rawDiff, file contents, changes, guide,
+// mode params, hashes) is server/agent-owned and stays authoritative on the server — so
+// the save wire carries this slice instead of the whole (multi-MB) state. The server
+// replaces exactly these fields (snapshot semantics, latest wins) and touches nothing else.
+// decisionFiles rides along because it's reviewer-mutated and gates the per-file Reset
+// button on reload; stagedFiles/stagedChangeKeys deliberately do NOT — they're maintained
+// server-side by /api/stage, /api/unstage, and syncGitState.
+export type ReviewerSave = Pick<
+  ReviewState,
+  "decisions" | "comments" | "reviewedFiles" | "reviewedFileHashes" | "decisionFiles"
+>;
+
 // Transient desk-liveness fields injected into the /api/state response alongside
 // ReviewState. Deliberately NOT on ReviewState: anything on state is persisted by
 // persistReview and echoed back by the UI via /api/save, while these only describe

@@ -1,4 +1,4 @@
-import { S, D, api, toast } from "./store";
+import { S, D, api, toast, saver } from "./store";
 import { render } from "./render";
 import { updateAwaitingDom } from "./annotations";
 import type { DeskStatus, ReviewState } from "./types";
@@ -31,6 +31,12 @@ export async function pollState() {
   }
   if (!server || !Array.isArray(server.comments)) return;
   if (server.baseDiffHash !== S.lastBaseDiffHash) {
+    // The reload branch replaces S.state wholesale, which would clobber local decisions/
+    // comments not yet persisted. A coalesced save can leave a trailing write outstanding,
+    // so skip adopting while a save is busy — S.lastBaseDiffHash stays put, and the next
+    // tick re-detects the changed hash and adopts once the save has drained. This only
+    // narrows a race that already existed (fire-and-forget persist could lose the same way).
+    if (saver.isBusy()) return;
     S.lastBaseDiffHash = server.baseDiffHash;
     // Keep the reviewer on the same file across a reload. File order/membership can change (the
     // agent added, removed, or reordered files), so re-find the current path in the new list
