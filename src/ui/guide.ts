@@ -1,5 +1,6 @@
 import { S, $, esc } from "./store";
-import { fileReviewState } from "./changes";
+import { fileReviewState, fileFinished } from "./changes";
+import { nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek";
 import { renderMarkdown, renderMarkdownInline } from "./markdown";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
 import type { WalkGroup, WalkRow, WalkFile } from "./walkthrough";
@@ -44,6 +45,49 @@ export function prevFileIndex(cur: number): number | null {
     if (pos >= 0) return pos - 1 >= 0 ? order[pos - 1]! : null;
   }
   return cur - 1 >= 0 ? cur - 1 : null;
+}
+
+// The order file navigation walks and wraps around. Without a guide it's the file array; with
+// one it's the guide order followed by every changed file the guide DIDN'T list (the
+// walkthrough's "Other" group), in file-array order — so the seek reaches unlisted files and
+// never dead-ends on a partial guide. Plain mid-list stepping (nextFileIndex) is unaffected;
+// only the seek/wrap helpers read this extended order.
+export function navOrder(): number[] {
+  const n = S.state?.files?.length ?? 0;
+  const all = Array.from({ length: n }, (_, i) => i);
+  if (!hasGuide()) return all;
+  const order = guideOrder();
+  const listed = new Set(order);
+  return order.concat(all.filter((i) => !listed.has(i)));
+}
+
+// "Unreviewed" for the seek — a file not signed off in the current state, matching the tree
+// badges and floating approve button (an agent edit after sign-off invalidates the hash, so
+// the file counts as unreviewed again). Store-reading wrapper over fileFinished.
+function seekFinished(i: number): boolean {
+  const path = S.state?.files?.[i]?.path;
+  return !!path && fileFinished(path);
+}
+
+// Is there any unreviewed file left anywhere in the nav order?
+export function anyUnreviewed(): boolean {
+  return navOrder().some((i) => !seekFinished(i));
+}
+
+// The next unreviewed file after `cur`, wrapping past the end — approve-advance's seek.
+// null when no unreviewed file remains (the caller falls back to the review-complete prompt).
+export function nextUnreviewedFileIndex(cur: number): number | null {
+  return nextUnreviewed(navOrder(), cur, seekFinished);
+}
+
+// Where plain "next" lands when it steps off the last file: first unreviewed, else first file.
+export function nextWrapIndex(): number | null {
+  return wrapNextTarget(navOrder(), seekFinished);
+}
+
+// Where plain "prev" lands when it steps off the first position: last unreviewed, else last file.
+export function prevWrapIndex(): number | null {
+  return wrapPrevTarget(navOrder(), seekFinished);
 }
 
 // Changed lines (additions + deletions) per file path — the weight used for progress, so

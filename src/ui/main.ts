@@ -26,6 +26,9 @@ import {
   guideStale,
   nextFileIndex,
   prevFileIndex,
+  nextWrapIndex,
+  prevWrapIndex,
+  anyUnreviewed,
   walkthroughRows,
 } from "./guide";
 import { setBaseTitle, reviewStats } from "./progress";
@@ -215,17 +218,29 @@ S.guideNext = () => {
     S.startGuided?.();
     return;
   }
+  // Off the last file, wrap to the first unreviewed file (else cycle to the first) instead
+  // of dead-ending, so skipped files are surfaced.
   const n = nextFileIndex(S.fileIndex);
-  if (n !== null) S.selectFile?.(n);
+  const target = n !== null ? n : nextWrapIndex();
+  if (target !== null) S.selectFile?.(target);
 };
 S.guidePrev = () => {
-  if (S.overviewOpen) return;
+  // Stepping back from the Overview (the position before the first file) wraps to the end —
+  // the last unreviewed file, else the last file.
+  if (S.overviewOpen) {
+    const w = prevWrapIndex();
+    if (w !== null) S.selectFile?.(w);
+    return;
+  }
+  // Off the first file, drop to the Overview (unchanged); the wrap happens from there.
   const p = prevFileIndex(S.fileIndex);
   if (p === null) S.openOverview?.();
   else S.selectFile?.(p);
 };
-S.guideAtStart = () => !!S.overviewOpen;
-S.guideAtLast = () => !S.overviewOpen && nextFileIndex(S.fileIndex) === null;
+// The nav buttons dim only when the review is fully signed off (nothing left to wrap to) —
+// while unreviewed work remains, next/prev stay live because they now seek it.
+S.guideAtStart = () => !!S.overviewOpen && !anyUnreviewed();
+S.guideAtLast = () => !S.overviewOpen && nextFileIndex(S.fileIndex) === null && !anyUnreviewed();
 // Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else sequential.
 S.nextFile = () => {
   if (hasGuide() || S.overviewOpen) {
@@ -233,7 +248,9 @@ S.nextFile = () => {
     return;
   }
   const n = S.fileIndex + 1;
-  if (n < S.state.files.length) S.selectFile?.(n);
+  // Off the last file, wrap to the first unreviewed file (else the first file).
+  const target = n < S.state.files.length ? n : nextWrapIndex();
+  if (target !== null) S.selectFile?.(target);
 };
 S.prevFile = () => {
   if (hasGuide() || S.overviewOpen) {
@@ -241,7 +258,10 @@ S.prevFile = () => {
     return;
   }
   const p = S.fileIndex - 1;
-  if (p >= 0) S.selectFile?.(p);
+  // Off the first file, wrap to the last unreviewed file (else the last file). Without a guide
+  // there's no Overview to step back into, so the wrap applies straight from the first file.
+  const target = p >= 0 ? p : prevWrapIndex();
+  if (target !== null) S.selectFile?.(target);
 };
 // Tree-order file stepping (⇧↑/⇧↓) — walk the file rows as shown in the tree (skip folders),
 // selecting the prev/next one (preview for unchanged files).

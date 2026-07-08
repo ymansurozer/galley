@@ -1,7 +1,7 @@
 import { S, D, toast, api, persist } from "./store";
 import { currentFile, applyDecisionToDiff, fileObjections, fileReviewState } from "./changes";
 import { render, deferRender } from "./render";
-import { nextFileIndex, guideProgress } from "./guide";
+import { nextUnreviewedFileIndex, guideProgress } from "./guide";
 import type { ChangeState, Decision } from "./types";
 
 // The explicit decision record is the source of truth for accept/reject (decoupled
@@ -67,7 +67,9 @@ export async function approveCurrentFile() {
   // moment it moves, not just visible in the bar. % matches the strip (LOC-weighted by default).
   const done = S.state.files.filter((f) => fileReviewState(f.path) !== "pending").length;
   toast(`${label} — ${done} of ${S.state.files.length} files · ${guideProgress().pct}%`);
-  const next = nextFileIndex(S.fileIndex);
+  // Seek the next unreviewed file, wrapping past the end so a reviewer who jumped ahead is
+  // carried back to the files they skipped instead of dead-ending here.
+  const next = nextUnreviewedFileIndex(S.fileIndex);
   if (next !== null && S.selectFile) S.selectFile(next);
   else render();
 }
