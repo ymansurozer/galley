@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.6.1
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.6.0...v0.6.1)
+
+### 🚀 Enhancements
+
+- Focused reviews — rename handling, guide movedFrom, and a churn-skim taxonomy ([6aebba2](https://github.com/ymansurozer/galley/commit/6aebba2))
+
+### ❤️ Contributors
+
+- Ymansurozer <ymansurozer@gmail.com>
+
 ## v0.6.0
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.5.0...v0.6.0)
