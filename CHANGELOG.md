@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.6.2
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.6.1...v0.6.2)
+
+### 🩹 Fixes
+
+- Send only the reviewer slice on Send — big desks crossed the 5 MB body cap and the review was never delivered ([1eb3b5c](https://github.com/ymansurozer/galley/commit/1eb3b5c))
+
+### ❤️ Contributors
+
+- Ymansurozer <ymansurozer@gmail.com>
+
 ## v0.6.1
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.6.0...v0.6.1)
