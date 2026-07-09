@@ -48,6 +48,15 @@ export async function getBranch(cwd: string) {
 
 export function parseUnifiedDiff(raw: string): DiffFile[] {
   const files: DiffFile[] = [];
+  // Files whose content section is binary ("Binary files … differ" / "GIT binary patch") — a
+  // transient parse-time set (never a DiffFile field, so it can't leak into ReviewFile). Used
+  // to drop a renamed binary: it's zero-hunk with distinct paths, so the rename-keep rule below
+  // would otherwise keep it and its bytes would later be read as mangled utf8 text (fileAt).
+  const binaryFiles = new WeakSet<DiffFile>();
+  // Files whose paths came from the `rename from`/`rename to` extended headers — those give the
+  // raw, unprefixed path (reliable for paths with spaces, unlike the `diff --git`/`--- +++`
+  // regexes), so once set we don't let the later `--- a/`/`+++ b/` lines clobber them.
+  const renamedFiles = new WeakSet<DiffFile>();
   let file: DiffFile | undefined;
   let hunk: DiffHunk | undefined;
   let oldLine = 0;
@@ -68,12 +77,30 @@ export function parseUnifiedDiff(raw: string): DiffFile[] {
       continue;
     }
     if (!file) continue;
+    // git -M rename headers. Authoritative over the diff --git / --- +++ paths (see above), and
+    // they arrive BEFORE any hunk, so they must be handled ahead of the `!hunk` guard below.
+    if (rawLine.startsWith("rename from ")) {
+      file.oldPath = rawLine.slice("rename from ".length);
+      renamedFiles.add(file);
+      continue;
+    }
+    if (rawLine.startsWith("rename to ")) {
+      file.newPath = rawLine.slice("rename to ".length);
+      renamedFiles.add(file);
+      continue;
+    }
+    if (rawLine.startsWith("Binary files ") || rawLine.startsWith("GIT binary patch")) {
+      binaryFiles.add(file);
+      continue;
+    }
     if (rawLine.startsWith("--- ")) {
+      if (renamedFiles.has(file)) continue;
       const value = rawLine.slice(4).trim();
       file.oldPath = value === "/dev/null" ? undefined : value.replace(/^a\//, "");
       continue;
     }
     if (rawLine.startsWith("+++ ")) {
+      if (renamedFiles.has(file)) continue;
       const value = rawLine.slice(4).trim();
       file.newPath = value === "/dev/null" ? undefined : value.replace(/^b\//, "");
       continue;
@@ -119,7 +146,16 @@ export function parseUnifiedDiff(raw: string): DiffFile[] {
     }
   }
 
-  return files.filter((f) => f.hunks.length > 0);
+  // Keep every file that has real hunks, plus a zero-hunk PURE rename (git -M with 100%
+  // similarity emits no content) — distinct old/new paths and not binary. A renamed binary is
+  // also zero-hunk with distinct paths, but its "Binary files … differ" line marks it (excluded
+  // so its bytes aren't read as text); same-path zero-hunk sections (mode-only changes, same-path
+  // binary diffs) have no rename to surface and stay dropped.
+  return files.filter(
+    (f) =>
+      f.hunks.length > 0 ||
+      (!!f.oldPath && !!f.newPath && f.oldPath !== f.newPath && !binaryFiles.has(f)),
+  );
 }
 
 export async function fileAt(root: string, rel: string | undefined, ref?: string) {

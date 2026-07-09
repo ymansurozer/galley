@@ -71,10 +71,33 @@ export function validateGuide(input: unknown): GuideValidation {
       }
       if (blocks.length) file.skimBlocks = blocks;
     }
+    // Guide-declared move (issue 03): `movedFrom` is the OLD path a moved+edited file came from.
+    // Shape-only here (non-empty string) — whether it resolves to a full deletion + untracked
+    // addition is diff-aware (resolveMovedFrom in state.ts). Rejecting movedFrom+skimBlocks on one
+    // entry is a real check, not shape: the merge collapses the pair into one section with no
+    // rawDiff, so a skimBlocks span (which resolves against rawDiff) could never match. Whole-file
+    // `skim` stays allowed (a client-side flag needing no resolution).
+    if (f.movedFrom !== undefined) {
+      if (typeof f.movedFrom !== "string" || !f.movedFrom.trim())
+        return { ok: false, reason: `guide.files[${i}].movedFrom must be a non-empty string` };
+      if (file.skimBlocks?.length)
+        return {
+          ok: false,
+          reason: `guide.files[${i}] cannot set both movedFrom and skimBlocks`,
+        };
+      file.movedFrom = f.movedFrom;
+    }
     files.push(file);
   }
   files.sort((a, b) => a.order - b.order);
   const guide: Guide = { overview: g.overview, files };
+  // Focused-review flag (issue 04) — display-only, badges the overview. A boolean or absent;
+  // any other type is a schema violation (consistent with the field-shape checks above).
+  if (g.focused !== undefined) {
+    if (typeof g.focused !== "boolean")
+      return { ok: false, reason: "guide.focused must be a boolean" };
+    guide.focused = g.focused;
+  }
   if (typeof g.title === "string" && g.title.trim()) guide.title = g.title;
   if (typeof g.prDescription === "string" && g.prDescription.trim())
     guide.prDescription = g.prDescription;

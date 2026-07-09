@@ -278,3 +278,23 @@ test("walkRows: a category-header jumpIndex prefers the group's first pending fi
   const cat = walkRows(groups, null).find((r) => r.kind === "cat");
   assert.equal(cat!.kind === "cat" && cat!.jumpIndex, 2);
 });
+
+test("walkthroughGroups: a pure rename gets movedFrom and folds into the Skimmed group (issue 01)", () => {
+  const files = [
+    file("core/a.ts", "aa"),
+    { path: "lib/new.ts", hunks: [], oldPath: "lib/old.ts", newPath: "lib/new.ts" },
+  ];
+  const groups = walkthroughGroups(
+    [guideFile("core/a.ts", "Core")],
+    files,
+    allPending,
+    (p) => p === "lib/new.ts", // the moved file has left the main flow
+  );
+  const skim = groups.find((g) => g.skimmed);
+  assert.ok(skim);
+  assert.equal(skim!.files.length, 1);
+  assert.equal(skim!.files[0]!.path, "lib/new.ts");
+  assert.equal(skim!.files[0]!.movedFrom, "lib/old.ts"); // drives the "← old" arrow
+  const core = groups.find((g) => g.category === "Core");
+  assert.equal(core!.files[0]!.movedFrom, ""); // a normal edit is not a rename
+});

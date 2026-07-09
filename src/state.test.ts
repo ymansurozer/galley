@@ -12,6 +12,7 @@ import {
   mergeReviewState,
   reanchorComments,
   readGlobalSettings,
+  resolveMovedFrom,
   resolveSkim,
   sanitizeSession,
   stablePort,
@@ -340,6 +341,138 @@ test("mergeReviewState keeps a rejected decision whose hunk is still present and
   const merged = mergeReviewState(base, saved);
   assert.equal(merged.decisions!.length, 1);
   assert.equal(merged.changes[0]!.status, "rejected");
+});
+
+test("mergeReviewState migrates a decision + open comment + sign-off across a rename reload (issue 01)", () => {
+  // The reload that introduces a rename: base carries the file at its NEW path (with oldPath set);
+  // everything the reviewer recorded is still keyed to the OLD path. Migration re-keys them.
+  const renamed = {
+    path: "new.ts",
+    hunks: [],
+    oldPath: "old.ts",
+    newPath: "new.ts",
+    oldFile: { name: "old.ts", contents: "x\n" },
+    newFile: { name: "new.ts", contents: "x\n" },
+    contentHash: "H",
+  };
+  const base = state({
+    files: [renamed],
+    changes: [change({ id: "new.ts:k1", path: "new.ts", stableKey: "k1", contentHash: "H" })],
+  });
+  const saved = state({
+    decisions: [
+      decision({ key: "old.ts:k1", path: "old.ts", status: "accepted", reviewedHash: "H" }),
+    ],
+    comments: [comment({ id: "c1", path: "old.ts", intent: "action", anchorText: "x" })],
+    reviewedFiles: ["old.ts"],
+    reviewedFileHashes: { "old.ts": "H" },
+  });
+  const merged = mergeReviewState(base, saved);
+  // Decision re-keyed to the new path and carried forward (content unchanged).
+  assert.equal(merged.changes[0]!.status, "accepted");
+  assert.ok(merged.decisions!.some((d) => d.key === "new.ts:k1" && d.path === "new.ts"));
+  // The open change-request comment moved to the new path and stays open (not dropped/stale).
+  assert.equal(merged.comments.length, 1);
+  assert.equal(merged.comments[0]!.path, "new.ts");
+  assert.equal(merged.comments[0]!.status, "open");
+  // A pure rename keeps its content hash, so the prior sign-off survives, re-keyed.
+  assert.deepEqual(merged.reviewedFiles, ["new.ts"]);
+  assert.equal(merged.reviewedFileHashes!["new.ts"], "H");
+});
+
+// ── resolveMovedFrom (issue 03) ──────────────────────────────────────────────
+// A guide-declared move: a.ts (a full working-tree deletion) + b.ts (an untracked addition,
+// edited so content differs) → one rename-changed entry at b.ts.
+function movedFromFixture(): ReviewState {
+  return state({
+    mode: "repo",
+    staged: false,
+    files: [
+      {
+        path: "a.ts",
+        hunks: [{ header: "", oldStart: 1, oldCount: 1, newStart: 0, newCount: 0, lines: [] }],
+        oldPath: "a.ts",
+        newPath: undefined, // full deletion: +++ /dev/null
+        oldFile: { name: "a.ts", contents: "l1\nl2\nl3\n" },
+        newFile: { name: "a.ts", contents: "" },
+        contentHash: "DEL",
+      },
+      {
+        path: "b.ts",
+        hunks: [],
+        oldPath: "b.ts",
+        newPath: "b.ts", // untracked addition: no old side
+        oldFile: { name: "b.ts", contents: "" },
+        newFile: { name: "b.ts", contents: "l1\nEDITED\nl3\n" },
+        contentHash: "ADD",
+      },
+    ],
+    changes: [change({ id: "a.ts:d1", path: "a.ts", stableKey: "d1", side: "deletions" })],
+  });
+}
+const movedGuide = (movedFrom = "a.ts"): Guide => ({
+  overview: "o",
+  files: [{ path: "b.ts", order: 0, category: "c", orientation: "moved+edited", movedFrom }],
+});
+
+test("resolveMovedFrom merges a declared move into one rename-changed entry (issue 03)", () => {
+  const base = movedFromFixture();
+  const r = resolveMovedFrom(base, movedGuide(), { strict: true });
+  assert.ok(r.ok);
+  assert.equal(base.files.length, 1);
+  const m = base.files[0]!;
+  assert.equal(m.path, "b.ts");
+  assert.equal(m.oldPath, "a.ts");
+  assert.equal(m.newPath, "b.ts");
+  assert.equal(m.oldFile.contents, "l1\nl2\nl3\n"); // deletion's index side
+  assert.equal(m.newFile.contents, "l1\nEDITED\nl3\n"); // untracked working side
+  assert.equal(base.changes.length, 0); // the deletion's blocks are gone (UI derives new ones)
+});
+
+test("resolveMovedFrom: strict aborts when the move doesn't resolve; lenient drops it", () => {
+  const strict = movedFromFixture();
+  const bad = resolveMovedFrom(strict, movedGuide("nope.ts"), { strict: true });
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.match(bad.reason, /movedFrom "nope\.ts" did not resolve/);
+  assert.equal(strict.files.length, 2); // untouched on abort
+
+  const lenient = movedFromFixture();
+  const dropped = resolveMovedFrom(lenient, movedGuide("nope.ts"), { strict: false });
+  assert.ok(dropped.ok); // no error…
+  assert.equal(lenient.files.length, 2); // …and the pair falls back to delete + add
+});
+
+test("resolveMovedFrom: movedFrom outside working repo mode is a strict error", () => {
+  for (const over of [{ mode: "pr" as const }, { staged: true }, { mode: "file" as const }]) {
+    const base = { ...movedFromFixture(), ...over };
+    const r = resolveMovedFrom(base, movedGuide(), { strict: true });
+    assert.equal(r.ok, false, JSON.stringify(over));
+    if (!r.ok) assert.match(r.reason, /working repo mode/);
+  }
+});
+
+test("mergeReviewState migrates a comment + staged-hunk key across a working-mode move pairing (issue 02)", () => {
+  // A plain mv paired into a rename-pure entry on reload: the file arrives at new.txt with no change
+  // blocks, and everything the reviewer left against old.txt migrates to new.txt (issue 01's path).
+  const paired = {
+    path: "new.txt",
+    hunks: [],
+    oldPath: "old.txt",
+    newPath: "new.txt",
+    oldFile: { name: "old.txt", contents: "x\n" },
+    newFile: { name: "new.txt", contents: "x\n" },
+    contentHash: "H",
+  };
+  const base = state({ files: [paired], changes: [] });
+  const saved = state({
+    comments: [comment({ id: "c1", path: "old.txt", intent: "action", anchorText: "x" })],
+    stagedChangeKeys: ["old.txt:additions:1:0:1"],
+  });
+  const merged = mergeReviewState(base, saved);
+  assert.equal(merged.comments.length, 1);
+  assert.equal(merged.comments[0]!.path, "new.txt");
+  assert.equal(merged.comments[0]!.status, "open");
+  assert.deepEqual(merged.stagedChangeKeys, ["new.txt:additions:1:0:1"]);
 });
 
 // ── Re-anchoring ─────────────────────────────────────────────────────────────

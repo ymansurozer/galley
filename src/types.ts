@@ -130,6 +130,13 @@ export type GuideFile = {
   skim?: boolean;
   skimReason?: string;
   skimBlocks?: Array<{ lines: [number, number]; reason?: string }>;
+  // Guide-declared move (issue 03): the OLD path a moved-and-edited file came from — the plain-`mv`
+  // case content-hash pairing (issue 02) can't catch, so the agent that made the move declares it.
+  // `path` is the NEW path (as every guide field is). The desk merges the declared deletion+untracked
+  // pair into one rename-changed entry (resolveMovedFrom), showing only the real edits with issue
+  // 01's moved badge. Working repo mode only; mutually exclusive with skimBlocks (both resolve
+  // against the diff, and a merged entry has no rawDiff section).
+  movedFrom?: string;
 };
 
 // The guided review the coding agent attaches (the desk renders it, runs no model).
@@ -141,6 +148,10 @@ export type Guide = {
   overview: string;
   prDescription?: string;
   files: GuideFile[];
+  // A focused review (issue 04): the reviewer asked for churn to be de-emphasized, so the agent
+  // shaped attention (whole-file/block skims, movedFrom merges). Display-only — the overview page
+  // badges the review so the human knows churn was deliberately skimmed. A plain guide omits it.
+  focused?: boolean;
   // baseDiffHash the guide was generated against — set on attach; used (in a later
   // slice) to flag the guide as possibly stale once the diff advances past it.
   baseDiffHash?: string;

@@ -14,7 +14,7 @@ The review is the human's; the agent acts on the decisions and answers questions
 
 ## When to use it
 
-Reach for Galley when the user should review something turn-by-turn: **code changes you made** (the working tree or staged diff), **a markdown plan or single artifact**, or **a branch / PR**. Use it when the user asks to "open the Galley", or whenever a diff is better reviewed interactively than pasted into chat.
+Reach for Galley when the user should review something turn-by-turn: **code changes you made** (the working tree or staged diff), **a markdown plan or single artifact**, or **a branch / PR**. Use it when the user asks to "open the Galley", or whenever a diff is better reviewed interactively than pasted into chat. When the user asks for a **focused review** (mechanical churn — lockfiles, generated code, import churn, moved files — de-emphasized so only the real changes stand out), attach a guide; `galley spec` documents the focused-review schema.
 
 ## Getting the tool
 

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { startServer } from "./server.js";
@@ -348,6 +349,75 @@ test("save from a stale full-state tab ignores server-owned fields in the body",
     assert.equal(st.id, "id");
     assert.equal(st.files.length, 1);
     assert.equal(st.files[0]?.newFile.contents, before);
+  });
+});
+
+test("/api/stage: paths[] stages a move pair as a rename; legacy {path} still works (issue 02)", async () => {
+  await withServer(async (handle, root, st) => {
+    const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+    g(["init", "-q"]);
+    g(["config", "user.email", "t@t.co"]);
+    g(["config", "user.name", "tester"]);
+    await writeFile(path.join(root, "old.ts"), "x\n");
+    g(["add", "."]);
+    g(["commit", "-qm", "init"]);
+    // Plain mv: old.ts deleted in the worktree (still in HEAD), new.ts untracked. Plus an
+    // unrelated untracked file to exercise the legacy single-path body.
+    await rm(path.join(root, "old.ts"));
+    await writeFile(path.join(root, "new.ts"), "x\n");
+    await writeFile(path.join(root, "extra.ts"), "y\n");
+    const post = (body: unknown) =>
+      fetch(`${handle.url}api/stage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    assert.equal((await post({ path: "extra.ts" })).status, 200); // legacy single-path
+    assert.equal((await post({ paths: ["old.ts", "new.ts"] })).status, 200); // move pair
+    const porcelain = g(["status", "--porcelain"]);
+    assert.match(porcelain, /R\s+old\.ts -> new\.ts/); // a staged rename, not add + delete
+    assert.match(porcelain, /A\s+extra\.ts/);
+    // stagedFiles records the review path once: the new path for the pair, plus the legacy file.
+    assert.ok(st.stagedFiles.includes("new.ts"));
+    assert.ok(st.stagedFiles.includes("extra.ts"));
+    assert.ok(!st.stagedFiles.includes("old.ts"));
+  });
+});
+
+test("/api/reload: a guide-declared move merges into a rename entry; a bad one is 422, desk untouched (issue 03)", async () => {
+  await withServer(async (handle, root, st) => {
+    const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+    g(["init", "-q"]);
+    g(["config", "user.email", "t@t.co"]);
+    g(["config", "user.name", "tester"]);
+    await writeFile(path.join(root, "a.ts"), "l1\nl2\nl3\n");
+    g(["add", "."]);
+    g(["commit", "-qm", "init"]);
+    // Plain mv + edit: a.ts deleted in the worktree, b.ts untracked with one changed line.
+    await rm(path.join(root, "a.ts"));
+    await writeFile(path.join(root, "b.ts"), "l1\nCHANGED\nl3\n");
+    const reload = (guide: unknown) =>
+      fetch(`${handle.url}api/reload`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ guide }),
+      });
+    // Declared move resolves → one rename-changed entry at b.ts, a.ts gone.
+    const ok = await reload({
+      overview: "o",
+      files: [{ path: "b.ts", orientation: "moved and edited", movedFrom: "a.ts" }],
+    });
+    assert.equal(ok.status, 200);
+    assert.ok(st.files.some((f) => f.path === "b.ts" && f.oldPath === "a.ts"));
+    assert.ok(!st.files.some((f) => f.path === "a.ts"));
+    // A movedFrom naming a file that isn't a deletion → 422, and the live desk is left as it was.
+    const before = st.files.map((f) => f.path).sort();
+    const bad = await reload({
+      overview: "o",
+      files: [{ path: "b.ts", orientation: "x", movedFrom: "ghost.ts" }],
+    });
+    assert.equal(bad.status, 422);
+    assert.deepEqual(st.files.map((f) => f.path).sort(), before);
   });
 });
 

@@ -1,7 +1,7 @@
 import { S, $, esc } from "./store";
 import { currentChanges, currentFile } from "./changes";
 import { render } from "./render";
-import { isFullySkimmed } from "./skim-derive";
+import { isFullySkimmed, isMovedPure } from "./skim-derive";
 import type { ChangeState, GuideFile } from "./types";
 
 // ── Skimmable review (issue 06) ──────────────────────────────────────────────
@@ -48,10 +48,36 @@ export function fileFullySkimmed(path: string): boolean {
   return isFullySkimmed(isFileSkim(path), blockSkims);
 }
 
-// The changed files that are fully skimmed, in state.files order — the members of the collapsed
-// group. Reads current state so it tracks reloads.
+// ── Pure renames (issue 01) ──────────────────────────────────────────────────
+// A file moved with identical content (distinct old/new paths, byte-equal old/new). It renders as
+// a muted "renamed old → new · no changes" row and, like a fully-skimmed file, leaves the main
+// review flow (folded into the Skimmed group, no progress/completion weight). Classified by CONTENT
+// equality (see isMovedPure) rather than "zero change blocks", so a guide-merged rename-CHANGED
+// file (issue 03, whose blocks are lazily client-derived) isn't misclassified as pure before it's
+// opened. `movedFrom` returns the old path (or "").
+export function fileMovedPure(path: string): boolean {
+  const f = S.state?.files?.find((x) => x.path === path);
+  if (!f) return false;
+  return isMovedPure(f.oldPath, f.newPath, f.oldFile.contents, f.newFile.contents);
+}
+export function movedFrom(path: string): string {
+  const f = S.state?.files?.find((x) => x.path === path);
+  return f && f.oldPath && f.newPath && f.oldPath !== f.newPath ? f.oldPath : "";
+}
+
+// A file that has left the reviewer's default flow: fully skimmed OR a pure rename. This is the
+// single predicate the flow-control sites (tree/walkthrough grouping, nav order, progress, the
+// approve-completion gate) check — so both kinds fold into the Skimmed group and drop out of the
+// progress/completion math together. Skim-specific behavior (badges, collapse defaults, skim
+// strips) keeps reading fileFullySkimmed directly.
+export function fileOutOfFlow(path: string): boolean {
+  return fileFullySkimmed(path) || fileMovedPure(path);
+}
+
+// The changed files that have left the main flow (fully skimmed or pure renames), in state.files
+// order — the members of the collapsed group. Reads current state so it tracks reloads.
 export function fullySkimmedPaths(): string[] {
-  return (S.state?.files ?? []).map((f) => f.path).filter((p) => fileFullySkimmed(p));
+  return (S.state?.files ?? []).map((f) => f.path).filter((p) => fileOutOfFlow(p));
 }
 
 // Per-session expand state for the collapsed "Skimmed" group, kept in S.skimExpanded (a sibling
@@ -140,6 +166,19 @@ export function renderFileSkim() {
   </div>`;
   const strip = $("diff").querySelector(".file-skim-strip") as HTMLButtonElement | null;
   if (strip) strip.onclick = () => toggleFileSkim(file.path);
+}
+
+// The muted one-line row for a pure rename (issue 01): "renamed old → new · no changes". Unlike a
+// skimmed file there's nothing to expand — the content is identical — so it's a static note, not a
+// toggle. render() calls this instead of the @pierre diff when a moved-pure file is opened.
+export function renderMovedPure() {
+  const file = currentFile();
+  const from = movedFrom(file.path);
+  $("diff").innerHTML = `<div class="file-skim"><div class="file-skim-strip moved">
+    <svg class="ic"><use href="#gly-arrow-right"></use></svg>
+    <span>renamed <span class="file-skim-name">${esc(from)}</span> → <span class="file-skim-name">${esc(file.path)}</span></span>
+    <span class="file-skim-meta">no changes</span>
+  </div></div>`;
 }
 
 function diffShadow(): ShadowRoot | null {

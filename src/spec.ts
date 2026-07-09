@@ -17,11 +17,11 @@ attach via CLI subcommands — receive each Send, answer questions, post replies
 and re-diff your edits into the same tab. No model runs in the desk; the review is the human's.
 
 ## Review modes
-Pick one at start. await/comment/status/reload auto-target the lone live desk, so --session is
-usually unneeded.
+Pick one at start. await/comment/status/reload auto-target the lone live desk and omit --session
+below; --session at start (and restart) names the desk — needed only for a stable id or a second desk.
 - repo (default) — \`galley\`: working-tree diff; \`--diff staged\` for the index; \`--path <p>\`
   limits to a path. Untracked (new) files show as full-file additions. Approve stages the file
-  (toggle); accept/reject are verdicts.
+  (toggle); accept/reject are verdicts. A moved file stages both its old and new paths as a rename.
 - file — \`galley file <path>\`: one file, tracked or not. Unchanged → full file; changed → diff
   (stageable); untracked → full file, verdict-only. Markdown gets a Rendered/Source toggle —
   comment any rendered block. Use it to review an artifact (e.g. a generated plan).
@@ -36,16 +36,15 @@ ReviewResult.mode (repo|file|pr) tells you how to read verdicts.
 Start the desk in the background, then await events and branch on kind:
 \`\`\`bash
 galley --session <id> --diff working &
-while ev=$(galley await --session <id>); do
+while ev=$(galley await); do
   [ -z "$ev" ] && continue                               # --timeout fired, no event
   case "$(jq -r .kind <<<"$ev")" in
-    question)  # answer NOW at the question's path/line/side; thread under it
-      # READ-ONLY: a question wants an answer, not a code change — don't edit files (unless its
-      # text explicitly asks for one; then edit + galley reload). See "Between rounds".
-      q=$(jq .question <<<"$ev")
-      galley status --session <id> --body "Reading X to answer…"        # live progress
-      galley comment --session <id> --path "$(jq -r .path<<<"$q")" \\
-        --line "$(jq -r .lineNumber<<<"$q")" --side "$(jq -r .side<<<"$q")" --body "…" ;;
+    question)  # answer EACH — READ-ONLY (see Events); thread under each question's path/line/side
+      jq -c '.questions[]' <<<"$ev" | while IFS= read -r q; do   # one object per line — space-safe
+        galley status --body "Reading X to answer…"        # live progress
+        galley comment --path "$(jq -r .path<<<"$q")" \\
+          --line "$(jq -r .lineNumber<<<"$q")" --side "$(jq -r .side<<<"$q")" --body "…"
+      done ;;
     review)    # act on the ReviewResult, then \`galley reload\` to show your edits
       r=$(jq .result <<<"$ev") ;;
   esac
@@ -63,23 +62,20 @@ done
   Cleared by your next comment; stale after ~90s (keep posting through long work); never
   persisted; exits 0 even with no desk.
 - \`galley reload [--guide <file>]\` — re-diff the working tree into the live desk (your edits are
-  NOT auto-re-diffed). Decisions reconcile: a hunk whose content you changed resets to pending,
-  untouched ones carry over. --guide swaps the guide.
+  NOT auto-re-diffed). Anything you edit resets to pending on reload — decisions, approvals, and
+  skims alike; anything you left untouched carries over. --guide swaps the guide (one desk only —
+  see Between rounds).
 
 ## Events
 await yields exactly one:
 - {"kind":"question","question":{path,lineNumber,side,body,mode,session},"questions":[…]} —
   reviewer wants an answer NOW. \`questions\` holds every question batched into this delivery
-  (the human can fire several before you return), arrival order; \`question\` is the oldest, kept
-  for compatibility. Answer EACH one. A question asks for an ANSWER, not a code change:
-  answering is READ-ONLY — read the file for context, answer with \`galley comment\` at
-  path/lineNumber/side.
-  NEVER edit tracked files in response (same rule as "Between rounds"). The only exception: the
-  question's own text explicitly asks for an immediate change — then treat it as actionable, and
-  still follow the between-rounds discipline (edit, then \`galley reload\`). Questions are a live
-  side-channel: NEVER in a Send/ReviewResult (except openQuestions below, which folds any you
-  never answered into the round). Slow answer → post \`galley status\` lines so the human sees
-  progress, not a static spinner.
+  (arrival order; \`question\` is the oldest, kept for compatibility) — answer EACH. A question wants
+  an ANSWER, not a code change: answering is READ-ONLY — read for context, reply with \`galley
+  comment\` at path/lineNumber/side, and NEVER edit tracked files (the "Between rounds" rule) unless
+  the question's own text asks for a change (then edit + \`galley reload\`). Questions are a live
+  side-channel — never in a Send/ReviewResult except openQuestions below. Slow answer → post
+  \`galley status\` lines so the human sees progress.
 - {"kind":"review","result":{…ReviewResult…}} — reviewer clicked Send. Act on result.
 
 ## ReviewResult
@@ -87,24 +83,20 @@ The \`result\` field of a review event:
 - session, repoRoot, mode, staged, head (sha|null), baseDiffHash (hash of the reviewed diff)
 - accepted[], rejected[]: {path, lineNumber, side, title}
 - requestedChanges[]: {path, lineNumber, side, body}
-- overallNote? — an optional note about the WHOLE review (absent if the reviewer left it blank):
-  an overall remark, or an afterthought instruction for what to do after applying the review
-  (e.g. "after applying, run the formatter"). It is NOT tied to any line and not a per-line change.
+- overallNote? — optional note about the WHOLE review (absent if blank): an overall remark, or an
+  afterthought instruction for after applying (e.g. "run the formatter"). Not tied to any line.
 - stagedFiles[], approvedFiles[]
-- openQuestions[]: {path,lineNumber,side,body,mode,session} — questions the reviewer asked but you
-  never answered, folded into this Send and superseding any queued live question events. Answer
-  each with \`galley comment\` (same READ-ONLY discipline as a live question) as part of acting on
-  the round.
-- artifacts: {resultJson, sessionDir}, both under
-  ~/.galley/<repoHash>/<session>/ where repoHash = sha256(abs repo root)[:16]
+- openQuestions[]: {path,lineNumber,side,body,mode,session} — questions you never answered, folded
+  into this Send (superseding queued live question events). Answer each with \`galley comment\`
+  (READ-ONLY, as a live question) while acting on the round.
+- artifacts: {resultJson, sessionDir} under ~/.galley/<repoHash>/<session>/ (repoHash =
+  sha256(abs repo root)[:16])
 The arrays above ARE the review — act on them directly; there's no prose summary to parse.
 Each changed file ends pending | approved (no objections → listed in approvedFiles) |
-changes-requested (a rejected hunk and/or a requested change). Editing a file's content
-invalidates its approval → after \`galley reload\` it returns to pending for re-review.
-File-poll fallback (harness can't hold a long-poll / background the desk): every Send
-(over)writes the same ReviewResult to artifacts.resultJson; watch sessionDir, read the newest
-*-result.json (changed mtime = new Send). Live questions arrive only via await, so a pure
-file-poller sees Sends but not Asks.
+changes-requested (a rejected hunk and/or a requested change).
+File-poll fallback (can't hold a long-poll / background the desk): every Send (over)writes the same
+ReviewResult to artifacts.resultJson — watch sessionDir, read the newest *-result.json (new mtime =
+new Send). Live questions arrive only via await, so a file-poller sees Sends but not Asks.
 
 ## How to act on a review — one path per item, don't mix
 - rejected → revert that change; the reviewer doesn't want it.
@@ -118,14 +110,13 @@ approved hunks as-is (rather than editing the working tree).
 Then \`galley reload\` to surface your edits, and \`galley await\` for the next round.
 
 ## Guided review (optional)
-Attach with \`galley <mode> --guide <file>\`: an overview page + files in your order, each with
-orientation/category, files worth scrutinizing flagged. Galley validates+renders it (markdown in prose fields,
-raw HTML stripped) and runs no model — content and order are yours. Write the guide OUTSIDE the
-working tree (a temp or gitignored path): working mode surfaces untracked files, so an in-repo
-guide shows as a stray addition. The guide is stamped to its diff and survives reload/restart;
-once a reload advances past that diff it's flagged stale — regenerate and swap via \`galley reload
---guide <new>\` (or re-run start with --guide; the live desk is reused). Never start a second desk
-for a new guide.
+Attach with \`galley <mode> --guide <file>\`: an overview page + your files in order with per-file
+orientation (schema below). Galley validates + renders it (markdown in prose fields, raw HTML
+stripped) and runs no model — content and order are yours. Write the guide OUTSIDE the working tree
+(temp or gitignored): working mode surfaces untracked files, so an in-repo guide shows as a stray
+addition. Stamped to its diff and surviving reload/restart; once a reload advances past it it's
+flagged stale — regenerate and swap via \`galley reload --guide <new>\` (one desk only — see Between
+rounds).
 
 ### Guide JSON schema
 One JSON object:
@@ -143,27 +134,43 @@ One JSON object:
     label repeated non-adjacently makes a second section — keep a category's files together.
   - flag? — raises a flag on the file for closer scrutiny; the text is the note (what to
     double-check, what's risky). Omit unless the file genuinely warrants it.
-  - skim? / skimReason? — mark the WHOLE file skimmable: the desk collapses its diff behind a
-    one-click "expand" strip and shows a muted indicator in the tree/walkthrough. skimReason is a
-    short why ("generated", "lockfile churn"). The reviewer can always expand — nothing is hidden.
+  - skim? / skimReason? — mark the WHOLE file skimmable; skimReason is a short why ("generated",
+    "lockfile churn"). See "When to skim / focused review".
   - skimBlocks? — collapse PARTS of the file: an array of { lines, reason? } where lines is a
-    new-file-side [start, end] span (or a single line number) of the diff you read. The server
-    resolves each span to the enclosing change block(s) and collapses them behind an expandable
-    strip. reason is a short label ("import-only"). A span that resolves to no change block aborts
-    the launch (see Validation).
-  When to skim: ONLY when the reviewer asked for a focused review ("ignore the import churn, show
-  me the real changes"). Skim LOWERS attention — it is the opposite of flag, which raises it. Never
-  skim your own risky or non-obvious changes to slip them past review; skim boilerplate the
-  reviewer told you they don't want to see. A file skimmed whole (or every block skimmed) leaves
-  the reviewer's default flow entirely — it drops into a collapsed "Skimmed" group and carries no
-  progress or completion weight — so skim only what genuinely needs no eyes. On reload, skimBlocks
-  re-resolve against the new diff; a span that no longer resolves is dropped (a block you rewrote
-  deserves fresh attention).
-Validation: overview a non-empty string, files a non-empty array, every file a non-empty
-path+orientation; skimBlocks (if present) an array of { lines: number | [start, end], reason? };
-an unreadable file / invalid JSON / schema violation — or a skimBlocks span that matches no change
-block in the file (or names a file absent from the diff) — aborts the launch naming the offending
-field.
+    new-file-side [start, end] span (or a single line number) of the diff you read, and reason is a
+    short label ("import-only"). The server resolves each span to the enclosing change block(s).
+  - movedFrom? — repo-relative OLD path of a file you moved AND edited (this entry's \`path\` is the
+    NEW path). The desk merges the deletion + untracked addition into one rename-changed entry so
+    only the real edits show, with a "moved from" badge; its blocks are verdict-only (no per-block
+    staging), and whole-file Approve stages both old and new paths as one rename. Working repo mode
+    only; may carry a whole-file \`skim\` but NOT \`skimBlocks\`. On a new guide an unresolvable
+    movedFrom aborts the launch naming it; on a carried-forward guide it drops silently, the pair
+    falling back to delete+add. Pure (unedited) renames need no declaration — git detects committed
+    ones and the desk auto-pairs identical-content working moves, both shown as a muted
+    "renamed old → new · no changes" row (see the collapse note above).
+- focused? — top-level boolean; badges the overview ("focused review — mechanical churn skimmed")
+  so the human knows attention was deliberately shaped. Display-only.
+A skimmed part collapses behind a one-click "expand" strip (nothing is ever hidden). A file skimmed
+whole (or every block skimmed), or a pure rename, leaves the default flow — it drops into a collapsed
+"Skimmed" group with no progress or completion weight, so skim only what genuinely needs no eyes.
+
+### When to skim / focused review
+Skim ONLY on request ("give me a focused review"; "ignore the import churn, show me the real
+changes") — a plain guided review skims nothing. Skim LOWERS attention — the opposite of flag; never
+skim your own risky or non-obvious changes. Given a focused review, set \`focused: true\` and apply
+this default churn policy without item-by-item instruction:
+- whole-file skim — lockfiles, generated/compiled output, vendored code, snapshot files.
+- skimBlocks — import/re-export-only blocks, formatting-only hunks, mechanical rename ripples
+  (call-site churn where only an identifier changed).
+- movedFrom — files moved and edited, so only the real edits show.
+- never skim — logic, behavior-changing config (CI, tsconfig, package.json deps), your own risky
+  changes.
+
+Validation: beyond the (required, non-empty) fields above — a file's \`path\` must appear in the
+diff; each skimBlocks span must resolve to a change block; \`movedFrom\` must name a full deletion
+paired with the untracked addition at \`path\`, in working repo mode, not combined with skimBlocks;
+\`focused\` must be a boolean. An unreadable file, invalid JSON, or any violation aborts the launch
+naming the offending field.
 
 ## Between rounds — reload vs restart, and the desk lock
 - Don't edit tracked files mid-round: the reviewer wouldn't see the edits and their in-flight

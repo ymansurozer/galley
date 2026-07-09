@@ -20,6 +20,7 @@ import {
   persistReview,
   questionPayload,
   readGlobalSettings,
+  resolveMovedFrom,
   resolveSkim,
   syncGitState,
   writeGlobalSettings,
@@ -442,6 +443,22 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           await persistReview(state);
           return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });
         }
+        // Guide-declared moves (movedFrom) must merge into `base` BEFORE reconciliation, so a
+        // merged pair's distinct paths drive mergeReviewState's rename migration (issue 01). A new
+        // guide is strict (reject the reload naming the entry, desk untouched — nothing committed
+        // yet); a carried-forward guide is lenient (an unresolvable move drops to delete+add).
+        const moveGuide = validatedGuide ?? state.guide;
+        if (moveGuide) {
+          const moved = resolveMovedFrom(base, moveGuide, { strict: !!validatedGuide });
+          if (!moved.ok)
+            return fail(
+              res,
+              422,
+              "INVALID_GUIDE",
+              `Invalid guide: ${moved.reason}.`,
+              "Run `galley spec` for the guided-review schema.",
+            );
+        }
         // The merge carries the old guide forward; a provided guide replaces it, stamped
         // against the just-rebuilt diff so it isn't born stale. Resolve skim spans + reject a
         // bad NEW guide (strict) BEFORE committing the merge onto the live state, so a rejected
@@ -553,9 +570,15 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             "Staging is unavailable in PR review mode.",
             "PR changes are committed; accept/reject are approve/request-changes verdicts.",
           );
-        const { path: filePath } = JSON.parse(await readBody(req)) as { path: string };
-        await git(["add", "--", filePath], state.root);
-        if (!state.stagedFiles.includes(filePath)) state.stagedFiles.push(filePath);
+        // `{ path }` stages one file (back-compat); `{ paths }` stages several in one `git add`
+        // — used for a working-mode move pair, where `git add`-ing both the old (deleted) and new
+        // path records the rename in the index. stagedFiles records the review file's path once:
+        // the caller's `path`, else the last of `paths` (approveCurrentFile sends [old, new]).
+        const body = JSON.parse(await readBody(req)) as { path?: string; paths?: string[] };
+        const paths = body.paths ?? (body.path ? [body.path] : []);
+        if (paths.length) await git(["add", "--", ...paths], state.root);
+        const recorded = body.path ?? paths.at(-1);
+        if (recorded && !state.stagedFiles.includes(recorded)) state.stagedFiles.push(recorded);
         await persistReview(state);
         return json(res, 200, { ok: true });
       }

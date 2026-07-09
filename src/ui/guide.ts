@@ -1,7 +1,7 @@
 import { S, $, esc } from "./store";
 import { fileReviewState, fileFinished } from "./changes";
 import { navFileOrder, nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek";
-import { fileFullySkimmed, isSkimGroupExpanded } from "./skim";
+import { fileOutOfFlow, isSkimGroupExpanded } from "./skim";
 import { renderMarkdown } from "./markdown";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
 import type { WalkGroup, WalkRow } from "./walkthrough";
@@ -37,10 +37,10 @@ export function firstGuideIndex(): number {
 // guidePrev), where the wrap seeks (navOrder) only ever target the in-flow band.
 function outOfBand(cur: number): (i: number) => boolean {
   const path = S.state?.files?.[cur]?.path;
-  const curSkimmed = !!path && fileFullySkimmed(path);
+  const curSkimmed = !!path && fileOutOfFlow(path);
   return (i) => {
     const p = S.state?.files?.[i]?.path;
-    return (!!p && fileFullySkimmed(p)) !== curSkimmed;
+    return (!!p && fileOutOfFlow(p)) !== curSkimmed;
   };
 }
 
@@ -89,7 +89,7 @@ export function navOrder(): number[] {
   const n = S.state?.files?.length ?? 0;
   return navFileOrder(n, hasGuide() ? guideOrder() : null, (i) => {
     const p = S.state?.files?.[i]?.path;
-    return !!p && !fileFullySkimmed(p);
+    return !!p && !fileOutOfFlow(p);
   });
 }
 
@@ -139,7 +139,7 @@ export function walkGroups(): WalkGroup[] {
     S.state.guide!.files,
     S.state.files ?? [],
     fileReviewState,
-    fileFullySkimmed,
+    fileOutOfFlow,
   );
 }
 
@@ -164,7 +164,7 @@ export function guideProgress(): { done: number; approved: number; total: number
     approved = 0;
   for (const f of S.state?.files ?? []) {
     // Fully-skimmed files carry no progress weight — they left the flow (issue 07).
-    if (fileFullySkimmed(f.path)) continue;
+    if (fileOutOfFlow(f.path)) continue;
     const w = byLines ? (loc!.get(f.path) ?? 1) : 1;
     total += w;
     const st = fileReviewState(f.path);
@@ -215,6 +215,7 @@ export function renderOverview() {
   $("diff").innerHTML = `<div class="guide-overview"><div class="go-card">
     <h1>${esc(title)}</h1>
     <div class="go-sub">${esc(S.state.mode)} · ${esc(S.state.session)} · ${S.state.files.length} files</div>
+    ${g.focused ? `<div class="go-focused"><svg class="ic"><use href="#gly-collapse-all"></use></svg> Focused review — mechanical churn skimmed</div>` : ""}
     ${guideStale() ? `<div class="go-stale"><svg class="ic"><use href="#gly-warn"></use></svg> This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
     <div class="go-overview md">${renderMarkdown(g.overview)}</div>
     ${g.prDescription ? `<div class="go-pr"><b>PR description</b><div class="md">${renderMarkdown(g.prDescription)}</div></div>` : ""}

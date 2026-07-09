@@ -16,13 +16,14 @@ import {
   mergeReviewState,
   persistReview,
   readDeskLock,
+  resolveMovedFrom,
   resolveSkim,
   reviewDir,
   sanitizeSession,
   stablePort,
   syncGitState,
 } from "./state.js";
-import type { ReviewMode } from "./types.js";
+import type { Guide, ReviewMode } from "./types.js";
 import { maybeOfferUpdate } from "./update.js";
 
 function parseArgs(argv: string[]) {
@@ -433,18 +434,36 @@ async function runDesk(
     return;
   }
   const saved = await loadLatestReview(base.root, session);
-  const state = mergeReviewState(base, saved);
-  // Optional agent-generated guided review, attached at startup. Required to be a readable,
-  // valid JSON file when --guide is passed; survives reload via the state merge.
+  // Load the new guide (if any) up front — loadGuideArg validates it. Guide-declared moves
+  // (movedFrom) must merge into `base` BEFORE reconciliation, so the merged pair's distinct paths
+  // drive mergeReviewState's rename migration (issue 01). A new guide resolves strictly (an
+  // unresolvable move aborts the launch); a guide carried forward by a previous session resolves
+  // leniently off the saved state (the move drops back to delete+add).
+  let newGuide: Guide | undefined;
   if (args.guide !== undefined) {
-    const guide = loadGuideArg(args.guide);
-    if (!guide) {
+    const loaded = loadGuideArg(args.guide);
+    if (!loaded) {
       process.exitCode = 1;
       return;
     }
+    newGuide = loaded;
+  }
+  const moveGuide = newGuide ?? saved?.guide;
+  if (moveGuide) {
+    const moved = resolveMovedFrom(base, moveGuide, { strict: !!newGuide });
+    if (!moved.ok) {
+      console.error(`Invalid guide: ${moved.reason}.`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  const state = mergeReviewState(base, saved);
+  // Optional agent-generated guided review, attached at startup. Required to be a readable,
+  // valid JSON file when --guide is passed; survives reload via the state merge.
+  if (newGuide) {
     // Stamp the diff hash the guide was generated against; if a later reload advances the
     // diff past it, the desk flags the guide as possibly stale (slice 05).
-    state.guide = { ...guide, baseDiffHash: state.baseDiffHash };
+    state.guide = { ...newGuide, baseDiffHash: state.baseDiffHash };
     // Resolve skim spans against the fresh diff and stamp the collapsed blocks. Strict at
     // initial attach: an unresolvable span aborts the launch naming the offending field, like
     // any other invalid-guide input.

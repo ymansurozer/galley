@@ -2,7 +2,7 @@ import { S, D, toast, api, persist } from "./store";
 import { currentFile, applyDecisionToDiff, fileObjections, fileReviewState } from "./changes";
 import { render, deferRender } from "./render";
 import { nextUnreviewedFileIndex, guideProgress } from "./guide";
-import { fileFullySkimmed } from "./skim";
+import { fileOutOfFlow } from "./skim";
 import type { ChangeState, Decision } from "./types";
 
 // The explicit decision record is the source of truth for accept/reject (decoupled
@@ -51,15 +51,22 @@ export async function approveCurrentFile() {
   // requested" — the agent still has work on it, so never stage it. Clean → stage if enabled.
   const clean = !fileObjections(path);
   if (clean && S.settings.stageOnAccept) {
-    await api("/api/stage", { method: "POST", body: JSON.stringify({ path }) });
+    // A working-mode move pair (issue 02) stages BOTH paths — `git add`-ing the old (deleted) path
+    // records the deletion, so the index ends with a rename. Only in working-repo mode: pr approve
+    // is a pure verdict, and staged mode can't contain these pairs. stagedFiles still records the
+    // new path once (below), as for any file.
+    const moved = file.oldPath && file.newPath && file.oldPath !== file.newPath;
+    const pairMove = moved && S.state.mode === "repo" && !S.state.staged;
+    const body = pairMove ? { paths: [file.oldPath, path] } : { path };
+    await api("/api/stage", { method: "POST", body: JSON.stringify(body) });
     S.state.stagedFiles = S.state.stagedFiles || [];
     if (!S.state.stagedFiles.includes(path)) S.state.stagedFiles.push(path);
   }
   persist();
   const label = clean ? "Approved" : "Marked reviewed";
-  // The review-complete gate is over non-skimmed files only (issue 07): fully-skimmed files left
-  // the flow, so they never block completion (and are never auto-approved).
-  const scope = S.state.files.filter((f) => !fileFullySkimmed(f.path));
+  // The review-complete gate is over in-flow files only (issue 01/07): fully-skimmed files and
+  // pure renames left the flow, so they never block completion (and are never auto-approved).
+  const scope = S.state.files.filter((f) => !fileOutOfFlow(f.path));
   // Every in-flow file signed off → the review is done: prompt to send it back to the agent.
   if (scope.every((f) => S.state.reviewedFiles!.includes(f.path))) {
     toast(`${label} — review complete`);

@@ -77,8 +77,11 @@ async function assembleDiff(
     files.push({
       ...f,
       path: filePath,
-      oldFile: { name: filePath, contents: await fetchOld(f.oldPath) },
-      newFile: { name: filePath, contents: newContents },
+      // Old/new names carry the RENAME: distinct old/new paths make @pierre/diffs' parseDiffFromFile
+      // infer rename-pure/rename-changed (activating the amber rename color/icon + the moved badge).
+      // For non-renames both fall back to filePath, so a plain modify/add/delete is unchanged.
+      oldFile: { name: f.oldPath ?? filePath, contents: await fetchOld(f.oldPath) },
+      newFile: { name: f.newPath ?? filePath, contents: newContents },
       contentHash: hash(newContents),
     });
     f.hunks.forEach((h, hunkIndex) => {
@@ -183,6 +186,68 @@ export function resolveSkim(
   return { ok: true };
 }
 
+export type MovedResolution = { ok: true } | { ok: false; reason: string };
+
+// Merge guide-declared moves (GuideFile.movedFrom) into a freshly-built review state: the
+// moved-AND-edited case content-hash pairing (issue 02) can't catch, so the agent that made the
+// move declares it. Restructures files/changes like issue 02's pairing but keyed by declaration —
+// the merged entry is rename-CHANGED (contents differ), so the UI derives verdict-only,
+// non-stageable blocks from the content re-diff (no server ChangeState, so /api/stage-change can't
+// touch it). MUST run on `base` BEFORE mergeReviewState, so the merged entry's distinct old/new
+// paths drive the rename migration (issue 01). Mirrors resolveSkim's strict/lenient contract: a NEW
+// guide REJECTS an unresolvable movedFrom naming the entry; a carried-forward guide DROPS it
+// silently (the pair falls back to today's delete+add — a move that no longer holds deserves fresh
+// eyes). Working repo mode only (git -M covers committed renames; file mode has no untracked side).
+export function resolveMovedFrom(
+  state: ReviewState,
+  guide: Guide,
+  opts: { strict: boolean },
+): MovedResolution {
+  for (const gf of guide.files) {
+    if (!gf.movedFrom) continue;
+    const from = gf.movedFrom;
+    const to = gf.path;
+    if (state.mode !== "repo" || state.staged) {
+      if (opts.strict)
+        return {
+          ok: false,
+          reason: `guide.files["${to}"].movedFrom is only supported in working repo mode`,
+        };
+      continue;
+    }
+    // Issue 02's content-hash pairing already merged this exact (byte-identical) move — the agent
+    // also declared it, redundantly. Nothing to restructure.
+    if (state.files.some((f) => f.path === to && f.oldPath === from && f.newPath === to)) continue;
+    const del = state.files.find((f) => f.path === from && !f.newPath); // full deletion (+++ /dev/null)
+    const add = state.files.find(
+      (f) => f.path === to && f.newPath === to && f.oldFile.contents === "" && !!f.newFile.contents,
+    ); // untracked addition (full-file add, no old side)
+    if (!del || !add) {
+      if (opts.strict)
+        return {
+          ok: false,
+          reason: `guide.files["${to}"].movedFrom "${from}" did not resolve — it must name a fully deleted file paired with the untracked addition "${to}" in the working diff`,
+        };
+      continue; // carried-forward guide whose move no longer holds → leave delete + add
+    }
+    // Merge into one rename-changed entry at the new path. oldFile is the deletion's index (:0)
+    // side; newFile the untracked working side. Drop the deletion + its (deletion-block) changes
+    // and the untracked entry; the merged entry carries no ChangeState (blocks are UI-derived).
+    state.files = state.files.filter((f) => f !== del && f !== add);
+    state.changes = state.changes.filter((c) => c.path !== from);
+    state.files.push({
+      path: to,
+      oldPath: from,
+      newPath: to,
+      hunks: [],
+      oldFile: { name: from, contents: del.oldFile.contents },
+      newFile: { name: to, contents: add.newFile.contents },
+      contentHash: hash(add.newFile.contents),
+    });
+  }
+  return { ok: true };
+}
+
 export async function resolveDefaultBranch(root: string): Promise<string> {
   const sym = await git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], root).catch(
     () => "",
@@ -215,7 +280,7 @@ export async function buildDiffSource(opts: {
   const { mode, root } = opts;
   if (mode === "pr") {
     const base = opts.base ?? "HEAD";
-    const rawDiff = await git(["diff", "--no-ext-diff", `${base}..HEAD`], root);
+    const rawDiff = await git(["diff", "--no-ext-diff", "-M", `${base}..HEAD`], root);
     if (!rawDiff.trim()) return null;
     const { files, changes } = await assembleDiff(
       rawDiff,
@@ -237,7 +302,7 @@ export async function buildDiffSource(opts: {
       ));
     const working = await fs.readFile(abs, "utf8").catch(() => "");
     if (tracked) {
-      const rawDiff = await git(["diff", "--no-ext-diff", "--", rel], root);
+      const rawDiff = await git(["diff", "--no-ext-diff", "-M", "--", rel], root);
       if (rawDiff.trim()) {
         // Old side reads from the INDEX (:0), not HEAD — `git diff` diffs working tree vs
         // index, and the UI re-diffs old/new contents rather than rendering these hunks.
@@ -255,7 +320,9 @@ export async function buildDiffSource(opts: {
     return { files: [fileEntry(key, "", working)], changes: [], rawDiff: "" }; // untracked/new → full file as additions
   }
   // repo
-  const args = ["diff", "--no-ext-diff"];
+  // -M asks git itself to detect renames, so committed/staged renames render deterministically
+  // regardless of the user's `diff.renames` config (see buildDiffSource's contract).
+  const args = ["diff", "--no-ext-diff", "-M"];
   if (opts.staged) args.push("--cached");
   if (opts.path) args.push("--", opts.path);
   const rawDiff = await git(args, root);
@@ -281,10 +348,67 @@ export async function buildDiffSource(opts: {
     const lsArgs = ["ls-files", "--others", "--exclude-standard"];
     if (opts.path) lsArgs.push("--", opts.path);
     const untracked = (await git(lsArgs, root)).split(/\r?\n/).filter(Boolean);
-    for (const rel of untracked) {
-      const working = await fs.readFile(path.join(root, rel), "utf8").catch(() => "");
-      files.push(fileEntry(rel, "", working));
+    const untrackedEntries: Array<{ rel: string; working: string }> = [];
+    for (const rel of untracked)
+      untrackedEntries.push({
+        rel,
+        working: await fs.readFile(path.join(root, rel), "utf8").catch(() => ""),
+      });
+    // Pair identical-content moves git can't see: a plain `mv` shows as a full deletion of the
+    // tracked file (`+++ /dev/null`, so newPath is undefined) PLUS a full untracked addition. When a
+    // deleted file's index (:0) content is byte-identical to exactly one untracked file — and that
+    // untracked file matches exactly one deletion — it's an unambiguous rename. Merge the halves into
+    // one rename-pure entry (issue 01's muted row / skim-group fold / progress exclusion, no new UI)
+    // rather than making the reviewer re-read the whole file as a delete + re-add. Any ambiguity (2+
+    // identical candidates on either side) pairs nothing and leaves today's delete+add rendering.
+    // Exact bytes only — a moved-AND-edited file is deliberately NOT paired (that's guide movedFrom,
+    // issue 03). This runs before the base becomes mergeReviewState's input, so a merged entry's
+    // distinct old/new paths get issue 01's decision/comment migration for free.
+    const deletions = files.filter((f) => !f.newPath); // full deletions: old content in oldFile
+    const delByHash = new Map<string, ReviewFile[]>();
+    for (const d of deletions) {
+      const h = hash(d.oldFile.contents);
+      const arr = delByHash.get(h);
+      if (arr) arr.push(d);
+      else delByHash.set(h, [d]);
     }
+    const untByHash = new Map<string, Array<{ rel: string; working: string }>>();
+    for (const u of untrackedEntries) {
+      const h = hash(u.working);
+      const arr = untByHash.get(h);
+      if (arr) arr.push(u);
+      else untByHash.set(h, [u]);
+    }
+    const pairedDel = new Set<string>();
+    const pairedUnt = new Set<string>();
+    for (const [h, dels] of delByHash) {
+      const unts = untByHash.get(h);
+      if (dels.length !== 1 || !unts || unts.length !== 1) continue; // unique 1:1 match only
+      const del = dels[0]!;
+      const unt = unts[0]!;
+      pairedDel.add(del.path);
+      pairedUnt.add(unt.rel);
+      // Merged entry: NEW (untracked) path with the OLD path recorded. Identical contents → @pierre
+      // infers rename-pure. oldFile content is the deletion's old side (index :0 at the old path).
+      files.push({
+        path: unt.rel,
+        oldPath: del.path,
+        newPath: unt.rel,
+        hunks: [],
+        oldFile: { name: del.path, contents: del.oldFile.contents },
+        newFile: { name: unt.rel, contents: unt.working },
+        contentHash: hash(unt.working),
+      });
+    }
+    // Drop the paired deletions + their change blocks; keep unpaired untracked as full additions.
+    if (pairedDel.size) {
+      for (let i = files.length - 1; i >= 0; i--)
+        if (!files[i]!.newPath && pairedDel.has(files[i]!.path)) files.splice(i, 1);
+      for (let i = changes.length - 1; i >= 0; i--)
+        if (pairedDel.has(changes[i]!.path)) changes.splice(i, 1);
+    }
+    for (const u of untrackedEntries)
+      if (!pairedUnt.has(u.rel)) files.push(fileEntry(u.rel, "", u.working));
   }
   if (files.length === 0) return null;
   return { files, changes, rawDiff };
@@ -633,11 +757,33 @@ export function reanchorComments(comments: ReviewComment[], files: ReviewFile[])
 export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   if (!saved) return base;
   const currentFiles = new Set(base.files.map((file) => file.path));
+  // A file that became a git-native rename on THIS reload arrives at its new path, but every
+  // decision/comment/sign-off the reviewer recorded before the rename is keyed to the old path.
+  // That mismatch is guaranteed on every rename (unlike ordinary content staleness), so without
+  // remapping, those records silently drop (comment path miss) or reset to pending (decision key
+  // miss) the moment the rename appears. Remap old→new up front; the stableKey/contentHash/anchor
+  // checks below then judge staleness on the real content as usual. (Reused by issues 02/03 for
+  // working-mode move pairing and guide-declared merges.)
+  const renameMap = new Map<string, string>();
+  for (const f of base.files)
+    if (f.oldPath && f.newPath && f.oldPath !== f.newPath) renameMap.set(f.oldPath, f.newPath);
+  const migratePath = (p: string) => renameMap.get(p) ?? p;
+  // A `path:stableKey` key whose path prefix was renamed — swap the prefix, keep the stableKey.
+  const migrateKey = (key: string) => {
+    for (const [oldP, newP] of renameMap)
+      if (key.startsWith(`${oldP}:`)) return `${newP}:${key.slice(oldP.length + 1)}`;
+    return key;
+  };
   // Decisions are explicit and durable: carry them forward as the source of truth.
   // A decision whose change is gone from the rebuilt diff (e.g. accepting it staged
   // the hunk out of the working tree) is *kept* — that's the whole point. A decision
   // whose change is still visible but whose content changed is dropped as stale.
-  let decisions = effectiveDecisions(saved);
+  let decisions = effectiveDecisions(saved).map((d) => {
+    const newPath = renameMap.get(d.path);
+    // key is `${path}:${stableKey}` — swap the path prefix, keep the stableKey intact.
+    if (!newPath) return d;
+    return { ...d, path: newPath, key: `${newPath}:${d.key.slice(d.path.length + 1)}` };
+  });
   const decisionByKey = new Map(decisions.map((d) => [d.key, d]));
   const stale = new Set<string>();
   for (const change of base.changes) {
@@ -664,11 +810,17 @@ export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   // content hash is unchanged. A file whose content the agent rewrote (or that has no
   // recorded hash — e.g. an old "viewed" session) drops back to pending for re-review.
   const fileHashes = new Map(base.files.map((file) => [file.path, file.contentHash]));
-  const savedHashes = saved.reviewedFileHashes ?? {};
-  const reviewedFiles = saved.reviewedFiles.filter(
-    (file) =>
-      currentFiles.has(file) && savedHashes[file] && savedHashes[file] === fileHashes.get(file),
+  // Sign-off + its hash also migrate old→new (a pure rename keeps the content hash, so approval
+  // survives; a rename+edit fails the hash check below and re-reviews, as any content change does).
+  const savedHashes = Object.fromEntries(
+    Object.entries(saved.reviewedFileHashes ?? {}).map(([p, h]) => [migratePath(p), h]),
   );
+  const reviewedFiles = saved.reviewedFiles
+    .map(migratePath)
+    .filter(
+      (file) =>
+        currentFiles.has(file) && savedHashes[file] && savedHashes[file] === fileHashes.get(file),
+    );
   const reviewedFileHashes = Object.fromEntries(
     reviewedFiles.map((file) => [file, savedHashes[file]!]),
   );
@@ -679,6 +831,9 @@ export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
     comments: reanchorComments(
       saved.comments
         .map((comment) =>
+          renameMap.has(comment.path) ? { ...comment, path: migratePath(comment.path) } : comment,
+        )
+        .map((comment) =>
           currentFiles.has(comment.path) ? comment : { ...comment, status: "stale" as const },
         )
         .filter((comment) => currentFiles.has(comment.path) || comment.intent === "action"),
@@ -687,8 +842,10 @@ export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
     reviewedFiles,
     reviewedFileHashes,
     stagedFiles: saved.stagedFiles,
-    stagedChangeKeys: saved.stagedChangeKeys ?? [],
-    decisionFiles: saved.decisionFiles ?? [],
+    // Migrate staged-hunk keys old→new too, so a working-mode pair's pre-rename key doesn't linger
+    // stale after the rename appears (syncGitState later prunes keys whose file isn't staged).
+    stagedChangeKeys: (saved.stagedChangeKeys ?? []).map(migrateKey),
+    decisionFiles: (saved.decisionFiles ?? []).map(migratePath),
     decisions,
     // Carry the attached guide forward across reload/restart (the rebuilt base has none).
     guide: saved.guide ?? base.guide,

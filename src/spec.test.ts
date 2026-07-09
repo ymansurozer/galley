@@ -22,9 +22,11 @@ const ANCHORS = [
   // a question is READ-ONLY: answer it, don't edit code in response (guards issue 04)
   "answering is READ-ONLY",
   "NEVER edit tracked",
-  // question batching + immediate re-await (issue 05)
+  // question batching + immediate re-await (issue 05); the loop iterates the whole batch, not
+  // the deprecated .question compat field (issue 04 cleanup)
   "batched into this delivery",
   "await again immediately",
+  ".questions[]",
   // result + acting
   "ReviewResult",
   "approvedFiles",
@@ -46,6 +48,12 @@ const ANCHORS = [
   // fully-skimmed files leave the flow (issue 07)
   "drops into a collapsed",
   "genuinely needs no eyes",
+  // moved-file handling documented in the contract (issues 01–03)
+  "movedFrom",
+  "renamed old → new",
+  // focused-review definition + flag (issue 04)
+  "focused review",
+  "mechanical churn skimmed",
   // the rest of the operational contract
   "reload vs restart",
   "desk.lock",
@@ -57,6 +65,21 @@ test("SPEC carries every consolidated section", () => {
   for (const anchor of ANCHORS) {
     assert.ok(SPEC.includes(anchor), `galley spec is missing the "${anchor}" anchor`);
   }
+});
+
+test("SPEC's question loop uses the space-safe read idiom, not word-splitting (issue 04)", () => {
+  // Question bodies contain spaces, so \`for q in $(jq …)\` shatters each JSON object — the example
+  // must pipe through \`while IFS= read\`. Agents copy it verbatim, so pin the safe idiom.
+  assert.ok(SPEC.includes("| while IFS= read -r q"), "loop must use a while-read pipeline");
+  assert.ok(!SPEC.includes("for q in $("), "loop must not word-split questions with for-in");
+});
+
+test("SPEC states the deduped invariants exactly once (issue 04)", () => {
+  const count = (re: RegExp) => (SPEC.match(re) ?? []).length;
+  // The READ-ONLY question rule has ONE full statement (Events); the loop comment is a pointer.
+  assert.equal(count(/answering is READ-ONLY/g), 1, "READ-ONLY rule should be stated once");
+  // The reload-resets-edits invariant lives once, at the reload bullet.
+  assert.equal(count(/resets to pending on reload/g), 1, "reload-resets invariant should be once");
 });
 
 test("SPEC has no dangling references to the old skill/command", () => {

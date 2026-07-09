@@ -75,6 +75,53 @@ test("validateGuide leaves skim fields unset when absent", () => {
   assert.equal(f.skimBlocks, undefined);
 });
 
+test("validateGuide carries focused as a boolean and rejects other types (issue 04)", () => {
+  const on = validateGuide({
+    overview: "o",
+    focused: true,
+    files: [{ path: "a.ts", orientation: "s" }],
+  });
+  assert.ok(on.ok);
+  if (on.ok) assert.equal(on.guide.focused, true);
+  // Omitted → undefined (a plain guide renders no badge).
+  const off = validateGuide({ overview: "o", files: [{ path: "a.ts", orientation: "s" }] });
+  assert.ok(off.ok);
+  if (off.ok) assert.equal(off.guide.focused, undefined);
+  // Non-boolean → rejected.
+  assert.equal(
+    validateGuide({ overview: "o", focused: "yes", files: [{ path: "a.ts", orientation: "s" }] })
+      .ok,
+    false,
+  );
+});
+
+test("validateGuide accepts movedFrom and rejects it with skimBlocks (issue 03)", () => {
+  // movedFrom alone (and with whole-file skim) is fine — shape only; diff resolution is later.
+  const ok = validateGuide({
+    overview: "o",
+    files: [{ path: "b.ts", orientation: "s", movedFrom: "a.ts", skim: true }],
+  });
+  assert.ok(ok.ok);
+  if (ok.ok) {
+    assert.equal(ok.guide.files[0]!.movedFrom, "a.ts");
+    assert.equal(ok.guide.files[0]!.skim, true);
+  }
+  // Empty/non-string movedFrom is rejected.
+  assert.equal(
+    validateGuide({ overview: "o", files: [{ path: "b.ts", orientation: "s", movedFrom: "  " }] })
+      .ok,
+    false,
+  );
+  // movedFrom + skimBlocks on one entry is a validation error (no rawDiff section to resolve spans).
+  assert.equal(
+    validateGuide({
+      overview: "o",
+      files: [{ path: "b.ts", orientation: "s", movedFrom: "a.ts", skimBlocks: [{ lines: 3 }] }],
+    }).ok,
+    false,
+  );
+});
+
 test("validateGuide rejects malformed skimBlocks", () => {
   const bad = (skimBlocks: unknown) =>
     validateGuide({ overview: "o", files: [{ path: "a.ts", orientation: "s", skimBlocks }] }).ok;

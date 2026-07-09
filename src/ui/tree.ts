@@ -1,6 +1,6 @@
 import { S } from "./store";
 import { fileFinished, fileReviewState } from "./changes";
-import { fileFullySkimmed, isSkimGroupExpanded } from "./skim";
+import { fileFullySkimmed, fileOutOfFlow, movedFrom, isSkimGroupExpanded } from "./skim";
 import type { TreeRow, TreeNode, TreeFile, FileRow } from "./types";
 
 // Every directory path in the tree (independent of current open/closed state) — used by
@@ -51,9 +51,10 @@ export function treeRows(): TreeRow[] {
   const root: TreeNode = { name: "", full: "", dirs: new Map(), files: [], changed: false };
   const changed = new Map(S.state.files.map((f, i) => [f.path, i]));
   const changedPaths = S.state.files.map((f) => f.path);
-  // Fully-skimmed files (issue 07) leave the main listing and gather in the collapsed group at
-  // the bottom — so they don't mark their folders as changed and don't clutter the tree.
-  const skimmedPaths = changedPaths.filter((p) => fileFullySkimmed(p));
+  // Files out of the main flow (fully skimmed, or pure renames — issue 01/07) leave the main
+  // listing and gather in the collapsed group at the bottom — so they don't mark their folders as
+  // changed and don't clutter the tree.
+  const skimmedPaths = changedPaths.filter((p) => fileOutOfFlow(p));
   const skimmedSet = new Set(skimmedPaths);
   // A reviewed file must always appear, even if it isn't in the project listing (a new/
   // untracked file, or a stale listing): union the listing with the changed files when
@@ -222,7 +223,9 @@ export function treeRows(): TreeRow[] {
       testCaret: "▸",
       changeType: null,
       state: null,
-      skim: true,
+      // A pure rename shows a "← old" arrow instead of the skim indicator (it's moved, not skimmed).
+      skim: !movedFrom(path),
+      movedFrom: movedFrom(path) || undefined,
     };
   }
 

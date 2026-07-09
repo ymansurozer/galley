@@ -84,6 +84,8 @@ export type FileRow = {
   state: FileReviewState | null;
   // The guide marked this whole file skimmable — a muted indicator, not a state shout.
   skim: boolean;
+  // Pure rename (issue 01): the old path, shown as a "← old" arrow in the Skimmed group.
+  movedFrom?: string;
 };
 
 // The collapsed "Skimmed · N files" group header at the bottom of the tree (issue 07). Fully-

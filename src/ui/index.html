@@ -646,6 +646,18 @@
       font-weight: 600
     }
 
+    /* "moved from <old>" note beside a renamed file's new path (git -M). */
+    .ghdr .ghdr-moved {
+      flex: 0 1 auto;
+      margin-left: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: var(--mono);
+      font-size: var(--text-2xs);
+      color: var(--amber)
+    }
+
     /* Subtle Split/Stacked toggle next to the filename — low-contrast so the filename leads,
        but bordered so it reads as a control. */
     .ghdr .ghdr-layout {
@@ -1348,6 +1360,33 @@
 
     .file-skim-strip .file-skim-expand {
       color: var(--cyan)
+    }
+
+    /* Pure-rename row: a static note (identical content, nothing to expand), not a toggle. */
+    .file-skim-strip.moved {
+      cursor: default
+    }
+
+    .file-skim-strip.moved:hover {
+      background: var(--panel);
+      color: var(--muted)
+    }
+
+    .file-skim-strip.moved .ic {
+      flex: 0 0 auto;
+      width: 14px;
+      height: 14px;
+      color: var(--amber)
+    }
+
+    /* "← old path" arrow on a pure-rename row in the Skimmed tree/walkthrough group. */
+    .node .moved-from {
+      margin-left: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: var(--text-2xs);
+      color: var(--ghost)
     }
 
     .annotation {
@@ -2515,6 +2554,26 @@
       margin-bottom: 14px
     }
 
+    /* Focused-review badge (issue 04): a muted pill telling the human churn was deliberately skimmed. */
+    .guide-overview .go-focused {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin: -6px 0 14px;
+      padding: 3px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: var(--text-2xs)
+    }
+
+    .guide-overview .go-focused .ic {
+      width: 13px;
+      height: 13px;
+      color: var(--muted)
+    }
+
     .guide-overview .go-overview {
       color: var(--ink);
       line-height: 1.55;
@@ -2736,10 +2795,10 @@
             <div class="node" :class="[r.cls, r.kind==='skimgrp' ? 'skimgrp' : '']" :style="r.style" @click="$store.g.rowClick(r)">
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='dir' || r.kind==='skimgrp'"><use href="#gly-chevron"></use></svg>
               <svg class="ic folder" x-show="r.kind==='dir'"><use href="#gly-folder"></use></svg>
-              <svg class="ic skim" x-show="r.kind==='skimgrp'" title="Skimmed"><use href="#gly-collapse-all"></use></svg>
               <span class="chev-spacer" x-show="r.kind==='file' || r.kind==='test'"></span>
               <svg class="ic file" :class="r.changeType" x-show="r.kind==='file' || r.kind==='test'"><use href="#gly-file"></use></svg>
               <span class="nm" x-show="r.kind!=='skimgrp'" x-text="r.name"></span>
+              <span class="moved-from" x-show="r.movedFrom" x-text="'← '+r.movedFrom" :title="'moved from '+r.movedFrom"></span>
               <span class="nm skimgrp-name" x-show="r.kind==='skimgrp'">Skimmed</span>
               <span class="skimgrp-count" x-show="r.kind==='skimgrp'" x-text="r.count + (r.count===1 ? ' file' : ' files')"></span>
               <svg class="ic skim" x-show="(r.kind==='file' || r.kind==='test') && r.skim" title="Skimmed"><use href="#gly-collapse-all"></use></svg>
@@ -2764,6 +2823,7 @@
               <svg class="ic st approved" x-show="r.kind==='file' && r.state==='approved'" title="Approved"><use href="#gly-check"></use></svg>
               <svg class="ic st changes" x-show="r.kind==='file' && r.state==='changes-requested'" title="Changes requested"><use href="#gly-circle-alert"></use></svg>
               <span class="nm" x-show="r.kind==='file'" x-text="r.name" :title="r.path"></span>
+              <span class="moved-from" x-show="r.kind==='file' && r.movedFrom" x-text="'← '+r.movedFrom" :title="'moved from '+r.movedFrom"></span>
               <svg class="ic crit" x-show="r.kind==='file' && r.flag" :title="r.flag"><use href="#gly-flag"></use></svg>
               <svg class="ic skim" x-show="r.kind==='file' && r.skim" title="Skimmed"><use href="#gly-collapse-all"></use></svg>
               <!-- Hidden on cat rows: an empty status-pack still carries margin-left:auto, and two

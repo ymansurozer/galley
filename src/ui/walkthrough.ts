@@ -10,6 +10,9 @@ type FileLike = {
   hunks?: DiffHunk[];
   oldFile?: { contents: string };
   newFile?: { contents: string };
+  // Distinct on a git rename (issue 01) — drives the "← old path" arrow on a pure-rename row.
+  oldPath?: string;
+  newPath?: string;
 };
 
 // Lines in a file's content, trimming one trailing newline so the count matches git's
@@ -52,6 +55,7 @@ export type WalkFile = {
   orientation: string; // guide markdown ("" for files the guide didn't list)
   flag: string; // flag note ("" = not flagged); presence raises the flag icon
   skim: boolean; // the guide marked the whole file skimmable → a muted indicator
+  movedFrom: string; // pure rename (issue 01): the old path, "" when not a rename
   added: number;
   removed: number;
   state: FileReviewState;
@@ -85,6 +89,8 @@ export function walkthroughGroups(
   const mkFile = (path: string, fileIndex: number, g?: GuideFile): WalkFile => {
     const name = path.split("/").pop() || path;
     const s = stats.get(path) ?? { added: 0, removed: 0 };
+    const fl = files[fileIndex];
+    const moved = fl?.oldPath && fl?.newPath && fl.oldPath !== fl.newPath ? fl.oldPath : "";
     return {
       path,
       dir: path.slice(0, path.length - name.length),
@@ -93,6 +99,7 @@ export function walkthroughGroups(
       orientation: g?.orientation ?? "",
       flag: g?.flag ?? "",
       skim: !!g?.skim,
+      movedFrom: moved,
       added: s.added,
       removed: s.removed,
       state: stateOf(path),

@@ -30,9 +30,12 @@ import { hasGuide, renderOverview, currentGuideEntry } from "./guide";
 import { updateProgress } from "./progress";
 import {
   applySkimCollapse,
+  fileMovedPure,
   isFileSkim,
   isFileSkimCollapsed,
+  movedFrom,
   renderFileSkim,
+  renderMovedPure,
   toggleFileSkim,
 } from "./skim";
 
@@ -285,6 +288,16 @@ async function renderCenter() {
     renderMarkdownFile();
     return;
   }
+  // A pure rename (identical content, distinct paths) has no diff to show — render the muted
+  // "renamed old → new · no changes" row instead of an empty @pierre diff.
+  if (!previewing && fileMovedPure(f.path)) {
+    cursorReset();
+    dropInstance();
+    D.lineMap = null;
+    applyLayoutClasses();
+    renderMovedPure();
+    return;
+  }
   // A skim-flagged file collapses its whole diff behind one expandable strip (guide-driven,
   // display only). Expanding drops back to the normal render below.
   if (!previewing && isFileSkimCollapsed(f.path)) {
@@ -391,6 +404,15 @@ async function renderCenter() {
     name.className = "ghdr-file";
     name.textContent = currentFile().path;
     row1.appendChild(name);
+    // Rename+edit files (git -M): note where the file moved from, right of the new path.
+    const from = movedFrom(currentFile().path);
+    if (from) {
+      const moved = document.createElement("span");
+      moved.className = "ghdr-moved";
+      moved.title = `moved from ${from}`;
+      moved.textContent = `moved from ${from}`;
+      row1.appendChild(moved);
+    }
     // Layout toggle right of the filename — only when Split actually applies (a two-sided diff).
     if (currentSplittable()) row1.appendChild(layoutToggle());
     row1.appendChild(openEditorButton());

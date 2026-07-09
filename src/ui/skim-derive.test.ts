@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isFullySkimmed } from "./skim-derive.js";
+import { isFullySkimmed, isMovedPure } from "./skim-derive.js";
 
 test("a file-level skim flag makes the file fully skimmed regardless of blocks", () => {
   assert.equal(isFullySkimmed(true, []), true);
@@ -28,4 +28,17 @@ test("dropping the last skim stamp on reload returns the file to the flow", () =
   // skimmed ([true, true]), rejoins the main flow ([true, false]) automatically.
   assert.equal(isFullySkimmed(false, [true, true]), true);
   assert.equal(isFullySkimmed(false, [true, false]), false);
+});
+
+test("isMovedPure classifies by content equality, not change blocks (issue 01/03)", () => {
+  // A pure move: distinct paths, identical content → pure (the muted row, skim-group fold).
+  assert.equal(isMovedPure("a.ts", "b.ts", "x\n", "x\n"), true);
+  // A guide-merged moved+edited file: distinct paths, DIFFERING content → NOT pure. This is the
+  // case the old zero-change-blocks test misclassified (merged entries carry no server changes and
+  // derive blocks lazily on open) — content equality classifies it correctly, before it's opened.
+  assert.equal(isMovedPure("a.ts", "b.ts", "x\n", "x\nEDIT\n"), false);
+  // Not a move: same path (a plain edit), or a missing side (add/delete) → never pure.
+  assert.equal(isMovedPure("a.ts", "a.ts", "x\n", "x\n"), false);
+  assert.equal(isMovedPure(undefined, "b.ts", "", "x\n"), false);
+  assert.equal(isMovedPure("a.ts", undefined, "x\n", ""), false);
 });
