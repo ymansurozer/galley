@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -274,6 +274,34 @@ test("Send flushes queued questions and folds the unanswered ones into openQuest
     // Nothing dribbles in after the round: a bounded await times out (204).
     const after = await fetch(`${handle.url}api/await-send?timeout=1`);
     assert.equal(after.status, 204);
+  });
+});
+
+test("send survives bodies beyond the old 5 MB cap and merges only the reviewer slice", async () => {
+  await withServer(async (handle, _root, st) => {
+    // Regression: pre-0.6.2 tabs post the entire ReviewState on Send, and a big PR desk
+    // crosses 5 MB — readBody threw before the result was built, so no artifact and no
+    // event ("Could not send review") while the slice-only auto-saves kept succeeding.
+    const body = {
+      ...(await getState(handle.url)),
+      rawDiff: "x".repeat(6_000_000), // push the body well past the old cap
+      reviewedFiles: ["a.ts"],
+      overallNote: "ship it",
+    };
+    const sent = (await post(handle.url, "api/send", body).then((r) => r.json())) as {
+      sent?: boolean;
+      resultJson?: string;
+    };
+    assert.equal(sent.sent, true);
+    // Only the reviewer-owned slice merges; server-authoritative fields stay untouched.
+    assert.deepEqual(st.reviewedFiles, ["a.ts"]);
+    assert.equal(st.rawDiff, "");
+    // overallNote rides into the result but never onto the persisted state.
+    const result = JSON.parse(await readFile(sent.resultJson!, "utf8")) as {
+      overallNote?: string;
+    };
+    assert.equal(result.overallNote, "ship it");
+    assert.equal("overallNote" in st, false);
   });
 });
 

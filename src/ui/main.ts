@@ -14,6 +14,7 @@ import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
 import { render, deferRender } from "./render";
 import { adoptDeskStatus, pollState } from "./poll";
+import { reviewerSlice } from "./save";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
 import { applyAppearance, DEFAULT_SETTINGS } from "./settings";
 import { setMarkdownTheme } from "./markdown";
@@ -429,11 +430,14 @@ S.reset = async () => {
   toast("Reset review");
 };
 S.send = async (overallNote = "") => {
+  // Post only the reviewer-owned slice — never the whole (multi-MB) ReviewState. Big desks
+  // used to cross the server's body cap on Send and 500 ("Could not send review") while the
+  // slice-only auto-saves kept succeeding; the server merges this slice and builds the
+  // result from its own authoritative state. overallNote is a one-time instruction for the
+  // whole review; the server reads it off the body and never persists it (see /api/send).
   const r = await api<{ sent?: boolean }>("/api/send", {
     method: "POST",
-    // overallNote is a one-time instruction for the whole review; the server reads it off the
-    // body and never persists it onto the saved state (see /api/send + stripDeskStatus).
-    body: JSON.stringify({ ...S.state, overallNote }),
+    body: JSON.stringify({ ...reviewerSlice(S.state), overallNote }),
   });
   if (r && r.sent) {
     S.awaitingAgent = true;

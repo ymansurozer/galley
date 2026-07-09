@@ -53,7 +53,11 @@ export type ServerHandle = {
   url: string;
 };
 
-async function readBody(req: http.IncomingMessage, limit = 5_000_000) {
+// 50 MB: pre-0.6.2 tabs post the entire multi-MB ReviewState on /api/send, and a big PR desk
+// crosses 5 MB — the old cap made Send fail on exactly the largest reviews (readBody threw
+// before the result was built, so no artifact and no event, while slice-only auto-saves kept
+// succeeding). The server is localhost-only, so a generous cap is safe.
+async function readBody(req: http.IncomingMessage, limit = 50_000_000) {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -172,23 +176,6 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     queuedQuestions: eventQueue.filter((e) => e.kind === "question").length,
     queuedReviews: eventQueue.filter((e) => e.kind === "review").length,
   });
-  // The UI's /api/save and /api/send post back its copy of the /api/state payload,
-  // which now carries the DeskStatus fields — drop them so Object.assign never
-  // copies them onto `state` (and from there into the persisted file).
-  const stripDeskStatus = (body: Record<string, unknown>) => {
-    // overallNote rides in the /api/send body too, but it's a per-Send instruction read out before
-    // this strip — drop it here so Object.assign never persists it onto the saved review.
-    for (const key of [
-      "agentActivity",
-      "agentListening",
-      "queuedQuestions",
-      "queuedReviews",
-      "overallNote",
-    ])
-      delete body[key];
-    return body;
-  };
-
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -300,10 +287,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       }
       if (req.method === "POST" && url.pathname === "/api/send") {
         const body = JSON.parse(await readBody(req));
-        // overallNote is read here, before stripDeskStatus drops it: it's an ephemeral, per-Send
-        // instruction threaded straight into the result, never copied onto `state` or persisted.
+        // overallNote is an ephemeral, per-Send instruction threaded straight into the result —
+        // mergeReviewerSave never copies it onto `state`, so it is never persisted.
         const overallNote = typeof body.overallNote === "string" ? body.overallNote.trim() : "";
-        Object.assign(state, stripDeskStatus(body));
+        // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
+        // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
+        // full ReviewState keeps working because everything else in the body is ignored.
+        mergeReviewerSave(state, body);
         await syncGitState(state);
         const file = await persistReview(state);
         const sessionDir = path.dirname(file);
