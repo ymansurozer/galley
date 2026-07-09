@@ -12,6 +12,7 @@ import { editComment, deleteComment } from "./comments";
 import { renderCommentBody } from "./markdown";
 import { buildComposer, buildEditor, composerTargets, openComposer } from "./composer";
 import { render } from "./render";
+import { isBlockSkimCollapsed, skimStripLabel, toggleSkimBlock } from "./skim";
 import type { AnnotationInput, AnnotationMeta, ThreadMeta, ReviewComment } from "./types";
 
 export function annotations(): AnnotationInput[] {
@@ -58,9 +59,30 @@ export function annotations(): AnnotationInput[] {
   }
   const changes: AnnotationInput[] = [];
   for (const ch of currentChanges().filter((ch) => ch.status === "pending" && !seen.has(ch.id))) {
+    const anchor = ch.displayEndLine ?? toDisplayLine(ch.side, ch.endLine ?? ch.lineNumber);
+    // A skimmable block gets a collapse/expand strip. While collapsed, skim.ts hides its rows
+    // and the strip stands in for it — so suppress the decision bar (it returns on expand).
+    // isBlockSkimCollapsed owns the default (expanded for fully-skimmed files, collapsed
+    // otherwise) — reading S.skimExpanded directly here would diverge from the row hiding.
+    if (ch.skim) {
+      const collapsed = isBlockSkimCollapsed(ch);
+      changes.push({
+        side: ch.side,
+        lineNumber: anchor,
+        metadata: {
+          type: "skim",
+          id: ch.id,
+          side: ch.side,
+          lineNumber: anchor,
+          label: skimStripLabel(ch),
+          collapsed,
+        },
+      });
+      if (collapsed) continue;
+    }
     changes.push({
       side: ch.side,
-      lineNumber: ch.displayEndLine ?? toDisplayLine(ch.side, ch.endLine ?? ch.lineNumber),
+      lineNumber: anchor,
       metadata: {
         type: "change",
         id: ch.id,
@@ -255,6 +277,16 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     const el = document.createElement("div");
     el.className = "annotation composer-annotation";
     el.appendChild(buildComposer());
+    return el;
+  }
+  // The skim collapse/expand strip standing in for a skimmable block (skim.ts hides the rows
+  // while collapsed). One click toggles; it re-renders as an annotation, so it survives in
+  // both split and stacked views.
+  if (c.type === "skim") {
+    const el = document.createElement("div");
+    el.className = "annotation skim-strip" + (c.collapsed ? " collapsed" : " expanded");
+    el.innerHTML = `<button class="skim-toggle"><span class="skim-caret">${c.collapsed ? "▸" : "▾"}</span><span class="skim-label">${esc(c.label)}</span><span class="skim-action">${c.collapsed ? "Expand" : "Collapse"}</span></button>`;
+    (el.querySelector(".skim-toggle") as HTMLButtonElement).onclick = () => toggleSkimBlock(c.id);
     return el;
   }
   const change =

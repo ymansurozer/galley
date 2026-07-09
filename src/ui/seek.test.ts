@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek.js";
+import { navFileOrder, nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek.js";
 
 // A finished predicate backed by a set of signed-off file indices. A file absent from the set
 // is unreviewed — this is how a hash-invalidated file (signed off, then edited by the agent)
@@ -77,6 +77,31 @@ test("wrapPrevTarget lands on the last unreviewed file when work remains", () =>
 
 test("wrapPrevTarget cycles to the last file when everything is reviewed", () => {
   assert.equal(wrapPrevTarget([3, 1, 4], finishedIn([3, 1, 4])), 4);
+});
+
+test("navFileOrder without a guide is the file array minus fully-skimmed files", () => {
+  // Files 1 and 3 are fully skimmed (out of flow) → excluded from the seek order entirely.
+  const order = navFileOrder(5, null, (i) => i !== 1 && i !== 3);
+  assert.deepEqual(order, [0, 2, 4]);
+});
+
+test("navFileOrder with a guide keeps guide order, appends unlisted, drops skimmed", () => {
+  // Guide lists 2 then 0; files 1,3,4 are unlisted (appended in array order). File 4 is fully
+  // skimmed → dropped; file 1 is skimmed too → dropped; so the seek order is [2, 0, 3].
+  const order = navFileOrder(5, [2, 0], (i) => i !== 4 && i !== 1);
+  assert.deepEqual(order, [2, 0, 3]);
+});
+
+test("seeks over the skim-excluded order never land on a fully-skimmed file", () => {
+  // With fully-skimmed files already excluded from navFileOrder, the wrap/advance seeks can only
+  // return in-flow indices — the issue-07 guarantee, expressed at the choke point.
+  const order = navFileOrder(5, [2, 0], (i) => i !== 4 && i !== 1); // [2, 0, 3]
+  const finished = (i: number) => i === 2; // only file 2 signed off
+  assert.equal(nextUnreviewed(order, 2, finished), 0);
+  assert.equal(wrapNextTarget(order, finished), 0);
+  assert.equal(wrapPrevTarget(order, finished), 3);
+  for (const t of [nextUnreviewed(order, 2, finished), wrapNextTarget(order, finished)])
+    assert.ok(t !== 1 && t !== 4, "a skimmed index is never a seek target");
 });
 
 test("empty order yields no target", () => {

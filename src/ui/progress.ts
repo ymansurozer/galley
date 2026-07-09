@@ -1,5 +1,6 @@
 import { S, $ } from "./store";
 import { guideProgress } from "./guide";
+import { fileFullySkimmed } from "./skim";
 
 // Persistent review-progress chrome: a full-width fill strip along the bottom edge of the
 // topbar plus a "% reviewed" label beside the actions, visible with or without a guide (the
@@ -71,11 +72,14 @@ export function reviewStats(): {
   comments: number;
   rejections: number;
 } {
+  // Fully-skimmed files left the flow (issue 07): keep them out of the completion receipt's file
+  // and line totals so the numbers match the progress bar and the review-complete gate.
+  const scope = (S.state?.files ?? []).filter((f) => !fileFullySkimmed(f.path));
   let lines = 0;
-  for (const f of S.state?.files ?? [])
+  for (const f of scope)
     for (const h of f.hunks ?? []) for (const l of h.lines) if (l.kind !== "context") lines++;
   return {
-    files: S.state?.files?.length ?? 0,
+    files: scope.length,
     lines,
     comments: (S.state?.comments ?? []).filter((c) => c.role === "user" && c.status === "open")
       .length,

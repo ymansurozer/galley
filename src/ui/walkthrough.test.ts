@@ -198,6 +198,76 @@ test("walkRows: a repeated category yields distinct keys and per-occurrence jump
   assert.equal(cats[2]!.kind === "cat" && cats[2]!.jumpIndex, 2);
 });
 
+test("walkthroughGroups gathers fully-skimmed files into one trailing Skimmed group", () => {
+  // a.ts and stray.ts are fully skimmed → they leave their normal groups (Core / Other) and
+  // collect in a trailing "Skimmed" group; b.ts stays in Core.
+  const groups = walkthroughGroups(
+    [guideFile("a.ts", "Core"), guideFile("b.ts", "Core")],
+    [file("a.ts", "a"), file("b.ts", "a"), file("stray.ts", "a")],
+    allPending,
+    (p) => p === "a.ts" || p === "stray.ts",
+  );
+  assert.deepEqual(
+    groups.map((g) => g.category),
+    ["Core", "Skimmed"],
+  );
+  const core = groups[0]!;
+  assert.deepEqual(
+    core.files.map((f) => f.path),
+    ["b.ts"],
+  );
+  const skim = groups[1]!;
+  assert.equal(skim.skimmed, true);
+  assert.equal(skim.total, 2);
+  assert.deepEqual(
+    skim.files.map((f) => f.path),
+    ["a.ts", "stray.ts"], // guide-listed first, then the unlisted stray
+  );
+});
+
+test("walkthroughGroups: a skimmed file between same-category files does not split the run", () => {
+  // a and c are Core with b (Core, skimmed) between them — the run must stay one Core group.
+  const groups = walkthroughGroups(
+    [guideFile("a.ts", "Core"), guideFile("b.ts", "Core"), guideFile("c.ts", "Core")],
+    [file("a.ts", "a"), file("b.ts", "a"), file("c.ts", "a")],
+    allPending,
+    (p) => p === "b.ts",
+  );
+  assert.deepEqual(
+    groups.map((g) => g.category),
+    ["Core", "Skimmed"],
+  );
+  assert.deepEqual(
+    groups[0]!.files.map((f) => f.path),
+    ["a.ts", "c.ts"],
+  );
+});
+
+test("walkRows hides the Skimmed group's file rows until expanded", () => {
+  const groups = walkthroughGroups(
+    [guideFile("a.ts", "Core"), guideFile("b.ts", "Core")],
+    [file("a.ts", "a"), file("b.ts", "a")],
+    allPending,
+    (p) => p === "b.ts",
+  );
+  // Collapsed (default): the Skimmed header shows, its file row does not.
+  const collapsed = walkRows(groups, null, false);
+  assert.deepEqual(
+    collapsed.map((r) => r.kind),
+    ["cat", "file", "cat"],
+  );
+  const skimCat = collapsed.find((r) => r.kind === "cat" && r.skimmed);
+  assert.ok(skimCat && skimCat.kind === "cat" && !skimCat.open);
+  // Expanded: the skimmed file row appears under its header.
+  const expanded = walkRows(groups, null, true);
+  assert.deepEqual(
+    expanded.map((r) => r.kind),
+    ["cat", "file", "cat", "file"],
+  );
+  const skimCatOpen = expanded.find((r) => r.kind === "cat" && r.skimmed);
+  assert.ok(skimCatOpen && skimCatOpen.kind === "cat" && skimCatOpen.open);
+});
+
 test("walkRows: a category-header jumpIndex prefers the group's first pending file", () => {
   // core/a is approved, core/c is pending → the header should land on core/c (diff index 2).
   const groups = walkthroughGroups(

@@ -143,9 +143,27 @@ One JSON object:
     label repeated non-adjacently makes a second section — keep a category's files together.
   - flag? — raises a flag on the file for closer scrutiny; the text is the note (what to
     double-check, what's risky). Omit unless the file genuinely warrants it.
+  - skim? / skimReason? — mark the WHOLE file skimmable: the desk collapses its diff behind a
+    one-click "expand" strip and shows a muted indicator in the tree/walkthrough. skimReason is a
+    short why ("generated", "lockfile churn"). The reviewer can always expand — nothing is hidden.
+  - skimBlocks? — collapse PARTS of the file: an array of { lines, reason? } where lines is a
+    new-file-side [start, end] span (or a single line number) of the diff you read. The server
+    resolves each span to the enclosing change block(s) and collapses them behind an expandable
+    strip. reason is a short label ("import-only"). A span that resolves to no change block aborts
+    the launch (see Validation).
+  When to skim: ONLY when the reviewer asked for a focused review ("ignore the import churn, show
+  me the real changes"). Skim LOWERS attention — it is the opposite of flag, which raises it. Never
+  skim your own risky or non-obvious changes to slip them past review; skim boilerplate the
+  reviewer told you they don't want to see. A file skimmed whole (or every block skimmed) leaves
+  the reviewer's default flow entirely — it drops into a collapsed "Skimmed" group and carries no
+  progress or completion weight — so skim only what genuinely needs no eyes. On reload, skimBlocks
+  re-resolve against the new diff; a span that no longer resolves is dropped (a block you rewrote
+  deserves fresh attention).
 Validation: overview a non-empty string, files a non-empty array, every file a non-empty
-path+orientation; an unreadable file / invalid JSON / schema violation aborts the launch naming
-the offending field.
+path+orientation; skimBlocks (if present) an array of { lines: number | [start, end], reason? };
+an unreadable file / invalid JSON / schema violation — or a skimBlocks span that matches no change
+block in the file (or names a file absent from the diff) — aborts the launch naming the offending
+field.
 
 ## Between rounds — reload vs restart, and the desk lock
 - Don't edit tracked files mid-round: the reviewer wouldn't see the edits and their in-flight

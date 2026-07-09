@@ -1,6 +1,13 @@
 import { S, $, esc } from "./store";
 import { fileReviewState, fileFinished } from "./changes";
-import { nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek";
+import { navFileOrder, nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek";
+import {
+  fileFullySkimmed,
+  fileSkimReason,
+  isFileSkim,
+  isSkimGroupExpanded,
+  toggleSkimGroup,
+} from "./skim";
 import { renderMarkdown, renderMarkdownInline } from "./markdown";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
 import type { WalkGroup, WalkRow, WalkFile } from "./walkthrough";
@@ -19,46 +26,77 @@ export function guideOrder(): number[] {
     .filter((i): i is number => i !== undefined);
 }
 
-// Where "Start guided review" lands — the first file in guide order (else the first file).
+// Where "Start guided review" lands — the first in-flow file in nav order (fully-skimmed files
+// are excluded from navOrder), else, when every file is skimmed, the first file so Start still
+// opens something.
 export function firstGuideIndex(): number {
+  const nav = navOrder();
+  if (nav.length) return nav[0]!;
   const order = guideOrder();
   return order.length ? order[0]! : 0;
 }
 
-// The next file to review after `cur`: the next in guide order when a guide is attached
-// (and `cur` is in it), else the next file sequentially. null when `cur` is the last.
-export function nextFileIndex(cur: number): number | null {
-  if (hasGuide()) {
-    const order = guideOrder();
-    const pos = order.indexOf(cur);
-    if (pos >= 0) return pos + 1 < order.length ? order[pos + 1]! : null;
-  }
-  return cur + 1 < (S.state?.files?.length ?? 0) ? cur + 1 : null;
+// Plain next/prev stepping skips fully-skimmed files — they've left the flow — UNLESS the
+// reviewer is currently on one (opened from the Skimmed group), in which case stepping walks the
+// skimmed band so the group's siblings stay reachable. `outOfBand(i)` is true for a file in the
+// opposite band from `cur`. Off either band's end returns null and the caller wraps (guideNext/
+// guidePrev), where the wrap seeks (navOrder) only ever target the in-flow band.
+function outOfBand(cur: number): (i: number) => boolean {
+  const path = S.state?.files?.[cur]?.path;
+  const curSkimmed = !!path && fileFullySkimmed(path);
+  return (i) => {
+    const p = S.state?.files?.[i]?.path;
+    return (!!p && fileFullySkimmed(p)) !== curSkimmed;
+  };
 }
 
-// The previous file before `cur` (guide order, else sequential). null at the first file —
-// the caller treats that as "go back to the Overview page".
-export function prevFileIndex(cur: number): number | null {
+// The next file to review after `cur`: the next in-band file in guide order when a guide is
+// attached (and `cur` is in it), else the next in-band file sequentially. null when `cur` is the
+// last of its band.
+export function nextFileIndex(cur: number): number | null {
+  const skip = outOfBand(cur);
   if (hasGuide()) {
     const order = guideOrder();
     const pos = order.indexOf(cur);
-    if (pos >= 0) return pos - 1 >= 0 ? order[pos - 1]! : null;
+    if (pos >= 0) {
+      for (let p = pos + 1; p < order.length; p++) if (!skip(order[p]!)) return order[p]!;
+      return null;
+    }
   }
-  return cur - 1 >= 0 ? cur - 1 : null;
+  const n = S.state?.files?.length ?? 0;
+  for (let i = cur + 1; i < n; i++) if (!skip(i)) return i;
+  return null;
+}
+
+// The previous in-band file before `cur` (guide order, else sequential). null at the first —
+// the caller treats that as "go back to the Overview page".
+export function prevFileIndex(cur: number): number | null {
+  const skip = outOfBand(cur);
+  if (hasGuide()) {
+    const order = guideOrder();
+    const pos = order.indexOf(cur);
+    if (pos >= 0) {
+      for (let p = pos - 1; p >= 0; p--) if (!skip(order[p]!)) return order[p]!;
+      return null;
+    }
+  }
+  for (let i = cur - 1; i >= 0; i--) if (!skip(i)) return i;
+  return null;
 }
 
 // The order file navigation walks and wraps around. Without a guide it's the file array; with
 // one it's the guide order followed by every changed file the guide DIDN'T list (the
 // walkthrough's "Other" group), in file-array order — so the seek reaches unlisted files and
-// never dead-ends on a partial guide. Plain mid-list stepping (nextFileIndex) is unaffected;
-// only the seek/wrap helpers read this extended order.
+// never dead-ends on a partial guide. Fully-skimmed files are excluded (issue 07): this is the
+// single choke point that keeps the wrap/approve-advance seeks off files that left the flow.
+// Plain mid-list stepping (nextFileIndex) reads its own band order, not this; only the seek/wrap
+// helpers read this extended order.
 export function navOrder(): number[] {
   const n = S.state?.files?.length ?? 0;
-  const all = Array.from({ length: n }, (_, i) => i);
-  if (!hasGuide()) return all;
-  const order = guideOrder();
-  const listed = new Set(order);
-  return order.concat(all.filter((i) => !listed.has(i)));
+  return navFileOrder(n, hasGuide() ? guideOrder() : null, (i) => {
+    const p = S.state?.files?.[i]?.path;
+    return !!p && !fileFullySkimmed(p);
+  });
 }
 
 // "Unreviewed" for the seek — a file not signed off in the current state, matching the tree
@@ -103,16 +141,22 @@ function locByPath(): Map<string, number> {
 // the data behind the Walkthrough sidebar tab and the Overview file list.
 export function walkGroups(): WalkGroup[] {
   if (!hasGuide()) return [];
-  return walkthroughGroups(S.state.guide!.files, S.state.files ?? [], fileReviewState);
+  return walkthroughGroups(
+    S.state.guide!.files,
+    S.state.files ?? [],
+    fileReviewState,
+    fileFullySkimmed,
+  );
 }
 
 // Flat rows for the Walkthrough tab's x-for. Same active-path rule as the tree: nothing is
-// active on the Overview; a previewed file wins over the indexed review file.
+// active on the Overview; a previewed file wins over the indexed review file. The trailing
+// "Skimmed" group's file rows appear only while the group is expanded (issue 07).
 export function walkthroughRows(): WalkRow[] {
   const activePath = S.overviewOpen
     ? null
     : (S.preview?.path ?? S.state?.files?.[S.fileIndex]?.path ?? null);
-  return walkRows(walkGroups(), activePath);
+  return walkRows(walkGroups(), activePath, isSkimGroupExpanded());
 }
 
 // Overall review progress for the guide-bar indicator, weighted by changed lines (LOC) rather
@@ -125,13 +169,18 @@ export function guideProgress(): { done: number; approved: number; total: number
     done = 0,
     approved = 0;
   for (const f of S.state?.files ?? []) {
+    // Fully-skimmed files carry no progress weight — they left the flow (issue 07).
+    if (fileFullySkimmed(f.path)) continue;
     const w = byLines ? (loc!.get(f.path) ?? 1) : 1;
     total += w;
     const st = fileReviewState(f.path);
     if (st !== "pending") done += w;
     if (st === "approved") approved += w;
   }
-  return { done, approved, total, pct: total ? Math.round((done / total) * 100) : 0 };
+  // total === 0 means every changed file is fully skimmed (a desk always has ≥1 file, and the
+  // strip is hidden when there are none): nothing needs review, so the bar reads complete rather
+  // than a misleading 0%.
+  return { done, approved, total, pct: total ? Math.round((done / total) * 100) : 100 };
 }
 
 // The guide entry for the file currently shown (or null) — drives the top guide bar.
@@ -162,6 +211,21 @@ export function guideStale(): boolean {
   );
 }
 
+// The short skim reason for a fully-skimmed file, shown in the collapsed group: the file-level
+// skimReason, else the distinct block reasons joined. "" when the agent gave none.
+function skimReasonFor(path: string): string {
+  if (isFileSkim(path)) return fileSkimReason(path);
+  const reasons = [
+    ...new Set(
+      (S.state?.changes ?? [])
+        .filter((c) => c.path === path && c.skim?.reason)
+        .map((c) => c.skim!.reason!.trim())
+        .filter(Boolean),
+    ),
+  ];
+  return reasons.join(", ");
+}
+
 // One file row in the Overview list: path (dimmed dir, bright basename) + flag icon +
 // ±counts + a read-only review-state badge on top, the guide's orientation beneath.
 // Read-only by design — decisions stay where the diff is visible; clicking opens the file.
@@ -182,14 +246,43 @@ function overviewFileRow(f: WalkFile): string {
   </button>`;
 }
 
+// A member of the collapsed Skimmed group: muted, no state badge (out of the flow), path + its
+// skim reason. Clicking opens it like any file (the file/block skim strips render as issue 06).
+function overviewSkimRow(f: WalkFile): string {
+  const reason = skimReasonFor(f.path);
+  return `<button class="go-file go-file-skim" data-i="${f.fileIndex}">
+    <span class="go-file-top">
+      <span class="go-file-path"><span class="fdir">${esc(f.dir)}</span><span class="fname">${esc(f.name)}</span></span>
+      <span class="go-file-stats"><svg class="ic skim" title="Skimmed"><use href="#gly-collapse-all"></use></svg></span>
+    </span>
+    ${reason ? `<span class="go-file-sum">${esc(reason)}</span>` : ""}
+  </button>`;
+}
+
+// The collapsed "Skimmed · N files" group: a clickable header (caret + count) with its file rows
+// shown only when expanded. Mirrors the tree/walkthrough group; per-session expand state.
+function overviewSkimGroup(grp: WalkGroup): string {
+  const open = isSkimGroupExpanded();
+  return `<div class="go-grp go-grp-skim">
+    <button class="go-grp-h go-grp-toggle" data-skimgrp="1">
+      <svg class="ic chev${open ? " open" : ""}"><use href="#gly-chevron"></use></svg>
+      <span class="go-grp-name">Skimmed</span>
+      <span class="go-grp-meta">${grp.total} file${grp.total === 1 ? "" : "s"}</span>
+    </button>
+    ${open ? grp.files.map(overviewSkimRow).join("") : ""}
+  </div>`;
+}
+
 // Render the Overview page into #diff: overview → optional PR description → the per-file
 // list grouped by category → Start. Called by render() when overviewOpen && hasGuide().
 // Binds the Start button + per-file jumps.
 export function renderOverview() {
   const g = S.state.guide!;
   const fileList = walkGroups()
-    .map(
-      (grp) => `<div class="go-grp">
+    .map((grp) =>
+      grp.skimmed
+        ? overviewSkimGroup(grp)
+        : `<div class="go-grp">
       <div class="go-grp-h"><span class="go-grp-name">${esc(grp.category)}</span><span class="go-grp-meta">${grp.total} file${grp.total === 1 ? "" : "s"}${grp.added || grp.removed ? ` · <span class="go-grp-counts">${grp.added ? `<i class="add">+${grp.added}</i>` : ""}${grp.removed ? `<i class="del">−${grp.removed}</i>` : ""}</span>` : ""}</span></div>
       ${grp.files.map(overviewFileRow).join("")}
     </div>`,
@@ -212,4 +305,6 @@ export function renderOverview() {
     .forEach((el) => {
       el.onclick = () => S.selectFile?.(Number(el.dataset.i));
     });
+  const skimToggle = $("diff").querySelector("[data-skimgrp]") as HTMLButtonElement | null;
+  if (skimToggle) skimToggle.onclick = () => toggleSkimGroup();
 }

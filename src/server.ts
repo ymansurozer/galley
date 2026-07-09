@@ -20,6 +20,7 @@ import {
   persistReview,
   questionPayload,
   readGlobalSettings,
+  resolveSkim,
   syncGitState,
   writeGlobalSettings,
 } from "./state.js";
@@ -441,10 +442,27 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           await persistReview(state);
           return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });
         }
-        Object.assign(state, mergeReviewState(base, state));
-        // The merge carries the old guide forward; a provided guide replaces it,
-        // stamped against the just-rebuilt diff so it isn't born stale.
-        if (validatedGuide) state.guide = { ...validatedGuide, baseDiffHash: state.baseDiffHash };
+        // The merge carries the old guide forward; a provided guide replaces it, stamped
+        // against the just-rebuilt diff so it isn't born stale. Resolve skim spans + reject a
+        // bad NEW guide (strict) BEFORE committing the merge onto the live state, so a rejected
+        // reload leaves the desk untouched. A guide carried forward re-resolves leniently —
+        // stale spans drop, they never fail a reload (see resolveSkim's strict/lenient split).
+        const merged = mergeReviewState(base, state);
+        if (validatedGuide) {
+          merged.guide = { ...validatedGuide, baseDiffHash: merged.baseDiffHash };
+          const skim = resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: true });
+          if (!skim.ok)
+            return fail(
+              res,
+              422,
+              "INVALID_GUIDE",
+              `Invalid guide: ${skim.reason}.`,
+              "Run `galley spec` for the guided-review schema.",
+            );
+        } else if (merged.guide) {
+          resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: false });
+        }
+        Object.assign(state, merged);
         await syncGitState(state);
         await persistReview(state);
         return json(res, 200, { ok: true, empty: false, baseDiffHash: state.baseDiffHash });

@@ -16,6 +16,7 @@ import {
   mergeReviewState,
   persistReview,
   readDeskLock,
+  resolveSkim,
   reviewDir,
   sanitizeSession,
   stablePort,
@@ -268,7 +269,7 @@ function loadGuideArg(value: string | boolean | undefined) {
     return null;
   }
   const SCHEMA =
-    "Expected JSON: { overview, prDescription?, files: [{ path, order, category, orientation, flag? }] }.";
+    "Expected JSON: { overview, prDescription?, files: [{ path, order, category, orientation, flag?, skim?, skimReason?, skimBlocks? }] }.";
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(value, "utf8"));
@@ -444,6 +445,19 @@ async function runDesk(
     // Stamp the diff hash the guide was generated against; if a later reload advances the
     // diff past it, the desk flags the guide as possibly stale (slice 05).
     state.guide = { ...guide, baseDiffHash: state.baseDiffHash };
+    // Resolve skim spans against the fresh diff and stamp the collapsed blocks. Strict at
+    // initial attach: an unresolvable span aborts the launch naming the offending field, like
+    // any other invalid-guide input.
+    const skim = resolveSkim(state.rawDiff, state.changes, state.guide, { strict: true });
+    if (!skim.ok) {
+      console.error(`Invalid guide: ${skim.reason}.`);
+      process.exitCode = 1;
+      return;
+    }
+  } else if (state.guide) {
+    // A guide carried forward by the merge (restart without --guide): re-resolve leniently
+    // against the new diff — stale spans drop rather than abort (see resolveSkim).
+    resolveSkim(state.rawDiff, state.changes, state.guide, { strict: false });
   }
   if (mode === "repo") await syncGitState(state);
   await persistReview(state);

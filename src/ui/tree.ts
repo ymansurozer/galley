@@ -1,6 +1,7 @@
 import { S } from "./store";
 import { fileFinished, fileReviewState } from "./changes";
-import type { TreeRow, TreeNode, TreeFile } from "./types";
+import { fileFullySkimmed, isSkimGroupExpanded } from "./skim";
+import type { TreeRow, TreeNode, TreeFile, FileRow } from "./types";
 
 // Every directory path in the tree (independent of current open/closed state) — used by
 // the collapse-all / expand-all control.
@@ -50,13 +51,18 @@ export function treeRows(): TreeRow[] {
   const root: TreeNode = { name: "", full: "", dirs: new Map(), files: [], changed: false };
   const changed = new Map(S.state.files.map((f, i) => [f.path, i]));
   const changedPaths = S.state.files.map((f) => f.path);
+  // Fully-skimmed files (issue 07) leave the main listing and gather in the collapsed group at
+  // the bottom — so they don't mark their folders as changed and don't clutter the tree.
+  const skimmedPaths = changedPaths.filter((p) => fileFullySkimmed(p));
+  const skimmedSet = new Set(skimmedPaths);
   // A reviewed file must always appear, even if it isn't in the project listing (a new/
   // untracked file, or a stale listing): union the listing with the changed files when
-  // showing unchanged; otherwise just the changed files.
-  const all =
+  // showing unchanged; otherwise just the changed files. Fully-skimmed files are held back.
+  const all = (
     S.settings.showUnchanged && S.projectFiles.length
       ? [...new Set([...S.projectFiles, ...changedPaths])]
-      : changedPaths;
+      : changedPaths
+  ).filter((p) => !skimmedSet.has(p));
   all.forEach((path) => {
     const parts = path.split("/").filter(Boolean);
     let node = root;
@@ -158,6 +164,7 @@ export function treeRows(): TreeRow[] {
       testCaret: testOpen ? "▾" : "▸",
       changeType: changedish ? changeType(file) : null,
       state: showTestToggle ? null : state,
+      skim: file.changed && fileFullySkimmed(file.path),
     });
     if (testOpen)
       file.tests
@@ -191,8 +198,52 @@ export function treeRows(): TreeRow[] {
       .forEach((file) => fileRow(file, depth, false));
   }
 
+  // A flat, muted row for a fully-skimmed file inside the collapsed group: no state badge and no
+  // "changed" cyan (it's out of the flow), just the skim indicator. Clicking opens it like any
+  // file — its file/block skim strips render as issue 06 built.
+  function skimFileRow(path: string): FileRow {
+    const index = changed.get(path);
+    const active = S.overviewOpen
+      ? false
+      : S.preview
+        ? S.preview.path === path
+        : index === S.fileIndex;
+    return {
+      key: "file:" + path,
+      kind: "file",
+      depth: 1,
+      name: path.split("/").pop() || path,
+      cls: active ? "active" : "",
+      style: indent(1),
+      path,
+      fileIndex: index,
+      testToggle: false,
+      testKey: "",
+      testCaret: "▸",
+      changeType: null,
+      state: null,
+      skim: true,
+    };
+  }
+
   groupTests(root);
   walk(root, 0);
+  // The collapsed "Skimmed · N files" group at the very bottom — the test-fold precedent, but a
+  // flat group (no nesting). Expand state is per-session (isSkimGroupExpanded).
+  if (skimmedPaths.length) {
+    const open = isSkimGroupExpanded();
+    rows.push({
+      kind: "skimgrp",
+      key: "skimgrp",
+      count: skimmedPaths.length,
+      open,
+      caret: open ? "▾" : "▸",
+    });
+    if (open)
+      [...skimmedPaths]
+        .sort((a, b) => a.localeCompare(b))
+        .forEach((p) => rows.push(skimFileRow(p)));
+  }
   return rows;
 }
 

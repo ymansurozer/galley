@@ -6,16 +6,19 @@ import path from "node:path";
 import {
   anchorTextFor,
   buildReviewResult,
+  computeApprovedFiles,
   globalSettingsPath,
   mergeReviewerSave,
   mergeReviewState,
   reanchorComments,
   readGlobalSettings,
+  resolveSkim,
   sanitizeSession,
   stablePort,
   writeGlobalSettings,
 } from "./state.js";
-import type { ChangeState, Decision, ReviewComment, ReviewState } from "./types.js";
+import { changeBlocks, changeStableKeyFromBlock, parseUnifiedDiff } from "./git.js";
+import type { ChangeState, Decision, Guide, ReviewComment, ReviewState } from "./types.js";
 
 function file(path: string, contentHash = "FH") {
   return {
@@ -637,4 +640,188 @@ test("buildReviewResult.approvedFiles excludes a signed-off file with an open ac
   });
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(r.approvedFiles, ["b.ts"]); // a.ts has an open change request; b.ts only a question
+});
+
+// ── resolveSkim: guide skimBlocks → ChangeState.skim stamping ────────────────
+// A diff with two blocks: an imports run (new lines 3-5) and a core() rewrite (new lines 8-9).
+const SKIM_DIFF = `diff --git a/app.ts b/app.ts
+index fb29c7d..ac6feef 100644
+--- a/app.ts
++++ b/app.ts
+@@ -1,8 +1,12 @@
+ import { a } from "./a";
+ import { b } from "./b";
++import { c } from "./c";
++import { d } from "./d";
++import { e } from "./e";
+ 
+ export function core() {
+-  return a() + b();
++  const total = a() + b() + c();
++  return total * 2;
+ }
+ 
+ export function untouched() {
+`;
+// The same file after an agent edit: the imports are now unchanged context; only core() changed.
+// The old skim span 3-5 no longer lands on any change block.
+const SKIM_DIFF_REWRITTEN = `diff --git a/app.ts b/app.ts
+index ac6feef..bbbbbbb 100644
+--- a/app.ts
++++ b/app.ts
+@@ -1,12 +1,12 @@
+ import { a } from "./a";
+ import { b } from "./b";
+ import { c } from "./c";
+ import { d } from "./d";
+ import { e } from "./e";
+ 
+ export function core() {
+-  const total = a() + b() + c();
++  const total = a() + b() + c() + d();
+   return total * 2;
+ }
+ 
+ export function untouched() {
+`;
+
+// Build ChangeState[] from a raw diff exactly as assembleDiff does, so stableKeys line up
+// with what resolveSkim derives.
+function changesFromDiff(rawDiff: string): ChangeState[] {
+  const out: ChangeState[] = [];
+  for (const f of parseUnifiedDiff(rawDiff)) {
+    const p = f.newPath ?? f.oldPath ?? "unknown";
+    f.hunks.forEach((h, hunkIndex) => {
+      changeBlocks(h).forEach((block) => {
+        const firstAdd = block.find((l) => l.kind === "add");
+        const firstDelete = block.find((l) => l.kind === "delete");
+        const side = firstAdd ? "additions" : ("deletions" as const);
+        const lineNumber = firstAdd?.newLine ?? firstDelete?.oldLine ?? h.newStart;
+        const stableKey = changeStableKeyFromBlock(block);
+        out.push(
+          change({ id: `${p}:${stableKey}`, path: p, hunkIndex, side, lineNumber, stableKey }),
+        );
+      });
+    });
+  }
+  return out;
+}
+
+function guideWith(
+  skimBlocks: Array<{ lines: [number, number]; reason?: string }>,
+  path = "app.ts",
+): Guide {
+  return {
+    overview: "o",
+    files: [{ path, order: 0, category: "Changes", orientation: "s", skimBlocks }],
+  };
+}
+
+test("resolveSkim stamps the change block a span resolves to", () => {
+  const changes = changesFromDiff(SKIM_DIFF);
+  const r = resolveSkim(SKIM_DIFF, changes, guideWith([{ lines: [3, 5], reason: "imports" }]), {
+    strict: true,
+  });
+  assert.ok(r.ok);
+  const imports = changes.find((c) => c.stableKey === "additions:3:0:3");
+  const core = changes.find((c) => c.stableKey === "additions:8:1:2");
+  assert.deepEqual(imports!.skim, { reason: "imports" });
+  assert.equal(core!.skim, undefined); // only the targeted block is stamped
+});
+
+test("resolveSkim (strict) rejects a span that matches no change block, naming path + span", () => {
+  const r = resolveSkim(SKIM_DIFF, changesFromDiff(SKIM_DIFF), guideWith([{ lines: [100, 101] }]), {
+    strict: true,
+  });
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.match(r.reason, /app\.ts/);
+  assert.match(r.reason, /100/);
+});
+
+test("resolveSkim (strict) rejects a skimBlocks entry on a file absent from the diff", () => {
+  const r = resolveSkim(
+    SKIM_DIFF,
+    changesFromDiff(SKIM_DIFF),
+    guideWith([{ lines: [1, 2] }], "ghost.ts"),
+    {
+      strict: true,
+    },
+  );
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.match(r.reason, /ghost\.ts/);
+});
+
+test("resolveSkim (lenient) drops an unresolvable span instead of failing", () => {
+  const changes = changesFromDiff(SKIM_DIFF);
+  const r = resolveSkim(
+    SKIM_DIFF,
+    changes,
+    guideWith([{ lines: [3, 5], reason: "imports" }, { lines: [100, 101] }]),
+    { strict: false },
+  );
+  assert.ok(r.ok); // the [100,101] span silently drops
+  assert.deepEqual(changes.find((c) => c.stableKey === "additions:3:0:3")!.skim, {
+    reason: "imports",
+  });
+});
+
+test("resolveSkim drops a stale skim after the block is rewritten (reload asymmetry)", () => {
+  const guide = guideWith([{ lines: [3, 5], reason: "imports" }]);
+  // Rewritten diff: the old span no longer resolves. Lenient reload drops it (no throw)...
+  const changes = changesFromDiff(SKIM_DIFF_REWRITTEN);
+  const lenient = resolveSkim(SKIM_DIFF_REWRITTEN, changes, guide, { strict: false });
+  assert.ok(lenient.ok);
+  assert.ok(changes.every((c) => c.skim === undefined)); // no block skimmed; core renders pending
+  // ...but a NEW guide with that span would be rejected outright.
+  assert.equal(
+    resolveSkim(SKIM_DIFF_REWRITTEN, changesFromDiff(SKIM_DIFF_REWRITTEN), guide, { strict: true })
+      .ok,
+    false,
+  );
+});
+
+test("resolveSkim clears prior stamps so re-resolution is idempotent", () => {
+  const changes = changesFromDiff(SKIM_DIFF);
+  resolveSkim(SKIM_DIFF, changes, guideWith([{ lines: [3, 5] }]), { strict: true });
+  assert.ok(changes.find((c) => c.stableKey === "additions:3:0:3")!.skim);
+  // Re-resolve with a guide targeting the OTHER block: the first stamp must be cleared.
+  resolveSkim(SKIM_DIFF, changes, guideWith([{ lines: [8, 9] }]), { strict: true });
+  assert.equal(changes.find((c) => c.stableKey === "additions:3:0:3")!.skim, undefined);
+  assert.ok(changes.find((c) => c.stableKey === "additions:8:1:2")!.skim);
+});
+
+test("skim never changes approval derivations (display-only)", () => {
+  // A skimmed block accepted like any other: it lands in accepted[] and the file approves.
+  const s = state({
+    files: [file("a.ts", "H")],
+    changes: [
+      change({
+        id: "a.ts:k",
+        path: "a.ts",
+        stableKey: "k",
+        status: "accepted",
+        skim: { reason: "imports" },
+      }),
+    ],
+    decisions: [decision({ key: "a.ts:k", path: "a.ts", status: "accepted" })],
+    reviewedFiles: ["a.ts"],
+    reviewedFileHashes: { "a.ts": "H" },
+  });
+  assert.deepEqual(computeApprovedFiles(s), ["a.ts"]);
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.equal(r.accepted.length, 1);
+  assert.deepEqual(r.approvedFiles, ["a.ts"]);
+});
+
+test("the reviewer save slice never carries skim (changes are server-owned)", () => {
+  const s = state({ changes: [change({ id: "a.ts:k", path: "a.ts", stableKey: "k" })] });
+  // A stale tab POSTs a whole ReviewState, changes included; mergeReviewerSave must ignore them.
+  mergeReviewerSave(s, {
+    changes: [{ id: "a.ts:k", path: "a.ts", stableKey: "k", skim: { reason: "x" } }],
+    comments: [],
+  });
+  assert.equal(s.changes[0]!.skim, undefined); // changes (hence skim) are not a reviewer-save key
+  assert.deepEqual(s.comments, []); // comments ARE reviewer-owned, so they applied
 });

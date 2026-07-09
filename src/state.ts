@@ -15,6 +15,8 @@ import {
 import type {
   ChangeState,
   Decision,
+  DiffHunk,
+  Guide,
   QuestionPayload,
   ReviewComment,
   ReviewFile,
@@ -102,6 +104,83 @@ async function assembleDiff(
     });
   }
   return { files, changes };
+}
+
+export type SkimResolution = { ok: true } | { ok: false; reason: string };
+
+// A change block's stable key + the new-file-side line range it occupies, for matching a
+// guide's skimBlocks spans. A block with additions spans its added lines' new-side numbers; a
+// pure-deletion block has no new-side line of its own, so it falls back to the preceding new
+// line (its insertion point) — best-effort, since skim targets additive churn (imports,
+// lockfiles) and deletions are the rare edge (see the guide docs in spec.ts).
+function skimRangesForHunk(h: DiffHunk): Array<{ stableKey: string; lo: number; hi: number }> {
+  const out: Array<{ stableKey: string; lo: number; hi: number }> = [];
+  let block: DiffHunk["lines"] = [];
+  let prevNew = h.newStart - 1; // last new-side line seen before the current block
+  const flush = () => {
+    if (!block.length) return;
+    const newLines = block.map((l) => l.newLine).filter((n): n is number => typeof n === "number");
+    const lo = newLines.length ? Math.min(...newLines) : prevNew;
+    const hi = newLines.length ? Math.max(...newLines) : prevNew;
+    out.push({ stableKey: changeStableKeyFromBlock(block), lo, hi });
+    block = [];
+  };
+  for (const line of h.lines) {
+    if (line.kind === "add" || line.kind === "delete") block.push(line);
+    else {
+      flush();
+      if (typeof line.newLine === "number") prevNew = line.newLine;
+    }
+  }
+  flush();
+  return out;
+}
+
+// Resolve a guide's skimBlocks (new-file-side line spans) to the change blocks they enclose and
+// stamp `skim` onto those ChangeState records. Diff-aware, so it lives here rather than in the
+// pure validateGuide. Display-only: it never touches decisions/status. `strict` (initial attach
+// or reload-with-a-NEW-guide) REJECTS a span that matches no block — or a skimBlocks entry on a
+// file absent from the diff — naming the offending path+span, so a bad guide is caught up front.
+// Non-strict (a reload carrying the SAME guide forward) DROPS an unresolvable span silently: the
+// diff advanced under the guide, and a block that changed deserves fresh attention, not a stale
+// collapse. Idempotent — clears prior stamps first. File-level `skim` is a whole-file flag and
+// needs no resolution, so it isn't handled here.
+export function resolveSkim(
+  rawDiff: string,
+  changes: ChangeState[],
+  guide: Guide,
+  opts: { strict: boolean },
+): SkimResolution {
+  for (const c of changes) delete c.skim;
+  const rangesByPath = new Map<string, Array<{ stableKey: string; lo: number; hi: number }>>();
+  for (const f of parseUnifiedDiff(rawDiff)) {
+    const filePath = f.newPath ?? f.oldPath ?? "unknown";
+    const ranges = rangesByPath.get(filePath) ?? [];
+    for (const h of f.hunks) ranges.push(...skimRangesForHunk(h));
+    rangesByPath.set(filePath, ranges);
+  }
+  const changeByKey = new Map(changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
+  for (const file of guide.files) {
+    if (!file.skimBlocks?.length) continue;
+    const ranges = rangesByPath.get(file.path);
+    for (const span of file.skimBlocks) {
+      const [a, b] = span.lines;
+      const matched = ranges?.filter((r) => a <= r.hi && b >= r.lo) ?? [];
+      if (matched.length === 0) {
+        if (opts.strict)
+          return {
+            ok: false,
+            reason: `guide skimBlocks span [${a}, ${b}] on "${file.path}" matches no change in the diff`,
+          };
+        continue; // stale span on a reload — drop it
+      }
+      for (const r of matched) {
+        const change = changeByKey.get(`${file.path}:${r.stableKey}`);
+        if (change) change.skim = { reason: span.reason };
+      }
+    }
+  }
+  return { ok: true };
 }
 
 export async function resolveDefaultBranch(root: string): Promise<string> {

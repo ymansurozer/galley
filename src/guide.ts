@@ -32,6 +32,45 @@ export function validateGuide(input: unknown): GuideValidation {
       orientation: f.orientation,
     };
     if (typeof f.flag === "string" && f.flag.trim()) file.flag = f.flag;
+    // Skim fields (focused review). File-level `skim`/`skimReason` collapse the whole file;
+    // `skimBlocks` are new-side line spans. This is SHAPE validation only — whether a span
+    // actually resolves to a change block is diff-aware and checked later (resolveSkim in
+    // state.ts), because validateGuide is pure (no diff in hand).
+    if (f.skim === true) file.skim = true;
+    if (typeof f.skimReason === "string" && f.skimReason.trim()) file.skimReason = f.skimReason;
+    if (f.skimBlocks !== undefined) {
+      if (!Array.isArray(f.skimBlocks))
+        return { ok: false, reason: `guide.files[${i}].skimBlocks must be an array` };
+      const blocks: NonNullable<GuideFile["skimBlocks"]> = [];
+      for (let j = 0; j < f.skimBlocks.length; j++) {
+        const rawBlock = f.skimBlocks[j] as Record<string, unknown> | null | undefined;
+        if (!rawBlock || typeof rawBlock !== "object")
+          return { ok: false, reason: `guide.files[${i}].skimBlocks[${j}] must be an object` };
+        // `lines` is a [start, end] span or a bare number (a single line, normalized to [n, n]).
+        const raw = rawBlock.lines;
+        let span: [number, number] | null = null;
+        if (typeof raw === "number" && Number.isFinite(raw)) span = [raw, raw];
+        else if (
+          Array.isArray(raw) &&
+          raw.length === 2 &&
+          typeof raw[0] === "number" &&
+          typeof raw[1] === "number" &&
+          Number.isFinite(raw[0]) &&
+          Number.isFinite(raw[1])
+        )
+          span = raw[0] <= raw[1] ? [raw[0], raw[1]] : [raw[1], raw[0]];
+        if (!span)
+          return {
+            ok: false,
+            reason: `guide.files[${i}].skimBlocks[${j}].lines must be a line number or a [start, end] pair`,
+          };
+        const block: { lines: [number, number]; reason?: string } = { lines: span };
+        if (typeof rawBlock.reason === "string" && rawBlock.reason.trim())
+          block.reason = rawBlock.reason;
+        blocks.push(block);
+      }
+      if (blocks.length) file.skimBlocks = blocks;
+    }
     files.push(file);
   }
   files.sort((a, b) => a.order - b.order);

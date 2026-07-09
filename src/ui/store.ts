@@ -43,6 +43,7 @@ export const S: Store = Alpine.reactive<Store>({
   treeDrawerOpen: false,
   fileView: "rendered",
   diffScrolled: false,
+  skimExpanded: new Set<string>(),
 });
 
 // Imperative-island objects kept OUT of the reactive store: the @pierre/diffs

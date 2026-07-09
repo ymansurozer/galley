@@ -1241,6 +1241,115 @@
       border-top: 1px solid rgba(224, 175, 104, .18)
     }
 
+    /* Skim (issue 06): a muted, low-attention treatment — the opposite of the amber flag.
+       skim LOWERS scrutiny, so it reads gray, never as a state shout. */
+    .ic.skim {
+      color: var(--muted);
+      width: 12px;
+      height: 12px;
+      opacity: .7
+    }
+
+    /* Fully-skimmed group (issue 07): a quiet collapsed row at the bottom of the tree/walkthrough
+       gathering files that left the flow. Reads like the walk-cat header — muted, never a shout. */
+    .node.skimgrp {
+      color: var(--ghost)
+    }
+
+    .node.skimgrp .skimgrp-name {
+      color: var(--muted)
+    }
+
+    .node.skimgrp .skimgrp-count,
+    .node.walk-skim .walk-skim-count {
+      margin-left: auto;
+      font-size: var(--text-2xs);
+      color: var(--ghost)
+    }
+
+    .node.walk-skim .chev {
+      width: 12px
+    }
+
+    /* Block collapse/expand strip — a diff annotation standing in for a skimmed change block. */
+    .annotation.skim-strip {
+      min-height: 0
+    }
+
+    .skim-strip .skim-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 4px 12px;
+      font-family: var(--sans);
+      font-size: var(--text-xs);
+      color: var(--muted);
+      background: var(--panel);
+      border: 0;
+      border-top: 1px solid rgba(255, 255, 255, .06);
+      border-bottom: 1px solid rgba(255, 255, 255, .06);
+      cursor: pointer;
+      text-align: left
+    }
+
+    .skim-strip .skim-toggle:hover {
+      background: var(--panel3);
+      color: var(--ink)
+    }
+
+    .skim-strip .skim-caret {
+      flex: 0 0 auto;
+      width: 1em
+    }
+
+    .skim-strip .skim-label {
+      flex: 1 1 auto
+    }
+
+    .skim-strip .skim-action {
+      opacity: .75
+    }
+
+    /* File-level collapse card: the whole diff folds behind one expandable strip. */
+    .file-skim {
+      padding: 12px
+    }
+
+    .file-skim-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 10px 12px;
+      font-family: var(--sans);
+      font-size: var(--text-sm);
+      color: var(--muted);
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      text-align: left
+    }
+
+    .file-skim-strip:hover {
+      background: var(--panel3);
+      color: var(--ink)
+    }
+
+    .file-skim-strip .file-skim-name {
+      font-family: var(--mono);
+      color: var(--ink)
+    }
+
+    .file-skim-strip .file-skim-meta {
+      flex: 1 1 auto
+    }
+
+    .file-skim-strip .file-skim-expand {
+      color: var(--cyan)
+    }
+
     .annotation {
       font-family: var(--sans);
       position: relative;
@@ -2498,6 +2607,49 @@
       gap: var(--churn-gap)
     }
 
+    /* The collapsed Skimmed group header (issue 07): a full-width toggle button that reads like
+       any group header but with a caret; muted, since these files left the flow. Center-aligned
+       (overriding go-grp-h's baseline) — the caret is an SVG with no text baseline, so baseline
+       alignment floats it above the label. */
+    .guide-overview .go-grp-toggle {
+      width: 100%;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 7px;
+      border: 0;
+      border-bottom: 0;
+      font: inherit;
+      cursor: pointer;
+      color: var(--muted)
+    }
+
+    .guide-overview .go-grp-skim.go-grp:has(.go-file) .go-grp-toggle {
+      border-bottom: 1px solid var(--line)
+    }
+
+    .guide-overview .go-grp-toggle:hover {
+      background: var(--surface-raised)
+    }
+
+    .guide-overview .go-grp-toggle .go-grp-meta {
+      margin-left: auto
+    }
+
+    .guide-overview .go-grp-toggle .chev {
+      width: 12px;
+      color: var(--ghost);
+      transition: transform .12s ease
+    }
+
+    .guide-overview .go-grp-toggle .chev.open {
+      transform: rotate(90deg)
+    }
+
+    /* A skimmed file row's reason sub-line reads muted, like the skim strips. */
+    .guide-overview .go-file-skim .go-file-sum {
+      color: var(--ghost)
+    }
+
     .guide-overview .go-file {
       display: block;
       width: 100%;
@@ -2774,12 +2926,16 @@
           </button>
         </div>
         <div id="files" x-show="!($store.g.hasGuide && $store.g.hasGuide()) || $store.g.sidebarTab==='tree'"><template x-for="r in $store.g.treeRows()" :key="r.key">
-            <div class="node" :class="r.cls" :style="r.style" @click="$store.g.rowClick(r)">
-              <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='dir'"><use href="#gly-chevron"></use></svg>
+            <div class="node" :class="[r.cls, r.kind==='skimgrp' ? 'skimgrp' : '']" :style="r.style" @click="$store.g.rowClick(r)">
+              <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='dir' || r.kind==='skimgrp'"><use href="#gly-chevron"></use></svg>
               <svg class="ic folder" x-show="r.kind==='dir'"><use href="#gly-folder"></use></svg>
-              <span class="chev-spacer" x-show="r.kind!=='dir'"></span>
-              <svg class="ic file" :class="r.changeType" x-show="r.kind!=='dir'"><use href="#gly-file"></use></svg>
-              <span class="nm" x-text="r.name"></span>
+              <svg class="ic skim" x-show="r.kind==='skimgrp'" title="Skimmed"><use href="#gly-collapse-all"></use></svg>
+              <span class="chev-spacer" x-show="r.kind==='file' || r.kind==='test'"></span>
+              <svg class="ic file" :class="r.changeType" x-show="r.kind==='file' || r.kind==='test'"><use href="#gly-file"></use></svg>
+              <span class="nm" x-show="r.kind!=='skimgrp'" x-text="r.name"></span>
+              <span class="nm skimgrp-name" x-show="r.kind==='skimgrp'">Skimmed</span>
+              <span class="skimgrp-count" x-show="r.kind==='skimgrp'" x-text="r.count + (r.count===1 ? ' file' : ' files')"></span>
+              <svg class="ic skim" x-show="(r.kind==='file' || r.kind==='test') && r.skim" title="Skimmed"><use href="#gly-collapse-all"></use></svg>
               <span class="testcaret" x-show="r.testToggle" @click.stop="$store.g.toggleTestDir(r.testKey)">
                 <svg class="ic chev" :class="{open: r.testCaret==='▾'}"><use href="#gly-chevron"></use></svg></span>
               <span class="status-pack" x-show="r.state">
@@ -2791,16 +2947,21 @@
           </template></div>
         <div id="walk" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'" x-cloak>
           <template x-for="r in $store.g.walkthroughRows()" :key="r.key">
-            <div class="node" :class="r.kind==='cat' ? 'walk-cat' : r.cls" :style="r.kind==='cat' ? '' : r.style"
-              @click="r.kind==='cat' ? $store.g.selectFile(r.jumpIndex) : $store.g.selectFile(r.fileIndex)">
+            <div class="node" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '']" :style="r.kind==='cat' ? '' : r.style"
+              @click="r.kind!=='cat' ? $store.g.selectFile(r.fileIndex) : (r.skimmed ? $store.g.toggleSkimGroup() : $store.g.selectFile(r.jumpIndex))">
+              <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='cat' && r.skimmed"><use href="#gly-chevron"></use></svg>
               <span class="nm walk-cat-name" x-show="r.kind==='cat'" x-text="r.category" :title="r.category"></span>
+              <span class="walk-skim-count" x-show="r.kind==='cat' && r.skimmed" x-text="r.total + (r.total===1 ? ' file' : ' files')"></span>
               <!-- File status leads the row (empty circle = to do); ± stay flush right below. -->
               <svg class="ic st pending" x-show="r.kind==='file' && r.state==='pending'" title="Pending review"><use href="#gly-circle"></use></svg>
               <svg class="ic st approved" x-show="r.kind==='file' && r.state==='approved'" title="Approved"><use href="#gly-check"></use></svg>
               <svg class="ic st changes" x-show="r.kind==='file' && r.state==='changes-requested'" title="Changes requested"><use href="#gly-circle-alert"></use></svg>
               <span class="nm" x-show="r.kind==='file'" x-text="r.name" :title="r.path"></span>
               <svg class="ic crit" x-show="r.kind==='file' && r.flag" :title="r.flag"><use href="#gly-flag"></use></svg>
-              <span class="status-pack">
+              <svg class="ic skim" x-show="r.kind==='file' && r.skim" title="Skimmed"><use href="#gly-collapse-all"></use></svg>
+              <!-- Hidden on cat rows: an empty status-pack still carries margin-left:auto, and two
+                   auto margins would split the free space and strand the skim-group count mid-row. -->
+              <span class="status-pack" x-show="r.kind==='file'">
                 <i class="add" x-show="r.kind==='file' && r.added" x-text="'+'+r.added"></i>
                 <i class="del" x-show="r.kind==='file' && r.removed" x-text="'−'+r.removed"></i>
               </span>

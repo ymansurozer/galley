@@ -2,6 +2,7 @@ import { S, D, toast, api, persist } from "./store";
 import { currentFile, applyDecisionToDiff, fileObjections, fileReviewState } from "./changes";
 import { render, deferRender } from "./render";
 import { nextUnreviewedFileIndex, guideProgress } from "./guide";
+import { fileFullySkimmed } from "./skim";
 import type { ChangeState, Decision } from "./types";
 
 // The explicit decision record is the source of truth for accept/reject (decoupled
@@ -56,8 +57,11 @@ export async function approveCurrentFile() {
   }
   persist();
   const label = clean ? "Approved" : "Marked reviewed";
-  // Every changed file signed off → the review is done: prompt to send it back to the agent.
-  if (S.state.files.every((f) => S.state.reviewedFiles!.includes(f.path))) {
+  // The review-complete gate is over non-skimmed files only (issue 07): fully-skimmed files left
+  // the flow, so they never block completion (and are never auto-approved).
+  const scope = S.state.files.filter((f) => !fileFullySkimmed(f.path));
+  // Every in-flow file signed off → the review is done: prompt to send it back to the agent.
+  if (scope.every((f) => S.state.reviewedFiles!.includes(f.path))) {
     toast(`${label} — review complete`);
     render();
     S.promptFinish?.();
@@ -65,8 +69,8 @@ export async function approveCurrentFile() {
   }
   // Each sign-off toasts the running score ("7 of 12 files · 58%") so progress is felt at the
   // moment it moves, not just visible in the bar. % matches the strip (LOC-weighted by default).
-  const done = S.state.files.filter((f) => fileReviewState(f.path) !== "pending").length;
-  toast(`${label} — ${done} of ${S.state.files.length} files · ${guideProgress().pct}%`);
+  const done = scope.filter((f) => fileReviewState(f.path) !== "pending").length;
+  toast(`${label} — ${done} of ${scope.length} files · ${guideProgress().pct}%`);
   // Seek the next unreviewed file, wrapping past the end so a reviewer who jumped ahead is
   // carried back to the files they skipped instead of dead-ending here.
   const next = nextUnreviewedFileIndex(S.fileIndex);

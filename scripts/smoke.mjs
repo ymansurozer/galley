@@ -69,6 +69,48 @@ try {
   assert.ok(state.changes.length >= 1, "desk has a change to review");
   console.log(`✓ desk up — repo mode, ${state.changes.length} change(s)`);
 
+  // guided review with skim (issue 06): attach a guide (OUTSIDE the repo so it isn't a stray
+  // untracked file) whose skimBlocks span resolves to the change block, and a file-level skim.
+  const guideDir = mkdtempSync(path.join(tmpdir(), "galley-smoke-guide-"));
+  const guidePath = path.join(guideDir, "guide.json");
+  writeFileSync(
+    guidePath,
+    JSON.stringify({
+      overview: "Smoke overview.",
+      files: [
+        {
+          path: "a.txt",
+          orientation: "The changed file.",
+          skim: true,
+          skimReason: "smoke",
+          skimBlocks: [{ lines: 2, reason: "line-two churn" }],
+        },
+      ],
+    }),
+  );
+  const reloaded = JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", guidePath));
+  assert.ok(reloaded.ok, "reload with a skim guide accepted");
+  const guidedState = await getJson("/api/state");
+  assert.equal(guidedState.guide?.files?.[0]?.skim, true, "file-level skim survives to state");
+  assert.ok(
+    guidedState.changes.some((c) => c.skim),
+    "a skimBlocks span stamped a change block",
+  );
+  console.log("✓ reload --guide with skim → accepted, file + block stamped");
+
+  // A skim span that resolves to no change block is rejected (diff-aware validation).
+  const badReload = await post("/api/reload", {
+    guide: {
+      overview: "x",
+      files: [{ path: "a.txt", orientation: "s", skimBlocks: [{ lines: 99 }] }],
+    },
+  });
+  assert.equal(badReload.status, 422, "unresolvable skim span rejected");
+  const badBody = await badReload.json();
+  assert.ok(badBody.error?.includes("a.txt"), "rejection names the offending file");
+  rmSync(guideDir, { recursive: true, force: true });
+  console.log("✓ reload with an unresolvable skim span → 422 naming the entry");
+
   // human asks a question → `galley await` yields a question event
   await post("/api/ask", {
     path: "a.txt",

@@ -82,9 +82,22 @@ export type FileRow = {
   changeType: "new" | "modified" | "deleted" | null;
   // Single review-state badge (null = unchanged file / showing the test caret instead).
   state: FileReviewState | null;
+  // The guide marked this whole file skimmable — a muted indicator, not a state shout.
+  skim: boolean;
 };
 
-export type TreeRow = DirRow | FileRow;
+// The collapsed "Skimmed · N files" group header at the bottom of the tree (issue 07). Fully-
+// skimmed files leave the main listing and gather under it; clicking toggles per-session expand,
+// and its member FileRows follow only while `open`.
+export type SkimGroupRow = {
+  kind: "skimgrp";
+  key: string;
+  count: number;
+  open: boolean;
+  caret: string;
+};
+
+export type TreeRow = DirRow | FileRow | SkimGroupRow;
 
 // Internal nodes used while building the tree (not rendered directly).
 export type TreeFile = {
@@ -131,7 +144,18 @@ export type ComposerMeta = {
   lineNumber: number;
   path: string;
 };
-export type AnnotationMeta = ThreadMeta | ChangeMeta | ComposerMeta;
+// The collapse/expand strip standing in for a skimmed change block. Anchored at the block's
+// last display line (like the change bar); when collapsed, skim.ts hides the block's rows so
+// the strip is all that shows. `collapsed` flips the caret/label and whether rows are hidden.
+export type SkimMeta = {
+  type: "skim";
+  id: string;
+  side: Side;
+  lineNumber: number;
+  label: string;
+  collapsed: boolean;
+};
+export type AnnotationMeta = ThreadMeta | ChangeMeta | ComposerMeta | SkimMeta;
 export type AnnotationInput = { side: Side; lineNumber: number; metadata: AnnotationMeta };
 
 // ── @pierre/diffs imperative island ────────────────────────────────────────
@@ -221,6 +245,9 @@ export interface Store {
   // True once the diff pane is scrolled past its header — reveals the floating Approve button
   // so sign-off is reachable without scrolling back up to the header. Reset on every file switch.
   diffScrolled: boolean;
+  // Per-session skim expand state: change ids (block-level) and `file:<path>` keys (file-level)
+  // the reviewer expanded. Not persisted — collapse is display-only and resets each session.
+  skimExpanded: Set<string>;
 
   treeRows?: () => TreeRow[];
   selectFile?: (i: number) => void;
@@ -229,6 +256,7 @@ export interface Store {
   toggleAllDirs?: () => void;
   treeAnyOpen?: () => boolean;
   toggleTestDir?: (key: string) => void;
+  toggleSkimGroup?: () => void;
   rowClick?: (r: TreeRow) => void;
   setStyle?: (style: DiffStyle) => void;
   setFileView?: (view: "rendered" | "source") => void;
@@ -274,4 +302,12 @@ export interface Store {
   helpGroups?: () => { group: string; items: { combo: string; desc: string }[] }[];
 }
 
-export type { ReviewState, ReviewComment, ChangeState, Decision, DeskStatus, ReviewerSave };
+export type {
+  ReviewState,
+  ReviewComment,
+  ChangeState,
+  Decision,
+  DeskStatus,
+  GuideFile,
+  ReviewerSave,
+};

@@ -43,6 +43,48 @@ test("validateGuide defaults missing order (by position) and category", () => {
   assert.equal(r.guide.files[0]!.flag, undefined);
 });
 
+test("validateGuide accepts skim fields and normalizes skimBlocks lines", () => {
+  const r = validateGuide({
+    overview: "o",
+    files: [
+      {
+        path: "a.ts",
+        orientation: "s",
+        skim: true,
+        skimReason: "generated",
+        skimBlocks: [{ lines: 5, reason: "import" }, { lines: [12, 10] }],
+      },
+    ],
+  });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  const f = r.guide.files[0]!;
+  assert.equal(f.skim, true);
+  assert.equal(f.skimReason, "generated");
+  // a bare number normalizes to [n, n]; a reversed pair is ordered ascending.
+  assert.deepEqual(f.skimBlocks, [{ lines: [5, 5], reason: "import" }, { lines: [10, 12] }]);
+});
+
+test("validateGuide leaves skim fields unset when absent", () => {
+  const r = validateGuide({ overview: "o", files: [{ path: "a.ts", orientation: "s" }] });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  const f = r.guide.files[0]!;
+  assert.equal(f.skim, undefined);
+  assert.equal(f.skimReason, undefined);
+  assert.equal(f.skimBlocks, undefined);
+});
+
+test("validateGuide rejects malformed skimBlocks", () => {
+  const bad = (skimBlocks: unknown) =>
+    validateGuide({ overview: "o", files: [{ path: "a.ts", orientation: "s", skimBlocks }] }).ok;
+  assert.equal(bad("nope"), false); // not an array
+  assert.equal(bad([null]), false); // entry not an object
+  assert.equal(bad([{ lines: "x" }]), false); // lines not a number/pair
+  assert.equal(bad([{ lines: [1] }]), false); // wrong-length pair
+  assert.equal(bad([{ lines: [1, 2, 3] }]), false); // wrong-length pair
+});
+
 test("validateGuide rejects malformed input", () => {
   const cases: unknown[] = [
     null,

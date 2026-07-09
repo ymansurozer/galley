@@ -11,6 +11,7 @@ import {
 import { approveCurrentFile } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
 import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
+import { toggleSkimGroup } from "./skim";
 import { render, deferRender } from "./render";
 import { adoptDeskStatus, pollState } from "./poll";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
@@ -156,8 +157,10 @@ S.toggleTestDir = (key) => {
   if (S.expandedDirs.has(key)) S.expandedDirs.delete(key);
   else S.expandedDirs.add(key);
 };
+S.toggleSkimGroup = toggleSkimGroup;
 S.rowClick = (r) => {
-  if (r.kind === "dir") S.toggleDir?.(r.full, r.changed);
+  if (r.kind === "skimgrp") S.toggleSkimGroup?.();
+  else if (r.kind === "dir") S.toggleDir?.(r.full, r.changed);
   else if (r.fileIndex !== undefined) S.selectFile?.(r.fileIndex);
   else S.previewFile?.(r.path);
 };

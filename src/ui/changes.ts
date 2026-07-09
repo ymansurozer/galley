@@ -101,6 +101,9 @@ export function deriveChanges(
         stageable: prev?.stageable,
         contentHash: prev?.contentHash,
         reviewedHash: decision?.reviewedHash ?? prev?.reviewedHash,
+        // Server-stamped skim rides on the change's identity; carry it across client
+        // re-derivation. A rewritten block gets a new id → no prev → skim drops on its own.
+        skim: prev?.skim,
       });
     });
   });

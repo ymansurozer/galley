@@ -28,6 +28,13 @@ import { renderMarkdown } from "./markdown";
 import { cursorResync, cursorReset } from "./cursor";
 import { hasGuide, renderOverview, currentGuideEntry } from "./guide";
 import { updateProgress } from "./progress";
+import {
+  applySkimCollapse,
+  isFileSkim,
+  isFileSkimCollapsed,
+  renderFileSkim,
+  toggleFileSkim,
+} from "./skim";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
@@ -278,6 +285,16 @@ async function renderCenter() {
     renderMarkdownFile();
     return;
   }
+  // A skim-flagged file collapses its whole diff behind one expandable strip (guide-driven,
+  // display only). Expanding drops back to the normal render below.
+  if (!previewing && isFileSkimCollapsed(f.path)) {
+    cursorReset();
+    dropInstance();
+    D.lineMap = null;
+    applyLayoutClasses();
+    renderFileSkim();
+    return;
+  }
   // @pierre renders nothing for a zero-change diff, so a whole-file view (a new file, or a
   // `preview` — an unchanged file the reviewer opened) is shown as the file's content on one
   // side. For preview we strip the add-tint + indicators below so it reads as plain text, not
@@ -330,6 +347,16 @@ async function renderCenter() {
     // The chip lists what keeps the file from Approved (rejected hunks, open change
     // requests) with jump-to actions — rendered whenever objections exist, finished or not.
     const chip = blockersChip();
+    // A skim-flagged file that's been expanded gets a quiet re-collapse control (the counterpart
+    // to the collapsed strip's Expand), so the reviewer can fold it back after a look.
+    if (isFileSkim(filePath) && !isFileSkimCollapsed(filePath)) {
+      const collapse = document.createElement("button");
+      collapse.className = "diff-header-action skim-collapse";
+      collapse.textContent = "Collapse";
+      collapse.title = "Collapse this skimmed file";
+      collapse.onclick = () => toggleFileSkim(filePath);
+      wrap.appendChild(collapse);
+    }
     if (fileFinished(filePath)) {
       // The file-tree badge carries the approved / changes-requested state; the header just
       // offers a quiet Reset to undo the sign-off (plus the blockers chip when relevant).
@@ -474,6 +501,14 @@ async function renderCenter() {
     onLineSelected: handleDiffSelection,
     onLineSelectionEnd: handleDiffSelection,
     renderHeaderMetadata: headerActions,
+    // @pierre's own post-render signal — fires once the diff rows are committed to the shadow
+    // DOM (mount and every update). This is where skim collapse must run: on a COLD mount the
+    // render() promise resolves before the rows are queryable, so the afterRender pass below
+    // finds nothing; onPostRender fires when they exist. (afterRender still runs it too, for
+    // the warm/cached path where rows are already present — both are idempotent.)
+    onPostRender: (_node: HTMLElement, _inst: unknown, phase: string) => {
+      if (phase !== "unmount") applySkimCollapse();
+    },
     // @pierre reserves a right-side gutter via `scrollbar-gutter: stable` on the code grid
     // (for a vertical scrollbar it hides) — drop it so rows fill the full width. previewCSS
     // (empty unless previewing) neutralizes addition styling to context, in-shadow.
@@ -487,6 +522,9 @@ async function renderCenter() {
   // though the runtime shape (side/lineNumber/metadata) is exactly what it reads.
   const anns = () => annotations() as DiffLineAnnotation<AnnotationMeta>[];
   const afterRender = () => {
+    // Collapse skimmed blocks by hiding their rows — synchronous (before paint) so there's no
+    // expand-then-collapse flash, and re-run every render so it survives @pierre re-renders.
+    if (!previewing) applySkimCollapse();
     setTimeout(() => attachDiffSelectionHandlers(), 0);
     // Unfold collapsed regions hiding an open comment thread (once per rendered diff).
     if (!previewing) revealThreadLines(key);

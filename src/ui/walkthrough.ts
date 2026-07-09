@@ -51,6 +51,7 @@ export type WalkFile = {
   fileIndex: number;
   orientation: string; // guide markdown ("" for files the guide didn't list)
   flag: string; // flag note ("" = not flagged); presence raises the flag icon
+  skim: boolean; // the guide marked the whole file skimmable → a muted indicator
   added: number;
   removed: number;
   state: FileReviewState;
@@ -59,6 +60,7 @@ export type WalkFile = {
 export type WalkGroup = {
   category: string;
   other: boolean; // the trailing group of diff files the guide didn't list
+  skimmed: boolean; // the trailing collapsed group of fully-skimmed files (issue 07)
   files: WalkFile[];
   added: number;
   removed: number;
@@ -76,6 +78,7 @@ export function walkthroughGroups(
   guideFiles: GuideFile[],
   files: FileLike[],
   stateOf: (path: string) => FileReviewState,
+  fullySkimmed: (path: string) => boolean = () => false,
 ): WalkGroup[] {
   const stats = lineStats(files);
   const index = new Map(files.map((f, i) => [f.path, i] as const));
@@ -89,14 +92,16 @@ export function walkthroughGroups(
       fileIndex,
       orientation: g?.orientation ?? "",
       flag: g?.flag ?? "",
+      skim: !!g?.skim,
       added: s.added,
       removed: s.removed,
       state: stateOf(path),
     };
   };
-  const mkGroup = (category: string, other: boolean): WalkGroup => ({
+  const mkGroup = (category: string, other: boolean, skimmed = false): WalkGroup => ({
     category,
     other,
+    skimmed,
     files: [],
     added: 0,
     removed: 0,
@@ -112,6 +117,9 @@ export function walkthroughGroups(
   };
   const groups: WalkGroup[] = [];
   const listed = new Set<string>();
+  // Fully-skimmed files leave their normal group (guide category or Other) and gather in one
+  // trailing collapsed "Skimmed" group (issue 07). Collected here, appended last.
+  const skimmed = mkGroup("Skimmed", false, true);
   // Track only the current group: a skipped file (not in the diff) leaves no visible gap, so
   // it must not split a run — hence the category compare happens against the last *shown* file.
   let cur: WalkGroup | null = null;
@@ -119,6 +127,12 @@ export function walkthroughGroups(
     listed.add(g.path);
     const i = index.get(g.path);
     if (i === undefined) continue;
+    if (fullySkimmed(g.path)) {
+      add(skimmed, mkFile(g.path, i, g));
+      continue;
+    }
+    // A skimmed file must not carry the run forward — compare/open the category off shown,
+    // in-flow files only, so a skimmed file between two same-category files can't split them.
     if (!cur || cur.category !== g.category) {
       cur = mkGroup(g.category, false);
       groups.push(cur);
@@ -127,9 +141,12 @@ export function walkthroughGroups(
   }
   const other = mkGroup("Other", true);
   files.forEach((f, i) => {
-    if (!listed.has(f.path)) add(other, mkFile(f.path, i));
+    if (listed.has(f.path)) return;
+    if (fullySkimmed(f.path)) add(skimmed, mkFile(f.path, i));
+    else add(other, mkFile(f.path, i));
   });
   if (other.total) groups.push(other);
+  if (skimmed.total) groups.push(skimmed);
   return groups;
 }
 
@@ -142,6 +159,10 @@ export type WalkRow =
       key: string;
       category: string;
       other: boolean;
+      // The trailing collapsed "Skimmed" group's header (issue 07): a toggle, not a jump target;
+      // `open` drives its caret, and its file rows are emitted only while open.
+      skimmed: boolean;
+      open: boolean;
       total: number;
       done: number;
       added: number;
@@ -151,7 +172,11 @@ export type WalkRow =
     }
   | (WalkFile & { kind: "file"; key: string; cls: string; style: string });
 
-export function walkRows(groups: WalkGroup[], activePath: string | null): WalkRow[] {
+export function walkRows(
+  groups: WalkGroup[],
+  activePath: string | null,
+  skimGroupExpanded = false,
+): WalkRow[] {
   const rows: WalkRow[] = [];
   groups.forEach((g, gi) => {
     // First not-yet-finished file in THIS group, else its first — the rule the old
@@ -162,9 +187,11 @@ export function walkRows(groups: WalkGroup[], activePath: string | null): WalkRo
       kind: "cat",
       // The group index keeps the key unique when a category label repeats across runs;
       // "·other" still distinguishes the synthetic trailer from a guide category named "Other".
-      key: `cat:${gi}:${g.other ? "·other" : g.category}`,
+      key: `cat:${gi}:${g.skimmed ? "·skimmed" : g.other ? "·other" : g.category}`,
       category: g.category,
       other: g.other,
+      skimmed: g.skimmed,
+      open: g.skimmed ? skimGroupExpanded : true,
       total: g.total,
       done: g.done,
       added: g.added,
@@ -172,6 +199,9 @@ export function walkRows(groups: WalkGroup[], activePath: string | null): WalkRo
       complete: g.done === g.total,
       jumpIndex: target.fileIndex,
     });
+    // A collapsed Skimmed group hides its file rows until expanded; every other group is
+    // always open.
+    if (g.skimmed && !skimGroupExpanded) return;
     for (const f of g.files)
       rows.push({
         ...f,

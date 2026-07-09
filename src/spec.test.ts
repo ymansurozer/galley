@@ -38,6 +38,14 @@ const ANCHORS = [
   "files (required, non-empty array)",
   "repo-relative; must be a file in the diff",
   "Orientation, not a changelog",
+  // skimmable review (issue 06) — the fields and the "only on request / opposite of flag" rule
+  "skimBlocks?",
+  "new-file-side [start, end] span",
+  "Skim LOWERS attention",
+  "When to skim",
+  // fully-skimmed files leave the flow (issue 07)
+  "drops into a collapsed",
+  "genuinely needs no eyes",
   // the rest of the operational contract
   "reload vs restart",
   "desk.lock",

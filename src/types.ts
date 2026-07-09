@@ -74,6 +74,12 @@ export type ChangeState = {
   // from persisted state.
   displayLineNumber?: number;
   displayEndLine?: number;
+  // Server-stamped when a guide's skimBlocks span resolves to this block: the desk
+  // collapses it by default (display-only — decisions/approval are untouched). Re-derived
+  // on every attach/reload from the guide (like stageable/contentHash), so it is NOT
+  // reviewer-owned and never rides /api/save; a rewritten block loses the id it was
+  // stamped under and the skim drops. `reason` is the agent's short note ("import-only").
+  skim?: { reason?: string };
 };
 
 // An explicit, durable record of a user's accept/reject on a change block, keyed
@@ -114,6 +120,16 @@ export type GuideFile = {
   category: string;
   orientation: string;
   flag?: string;
+  // Focused-review skimming (agent-supplied, for "show me only the major changes"). The
+  // desk collapses skimmed parts by default but never removes them — the reviewer can
+  // always expand. Display-only: decisions, approval, and blockers are untouched. `skim`
+  // (with an optional `skimReason` like "generated"/"lockfile churn") collapses the WHOLE
+  // file; `skimBlocks` addresses new-file-side line spans the agent read, each resolved by
+  // the server to the enclosing change block(s). skim LOWERS attention — the opposite of
+  // `flag`, which raises it.
+  skim?: boolean;
+  skimReason?: string;
+  skimBlocks?: Array<{ lines: [number, number]; reason?: string }>;
 };
 
 // The guided review the coding agent attaches (the desk renders it, runs no model).

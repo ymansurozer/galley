@@ -3,6 +3,21 @@
 // and a `finished` predicate ("this file is signed off in the current state"), so they're
 // unit-testable without the Alpine store. guide.ts holds the thin store-reading wrappers.
 
+// The nav order the wrap/approve-advance seeks walk: guide order first (when guided), then any
+// diff file the guide didn't list, in file-array order. Fully-skimmed files (inFlow(i) === false)
+// are excluded HERE — the single choke point — so no seek ever lands on one (issue 07). Pure, so
+// seek.test can prove the exclusion; guide.ts's navOrder is the thin store-reading wrapper.
+export function navFileOrder(
+  fileCount: number,
+  guideOrder: number[] | null,
+  inFlow: (i: number) => boolean,
+): number[] {
+  const all = Array.from({ length: fileCount }, (_, i) => i);
+  if (!guideOrder) return all.filter(inFlow);
+  const listed = new Set(guideOrder);
+  return guideOrder.concat(all.filter((i) => !listed.has(i))).filter(inFlow);
+}
+
 // The next unreviewed file after `cur`, scanning `order` forward and wrapping past the end
 // back to the beginning. Used by approve-advance to seek remaining work instead of dead-ending.
 // `cur`'s own slot is never returned (a just-approved file counts as finished anyway, but the
