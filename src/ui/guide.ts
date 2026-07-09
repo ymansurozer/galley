@@ -1,16 +1,10 @@
 import { S, $, esc } from "./store";
 import { fileReviewState, fileFinished } from "./changes";
 import { navFileOrder, nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek";
-import {
-  fileFullySkimmed,
-  fileSkimReason,
-  isFileSkim,
-  isSkimGroupExpanded,
-  toggleSkimGroup,
-} from "./skim";
-import { renderMarkdown, renderMarkdownInline } from "./markdown";
+import { fileFullySkimmed, isSkimGroupExpanded } from "./skim";
+import { renderMarkdown } from "./markdown";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
-import type { WalkGroup, WalkRow, WalkFile } from "./walkthrough";
+import type { WalkGroup, WalkRow } from "./walkthrough";
 
 // Whether the current review carries an agent-attached guide with at least one file.
 export function hasGuide(): boolean {
@@ -211,83 +205,12 @@ export function guideStale(): boolean {
   );
 }
 
-// The short skim reason for a fully-skimmed file, shown in the collapsed group: the file-level
-// skimReason, else the distinct block reasons joined. "" when the agent gave none.
-function skimReasonFor(path: string): string {
-  if (isFileSkim(path)) return fileSkimReason(path);
-  const reasons = [
-    ...new Set(
-      (S.state?.changes ?? [])
-        .filter((c) => c.path === path && c.skim?.reason)
-        .map((c) => c.skim!.reason!.trim())
-        .filter(Boolean),
-    ),
-  ];
-  return reasons.join(", ");
-}
-
-// One file row in the Overview list: path (dimmed dir, bright basename) + flag icon +
-// ±counts + a read-only review-state badge on top, the guide's orientation beneath.
-// Read-only by design — decisions stay where the diff is visible; clicking opens the file.
-function overviewFileRow(f: WalkFile): string {
-  const badge =
-    f.state === "approved"
-      ? `<svg class="ic badge approved" title="Approved"><use href="#gly-check"></use></svg>`
-      : f.state === "changes-requested"
-        ? `<svg class="ic badge changes" title="Changes requested"><use href="#gly-flag"></use></svg>`
-        : `<svg class="ic badge pending" title="Pending review"><use href="#gly-dot"></use></svg>`;
-  return `<button class="go-file" data-i="${f.fileIndex}">
-    <span class="go-file-top">
-      <span class="go-file-path"><span class="fdir">${esc(f.dir)}</span><span class="fname">${esc(f.name)}</span></span>
-      ${f.flag ? `<svg class="ic crit" title="${esc(f.flag)}"><use href="#gly-flag"></use></svg>` : ""}
-      <span class="go-file-stats">${f.added ? `<i class="add">+${f.added}</i>` : ""}${f.removed ? `<i class="del">−${f.removed}</i>` : ""}${badge}</span>
-    </span>
-    ${f.orientation ? `<span class="go-file-sum">${renderMarkdownInline(f.orientation)}</span>` : ""}
-  </button>`;
-}
-
-// A member of the collapsed Skimmed group: muted, no state badge (out of the flow), path + its
-// skim reason. Clicking opens it like any file (the file/block skim strips render as issue 06).
-function overviewSkimRow(f: WalkFile): string {
-  const reason = skimReasonFor(f.path);
-  return `<button class="go-file go-file-skim" data-i="${f.fileIndex}">
-    <span class="go-file-top">
-      <span class="go-file-path"><span class="fdir">${esc(f.dir)}</span><span class="fname">${esc(f.name)}</span></span>
-      <span class="go-file-stats"><svg class="ic skim" title="Skimmed"><use href="#gly-collapse-all"></use></svg></span>
-    </span>
-    ${reason ? `<span class="go-file-sum">${esc(reason)}</span>` : ""}
-  </button>`;
-}
-
-// The collapsed "Skimmed · N files" group: a clickable header (caret + count) with its file rows
-// shown only when expanded. Mirrors the tree/walkthrough group; per-session expand state.
-function overviewSkimGroup(grp: WalkGroup): string {
-  const open = isSkimGroupExpanded();
-  return `<div class="go-grp go-grp-skim">
-    <button class="go-grp-h go-grp-toggle" data-skimgrp="1">
-      <svg class="ic chev${open ? " open" : ""}"><use href="#gly-chevron"></use></svg>
-      <span class="go-grp-name">Skimmed</span>
-      <span class="go-grp-meta">${grp.total} file${grp.total === 1 ? "" : "s"}</span>
-    </button>
-    ${open ? grp.files.map(overviewSkimRow).join("") : ""}
-  </div>`;
-}
-
-// Render the Overview page into #diff: overview → optional PR description → the per-file
-// list grouped by category → Start. Called by render() when overviewOpen && hasGuide().
-// Binds the Start button + per-file jumps.
+// Render the Overview page into #diff: overview → optional PR description → Start. No file
+// list — the sidebar (tree/walkthrough, including the Skimmed group) already lists every file,
+// so repeating them here was redundant; per-file orientation renders in each file's header.
+// Called by render() when overviewOpen && hasGuide().
 export function renderOverview() {
   const g = S.state.guide!;
-  const fileList = walkGroups()
-    .map((grp) =>
-      grp.skimmed
-        ? overviewSkimGroup(grp)
-        : `<div class="go-grp">
-      <div class="go-grp-h"><span class="go-grp-name">${esc(grp.category)}</span><span class="go-grp-meta">${grp.total} file${grp.total === 1 ? "" : "s"}${grp.added || grp.removed ? ` · <span class="go-grp-counts">${grp.added ? `<i class="add">+${grp.added}</i>` : ""}${grp.removed ? `<i class="del">−${grp.removed}</i>` : ""}</span>` : ""}</span></div>
-      ${grp.files.map(overviewFileRow).join("")}
-    </div>`,
-    )
-    .join("");
   const title = g.title || S.state.target || "Review";
   $("diff").innerHTML = `<div class="guide-overview"><div class="go-card">
     <h1>${esc(title)}</h1>
@@ -295,16 +218,8 @@ export function renderOverview() {
     ${guideStale() ? `<div class="go-stale"><svg class="ic"><use href="#gly-warn"></use></svg> This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
     <div class="go-overview md">${renderMarkdown(g.overview)}</div>
     ${g.prDescription ? `<div class="go-pr"><b>PR description</b><div class="md">${renderMarkdown(g.prDescription)}</div></div>` : ""}
-    ${fileList ? `<div class="label go-files-h">Files in this review</div><div class="go-files">${fileList}</div>` : ""}
     <div class="go-actions"><button class="btn primary" id="guideStart">Start Review <kbd>↵</kbd></button></div>
   </div></div>`;
   const start = $("diff").querySelector("#guideStart") as HTMLButtonElement | null;
   if (start) start.onclick = () => S.startGuided?.();
-  $("diff")
-    .querySelectorAll<HTMLElement>(".go-file")
-    .forEach((el) => {
-      el.onclick = () => S.selectFile?.(Number(el.dataset.i));
-    });
-  const skimToggle = $("diff").querySelector("[data-skimgrp]") as HTMLButtonElement | null;
-  if (skimToggle) skimToggle.onclick = () => toggleSkimGroup();
 }
