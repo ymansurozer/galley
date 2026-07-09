@@ -25,18 +25,19 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm smoke
-      # OIDC trusted publishing (tokenless) requires npm >= 11.5.1
-      - run: npm install -g npm@latest
       # Idempotent: skip when this exact version is already on the registry (e.g. a manual
       # bootstrap publish, or a re-run of a released tag) so the tag still produces the GitHub
       # release below instead of failing on "cannot publish over existing version".
+      # OIDC trusted publishing (tokenless) requires npm >= 11.5.1, but upgrading the runner's
+      # bundled npm in place (npm i -g npm) can leave a broken tree (v0.5.1: MODULE_NOT_FOUND
+      # sigstore mid-publish) — so run the publish through a fresh pinned npm via npx instead.
       - run: |
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
           if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
             echo "$NAME@$VERSION already published — skipping npm publish."
           else
-            npm publish --provenance --access public
+            npx -y npm@11 publish --provenance --access public
           fi
       - run: npx changelogen@latest github release --token "$GITHUB_TOKEN"
         env:
