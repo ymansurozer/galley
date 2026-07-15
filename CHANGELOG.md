@@ -1,6 +1,33 @@
 # Changelog
 
 
+## v0.7.0
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.6.3...v0.7.0)
+
+### 🚀 Enhancements
+
+- Oversized files render a verdict-capable placeholder card instead of a diff that freezes the tab ([#45](https://github.com/ymansurozer/galley/pull/45))
+- Perf smoke — CI regression gate for desk startup, state size, and reload ([#47](https://github.com/ymansurozer/galley/pull/47))
+
+### 🔥 Performance
+
+- Fetch file contents per file — the tab stops depending on state-embedded copies ([#42](https://github.com/ymansurozer/galley/pull/42))
+- Lean state — drop embedded file contents, resolve them on demand ([#44](https://github.com/ymansurozer/galley/pull/44))
+- Faster navigation and reload — warm the next file, single-parse reload, deeper render cache ([#46](https://github.com/ymansurozer/galley/pull/46))
+
+### 🩹 Fixes
+
+- Collapse the shiki double-bundle in the UI — 12.5 MB → 2.9 MB ([#41](https://github.com/ymansurozer/galley/pull/41))
+
+### 💅 Refactors
+
+- File-level staleness keys are git blob OIDs, not content shas ([#43](https://github.com/ymansurozer/galley/pull/43))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.6.3
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.6.2...v0.6.3)
