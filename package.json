@@ -44,6 +44,7 @@
     "lint:fix": "oxlint src scripts --fix && oxfmt src scripts",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "smoke": "node scripts/smoke.mjs",
+    "perf-smoke": "node scripts/perf-smoke.mjs",
     "prepack": "pnpm build",
     "release": "pnpm lint && pnpm check && pnpm test && pnpm build && pnpm smoke && changelogen --release --push"
   },
