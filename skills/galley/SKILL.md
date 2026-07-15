@@ -28,6 +28,8 @@ Three ways to start a review desk (each runs in the background and stays alive a
 - **A markdown plan / single artifact** → `galley file <path> &`.
 - **A branch / PR** → `galley pr <ref> &`.
 
+When the review session is over (the human is done, the task is complete), run `galley stop` — it's idempotent and all review state persists for a later restart. An abandoned desk also auto-exits after ~2h with no tab and no agent attached.
+
 ## The authoritative contract: `galley spec`
 
 **For the full contract — review modes, the `await`/`comment`/`reload` loop, `await` exit semantics, the `ReviewResult` shape, how to act on a review, the guided-review schema, reload-vs-restart, concurrency, settings, and errors — run `galley spec` and follow it.** Do this once per session before your first review.

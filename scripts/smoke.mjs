@@ -211,6 +211,22 @@ try {
   assert.equal(ev2.result.artifacts.summaryMd, undefined, "no summaryMd artifact");
   console.log("✓ await → review event (ReviewResult shape + overallNote ok)");
 
+  // review over → `galley stop` shuts the desk down; the process exits and the port frees.
+  const stop = JSON.parse(cli("stop", "--repo", tmp, "--session", ID));
+  assert.ok(stop.ok, "stop acked");
+  assert.deepEqual(stop.stopped, [ID], "stop names the session it shut down");
+  for (let i = 0; i < 50 && desk.exitCode === null; i++) await sleep(100);
+  assert.notEqual(desk.exitCode, null, "desk process exited after stop");
+  const dead = await fetch(BASE + "/api/state").then(
+    () => true,
+    () => false,
+  );
+  assert.equal(dead, false, "desk no longer answers");
+  // Idempotent: a second stop with nothing running still exits 0 with an empty list.
+  const stopAgain = JSON.parse(cli("stop", "--repo", tmp, "--session", ID));
+  assert.ok(stopAgain.ok && stopAgain.stopped.length === 0, "stop is idempotent");
+  console.log("✓ stop → desk exited, port freed, second stop idempotent");
+
   console.log("\nSMOKE PASS");
 } catch (error) {
   console.error("\nSMOKE FAIL:", error instanceof Error ? error.message : error);

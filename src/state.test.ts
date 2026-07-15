@@ -7,6 +7,8 @@ import {
   anchorTextFor,
   buildReviewResult,
   computeApprovedFiles,
+  deskLockPath,
+  findLiveDesks,
   globalSettingsPath,
   mergeReviewerSave,
   mergeReviewState,
@@ -14,6 +16,7 @@ import {
   readGlobalSettings,
   resolveMovedFrom,
   resolveSkim,
+  reviewDir,
   sanitizeSession,
   stablePort,
   writeGlobalSettings,
@@ -670,6 +673,44 @@ test("global settings: write→read round-trip; missing and corrupt files read a
     });
     await fs.writeFile(globalSettingsPath(), "{not json", "utf8");
     assert.deepEqual(await readGlobalSettings(), {}); // corrupt → defaults
+  } finally {
+    process.env.HOME = prevHome;
+    process.env.USERPROFILE = prevProfile;
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("findLiveDesks sweeps locks whose pid is dead and keeps live ones", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "galley-locks-"));
+  const prevHome = process.env.HOME;
+  const prevProfile = process.env.USERPROFILE;
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  const root = "/work/lock-sweep-repo";
+  const writeLock = async (session: string, pid: number) =>
+    fs.writeFile(
+      deskLockPath(await reviewDir(root, session)),
+      JSON.stringify({ pid, url: "http://127.0.0.1:1/", session, startedAt: "t" }) + "\n",
+      "utf8",
+    );
+  try {
+    // Our own pid is definitely alive; a crashed desk's pid is definitely dead.
+    await writeLock("alive", process.pid);
+    await writeLock("crashed", 2 ** 22 - 1); // beyond real pid ranges → kill(pid,0) throws
+    const live = await findLiveDesks(root);
+    assert.deepEqual(
+      live.map((l) => l.session),
+      ["alive"],
+    );
+    const staleLock = deskLockPath(await reviewDir(root, "crashed"));
+    assert.equal(
+      await fs.stat(staleLock).then(
+        () => true,
+        () => false,
+      ),
+      false,
+      "stale lock swept",
+    );
   } finally {
     process.env.HOME = prevHome;
     process.env.USERPROFILE = prevProfile;

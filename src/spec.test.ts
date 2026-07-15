@@ -54,6 +54,10 @@ const ANCHORS = [
   // focused-review definition + flag (issue 04)
   "focused review",
   "mechanical churn skimmed",
+  // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
+  "galley stop",
+  "auto-exits",
+  "--idle-timeout",
   // the rest of the operational contract
   "reload vs restart",
   "desk.lock",

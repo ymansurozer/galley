@@ -23,6 +23,7 @@ import {
   stablePort,
   syncGitState,
 } from "./state.js";
+import type { DeskLock } from "./state.js";
 import type { Guide, ReviewMode } from "./types.js";
 import { maybeOfferUpdate } from "./update.js";
 
@@ -194,6 +195,49 @@ async function runStatus(args: Record<string, string | boolean>) {
     }
   }
   process.stdout.write(JSON.stringify({ ok: false, live: false, session }) + "\n");
+}
+
+// `galley stop [--session <id> | --all]` — shut down this repo's live desk(s). Idempotent:
+// exit 0 whether or not anything was running, so agents can call it unconditionally when a
+// review session ends. Shutdown goes over HTTP (the desk exits after acking, removing its
+// own lock) — never a bare kill(pid), which risks PID reuse. A lock whose pid is dead is
+// swept; a lock whose pid is alive but whose server won't answer is reported, not killed.
+async function runStop(args: Record<string, string | boolean>) {
+  const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
+  let locks: DeskLock[];
+  if (args.all === true) locks = await findLiveDesks(root);
+  else {
+    const session = await resolveActionSession(root, args);
+    const lock = await readDeskLock(root, session);
+    locks = lock ? [lock] : [];
+  }
+  const stopped: string[] = [];
+  const unreachable: Array<{ session: string; pid: number }> = [];
+  for (const lock of locks) {
+    const res = await fetch(`${lock.url}api/shutdown`, {
+      method: "POST",
+      signal: AbortSignal.timeout(1500),
+    }).catch(() => null);
+    if (res?.ok) {
+      stopped.push(lock.session);
+      continue;
+    }
+    const alive = (() => {
+      try {
+        process.kill(lock.pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    if (alive) unreachable.push({ session: lock.session, pid: lock.pid });
+    else unlinkSync(deskLockPath(await reviewDir(root, lock.session)));
+  }
+  for (const u of unreachable)
+    console.error(
+      `Desk "${u.session}" (pid ${u.pid}) is running but not answering — kill it manually: kill ${u.pid}`,
+    );
+  process.stdout.write(JSON.stringify({ ok: true, stopped, unreachable }) + "\n");
 }
 
 // `galley await --session <id>` — block until the next desk event, then print it
@@ -485,10 +529,16 @@ async function runDesk(
   // Default to the stable per-session port so a restarted desk keeps the same origin
   // and an already-open tab reconnects by itself (startServer falls back to a random
   // port if a foreign process holds it).
+  // Abandoned-desk reaper: exit after this long with no tab polling and no agent
+  // attached (see startServer). Minutes; 0 disables. Persistence + the stable port
+  // make auto-exit safe — a later start restores the session in the same tab.
+  const idleMinutes = typeof args["idle-timeout"] === "string" ? Number(args["idle-timeout"]) : NaN;
   const { url } = await startServer({
     state,
     port: typeof args.port === "string" ? Number(args.port) : stablePort(state.root, state.session),
     open: args.open !== false,
+    idleTimeoutMs:
+      Number.isFinite(idleMinutes) && idleMinutes >= 0 ? idleMinutes * 60_000 : undefined,
   });
 
   writeFileSync(
@@ -543,6 +593,7 @@ Usage:
   galley await [--timeout <s>]      Block for the next desk event (question | review)
   galley reload [--guide <file>]    Re-diff the working tree into the open desk
                                     (--guide swaps the attached review guide too)
+  galley stop [--session <id>|--all]  Stop this repo's live desk(s); idempotent
   galley spec                       Print the full agent contract (modes, loop, ReviewResult, guide schema)
 
 Common flags:
@@ -550,6 +601,7 @@ Common flags:
   --session <id>    Review session id (default: branch / file-<path> / pr-<ref>)
   --port <n>        Server port (default: random)
   --guide <file>    Attach an AI review guide (JSON)
+  --idle-timeout <m>  Desk auto-exits after <m> minutes with no tab or agent (default 120; 0 = never)
   --no-open         Don't open the browser
   -h, --help        Show this help
   -v, --version     Show version
@@ -578,6 +630,7 @@ async function main() {
   if (sub === "status") return runStatus(args);
   if (sub === "await") return runAwait(args);
   if (sub === "reload") return runReload(args);
+  if (sub === "stop") return runStop(args);
   if (sub === "spec") {
     process.stdout.write(SPEC + "\n");
     return;
@@ -593,7 +646,7 @@ async function main() {
   if (sub === "pr") return runDesk("pr", positional, args);
   if (sub) {
     console.error(
-      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref|number|url> | comment | status | await | reload | spec.`,
+      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref|number|url> | comment | status | await | reload | stop | spec.`,
     );
     process.exitCode = 1;
     return;

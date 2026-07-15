@@ -541,7 +541,9 @@ export async function readDeskLock(root: string, session: string): Promise<DeskL
 }
 
 // Live desks for this repo (across all sessions), used to auto-target
-// await/comment/reload when --session isn't given.
+// await/comment/reload when --session isn't given. A lock whose pid is dead is
+// debris from a crash/SIGKILL (only a clean exit unlinks it) — sweep it here so
+// stale locks don't accumulate under ~/.galley across sessions.
 export async function findLiveDesks(root: string): Promise<DeskLock[]> {
   const home = process.env.HOME || process.env.USERPROFILE || root;
   const base = path.join(home, ".galley", hash(root));
@@ -549,18 +551,17 @@ export async function findLiveDesks(root: string): Promise<DeskLock[]> {
   const out: DeskLock[] = [];
   for (const s of sessions) {
     const lock = await readDeskLock(root, s);
-    if (
-      lock &&
-      (() => {
-        try {
-          process.kill(lock.pid, 0);
-          return true;
-        } catch {
-          return false;
-        }
-      })()
-    )
-      out.push(lock);
+    if (!lock) continue;
+    const alive = (() => {
+      try {
+        process.kill(lock.pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    if (alive) out.push(lock);
+    else await fs.unlink(deskLockPath(await reviewDir(root, s))).catch(() => undefined);
   }
   return out;
 }
