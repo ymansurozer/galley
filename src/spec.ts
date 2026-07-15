@@ -65,6 +65,10 @@ done
   NOT auto-re-diffed). Anything you edit resets to pending on reload — decisions, approvals, and
   skims alike; anything you left untouched carries over. --guide swaps the guide (one desk only —
   see Between rounds).
+- \`galley stop [--session <id> | --all]\` — shut down this repo's live desk(s) (--all = every
+  session). Idempotent, exits 0 with {stopped:[…]} whether or not a desk was running — call it
+  when the review session is over (the human said done / the task is complete) so desks don't
+  linger. All review state is persisted; a later start restores the session.
 
 ## Events
 await yields exactly one:
@@ -179,6 +183,9 @@ naming the offending field.
   (working ↔ staged) or the mode.
 - A live desk writes <sessionDir>/desk.lock (with its url) and removes it on exit; trust a lock
   only if the server actually answers.
+- A desk with no open tab and no attached agent for 2h auto-exits (--idle-timeout <min> at start
+  overrides; 0 = never). An in-flight await pins it alive. Nothing is lost — state persists on
+  every save and a restart reopens the session on the same port, so the old tab self-heals.
 - The reviewer keeps ONE tab across rounds: start is idempotent (a live desk is reused, never
   duplicated) and each repo+session binds a stable port, so a restarted/crashed desk reattaches
   to the same origin and the open tab self-heals within seconds — don't tell the reviewer to

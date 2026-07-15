@@ -46,6 +46,14 @@ export type ServerOptions = {
   runEditorCommand?: (command: string, args: string[]) => Promise<void>;
   // Test seam: TTL for the ephemeral agent-activity line (default 90s).
   statusTtlMs?: number;
+  // Auto-exit after this long with no HTTP activity (default 2h; 0 disables). An open
+  // tab polls /api/state and a waiting agent holds /api/await-send, so "idle" really
+  // means abandoned — no tab, no agent. State is persisted on every save and the desk
+  // is idempotent on a stable port, so restarting later restores everything.
+  idleTimeoutMs?: number;
+  // Test seam: called instead of process.exit(0) when the desk shuts itself down
+  // (idle timeout or POST /api/shutdown).
+  onShutdown?: (reason: "idle" | "stop") => void;
 };
 
 export type ServerHandle = {
@@ -176,7 +184,46 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     queuedQuestions: eventQueue.filter((e) => e.kind === "question").length,
     queuedReviews: eventQueue.filter((e) => e.kind === "review").length,
   });
+
+  // Desk lifecycle: without this, an abandoned desk (tab closed, agent gone) serves
+  // forever and desks accumulate across repos/sessions. Any request marks activity;
+  // an in-flight request (the await-send long-poll especially) pins the desk alive
+  // via activeRequests, so only a desk nobody is connected to can idle out.
+  const shutdown =
+    options.onShutdown ??
+    ((reason: "idle" | "stop") => {
+      console.error(
+        reason === "idle"
+          ? `Desk idle — shutting down. Restart with: galley --session ${state.session}`
+          : "Desk stopped via galley stop.",
+      );
+      process.exit(0);
+    });
+  const idleMs = options.idleTimeoutMs ?? 2 * 60 * 60 * 1000;
+  let lastActivity = Date.now();
+  let activeRequests = 0;
+  let idleTimer: NodeJS.Timeout | undefined;
+  if (idleMs > 0) {
+    // Check often enough that tests can use tiny timeouts, rarely enough to be free.
+    idleTimer = setInterval(
+      () => {
+        if (activeRequests === 0 && Date.now() - lastActivity >= idleMs) {
+          clearInterval(idleTimer); // one-shot: never re-fire while shutdown runs
+          shutdown("idle");
+        }
+      },
+      Math.min(60_000, Math.max(idleMs / 4, 10)),
+    );
+    idleTimer.unref();
+  }
+
   const server = http.createServer(async (req, res) => {
+    lastActivity = Date.now();
+    activeRequests++;
+    res.on("close", () => {
+      activeRequests--;
+      lastActivity = Date.now();
+    });
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       if (req.method === "GET" && url.pathname === "/") {
@@ -209,6 +256,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (req.method === "GET" && url.pathname === "/api/state") {
         await syncGitState(state);
         return json(res, 200, { ...state, ...deskStatus() });
+      }
+      if (req.method === "POST" && url.pathname === "/api/shutdown") {
+        // `galley stop`: exit after the response flushes so the caller gets its ack.
+        // The process exit handler removes the desk lock.
+        res.on("finish", () => shutdown("stop"));
+        return json(res, 200, { ok: true, stopping: true });
       }
       // Display preferences, stored globally in ~/.galley/settings.json — the desk's
       // random port makes browser localStorage (per-origin) useless for them.
@@ -648,6 +701,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       server.removeListener("error", onError);
       resolve();
     });
+  });
+  server.on("close", () => {
+    if (idleTimer) clearInterval(idleTimer);
   });
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : 0;

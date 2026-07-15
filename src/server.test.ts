@@ -47,6 +47,8 @@ async function withServer(
   options: {
     runEditorCommand?: (command: string, args: string[]) => Promise<void>;
     statusTtlMs?: number;
+    idleTimeoutMs?: number;
+    onShutdown?: (reason: "idle" | "stop") => void;
   } = {},
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "galley-server-"));
@@ -447,6 +449,51 @@ test("/api/reload: a guide-declared move merges into a rename entry; a bad one i
     assert.equal(bad.status, 422);
     assert.deepEqual(st.files.map((f) => f.path).sort(), before);
   });
+});
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+test("POST /api/shutdown acks then triggers shutdown with reason stop", async () => {
+  const reasons: string[] = [];
+  await withServer(
+    async (handle) => {
+      const res = await fetch(`${handle.url}api/shutdown`, { method: "POST" });
+      const body = (await res.json()) as { ok?: boolean; stopping?: boolean };
+      assert.equal(body.ok, true);
+      assert.equal(body.stopping, true);
+      // Shutdown fires on response finish — give the event loop a beat.
+      await sleep(20);
+      assert.deepEqual(reasons, ["stop"]);
+    },
+    { idleTimeoutMs: 0, onShutdown: (reason) => reasons.push(reason) },
+  );
+});
+
+test("idle timeout shuts the desk down when nothing is connected", async () => {
+  const reasons: string[] = [];
+  await withServer(
+    async () => {
+      await sleep(200);
+      assert.deepEqual(reasons, ["idle"]);
+    },
+    { idleTimeoutMs: 50, onShutdown: (reason) => reasons.push(reason) },
+  );
+});
+
+test("an in-flight await-send long-poll pins the desk past the idle timeout", async () => {
+  const reasons: string[] = [];
+  await withServer(
+    async (handle) => {
+      // Holds the connection open well past idleTimeoutMs; activeRequests > 0 must
+      // block the idle exit for as long as an agent is parked on await.
+      const poll = fetch(`${handle.url}api/await-send?timeout=1`);
+      await sleep(200);
+      assert.deepEqual(reasons, [], "no idle shutdown while a long-poll is held");
+      const res = await poll;
+      assert.equal(res.status, 204); // bounded hold expired with no event
+    },
+    { idleTimeoutMs: 50, onShutdown: (reason) => reasons.push(reason) },
+  );
 });
 
 test("settings API round-trips editorCommand", async () => {
