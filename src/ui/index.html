@@ -3091,7 +3091,7 @@
           </button>
         </div>
         <div id="files" x-show="!($store.g.hasGuide && $store.g.hasGuide()) || $store.g.sidebarTab==='tree'"><template x-for="r in $store.g.treeRows()" :key="r.key">
-            <div class="node" :class="[r.cls, r.kind==='skimgrp' ? 'skimgrp' : '']" :style="r.style" @click="$store.g.rowClick(r)">
+            <div class="node" :data-key="r.key" :class="[r.cls, r.kind==='skimgrp' ? 'skimgrp' : '']" :style="r.style" @click="$store.g.rowClick(r)">
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='dir' || r.kind==='skimgrp'"><use href="#gly-chevron"></use></svg>
               <svg class="ic folder" x-show="r.kind==='dir'"><use href="#gly-folder"></use></svg>
               <span class="chev-spacer" x-show="r.kind==='file' || r.kind==='test'"></span>
@@ -3112,7 +3112,7 @@
           </template></div>
         <div id="walk" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'" x-cloak>
           <template x-for="r in $store.g.walkthroughRows()" :key="r.key">
-            <div class="node" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '']" :style="r.kind==='cat' ? '' : r.style"
+            <div class="node" :data-key="r.key" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '']" :style="r.kind==='cat' ? '' : r.style"
               @click="r.kind!=='cat' ? $store.g.selectFile(r.fileIndex) : (r.skimmed ? $store.g.toggleSkimGroup() : $store.g.selectFile(r.jumpIndex))">
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='cat' && r.skimmed"><use href="#gly-chevron"></use></svg>
               <span class="nm walk-cat-name" x-show="r.kind==='cat'" x-text="r.category" :title="r.category"></span>

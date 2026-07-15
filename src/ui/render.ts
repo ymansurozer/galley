@@ -12,7 +12,7 @@ import {
   fileObjections,
 } from "./changes";
 import type { AnnotationMeta } from "./types";
-import { applyLayoutClasses } from "./tree";
+import { applyActiveRow, applyLayoutClasses } from "./tree";
 import { annotations, renderAnnotation, buildCommentThread } from "./annotations";
 import { restoreComposerFocus } from "./composer";
 import { unanchoredThreads } from "./unanchored";
@@ -270,6 +270,9 @@ export async function render() {
     // re-focus the open composer and restore its caret from the store, so typing survives
     // a render triggered mid-compose (e.g. accepting a change while replying).
     restoreComposerFocus();
+    // Re-apply the sidebar highlight an rAF later — after Alpine's microtask flush, so rows
+    // that were just re-keyed by a reactive change carry it again (see applyActiveRow).
+    requestAnimationFrame(applyActiveRow);
     requestAnimationFrame(() => requestAnimationFrame(updateProgress));
   }
 }
