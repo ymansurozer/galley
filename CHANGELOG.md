@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.7.1
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.7.0...v0.7.1)
+
+### 🔥 Performance
+
+- One-pass flow index + in-place active row — file switches stop freezing big desks ([#48](https://github.com/ymansurozer/galley/pull/48))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.7.0
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.6.3...v0.7.0)
