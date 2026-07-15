@@ -1,6 +1,6 @@
 import { S } from "./store";
-import { fileFinished, fileReviewState } from "./changes";
-import { fileFullySkimmed, fileOutOfFlow, movedFrom, isSkimGroupExpanded } from "./skim";
+import { flowIndex } from "./changes";
+import { movedFrom, isSkimGroupExpanded } from "./skim";
 import type { TreeRow, TreeNode, TreeFile, FileRow } from "./types";
 
 // Every directory path in the tree (independent of current open/closed state) — used by
@@ -48,13 +48,17 @@ export function touchedDirPaths(): string[] {
 // (Replaces the old buildFileTree HTML-string builder + sync() DOM wiring.)
 export function treeRows(): TreeRow[] {
   if (!S.state) return []; // template may evaluate before the initial fetch
+  // One O(changes+comments+files) pass for everything each row needs — per-row predicate calls
+  // rescanned the global arrays and froze big desks (see flow-index.ts). Built fresh per
+  // evaluation so Alpine's dependency tracking stays intact.
+  const ix = flowIndex();
   const root: TreeNode = { name: "", full: "", dirs: new Map(), files: [], changed: false };
   const changed = new Map(S.state.files.map((f, i) => [f.path, i]));
   const changedPaths = S.state.files.map((f) => f.path);
   // Files out of the main flow (fully skimmed, or pure renames — issue 01/07) leave the main
   // listing and gather in the collapsed group at the bottom — so they don't mark their folders as
   // changed and don't clutter the tree.
-  const skimmedPaths = changedPaths.filter((p) => fileOutOfFlow(p));
+  const skimmedPaths = changedPaths.filter((p) => ix.outOfFlow.has(p));
   const skimmedSet = new Set(skimmedPaths);
   // A reviewed file must always appear, even if it isn't in the project listing (a new/
   // untracked file, or a stale listing): union the listing with the changed files when
@@ -121,20 +125,16 @@ export function treeRows(): TreeRow[] {
   const indent = (d: number) => (d ? `--depth:${d}` : "");
 
   function fileRow(file: TreeFile, depth: number, isTest: boolean) {
-    const comments = S.state.comments.filter((c) => c.path === file.path);
-    const decisions = S.state.changes.filter((c) => c.path === file.path);
+    const comments = ix.commentsByPath.get(file.path) ?? [];
+    const decisions = ix.changesByPath.get(file.path) ?? [];
     const decided = decisions.length > 0 && decisions.every((c) => c.status !== "pending");
-    const finished = fileFinished(file.path);
+    const finished = ix.finished(file.path);
     // Single review-state badge for a changed file: pending / approved / changes-requested.
-    const state = file.changed ? fileReviewState(file.path) : null;
-    // No file is "active" while the guide Overview is showing (nothing is being viewed yet).
-    // While previewing an opened file, the previewed path is active (it may be unchanged, so
-    // it has no fileIndex); otherwise the indexed review file is active.
-    const active = S.overviewOpen
-      ? false
-      : S.preview
-        ? S.preview.path === file.path
-        : file.index === S.fileIndex;
+    const state = file.changed ? ix.reviewState(file.path) : null;
+    // NOTE: the "active" highlight is deliberately NOT part of the row model. Deriving it here
+    // read S.fileIndex/S.preview/S.overviewOpen, which made EVERY file switch a dependency-
+    // triggered rebuild of the whole x-for (1,600+ rows re-bound to move one highlight — the
+    // dominant per-switch cost on big desks). applyActiveRow() patches the class imperatively.
     const hasTests = !isTest && file.tests.length > 0;
     // A changed test stays revealed for its whole lifecycle (like any changed file) so it doesn't
     // vanish from the tree the moment it's approved — only *unchanged* sibling tests stay folded.
@@ -142,7 +142,7 @@ export function treeRows(): TreeRow[] {
     // The parent filename reads as "needs attention" (cyan) only while a changed test is still
     // pending; once every changed test is signed off, the parent goes neutral (dealt with).
     const pendingChangedTests =
-      !isTest && file.tests.some((t) => t.changed && fileReviewState(t.path) === "pending");
+      !isTest && file.tests.some((t) => t.changed && ix.reviewState(t.path) === "pending");
     // "Changed" (cyan) filename = still needs attention: a pending changed file, or a child test
     // that's still pending. Approved / changes-requested files read as neutral (dealt with).
     const changedish = (file.changed && state === "pending") || pendingChangedTests;
@@ -155,9 +155,7 @@ export function treeRows(): TreeRow[] {
       kind: isTest ? "test" : "file",
       depth,
       name: file.name,
-      cls: [active ? "active" : "", changedish ? "changed" : "", isTest ? "test" : ""]
-        .filter(Boolean)
-        .join(" "),
+      cls: [changedish ? "changed" : "", isTest ? "test" : ""].filter(Boolean).join(" "),
       style: indent(depth),
       path: file.path,
       fileIndex: file.index,
@@ -166,7 +164,7 @@ export function treeRows(): TreeRow[] {
       testCaret: testOpen ? "▾" : "▸",
       changeType: changedish ? changeType(file) : null,
       state: showTestToggle ? null : state,
-      skim: file.changed && fileFullySkimmed(file.path),
+      skim: file.changed && ix.fullySkimmed.has(file.path),
     });
     if (testOpen)
       file.tests
@@ -205,17 +203,13 @@ export function treeRows(): TreeRow[] {
   // file — its file/block skim strips render as issue 06 built.
   function skimFileRow(path: string): FileRow {
     const index = changed.get(path);
-    const active = S.overviewOpen
-      ? false
-      : S.preview
-        ? S.preview.path === path
-        : index === S.fileIndex;
     return {
       key: "file:" + path,
       kind: "file",
       depth: 1,
       name: path.split("/").pop() || path,
-      cls: active ? "active" : "",
+      cls: "", // "active" is patched imperatively — see applyActiveRow
+
       style: indent(1),
       path,
       fileIndex: index,
@@ -255,4 +249,24 @@ export function treeRows(): TreeRow[] {
 export function applyLayoutClasses() {
   document.body.classList.toggle("single", (S.state.files?.length || 0) <= 1);
   document.body.classList.toggle("file-mode", S.state.mode === "file");
+}
+
+// The sidebar's "active" highlight, patched in place instead of derived in the row models.
+// Deriving it made treeRows()/walkthroughRows() depend on S.fileIndex/S.preview/S.overviewOpen,
+// so every file switch re-ran both x-fors — thousands of row bindings re-evaluated to move one
+// highlight (the dominant per-switch cost on big desks). Same pattern as updateAwaitingDom:
+// selectFile calls this directly, and render() re-applies it after Alpine's flush (an rAF later,
+// so freshly re-keyed rows get the class back — Alpine's :class diff only removes classes it
+// added itself, so this manual class survives binding re-evaluation on reused elements).
+// No file is "active" on the Overview; a previewed file wins over the indexed review file.
+export function applyActiveRow() {
+  const path = S.overviewOpen
+    ? null
+    : (S.preview?.path ?? S.state?.files?.[S.fileIndex]?.path ?? null);
+  for (const el of document.querySelectorAll("#files .node.active, #walk .node.active"))
+    el.classList.remove("active");
+  if (!path) return;
+  for (const key of [`file:${path}`, `test:${path}`])
+    for (const el of document.querySelectorAll(`.node[data-key="${CSS.escape(key)}"]`))
+      el.classList.add("active");
 }

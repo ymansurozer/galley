@@ -1,7 +1,8 @@
 import { S, $, esc } from "./store";
-import { fileReviewState, fileFinished } from "./changes";
+import { flowIndex } from "./changes";
+import type { FlowIndex } from "./flow-index";
 import { navFileOrder, nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek";
-import { fileOutOfFlow, isSkimGroupExpanded } from "./skim";
+import { isSkimGroupExpanded } from "./skim";
 import { renderMarkdown } from "./markdown";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
 import type { WalkGroup, WalkRow } from "./walkthrough";
@@ -36,11 +37,14 @@ export function firstGuideIndex(): number {
 // opposite band from `cur`. Off either band's end returns null and the caller wraps (guideNext/
 // guidePrev), where the wrap seeks (navOrder) only ever target the in-flow band.
 function outOfBand(cur: number): (i: number) => boolean {
+  // The returned predicate runs per candidate file while stepping — one flow-index pass here
+  // instead of a per-candidate rescan (see flow-index.ts).
+  const outOfFlow = flowIndex().outOfFlow;
   const path = S.state?.files?.[cur]?.path;
-  const curSkimmed = !!path && fileOutOfFlow(path);
+  const curSkimmed = !!path && outOfFlow.has(path);
   return (i) => {
     const p = S.state?.files?.[i]?.path;
-    return (!!p && fileOutOfFlow(p)) !== curSkimmed;
+    return (!!p && outOfFlow.has(p)) !== curSkimmed;
   };
 }
 
@@ -85,41 +89,52 @@ export function prevFileIndex(cur: number): number | null {
 // single choke point that keeps the wrap/approve-advance seeks off files that left the flow.
 // Plain mid-list stepping (nextFileIndex) reads its own band order, not this; only the seek/wrap
 // helpers read this extended order.
-export function navOrder(): number[] {
+// The seeks below classify every file per call, so each public entry builds ONE flow-index
+// pass and threads it through (per-file predicate rescans froze big desks — see flow-index.ts).
+function navOrderWith(ix: FlowIndex): number[] {
   const n = S.state?.files?.length ?? 0;
   return navFileOrder(n, hasGuide() ? guideOrder() : null, (i) => {
     const p = S.state?.files?.[i]?.path;
-    return !!p && !fileOutOfFlow(p);
+    return !!p && !ix.outOfFlow.has(p);
   });
+}
+export function navOrder(): number[] {
+  return navOrderWith(flowIndex());
 }
 
 // "Unreviewed" for the seek — a file not signed off in the current state, matching the tree
 // badges and floating approve button (an agent edit after sign-off invalidates the hash, so
-// the file counts as unreviewed again). Store-reading wrapper over fileFinished.
-function seekFinished(i: number): boolean {
-  const path = S.state?.files?.[i]?.path;
-  return !!path && fileFinished(path);
+// the file counts as unreviewed again). Index-reading equivalent of fileFinished.
+function seekFinishedWith(ix: FlowIndex): (i: number) => boolean {
+  return (i) => {
+    const path = S.state?.files?.[i]?.path;
+    return !!path && ix.finished(path);
+  };
 }
 
 // Is there any unreviewed file left anywhere in the nav order?
 export function anyUnreviewed(): boolean {
-  return navOrder().some((i) => !seekFinished(i));
+  const ix = flowIndex();
+  return navOrderWith(ix).some((i) => !seekFinishedWith(ix)(i));
 }
 
 // The next unreviewed file after `cur`, wrapping past the end — approve-advance's seek.
 // null when no unreviewed file remains (the caller falls back to the review-complete prompt).
 export function nextUnreviewedFileIndex(cur: number): number | null {
-  return nextUnreviewed(navOrder(), cur, seekFinished);
+  const ix = flowIndex();
+  return nextUnreviewed(navOrderWith(ix), cur, seekFinishedWith(ix));
 }
 
 // Where plain "next" lands when it steps off the last file: first unreviewed, else first file.
 export function nextWrapIndex(): number | null {
-  return wrapNextTarget(navOrder(), seekFinished);
+  const ix = flowIndex();
+  return wrapNextTarget(navOrderWith(ix), seekFinishedWith(ix));
 }
 
 // Where plain "prev" lands when it steps off the first position: last unreviewed, else last file.
 export function prevWrapIndex(): number | null {
-  return wrapPrevTarget(navOrder(), seekFinished);
+  const ix = flowIndex();
+  return wrapPrevTarget(navOrderWith(ix), seekFinishedWith(ix));
 }
 
 // Changed lines (additions + deletions) per file path — the weight used for progress, so
@@ -135,22 +150,22 @@ function locByPath(): Map<string, number> {
 // the data behind the Walkthrough sidebar tab and the Overview file list.
 export function walkGroups(): WalkGroup[] {
   if (!hasGuide()) return [];
+  // One flow-index pass backs both predicates for the whole group derivation.
+  const ix = flowIndex();
   return walkthroughGroups(
     S.state.guide!.files,
     S.state.files ?? [],
-    fileReviewState,
-    fileOutOfFlow,
+    (p) => ix.reviewState(p),
+    (p) => ix.outOfFlow.has(p),
   );
 }
 
-// Flat rows for the Walkthrough tab's x-for. Same active-path rule as the tree: nothing is
-// active on the Overview; a previewed file wins over the indexed review file. The trailing
-// "Skimmed" group's file rows appear only while the group is expanded (issue 07).
+// Flat rows for the Walkthrough tab's x-for. The "active" highlight is deliberately NOT derived
+// here (activePath = null): reading S.fileIndex/S.preview/S.overviewOpen made every file switch
+// re-run this whole x-for. applyActiveRow (tree.ts) patches the class imperatively for both
+// sidebars. The trailing "Skimmed" group's file rows appear only while the group is expanded.
 export function walkthroughRows(): WalkRow[] {
-  const activePath = S.overviewOpen
-    ? null
-    : (S.preview?.path ?? S.state?.files?.[S.fileIndex]?.path ?? null);
-  return walkRows(walkGroups(), activePath, isSkimGroupExpanded());
+  return walkRows(walkGroups(), null, isSkimGroupExpanded());
 }
 
 // Overall review progress for the guide-bar indicator, weighted by changed lines (LOC) rather
@@ -159,15 +174,17 @@ export function walkthroughRows(): WalkRow[] {
 export function guideProgress(): { done: number; approved: number; total: number; pct: number } {
   const byLines = S.settings.progressBy !== "files";
   const loc = byLines ? locByPath() : null;
+  // One flow-index pass for the whole loop (see flow-index.ts).
+  const ix = flowIndex();
   let total = 0,
     done = 0,
     approved = 0;
   for (const f of S.state?.files ?? []) {
     // Fully-skimmed files carry no progress weight — they left the flow (issue 07).
-    if (fileOutOfFlow(f.path)) continue;
+    if (ix.outOfFlow.has(f.path)) continue;
     const w = byLines ? (loc!.get(f.path) ?? 1) : 1;
     total += w;
-    const st = fileReviewState(f.path);
+    const st = ix.reviewState(f.path);
     if (st !== "pending") done += w;
     if (st === "approved") approved += w;
   }

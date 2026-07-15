@@ -2,7 +2,17 @@ import type { ChangeContent, FileDiffMetadata } from "@pierre/diffs";
 import { S, D } from "./store";
 import { cur } from "./contents";
 import { buildLineMap, type DecidedPosition } from "./linemap";
+import { deriveFlowIndex, type FlowIndex } from "./flow-index";
 import type { ChangeState, ReviewComment, ReviewState, Side } from "./types";
+
+// One-pass per-path index over the live state for BULK derivations (the tree, walkthrough,
+// progress, nav seeks, completion gate) — anywhere that classifies every file per evaluation.
+// The per-path predicates below stay the source of truth for one-off call sites; iterating
+// files through them is O(files × changes) and froze big desks (see flow-index.ts). Build the
+// index once per evaluation and never cache it across effects.
+export function flowIndex(): FlowIndex {
+  return deriveFlowIndex(S.state);
+}
 
 type ReviewFile = ReviewState["files"][number];
 type ChangeStatus = ChangeState["status"];

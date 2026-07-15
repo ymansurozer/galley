@@ -1,8 +1,7 @@
 import { S, D, toast, api, persist } from "./store";
-import { currentFile, applyDecisionToDiff, fileObjections, fileReviewState } from "./changes";
+import { currentFile, applyDecisionToDiff, fileObjections, flowIndex } from "./changes";
 import { render, deferRender } from "./render";
 import { nextUnreviewedFileIndex, guideProgress } from "./guide";
-import { fileOutOfFlow } from "./skim";
 import type { ChangeState, Decision } from "./types";
 
 // The explicit decision record is the source of truth for accept/reject (decoupled
@@ -66,7 +65,9 @@ export async function approveCurrentFile() {
   const label = clean ? "Approved" : "Marked reviewed";
   // The review-complete gate is over in-flow files only (issue 01/07): fully-skimmed files and
   // pure renames left the flow, so they never block completion (and are never auto-approved).
-  const scope = S.state.files.filter((f) => !fileOutOfFlow(f.path));
+  // One flow-index pass instead of per-file predicate rescans (see flow-index.ts).
+  const ix = flowIndex();
+  const scope = S.state.files.filter((f) => !ix.outOfFlow.has(f.path));
   // Every in-flow file signed off → the review is done: prompt to send it back to the agent.
   if (scope.every((f) => S.state.reviewedFiles!.includes(f.path))) {
     toast(`${label} — review complete`);
@@ -76,7 +77,7 @@ export async function approveCurrentFile() {
   }
   // Each sign-off toasts the running score ("7 of 12 files · 58%") so progress is felt at the
   // moment it moves, not just visible in the bar. % matches the strip (LOC-weighted by default).
-  const done = scope.filter((f) => fileReviewState(f.path) !== "pending").length;
+  const done = scope.filter((f) => ix.reviewState(f.path) !== "pending").length;
   toast(`${label} — ${done} of ${scope.length} files · ${guideProgress().pct}%`);
   // Seek the next unreviewed file, wrapping past the end so a reviewer who jumped ahead is
   // carried back to the files they skipped instead of dead-ending here.

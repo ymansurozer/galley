@@ -10,7 +10,7 @@ import {
 } from "./changes";
 import { approveCurrentFile } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
-import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
+import { applyActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
 import { render, deferRender } from "./render";
 import { cur, prefetchContents } from "./contents";
@@ -106,6 +106,9 @@ S.selectFile = (i) => {
   S.fileView = defaultFileView(S.state.files[i]);
   D.fileDiff = null;
   cursorReset(); // re-init the line cursor to the new file's first change
+  // Move the sidebar highlight in place — switching files no longer rebuilds the row lists
+  // (the "active" class left the row models; see applyActiveRow in tree.ts).
+  applyActiveRow();
   deferRender();
   // Quietly warm the next file in review order (guide order when guided, else sequential — the
   // exact resolution keyboard nav uses) so the common next-file step never waits on the wire.

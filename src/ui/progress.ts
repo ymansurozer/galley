@@ -1,6 +1,6 @@
 import { S, $ } from "./store";
 import { guideProgress } from "./guide";
-import { fileOutOfFlow } from "./skim";
+import { flowIndex } from "./changes";
 
 // Persistent review-progress chrome: a full-width fill strip along the bottom edge of the
 // topbar plus a "% reviewed" label beside the actions, visible with or without a guide (the
@@ -74,7 +74,9 @@ export function reviewStats(): {
 } {
   // Files out of the flow — fully skimmed or pure renames (issue 01/07) — stay out of the
   // completion receipt's file and line totals so the numbers match the progress bar and the gate.
-  const scope = (S.state?.files ?? []).filter((f) => !fileOutOfFlow(f.path));
+  // One flow-index pass instead of a per-file rescan (see flow-index.ts).
+  const outOfFlow = flowIndex().outOfFlow;
+  const scope = (S.state?.files ?? []).filter((f) => !outOfFlow.has(f.path));
   let lines = 0;
   for (const f of scope)
     for (const h of f.hunks ?? []) for (const l of h.lines) if (l.kind !== "context") lines++;
