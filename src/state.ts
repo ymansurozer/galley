@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import {
+  blobOid,
   changeBlockContent,
   changeStableKeyFromBlock,
   fileAt,
@@ -10,6 +11,7 @@ import {
   getHead,
   git,
   parseUnifiedDiff,
+  rawBlobOids,
   changeBlocks,
 } from "./git.js";
 import type {
@@ -57,7 +59,7 @@ function fileEntry(filePath: string, oldContents: string, newContents: string): 
     path: filePath,
     oldFile: { name: filePath, contents: oldContents },
     newFile: { name: filePath, contents: newContents },
-    contentHash: hash(newContents),
+    contentHash: blobOid(newContents),
   };
 }
 
@@ -68,6 +70,9 @@ async function assembleDiff(
   fetchOld: (p?: string) => Promise<string>,
   fetchNew: (p?: string) => Promise<string>,
   stageable: boolean,
+  // Per-file new-side blob OIDs harvested from `git diff --raw` (committed new sides: pr's HEAD,
+  // staged's index). Absent for a working-tree new side, where we hash the working copy instead.
+  newOids?: Map<string, string>,
 ): Promise<{ files: ReviewFile[]; changes: ChangeState[] }> {
   const files: ReviewFile[] = [];
   const changes: ChangeState[] = [];
@@ -82,7 +87,9 @@ async function assembleDiff(
       // For non-renames both fall back to filePath, so a plain modify/add/delete is unchanged.
       oldFile: { name: f.oldPath ?? filePath, contents: await fetchOld(f.oldPath) },
       newFile: { name: f.newPath ?? filePath, contents: newContents },
-      contentHash: hash(newContents),
+      // File-level staleness key = the new-side blob OID. Harvested from git for a committed new
+      // side (no re-hash); hashed locally when the new side is the working tree.
+      contentHash: (f.newPath && newOids?.get(f.newPath)) || blobOid(newContents),
     });
     f.hunks.forEach((h, hunkIndex) => {
       changeBlocks(h).forEach((block) => {
@@ -242,7 +249,7 @@ export function resolveMovedFrom(
       hunks: [],
       oldFile: { name: from, contents: del.oldFile.contents },
       newFile: { name: to, contents: add.newFile.contents },
-      contentHash: hash(add.newFile.contents),
+      contentHash: blobOid(add.newFile.contents),
     });
   }
   return { ok: true };
@@ -282,11 +289,14 @@ export async function buildDiffSource(opts: {
     const base = opts.base ?? "HEAD";
     const rawDiff = await git(["diff", "--no-ext-diff", "-M", `${base}..HEAD`], root);
     if (!rawDiff.trim()) return null;
+    // The new side is HEAD (committed) — one `git diff --raw` harvests every new-side OID, so the
+    // file-level key needs no per-file re-hash.
     const { files, changes } = await assembleDiff(
       rawDiff,
       (p) => fileAt(root, p, base),
       (p) => fileAt(root, p, "HEAD"),
       false,
+      await rawBlobOids(root, { base }),
     );
     return { files, changes, rawDiff };
   }
@@ -330,12 +340,16 @@ export async function buildDiffSource(opts: {
   // old/new contents itself instead of rendering these hunks. Unstaged diffs working
   // tree vs INDEX, so old reads :0 — a HEAD baseline would resurrect already-staged
   // changes as pending diff on every reload. Staged (--cached) diffs index vs HEAD.
+  // Staged: the new side is the index (committed object) — harvest its OIDs from `git diff
+  // --raw` in one process. Unstaged: the new side is the dirty working tree (`git diff --raw`
+  // reports it as all-zeros), so no harvest — assembleDiff hashes the working copy instead.
   const { files, changes } = rawDiff.trim()
     ? await assembleDiff(
         rawDiff,
         (p) => fileAt(root, p, opts.staged ? "HEAD" : ":0"),
         (p) => (opts.staged ? fileAt(root, p, ":0") : fileAt(root, p)),
         true,
+        opts.staged ? await rawBlobOids(root, { staged: true, path: opts.path }) : undefined,
       )
     : { files: [], changes: [] };
   // `git diff` never reports untracked files (a brand-new file has no index/HEAD side to
@@ -364,17 +378,19 @@ export async function buildDiffSource(opts: {
     // Exact bytes only — a moved-AND-edited file is deliberately NOT paired (that's guide movedFrom,
     // issue 03). This runs before the base becomes mergeReviewState's input, so a merged entry's
     // distinct old/new paths get issue 01's decision/comment migration for free.
+    // Keyed by blob OID — byte-identical contents share an OID, so the map pairs a deletion with
+    // an untracked file exactly when git would call it a rename (OID equality iff content equal).
     const deletions = files.filter((f) => !f.newPath); // full deletions: old content in oldFile
     const delByHash = new Map<string, ReviewFile[]>();
     for (const d of deletions) {
-      const h = hash(d.oldFile.contents);
+      const h = blobOid(d.oldFile.contents);
       const arr = delByHash.get(h);
       if (arr) arr.push(d);
       else delByHash.set(h, [d]);
     }
     const untByHash = new Map<string, Array<{ rel: string; working: string }>>();
     for (const u of untrackedEntries) {
-      const h = hash(u.working);
+      const h = blobOid(u.working);
       const arr = untByHash.get(h);
       if (arr) arr.push(u);
       else untByHash.set(h, [u]);
@@ -397,7 +413,7 @@ export async function buildDiffSource(opts: {
         hunks: [],
         oldFile: { name: del.path, contents: del.oldFile.contents },
         newFile: { name: unt.rel, contents: unt.working },
-        contentHash: hash(unt.working),
+        contentHash: blobOid(unt.working),
       });
     }
     // Drop the paired deletions + their change blocks; keep unpaired untracked as full additions.
@@ -416,7 +432,7 @@ export async function buildDiffSource(opts: {
 
 // A small LRU of resolved file contents, so the tab re-opening a file (or re-fetching after a
 // render) doesn't re-spawn `git show`. Keyed by root + path + contentHash: contentHash is the
-// new-side content hash, so a reload that rewrites the file changes the key and the stale entry
+// new-side blob OID, so a reload that rewrites the file changes the key and the stale entry
 // falls out naturally (no explicit invalidation). Process-global — one desk per process.
 const CONTENTS_CACHE_CAP = 30;
 const contentsCache = new Map<string, { oldContents: string; newContents: string }>();

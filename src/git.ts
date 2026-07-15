@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -175,6 +176,56 @@ export async function fileAt(root: string, rel: string | undefined, ref?: string
   } catch {
     return "";
   }
+}
+
+// Git's blob object id for a piece of content: sha1 over "blob <byteLen>\0" + bytes, the exact
+// bytes git hashes, so this equals `git hash-object` for that content (barring clean/smudge
+// filters, which Galley doesn't use). Used as the file-level staleness key (contentHash) — the
+// same value git reports in `git diff --raw`, so the committed sides need no re-hashing (see
+// rawBlobOids) and only the working/untracked side is hashed here. SHA-1 only (git's default
+// object format); on a rare sha256 repo committed sides still carry their real 64-hex OIDs while
+// working sides get this sha1 — internally consistent per file, so staleness stays correct.
+export function blobOid(content: string) {
+  const bytes = Buffer.from(content, "utf8");
+  return crypto.createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+}
+
+// A blob OID git reports as all-zeros — the working-tree side of a dirty/untracked file, which has
+// no stored object yet. Signals "hash the working copy locally" (blobOid) rather than harvest.
+function isZeroOid(oid: string) {
+  return /^0+$/.test(oid);
+}
+
+// Harvest per-file new-side blob OIDs from `git diff --raw` in ONE process (not a `git show`
+// per file), for the same args the patch diff was taken with. Only useful where the new side is
+// committed (pr: HEAD; staged repo: the index) — a plain working-tree side comes back all-zeros
+// and is dropped here so the caller falls back to blobOid(workingCopy). Keyed by new path (the
+// rename target, since -M pairs the halves). Full 40-hex via --no-abbrev; -z tolerates spaces.
+export async function rawBlobOids(
+  root: string,
+  opts: { staged?: boolean; base?: string; path?: string },
+): Promise<Map<string, string>> {
+  const args = ["diff", "--no-ext-diff", "-M", "--raw", "-z", "--no-abbrev"];
+  if (opts.staged) args.push("--cached");
+  if (opts.base) args.push(`${opts.base}..HEAD`);
+  if (opts.path) args.push("--", opts.path);
+  const raw = await git(args, root).catch(() => "");
+  const tokens = raw.split("\0").filter((t) => t.length > 0);
+  const out = new Map<string, string>();
+  let i = 0;
+  while (i < tokens.length) {
+    const meta = tokens[i++]!;
+    if (!meta.startsWith(":")) continue;
+    // ":<oldmode> <newmode> <oldsha> <newsha> <status>" — status R/C consumes old+new paths.
+    const parts = meta.slice(1).split(" ");
+    const newOid = parts[3];
+    const status = parts[4] ?? "";
+    const isCopyOrRename = status[0] === "R" || status[0] === "C";
+    if (isCopyOrRename) i++; // skip the old path
+    const newPath = tokens[i++];
+    if (newPath && newOid && !isZeroOid(newOid)) out.set(newPath, newOid);
+  }
+  return out;
 }
 
 export async function listProjectTree(root: string) {

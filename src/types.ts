@@ -102,8 +102,11 @@ export type ReviewFile = DiffFile & {
   path: string;
   oldFile: { name: string; contents: string };
   newFile: { name: string; contents: string };
-  // Hash of the new-side contents — used to invalidate a file's approval when its
-  // content changes between turns (see reviewedFileHashes / mergeReviewState).
+  // Git blob OID of the new-side contents — the file-level staleness key. Changes iff the
+  // content changes, so a file's approval invalidates when its content changes between turns
+  // (see reviewedFileHashes / mergeReviewState). Harvested from `git diff --raw` for a committed
+  // new side; hashed locally (blobOid) for a working-tree side. NOT the block-level key:
+  // ChangeState.contentHash stays a content-slice hash (a diff block is not a git object).
   contentHash: string;
 };
 

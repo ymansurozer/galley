@@ -264,6 +264,52 @@ test("repo mode: mv + edit is NOT paired — renders as delete + add (exact-cont
   rmSync(dir, { recursive: true, force: true });
 });
 
+// ── blob-OID staleness keys (issue 03) ───────────────────────────────────────
+// File-level contentHash is the git blob OID of the new side: harvested from `git diff --raw`
+// for a committed new side (pr HEAD, staged index), hashed locally for a working-tree side.
+
+test("repo mode: file-level contentHash is the git blob OID of the new side (working + untracked)", async () => {
+  const { dir } = freshRepo(false);
+  const g = (args: string[]) => execFileSync("git", args, { cwd: dir }).toString();
+  writeFileSync(path.join(dir, "old.txt"), "a\nEDITED\nc\n"); // dirty tracked file
+  writeFileSync(path.join(dir, "brand.txt"), "fresh\n"); // untracked file
+  const src = await buildDiffSource({ mode: "repo", root: dir });
+  assert.ok(src);
+  const tracked = src!.files.find((f) => f.path === "old.txt")!;
+  const untracked = src!.files.find((f) => f.path === "brand.txt")!;
+  // The dirty working copy and the untracked file both have no committed blob — the key is the
+  // locally-computed blob OID, which equals `git hash-object` of that same working content.
+  assert.equal(tracked.contentHash, g(["hash-object", "old.txt"]).trim());
+  assert.equal(untracked.contentHash, g(["hash-object", "brand.txt"]).trim());
+  assert.match(tracked.contentHash, /^[0-9a-f]{40}$/); // a full blob OID, not the old 16-char slice
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("pr mode: committed new-side contentHash is git's HEAD blob OID (harvested from --raw)", async () => {
+  const { dir, main } = freshRepo(false);
+  const g = (args: string[]) => execFileSync("git", args, { cwd: dir }).toString();
+  g(["checkout", "-q", "-b", "feature"]);
+  writeFileSync(path.join(dir, "old.txt"), "a\nPR\nc\n");
+  g(["commit", "-qam", "pr edit"]);
+  const src = await buildDiffSource({ mode: "pr", root: dir, base: main });
+  assert.ok(src);
+  const f = src!.files.find((x) => x.path === "old.txt")!;
+  assert.equal(f.contentHash, g(["rev-parse", "HEAD:old.txt"]).trim()); // the committed blob OID
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("staged mode: contentHash is the index blob OID (harvested from --cached --raw)", async () => {
+  const { dir } = freshRepo(false);
+  const g = (args: string[]) => execFileSync("git", args, { cwd: dir }).toString();
+  writeFileSync(path.join(dir, "old.txt"), "a\nSTAGED\nc\n");
+  g(["add", "old.txt"]);
+  const src = await buildDiffSource({ mode: "repo", root: dir, staged: true });
+  assert.ok(src);
+  const f = src!.files.find((x) => x.path === "old.txt")!;
+  assert.equal(f.contentHash, g(["rev-parse", ":0:old.txt"]).trim()); // the index blob OID
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("mode-only and same-path binary changes still produce no review entry", async () => {
   const { dir } = freshRepo(false);
   const g = (args: string[]) => execFileSync("git", args, { cwd: dir }).toString();
