@@ -12,77 +12,15 @@ import { render } from "./render";
 import { loadSettings } from "./settings";
 import type { ReviewComment } from "./types";
 
-// Curated Shiki themes + languages, deep-imported so only these are bundled (using
-// shiki's full createHighlighter would pull ~200 unused grammars). The JS regex
-// engine avoids a second oniguruma wasm. The theme set matches the settings picker
-// (and @pierre/diffs loads the same names for the diff), so one theme styles both.
-import palenight from "shiki/dist/themes/material-theme-palenight.mjs";
-import materialDarker from "shiki/dist/themes/material-theme-darker.mjs";
-import githubDark from "shiki/dist/themes/github-dark.mjs";
-import dracula from "shiki/dist/themes/dracula.mjs";
-import ayuDark from "shiki/dist/themes/ayu-dark.mjs";
-import gruvbox from "shiki/dist/themes/gruvbox-dark-medium.mjs";
-import everforest from "shiki/dist/themes/everforest-dark.mjs";
-import darkPlus from "shiki/dist/themes/dark-plus.mjs";
-import javascript from "shiki/dist/langs/javascript.mjs";
-import typescript from "shiki/dist/langs/typescript.mjs";
-import tsx from "shiki/dist/langs/tsx.mjs";
-import json from "shiki/dist/langs/json.mjs";
-import html from "shiki/dist/langs/html.mjs";
-import css from "shiki/dist/langs/css.mjs";
-import python from "shiki/dist/langs/python.mjs";
-import go from "shiki/dist/langs/go.mjs";
-import rust from "shiki/dist/langs/rust.mjs";
-import c from "shiki/dist/langs/c.mjs";
-import cpp from "shiki/dist/langs/cpp.mjs";
-import java from "shiki/dist/langs/java.mjs";
-import bash from "shiki/dist/langs/bash.mjs";
-import sql from "shiki/dist/langs/sql.mjs";
-import yaml from "shiki/dist/langs/yaml.mjs";
-import markdownLang from "shiki/dist/langs/markdown.mjs";
-import diff from "shiki/dist/langs/diff.mjs";
-import toml from "shiki/dist/langs/toml.mjs";
-import ruby from "shiki/dist/langs/ruby.mjs";
-import php from "shiki/dist/langs/php.mjs";
-import dockerfile from "shiki/dist/langs/dockerfile.mjs";
+// The curated Shiki theme + language set is shared with the diff view (@pierre/diffs, via
+// shiki-shim.ts) so one language set styles both surfaces — see shiki-curated.ts. The JS regex
+// engine (below) avoids an oniguruma wasm, and the theme names match the settings picker.
+import { CURATED_LANGS as LANGS, CURATED_THEMES as THEMES } from "./shiki-curated";
 
 // One markdown renderer for both comment bodies (#17) and markdown files (#21).
 // markdown-it gives exact per-block source lines (token.map) — see sourceLine below —
 // which is why we use it over comark; html:false drops raw HTML at the source, and
 // DOMPurify is the final gate before anything is innerHTML'd (incl. agent-authored).
-const THEMES: Record<string, unknown> = {
-  "material-theme-palenight": palenight,
-  "material-theme-darker": materialDarker,
-  "github-dark": githubDark,
-  dracula: dracula,
-  "ayu-dark": ayuDark,
-  "gruvbox-dark-medium": gruvbox,
-  "everforest-dark": everforest,
-  "dark-plus": darkPlus,
-};
-const LANGS = [
-  javascript,
-  typescript,
-  tsx,
-  json,
-  html,
-  css,
-  python,
-  go,
-  rust,
-  c,
-  cpp,
-  java,
-  bash,
-  sql,
-  yaml,
-  markdownLang,
-  diff,
-  toml,
-  ruby,
-  php,
-  dockerfile,
-];
 
 let md: MarkdownIt | null = null;
 // A second renderer for comment bodies with `breaks: true`, so a single newline a reviewer types
