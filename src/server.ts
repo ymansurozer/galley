@@ -29,6 +29,7 @@ import type {
   AgentActivity,
   AwaitEvent,
   DeskStatus,
+  PollPayload,
   QuestionPayload,
   ReviewState,
 } from "./types.js";
@@ -205,6 +206,19 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         res.writeHead(204);
         res.end();
         return;
+      }
+      if (req.method === "GET" && url.pathname === "/api/poll") {
+        // The tab's 1.5s heartbeat. Deliberately tiny and git-free: the full ReviewState
+        // carries the contents of every file in the diff (>100 MB on a big monorepo PR),
+        // and re-serializing it every tick pegged both the desk process and the tab.
+        // Ship only what pollState diffs — hash, guide, comments, liveness; the tab
+        // fetches /api/state exactly once per baseDiffHash change.
+        const poll: PollPayload = {
+          baseDiffHash: state.baseDiffHash,
+          guide: state.guide,
+          comments: state.comments,
+        };
+        return json(res, 200, { ...poll, ...deskStatus() });
       }
       if (req.method === "GET" && url.pathname === "/api/state") {
         await syncGitState(state);

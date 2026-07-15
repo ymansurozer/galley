@@ -184,6 +184,27 @@ test("activity goes stale past the TTL (checked on read, no timers)", async () =
   );
 });
 
+test("/api/poll ships the lite slice plus desk status — never the heavy state", async () => {
+  await withServer(async (handle, _root, st) => {
+    st.rawDiff = "HEAVY DIFF THAT MUST NOT RIDE THE POLL";
+    await post(handle.url, "api/status", { body: "Working…" });
+    await post(handle.url, "api/comment", { path: "a.ts", lineNumber: 1, body: "a reply" });
+    const poll = (await fetch(`${handle.url}api/poll`).then((r) => r.json())) as Record<
+      string,
+      unknown
+    >;
+    // Everything pollState diffs per tick…
+    assert.equal(poll.baseDiffHash, st.baseDiffHash);
+    assert.equal((poll.comments as unknown[]).length, 1);
+    assert.equal(typeof poll.agentListening, "boolean");
+    assert.equal(poll.queuedQuestions, 0);
+    // …and none of the payload that made polling the full state melt big desks.
+    assert.ok(!("rawDiff" in poll), "rawDiff must not ride the poll");
+    assert.ok(!("files" in poll), "file contents must not ride the poll");
+    assert.ok(!("changes" in poll), "changes must not ride the poll");
+  });
+});
+
 test("an unconsumed question surfaces as queuedQuestions", async () => {
   await withServer(async (handle) => {
     await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
