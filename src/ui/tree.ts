@@ -105,6 +105,10 @@ export function treeRows(): TreeRow[] {
     for (const child of node.dirs.values()) groupTests(child);
   }
   // A changed file's type, derived from its diff contents — drives the file-icon color.
+  // LEAN-STATE READER: one of the few sites still reading the embedded oldFile/newFile.contents
+  // (issue 02 moved the render path onto the per-file fetch). This is a cross-file derivation over
+  // every tree row, so it can't fetch per file; it needs the per-file `status` stamp the lean
+  // builder adds — issue 04 converts it and removes the embedded contents.
   function changeType(file: TreeFile): "new" | "modified" | "deleted" | null {
     if (file.index === undefined) return null;
     const sf = S.state.files[file.index];

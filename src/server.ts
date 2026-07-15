@@ -19,6 +19,7 @@ import {
   nowIso,
   persistReview,
   questionPayload,
+  readFileContents,
   readGlobalSettings,
   resolveMovedFrom,
   resolveSkim,
@@ -306,6 +307,38 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             "Check the path is a readable text file in the repo.",
           );
         return json(res, 200, { path: rel, contents });
+      }
+      if (req.method === "GET" && url.pathname === "/api/file-contents") {
+        // One reviewed file's old/new contents, fetched on demand so the full contents never
+        // have to ride /api/state. Same strict path boundary as /api/file (repo-relative, no
+        // escapes). Resolves from git/the working tree via readFileContents — not the embedded copies.
+        const rel = url.searchParams.get("path") || "";
+        const root = path.resolve(state.root);
+        const abs = path.resolve(root, rel);
+        if (abs !== root && !abs.startsWith(root + path.sep))
+          return fail(res, 400, "BAD_PATH", "Path escapes the repo.", "Use a repo-relative path.");
+        const file = state.files.find((f) => f.path === rel);
+        if (!file)
+          return fail(
+            res,
+            404,
+            "NOT_FOUND",
+            `"${rel}" is not part of this review.`,
+            "Reload the desk (GET /api/state) if the diff changed.",
+          );
+        try {
+          const { oldContents, newContents } = await readFileContents(state, file);
+          return json(res, 200, { path: rel, oldContents, newContents });
+        } catch (error) {
+          // A git object that can't be read (e.g. rewritten/dropped by a rebase mid-session).
+          return fail(
+            res,
+            404,
+            "NOT_FOUND",
+            `Could not read contents for "${rel}": ${error instanceof Error ? error.message : String(error)}`,
+            "The desk may be stale after a rebase — reload it (GET /api/state).",
+          );
+        }
       }
       if (req.method === "POST" && url.pathname === "/api/open-editor") {
         const body = JSON.parse(await readBody(req)) as { path?: string; lineNumber?: number };

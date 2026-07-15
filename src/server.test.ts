@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { startServer } from "./server.js";
-import { writeGlobalSettings } from "./state.js";
+import { buildReviewState, writeGlobalSettings } from "./state.js";
 import type { ReviewState } from "./types.js";
 
 function state(root: string): ReviewState {
@@ -470,6 +470,50 @@ test("/api/reload: a guide-declared move merges into a rename entry; a bad one i
     assert.equal(bad.status, 422);
     assert.deepEqual(st.files.map((f) => f.path).sort(), before);
   });
+});
+
+test("/api/file-contents returns contents equal to the embedded copies; rejects escapes + unknown paths (issue 02)", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-fc-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\ntwo\nthree\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  // Working-tree change: a.ts modified (a real diff), plus b.ts brand-new (untracked → old = "").
+  await writeFile(path.join(root, "a.ts"), "one\nCHANGED\nthree\n");
+  await writeFile(path.join(root, "b.ts"), "brand new\n");
+  const st = await buildReviewState(root, { session: "s" });
+  assert.ok(st, "built a review state for the working diff");
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  try {
+    // The resolver reads git/the working tree, not the embedded copies — so it must match them.
+    for (const rel of ["a.ts", "b.ts"]) {
+      const file = st!.files.find((f) => f.path === rel)!;
+      const r = (await fetch(`${handle.url}api/file-contents?path=${rel}`).then((res) =>
+        res.json(),
+      )) as { path: string; oldContents: string; newContents: string };
+      assert.equal(r.oldContents, file.oldFile.contents, `${rel} old side matches embedded`);
+      assert.equal(r.newContents, file.newFile.contents, `${rel} new side matches embedded`);
+    }
+    // Path escape → 400 BAD_PATH (same boundary as /api/file).
+    const escape = await fetch(
+      `${handle.url}api/file-contents?path=${encodeURIComponent("../x.ts")}`,
+    );
+    assert.equal(escape.status, 400);
+    assert.equal(((await escape.json()) as { code?: string }).code, "BAD_PATH");
+    // A path not in the review → 404 NOT_FOUND.
+    const missing = await fetch(`${handle.url}api/file-contents?path=nope.ts`);
+    assert.equal(missing.status, 404);
+    assert.equal(((await missing.json()) as { code?: string }).code, "NOT_FOUND");
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

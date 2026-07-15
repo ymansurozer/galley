@@ -55,6 +55,10 @@ export function fileFullySkimmed(path: string): boolean {
 // equality (see isMovedPure) rather than "zero change blocks", so a guide-merged rename-CHANGED
 // file (issue 03, whose blocks are lazily client-derived) isn't misclassified as pure before it's
 // opened. `movedFrom` returns the old path (or "").
+// LEAN-STATE READER: reads the embedded oldFile/newFile.contents for byte-equality (issue 02
+// moved the render path onto the per-file fetch, but this is a cross-file classification the
+// tree/walkthrough/nav call over every file). It needs a rename-pure/OID stamp from the lean
+// builder — issue 04 converts it and removes the embedded contents.
 export function fileMovedPure(path: string): boolean {
   const f = S.state?.files?.find((x) => x.path === path);
   if (!f) return false;
