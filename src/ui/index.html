@@ -1381,7 +1381,9 @@
 
     /* Oversized-file placeholder (issue 05): a verdict-capable summary shown instead of a diff
        that would freeze the tab. Reuses the panel / churn-count / flag idioms so it reads as
-       native; the change-kind accent (--ct-color) mirrors the diff header's ctColor language. */
+       native; the change-kind accent (--ct-color) mirrors the diff header's ctColor language and
+       colors the kind badge/icon only — a uniform border like the overview card, no left accent
+       (reviewer preference). */
     .oversized-card {
       --ct-color: var(--muted);
       max-width: 620px;
@@ -1389,7 +1391,6 @@
       padding: 20px 22px;
       background: var(--panel);
       border: 1px solid var(--line);
-      border-left: 2px solid var(--ct-color);
       border-radius: var(--radius-lg);
       font-family: var(--sans)
     }
