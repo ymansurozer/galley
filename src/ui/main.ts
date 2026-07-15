@@ -13,7 +13,7 @@ import { closeComposerIfEmpty } from "./selection";
 import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
 import { render, deferRender } from "./render";
-import { cur } from "./contents";
+import { cur, prefetchContents } from "./contents";
 import { adoptDeskStatus, pollState } from "./poll";
 import { reviewerSlice } from "./save";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
@@ -107,6 +107,10 @@ S.selectFile = (i) => {
   D.fileDiff = null;
   cursorReset(); // re-init the line cursor to the new file's first change
   deferRender();
+  // Quietly warm the next file in review order (guide order when guided, else sequential — the
+  // exact resolution keyboard nav uses) so the common next-file step never waits on the wire.
+  const n = nextFileIndex(i);
+  if (n !== null) prefetchContents(S.state.files[n]);
 };
 // Open any repo file (incl. unchanged ones) for read/comment: fetch its contents and show it
 // as a plain view (old === new → no diff blocks). Comments anchor to it like any file.

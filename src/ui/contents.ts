@@ -58,6 +58,27 @@ async function fetchContents(f: ReviewFile): Promise<Contents> {
   return val;
 }
 
+// Opportunistically warm the NEXT file's contents into the same LRU the real open reads, so the
+// common next-file navigation never waits on the wire. Fire-and-forget: it only warms the cache —
+// it never touches `cur`, so a late prefetch can't clobber the current file's render (the stale
+// guard in loadCurrentContents is untouched). Skips oversized placeholders (they never fetch
+// contents until "Load diff anyway" — same test as oversized.ts's isOversizedPlaceholder, inlined
+// to avoid an import cycle) and cache hits. At most one prefetch in flight (a plain busy flag — no
+// queue; opportunistic warming, not a guarantee). A failure is swallowed: the real open re-fetches
+// and shows the error card.
+let prefetching = false;
+export function prefetchContents(f: ReviewFile | null | undefined): void {
+  if (!f || prefetching) return;
+  if (f.oversized && !S.loadedOversized.has(f.path)) return; // placeholder — never fetch
+  if (cache.has(cacheKey(f))) return; // already warm
+  prefetching = true;
+  void fetchContents(f)
+    .catch(() => {})
+    .finally(() => {
+      prefetching = false;
+    });
+}
+
 // Load the current file's contents into `cur` before it renders. Returns:
 //   "ok"    — cur now holds this file's contents;
 //   "stale" — the reviewer switched files while the fetch was in flight (the response is for a

@@ -48,6 +48,7 @@ export async function getBranch(cwd: string) {
 }
 
 export function parseUnifiedDiff(raw: string): DiffFile[] {
+  gitStats.parses++;
   const files: DiffFile[] = [];
   // Files whose content section is binary ("Binary files … differ" / "GIT binary patch") — a
   // transient parse-time set (never a DiffFile field, so it can't leak into ReviewFile). Used
@@ -159,10 +160,12 @@ export function parseUnifiedDiff(raw: string): DiffFile[] {
   );
 }
 
-// Test-observability counter: the number of times fileAt actually reads a blob/working file.
-// buildReviewState must NOT read committed contents (issue 04) — a pr-mode fixture asserts this
-// stays 0 across a build. Reset it before the window you want to measure.
-export const gitStats = { fileReads: 0 };
+// Test-observability counters. `fileReads`: the number of times fileAt actually reads a
+// blob/working file — buildReviewState must NOT read committed contents (issue 04), a pr-mode
+// fixture asserts this stays 0 across a build. `parses`: the number of parseUnifiedDiff calls —
+// a reload must parse the diff exactly once (issue 06), shared across build + skim resolution.
+// Reset the relevant field before the window you want to measure.
+export const gitStats = { fileReads: 0, parses: 0 };
 
 // One reviewed file's contents at a ref (git blob) or from the working tree. By default a missing
 // object/file swallows to "" — for the diff a vanished side degrades to an add/delete rather than

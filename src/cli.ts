@@ -14,6 +14,7 @@ import {
   findLiveDesks,
   loadLatestReview,
   mergeReviewState,
+  parsedDiffOf,
   persistReview,
   readDeskLock,
   resolveMovedFrom,
@@ -511,7 +512,15 @@ async function runDesk(
     // Resolve skim spans against the fresh diff and stamp the collapsed blocks. Strict at
     // initial attach: an unresolvable span aborts the launch naming the offending field, like
     // any other invalid-guide input.
-    const skim = resolveSkim(state.rawDiff, state.changes, state.guide, { strict: true });
+    // state.rawDiff shares identity with base.rawDiff, so pass the parse seeded on `base` — the
+    // reload/launch parses the diff once, shared across build + skim resolution (issue 06).
+    const skim = resolveSkim(
+      state.rawDiff,
+      state.changes,
+      state.guide,
+      { strict: true },
+      parsedDiffOf(base),
+    );
     if (!skim.ok) {
       console.error(`Invalid guide: ${skim.reason}.`);
       process.exitCode = 1;
@@ -520,7 +529,7 @@ async function runDesk(
   } else if (state.guide) {
     // A guide carried forward by the merge (restart without --guide): re-resolve leniently
     // against the new diff — stale spans drop rather than abort (see resolveSkim).
-    resolveSkim(state.rawDiff, state.changes, state.guide, { strict: false });
+    resolveSkim(state.rawDiff, state.changes, state.guide, { strict: false }, parsedDiffOf(base));
   }
   if (mode === "repo") await syncGitState(state);
   await persistReview(state);

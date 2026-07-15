@@ -54,7 +54,10 @@ function ckey(s: string): string {
 }
 
 // How many rendered file instances to keep warm (each holds DOM + @pierre's highlight cache).
-const DIFF_CACHE_CAP = 6;
+// Cheap now that the state itself is lean (issue 04 removed embedded contents), so we keep ~30
+// files warm — returning to any recently viewed file re-mounts its cached wrapper without
+// re-tokenizing, matching the per-file contents LRU's cap (contents.ts).
+const DIFF_CACHE_CAP = 30;
 // A diff that would block longer than ~this many lines of tokenization shows the indicator.
 const RENDER_INDICATOR_MIN_LINES = 400;
 

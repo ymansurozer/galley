@@ -16,6 +16,7 @@ import {
   hash,
   mergeReviewerSave,
   mergeReviewState,
+  parsedDiffOf,
   nowIso,
   persistReview,
   questionPayload,
@@ -563,9 +564,18 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // reload leaves the desk untouched. A guide carried forward re-resolves leniently —
         // stale spans drop, they never fail a reload (see resolveSkim's strict/lenient split).
         const merged = await mergeReviewState(base, state);
+        // merged.rawDiff shares identity with base.rawDiff, so the parse seeded on `base` (via
+        // buildReviewState) is the one resolveSkim needs — pass it so the reload parses once (06).
+        const parsed = parsedDiffOf(base);
         if (validatedGuide) {
           merged.guide = { ...validatedGuide, baseDiffHash: merged.baseDiffHash };
-          const skim = resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: true });
+          const skim = resolveSkim(
+            merged.rawDiff,
+            merged.changes,
+            merged.guide,
+            { strict: true },
+            parsed,
+          );
           if (!skim.ok)
             return fail(
               res,
@@ -575,7 +585,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               "Run `galley spec` for the guided-review schema.",
             );
         } else if (merged.guide) {
-          resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: false });
+          resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: false }, parsed);
         }
         Object.assign(state, merged);
         await syncGitState(state);
