@@ -1,6 +1,7 @@
 import { S } from "./store";
 import { hasGuide } from "./guide";
 import { approveCurrentFile } from "./decisions";
+import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
 import { closeComposer } from "./composer";
 import {
   cursorMoveLine,
@@ -248,6 +249,16 @@ const HOTKEYS: Hotkey[] = [
     run: () => golineCommit(),
     goline: true,
     hide: true,
+  },
+  // On an oversized-file placeholder card there's no line to comment on — ↵ loads the real diff
+  // instead. More specific than the plain-↵ comment binding below, so it wins in that one scope.
+  {
+    combo: "↵",
+    desc: "Load diff anyway (large file)",
+    group: "Review",
+    test: enter,
+    when: () => inDiff() && isOversizedPlaceholder(),
+    run: () => loadOversizedDiff(),
   },
   // Comment
   {

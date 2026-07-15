@@ -259,6 +259,10 @@ export interface Store {
   // Per-session skim expand state: change ids (block-level) and `file:<path>` keys (file-level)
   // the reviewer expanded. Not persisted — collapse is display-only and resets each session.
   skimExpanded: Set<string>;
+  // Paths of oversized files the reviewer chose to "Load diff anyway" on (issue 05). Once loaded,
+  // a file renders its real diff for the rest of the session instead of the summary card. Per-
+  // session and never persisted — the oversized stamp is server-owned and re-derived on reload.
+  loadedOversized: Set<string>;
 
   treeRows?: () => TreeRow[];
   selectFile?: (i: number) => void;

@@ -106,6 +106,26 @@ export async function resetReview(path: string) {
   persist();
 }
 
+// Reject a whole file in one action, for the oversized-file card (issue 05): its blocks aren't
+// visible there, so the honest equivalent of per-block reject is to reject every change block
+// through the SAME decisions path. They flow into result.rejected like any rejected hunk — no new
+// verdict kind, no new result semantics. Only meaningful when the file has change blocks (a
+// hunk-less added file has none — the card hides the action there).
+export async function rejectFile(path: string) {
+  const blocks = S.state.changes.filter((c) => c.path === path);
+  if (!blocks.length) return;
+  for (const c of blocks) {
+    c.status = "rejected";
+    c.reviewedHash = c.contentHash;
+    recordDecision(c, "rejected");
+  }
+  S.state.decisionFiles = S.state.decisionFiles || [];
+  if (!S.state.decisionFiles.includes(path)) S.state.decisionFiles.push(path);
+  toast("Rejected file");
+  render();
+  persist();
+}
+
 // Per-hunk accept/reject is now a pure verdict — staging happens only when the file is approved
 // (so a changes-requested file is never left partially staged).
 export async function acceptChange(id: string, status: Decision["status"]) {

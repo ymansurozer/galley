@@ -73,6 +73,35 @@ function countHunkLines(hunks: DiffHunk[]): { added: number; removed: number } {
   return { added, removed };
 }
 
+// Oversized-file thresholds (issue 05). A file whose diff would freeze the tab if rendered is
+// stamped `oversized`; the UI paints a verdict-capable summary card instead of the diff. Fixed
+// defaults, not user-configurable (see the PRD) — a real desk once held a 107 MB generated JSON
+// whose diff took minutes to render, and any ONE of these catches that class. All computable from
+// the diff + the lean stamps alone (never re-reading a committed blob).
+const OVERSIZED_DIFF_BYTES = 1_000_000; // ~1 MB of unified-diff text for the file
+const OVERSIZED_CHANGED_LINES = 5_000; // added + removed lines
+const OVERSIZED_FILE_BYTES = 1_000_000; // new-side byte size, only where `size` is stamped
+
+// Approximate byte length of a file's unified-diff text from its parsed hunks (each hunk header +
+// each line's +/−/space prefix + content + newline). Close enough to catch a diff that would freeze
+// the tab without retaining the raw per-file section on the state.
+function diffTextBytes(hunks: DiffHunk[]): number {
+  let n = 0;
+  for (const h of hunks) {
+    n += h.header.length + 1;
+    for (const l of h.lines) n += Buffer.byteLength(l.text, "utf8") + 2;
+  }
+  return n;
+}
+
+function isOversized(diffBytes: number, changedLines: number, size?: number): boolean {
+  return (
+    diffBytes > OVERSIZED_DIFF_BYTES ||
+    changedLines > OVERSIZED_CHANGED_LINES ||
+    (size !== undefined && size > OVERSIZED_FILE_BYTES)
+  );
+}
+
 // Change class from the diff's paths alone (no contents): deleted (+++ /dev/null → no newPath),
 // added (--- /dev/null → no oldPath), renamed (distinct paths), else modified.
 function changeKindOf(
@@ -92,6 +121,10 @@ function fileEntry(filePath: string, oldContents: string, newContents: string): 
     oldContents ? filePath : undefined,
     newContents ? filePath : undefined,
   );
+  // Only a fresh add carries a +count here (no hunk to sum); a tracked-unchanged full file is 0/0.
+  const added = changeKind === "added" ? lineCount(newContents) : 0;
+  const removed = changeKind === "deleted" ? lineCount(oldContents) : 0;
+  const size = Buffer.byteLength(newContents, "utf8");
   return {
     oldPath: filePath,
     newPath: filePath,
@@ -99,11 +132,13 @@ function fileEntry(filePath: string, oldContents: string, newContents: string): 
     path: filePath,
     contentHash: blobOid(newContents),
     changeKind,
-    // Only a fresh add carries a +count here (no hunk to sum); a tracked-unchanged full file is 0/0.
-    added: changeKind === "added" ? lineCount(newContents) : 0,
-    removed: changeKind === "deleted" ? lineCount(oldContents) : 0,
+    added,
+    removed,
     renamePure: false,
-    size: Buffer.byteLength(newContents, "utf8"),
+    size,
+    // Hunk-less full-file adds (the 107 MB generated-JSON class) have no diff bytes to sum, so the
+    // changed-line count and byte size are what flag them.
+    ...(isOversized(0, added + removed, size) ? { oversized: true } : {}),
   };
 }
 
@@ -153,6 +188,7 @@ async function assembleDiff(
       // A rename WITH edits carries hunks, so it isn't pure.
       renamePure: changeKind === "renamed" && f.hunks.length === 0,
       ...(size !== undefined ? { size } : {}),
+      ...(isOversized(diffTextBytes(f.hunks), added + removed, size) ? { oversized: true } : {}),
     });
     f.hunks.forEach((h, hunkIndex) => {
       changeBlocks(h).forEach((block) => {
