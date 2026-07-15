@@ -1,6 +1,22 @@
 # Changelog
 
 
+## v0.6.3
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.6.2...v0.6.3)
+
+### 🚀 Enhancements
+
+- Desk lifecycle — galley stop, idle auto-exit, stale-lock sweep ([#39](https://github.com/ymansurozer/galley/pull/39))
+
+### 🩹 Fixes
+
+- Lite /api/poll heartbeat — polling the full state melted big desks ([#40](https://github.com/ymansurozer/galley/pull/40))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.6.2
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.6.1...v0.6.2)
