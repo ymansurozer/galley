@@ -17,6 +17,7 @@ import {
 import type {
   ChangeState,
   Decision,
+  DiffFile,
   DiffHunk,
   Guide,
   QuestionPayload,
@@ -49,8 +50,31 @@ export function sanitizeSession(session: string) {
   return cleaned || "review";
 }
 
-type DiffSource = { files: ReviewFile[]; changes: ChangeState[]; rawDiff: string };
+// `parsedDiff` is the single parseUnifiedDiff(rawDiff) result assembleDiff already computed — kept
+// on the source so the reload path can reuse it for skim resolution instead of re-parsing (issue
+// 06). Empty when there's no diff (unchanged/untracked full-file, rawDiff "").
+type DiffSource = {
+  files: ReviewFile[];
+  changes: ChangeState[];
+  rawDiff: string;
+  parsedDiff: DiffFile[];
+};
 type FileContents = { oldContents: string; newContents: string };
+
+// The parse of a state's rawDiff, computed once and memoized against the state object (GC-tied to
+// it — not a growing module cache). buildReviewState seeds it with the exact DiffFile[] assembleDiff
+// produced during the build, so the reload path's resolveSkim reuses that parse rather than parsing
+// the same (multi-MB) rawDiff a second time. A caller holding a state built elsewhere — or reloaded
+// from disk — falls back to parsing on first access. Same DiffFile[] either way: behavior identical.
+const parsedDiffCache = new WeakMap<ReviewState, DiffFile[]>();
+export function parsedDiffOf(state: ReviewState): DiffFile[] {
+  let hit = parsedDiffCache.get(state);
+  if (!hit) {
+    hit = parseUnifiedDiff(state.rawDiff);
+    parsedDiffCache.set(state, hit);
+  }
+  return hit;
+}
 
 // New-side line count the way git's `@@ -0,0 +1,N @@` and @pierre count: split on \n, dropping one
 // trailing newline so a file ending in \n isn't over-counted by one. Stamps a hunk-less full-file
@@ -142,12 +166,13 @@ function fileEntry(filePath: string, oldContents: string, newContents: string): 
   };
 }
 
-// Parse a unified diff into review files + change blocks, stamping lean metadata and tagging each
-// change as stageable or not. Reads NO file contents for a committed new side — the file-level key
-// is git's own blob OID (newOids). Only a working-tree new side is read, and only to hash it (the
-// bytes aren't retained; the tab fetches contents on demand via readFileContents).
+// Assemble review files + change blocks from an already-parsed unified diff, stamping lean metadata
+// and tagging each change as stageable or not. Takes the parsed DiffFile[] (not rawDiff) so the one
+// parse buildDiffSource did is reused rather than repeated (issue 06). Reads NO file contents for a
+// committed new side — the file-level key is git's own blob OID (newOids). Only a working-tree new
+// side is read, and only to hash it (the bytes aren't retained; the tab fetches on demand).
 async function assembleDiff(
-  rawDiff: string,
+  parsed: DiffFile[],
   // Reads the working-tree new side to hash it. Called ONLY when there's no committed OID for the
   // file (working/file mode), so pr/staged desks invoke it zero times → zero content reads at build.
   fetchNew: (p?: string) => Promise<string>,
@@ -161,7 +186,7 @@ async function assembleDiff(
 ): Promise<{ files: ReviewFile[]; changes: ChangeState[] }> {
   const files: ReviewFile[] = [];
   const changes: ChangeState[] = [];
-  for (const f of parseUnifiedDiff(rawDiff)) {
+  for (const f of parsed) {
     const filePath = f.newPath ?? f.oldPath ?? "unknown";
     const committedOid = f.newPath ? newOids?.get(f.newPath) : undefined;
     let contentHash: string;
@@ -254,15 +279,18 @@ function skimRangesForHunk(h: DiffHunk): Array<{ stableKey: string; lo: number; 
 // diff advanced under the guide, and a block that changed deserves fresh attention, not a stale
 // collapse. Idempotent — clears prior stamps first. File-level `skim` is a whole-file flag and
 // needs no resolution, so it isn't handled here.
+// `preparsed` lets the reload path hand in the DiffFile[] it already parsed (see parsedDiffOf), so
+// the same rawDiff isn't parsed a second time (issue 06); omitted, it parses rawDiff itself.
 export function resolveSkim(
   rawDiff: string,
   changes: ChangeState[],
   guide: Guide,
   opts: { strict: boolean },
+  preparsed?: DiffFile[],
 ): SkimResolution {
   for (const c of changes) delete c.skim;
   const rangesByPath = new Map<string, Array<{ stableKey: string; lo: number; hi: number }>>();
-  for (const f of parseUnifiedDiff(rawDiff)) {
+  for (const f of preparsed ?? parseUnifiedDiff(rawDiff)) {
     const filePath = f.newPath ?? f.oldPath ?? "unknown";
     const ranges = rangesByPath.get(filePath) ?? [];
     for (const h of f.hunks) ranges.push(...skimRangesForHunk(h));
@@ -392,13 +420,14 @@ export async function buildDiffSource(opts: {
     if (!rawDiff.trim()) return null;
     // The new side is HEAD (committed) — one `git diff --raw` harvests every new-side OID, so the
     // file-level key needs no per-file re-hash and assembleDiff reads no blob contents at all.
+    const parsedDiff = parseUnifiedDiff(rawDiff);
     const { files, changes } = await assembleDiff(
-      rawDiff,
+      parsedDiff,
       (p) => fileAt(root, p, "HEAD"),
       false,
       await rawBlobOids(root, { base }),
     );
-    return { files, changes, rawDiff };
+    return { files, changes, rawDiff, parsedDiff };
   }
   if (mode === "file") {
     const abs = opts.path!;
@@ -416,18 +445,24 @@ export async function buildDiffSource(opts: {
       if (rawDiff.trim()) {
         // New side is the working tree — hashed locally (no committed OID). The UI re-diffs old/new
         // (fetched on open against the INDEX baseline via readFileContents), not these hunks.
+        const parsedDiff = parseUnifiedDiff(rawDiff);
         const { files, changes } = await assembleDiff(
-          rawDiff,
+          parsedDiff,
           (p) => fileAt(root, p),
           true,
           undefined,
           true,
         );
-        return { files, changes, rawDiff };
+        return { files, changes, rawDiff, parsedDiff };
       }
-      return { files: [fileEntry(key, working, working)], changes: [], rawDiff: "" }; // tracked, unchanged → full file
+      return {
+        files: [fileEntry(key, working, working)],
+        changes: [],
+        rawDiff: "",
+        parsedDiff: [],
+      }; // tracked, unchanged → full file
     }
-    return { files: [fileEntry(key, "", working)], changes: [], rawDiff: "" }; // untracked/new → full file as additions
+    return { files: [fileEntry(key, "", working)], changes: [], rawDiff: "", parsedDiff: [] }; // untracked/new → full file as additions
   }
   // repo
   // -M asks git itself to detect renames, so committed/staged renames render deterministically
@@ -443,9 +478,11 @@ export async function buildDiffSource(opts: {
   // Staged: the new side is the index (committed object) — harvest its OIDs from `git diff
   // --raw` in one process. Unstaged: the new side is the dirty working tree (`git diff --raw`
   // reports it as all-zeros), so no harvest — assembleDiff hashes the working copy instead.
-  const { files, changes } = rawDiff.trim()
+  // Parse once here and reuse it for both assembleDiff and the DiffSource result (issue 06).
+  const parsedDiff = rawDiff.trim() ? parseUnifiedDiff(rawDiff) : [];
+  const { files, changes } = parsedDiff.length
     ? await assembleDiff(
-        rawDiff,
+        parsedDiff,
         // Staged: new side is the index (committed), covered by newOids → fetchNew is never called.
         // Unstaged: new side is the dirty working tree → read to hash (the one build-time read).
         (p) => (opts.staged ? fileAt(root, p, ":0") : fileAt(root, p)),
@@ -537,7 +574,7 @@ export async function buildDiffSource(opts: {
       if (!pairedUnt.has(u.rel)) files.push(fileEntry(u.rel, "", u.working));
   }
   if (files.length === 0) return null;
-  return { files, changes, rawDiff };
+  return { files, changes, rawDiff, parsedDiff };
 }
 
 // A small LRU of resolved file contents, so the tab re-opening a file (or re-fetching after a
@@ -630,28 +667,34 @@ export async function buildReviewState(
     source: DiffSource,
     extra: { staged: boolean; target?: string; base?: string },
     head: string | null,
-  ): ReviewState => ({
-    id: crypto.randomUUID(),
-    session: sanitizeSession(opts.session),
-    root,
-    repoHash: hash(root),
-    mode,
-    target: extra.target,
-    base: extra.base,
-    staged: extra.staged,
-    head,
-    baseDiffHash: hash(source.rawDiff),
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
-    rawDiff: source.rawDiff,
-    files: source.files,
-    comments: [],
-    changes: source.changes,
-    reviewedFiles: [],
-    reviewedFileHashes: {},
-    stagedFiles: [],
-    decisions: [],
-  });
+  ): ReviewState => {
+    const state: ReviewState = {
+      id: crypto.randomUUID(),
+      session: sanitizeSession(opts.session),
+      root,
+      repoHash: hash(root),
+      mode,
+      target: extra.target,
+      base: extra.base,
+      staged: extra.staged,
+      head,
+      baseDiffHash: hash(source.rawDiff),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      rawDiff: source.rawDiff,
+      files: source.files,
+      comments: [],
+      changes: source.changes,
+      reviewedFiles: [],
+      reviewedFileHashes: {},
+      stagedFiles: [],
+      decisions: [],
+    };
+    // Seed the parse memo with the DiffFile[] buildDiffSource already produced, so the reload path's
+    // resolveSkim reuses it (parsedDiffOf(base)) rather than re-parsing rawDiff (issue 06).
+    parsedDiffCache.set(state, source.parsedDiff);
+    return state;
+  };
 
   if (mode === "file") {
     const resolved = path.isAbsolute(opts.path ?? "")

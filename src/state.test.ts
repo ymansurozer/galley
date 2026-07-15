@@ -8,12 +8,14 @@ import {
   anchorTextFor,
   buildDiffSource,
   buildReviewResult,
+  buildReviewState,
   computeApprovedFiles,
   deskLockPath,
   findLiveDesks,
   globalSettingsPath,
   mergeReviewerSave,
   mergeReviewState,
+  parsedDiffOf,
   persistReview,
   reanchorComments,
   readGlobalSettings,
@@ -25,7 +27,7 @@ import {
   writeFileAtomic,
   writeGlobalSettings,
 } from "./state.js";
-import { changeBlocks, changeStableKeyFromBlock, parseUnifiedDiff } from "./git.js";
+import { changeBlocks, changeStableKeyFromBlock, gitStats, parseUnifiedDiff } from "./git.js";
 import type { ChangeState, Decision, Guide, ReviewComment, ReviewState } from "./types.js";
 
 function file(path: string, contentHash = "FH") {
@@ -1023,6 +1025,67 @@ test("resolveSkim clears prior stamps so re-resolution is idempotent", () => {
   resolveSkim(SKIM_DIFF, changes, guideWith([{ lines: [8, 9] }]), { strict: true });
   assert.equal(changes.find((c) => c.stableKey === "additions:3:0:3")!.skim, undefined);
   assert.ok(changes.find((c) => c.stableKey === "additions:8:1:2")!.skim);
+});
+
+test("reload parses the unified diff exactly once, shared across build + skim (issue 06)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "galley-parse-once-"));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    // Commit app.ts, then add an imports run + rewrite core() in the working tree — a diff whose
+    // new-side lines 3-5 (the added imports) a guide skimBlocks span [3,5] resolves to.
+    const OLD = [
+      `import { a } from "./a";`,
+      `import { b } from "./b";`,
+      ``,
+      `export function core() {`,
+      `  return a() + b();`,
+      `}`,
+      ``,
+    ].join("\n");
+    const NEW = [
+      `import { a } from "./a";`,
+      `import { b } from "./b";`,
+      `import { c } from "./c";`,
+      `import { d } from "./d";`,
+      `import { e } from "./e";`,
+      ``,
+      `export function core() {`,
+      `  const total = a() + b() + c();`,
+      `  return total * 2;`,
+      `}`,
+      ``,
+    ].join("\n");
+    await fs.writeFile(path.join(dir, "app.ts"), OLD);
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    await fs.writeFile(path.join(dir, "app.ts"), NEW);
+
+    // Mirror the reload flow: build (parses once, seeds the memo) → merge → skim resolution
+    // handed the memoized parse via parsedDiffOf(base) instead of re-parsing rawDiff.
+    gitStats.parses = 0;
+    const base = await buildReviewState(dir, { session: "s" });
+    assert.ok(base, "state built");
+    const merged = await mergeReviewState(base!, null);
+    merged.guide = guideWith([{ lines: [3, 5], reason: "imports" }]);
+    const skim = resolveSkim(
+      merged.rawDiff,
+      merged.changes,
+      merged.guide,
+      { strict: false },
+      parsedDiffOf(base!),
+    );
+    assert.ok(skim.ok, "skim resolved");
+    assert.equal(gitStats.parses, 1, "diff parsed exactly once across build + skim resolution");
+    assert.ok(
+      merged.changes.some((c) => c.skim),
+      "the imports block was stamped skim — the shared parse actually drove resolution",
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("skim never changes approval derivations (display-only)", () => {
