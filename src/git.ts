@@ -159,8 +159,19 @@ export function parseUnifiedDiff(raw: string): DiffFile[] {
   );
 }
 
-export async function fileAt(root: string, rel: string | undefined, ref?: string) {
+// Test-observability counter: the number of times fileAt actually reads a blob/working file.
+// buildReviewState must NOT read committed contents (issue 04) — a pr-mode fixture asserts this
+// stays 0 across a build. Reset it before the window you want to measure.
+export const gitStats = { fileReads: 0 };
+
+// One reviewed file's contents at a ref (git blob) or from the working tree. By default a missing
+// object/file swallows to "" — for the diff a vanished side degrades to an add/delete rather than
+// crashing. `strict` (used by on-demand content resolution for a side the diff says MUST exist)
+// rethrows instead, so /api/file-contents can 404 with a reload hint when a rebase drops the object
+// mid-session, instead of silently serving an empty file.
+export async function fileAt(root: string, rel: string | undefined, ref?: string, strict = false) {
   if (!rel) return "";
+  gitStats.fileReads++;
   try {
     // Use a raw exec (not git()) so the trailing newline is preserved — otherwise
     // the file looks like it has "no newline at end of file" and the last line
@@ -173,7 +184,8 @@ export async function fileAt(root: string, rel: string | undefined, ref?: string
       return String(stdout);
     }
     return await fs.readFile(path.join(root, rel), "utf8");
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return "";
   }
 }

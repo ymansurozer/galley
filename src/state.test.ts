@@ -12,6 +12,7 @@ import {
   globalSettingsPath,
   mergeReviewerSave,
   mergeReviewState,
+  persistReview,
   reanchorComments,
   readGlobalSettings,
   resolveMovedFrom,
@@ -19,19 +20,14 @@ import {
   reviewDir,
   sanitizeSession,
   stablePort,
+  writeFileAtomic,
   writeGlobalSettings,
 } from "./state.js";
 import { changeBlocks, changeStableKeyFromBlock, parseUnifiedDiff } from "./git.js";
 import type { ChangeState, Decision, Guide, ReviewComment, ReviewState } from "./types.js";
 
 function file(path: string, contentHash = "FH") {
-  return {
-    path,
-    hunks: [],
-    oldFile: { name: path, contents: "" },
-    newFile: { name: path, contents: "" },
-    contentHash,
-  };
+  return { path, hunks: [], contentHash, changeKind: "modified" as const };
 }
 function change(over: Partial<ChangeState> & { id: string; path: string }): ChangeState {
   return { hunkIndex: 0, side: "additions", lineNumber: 1, title: "", status: "pending", ...over };
@@ -71,7 +67,7 @@ function state(over: Partial<ReviewState>): ReviewState {
   };
 }
 
-test("mergeReviewState carries a prior decision when content is unchanged", () => {
+test("mergeReviewState carries a prior decision when content is unchanged", async () => {
   const base = state({
     baseDiffHash: "new",
     files: [file("a.ts")],
@@ -88,7 +84,7 @@ test("mergeReviewState carries a prior decision when content is unchanged", () =
       }),
     ],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.equal(merged.changes[0]!.status, "accepted");
   assert.equal(merged.changes[0]!.reviewedHash, "H");
   assert.equal(merged.baseDiffHash, "new"); // adopts the fresh diff hash
@@ -152,7 +148,7 @@ test("mergeReviewerSave leaves a field untouched when the body omits it", () => 
   assert.deepEqual(live.comments, []); // present → replaced wholesale
 });
 
-test("mergeReviewerSave then mergeReviewState: a slim-saved decision survives a desk restart", () => {
+test("mergeReviewerSave then mergeReviewState: a slim-saved decision survives a desk restart", async () => {
   // Save via the slim wire, persist, reload: the decision must reconcile across restart.
   const saved = state({});
   mergeReviewerSave(saved, {
@@ -175,12 +171,12 @@ test("mergeReviewerSave then mergeReviewState: a slim-saved decision survives a 
     files: [file("a.ts", "FH")],
     changes: [change({ id: "a.ts:k1", path: "a.ts", stableKey: "k1", contentHash: "H" })],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.equal(merged.changes[0]!.status, "accepted");
   assert.deepEqual(merged.reviewedFiles, ["a.ts"]);
 });
 
-test("mergeReviewState resets a decision to pending when content changed (staleness)", () => {
+test("mergeReviewState resets a decision to pending when content changed (staleness)", async () => {
   const base = state({
     files: [file("a.ts")],
     changes: [change({ id: "a.ts:k1", path: "a.ts", stableKey: "k1", contentHash: "H" })],
@@ -196,11 +192,11 @@ test("mergeReviewState resets a decision to pending when content changed (stalen
       }),
     ],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.equal(merged.changes[0]!.status, "pending");
 });
 
-test("mergeReviewState matches a saved decision by stableKey even if the id differs", () => {
+test("mergeReviewState matches a saved decision by stableKey even if the id differs", async () => {
   const base = state({
     files: [file("a.ts")],
     changes: [change({ id: "a.ts:NEWID", path: "a.ts", stableKey: "k1", contentHash: "H" })],
@@ -216,11 +212,11 @@ test("mergeReviewState matches a saved decision by stableKey even if the id diff
       }),
     ],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.equal(merged.changes[0]!.status, "rejected");
 });
 
-test("mergeReviewState retains comments on present files, keeps absent action comments as stale, drops absent notes", () => {
+test("mergeReviewState retains comments on present files, keeps absent action comments as stale, drops absent notes", async () => {
   const base = state({ files: [file("a.ts")] }); // b.ts is gone from the diff
   const saved = state({
     comments: [
@@ -229,14 +225,14 @@ test("mergeReviewState retains comments on present files, keeps absent action co
       comment({ id: "c3", path: "b.ts", intent: "note" }),
     ],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   const ids = merged.comments.map((c) => c.id).sort();
   assert.deepEqual(ids, ["c1", "c2"]);
   assert.equal(merged.comments.find((c) => c.id === "c1")!.status, "open");
   assert.equal(merged.comments.find((c) => c.id === "c2")!.status, "stale");
 });
 
-test("mergeReviewState (reload shape): folds a fresh diff into a live state — carry, stale, comments, hash", () => {
+test("mergeReviewState (reload shape): folds a fresh diff into a live state — carry, stale, comments, hash", async () => {
   // Simulates POST /api/reload: base = fresh diff, saved = live in-memory state.
   const base = state({
     baseDiffHash: "afterEdit",
@@ -266,7 +262,7 @@ test("mergeReviewState (reload shape): folds a fresh diff into a live state — 
       }),
     ],
   });
-  const merged = mergeReviewState(base, live);
+  const merged = await mergeReviewState(base, live);
   assert.equal(merged.baseDiffHash, "afterEdit");
   assert.equal(merged.changes.find((c) => c.stableKey === "k1")!.status, "accepted"); // unchanged → carried
   assert.equal(merged.changes.find((c) => c.stableKey === "k2")!.status, "pending"); // changed → re-review
@@ -274,7 +270,7 @@ test("mergeReviewState (reload shape): folds a fresh diff into a live state — 
   assert.equal(merged.comments[0]!.id, "c1");
 });
 
-test("mergeReviewState keeps an explicit decision whose hunk left the diff (accepted→staged)", () => {
+test("mergeReviewState keeps an explicit decision whose hunk left the diff (accepted→staged)", async () => {
   // Accepting stages the hunk, so it disappears from the working-tree diff: the
   // rebuilt base has no change for it, yet the decision must survive.
   const base = state({ files: [file("a.ts")], changes: [] });
@@ -292,12 +288,12 @@ test("mergeReviewState keeps an explicit decision whose hunk left the diff (acce
       }),
     ],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.equal(merged.decisions!.length, 1);
   assert.equal(merged.decisions![0]!.status, "accepted");
 });
 
-test("mergeReviewState drops an explicit decision that went stale (content changed, still visible)", () => {
+test("mergeReviewState drops an explicit decision that went stale (content changed, still visible)", async () => {
   const base = state({
     files: [file("a.ts")],
     changes: [change({ id: "a.ts:k1", path: "a.ts", stableKey: "k1", contentHash: "NEW" })],
@@ -309,12 +305,12 @@ test("mergeReviewState drops an explicit decision that went stale (content chang
       decision({ key: "a.ts:k1", path: "a.ts", status: "accepted", reviewedHash: "OLD" }),
     ],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.equal(merged.changes[0]!.status, "pending"); // stale → re-review
   assert.equal(merged.decisions!.length, 0); // and the decision is removed
 });
 
-test("mergeReviewState drops a REJECTED decision whose hunk left the diff (rework honored the rejection)", () => {
+test("mergeReviewState drops a REJECTED decision whose hunk left the diff (rework honored the rejection)", async () => {
   // The agent reworked the rejected block away: keeping the decision would leave an
   // invisible objection that blocks approval forever.
   const base = state({ files: [file("a.ts")], changes: [] });
@@ -326,12 +322,12 @@ test("mergeReviewState drops a REJECTED decision whose hunk left the diff (rewor
       decision({ key: "a.ts:k2", path: "a.ts", status: "accepted", reviewedHash: "H" }),
     ],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.equal(merged.decisions!.length, 1); // accepted-vanished keeps its staged-out semantics
   assert.equal(merged.decisions![0]!.status, "accepted");
 });
 
-test("mergeReviewState keeps a rejected decision whose hunk is still present and unchanged", () => {
+test("mergeReviewState keeps a rejected decision whose hunk is still present and unchanged", async () => {
   const base = state({
     files: [file("a.ts")],
     changes: [change({ id: "a.ts:k1", path: "a.ts", stableKey: "k1", contentHash: "H" })],
@@ -341,12 +337,12 @@ test("mergeReviewState keeps a rejected decision whose hunk is still present and
     changes: [],
     decisions: [decision({ key: "a.ts:k1", path: "a.ts", status: "rejected", reviewedHash: "H" })],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.equal(merged.decisions!.length, 1);
   assert.equal(merged.changes[0]!.status, "rejected");
 });
 
-test("mergeReviewState migrates a decision + open comment + sign-off across a rename reload (issue 01)", () => {
+test("mergeReviewState migrates a decision + open comment + sign-off across a rename reload (issue 01)", async () => {
   // The reload that introduces a rename: base carries the file at its NEW path (with oldPath set);
   // everything the reviewer recorded is still keyed to the OLD path. Migration re-keys them.
   const renamed = {
@@ -354,9 +350,9 @@ test("mergeReviewState migrates a decision + open comment + sign-off across a re
     hunks: [],
     oldPath: "old.ts",
     newPath: "new.ts",
-    oldFile: { name: "old.ts", contents: "x\n" },
-    newFile: { name: "new.ts", contents: "x\n" },
     contentHash: "H",
+    changeKind: "renamed" as const,
+    renamePure: true,
   };
   const base = state({
     files: [renamed],
@@ -370,7 +366,7 @@ test("mergeReviewState migrates a decision + open comment + sign-off across a re
     reviewedFiles: ["old.ts"],
     reviewedFileHashes: { "old.ts": "H" },
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   // Decision re-keyed to the new path and carried forward (content unchanged).
   assert.equal(merged.changes[0]!.status, "accepted");
   assert.ok(merged.decisions!.some((d) => d.key === "new.ts:k1" && d.path === "new.ts"));
@@ -396,18 +392,16 @@ function movedFromFixture(): ReviewState {
         hunks: [{ header: "", oldStart: 1, oldCount: 1, newStart: 0, newCount: 0, lines: [] }],
         oldPath: "a.ts",
         newPath: undefined, // full deletion: +++ /dev/null
-        oldFile: { name: "a.ts", contents: "l1\nl2\nl3\n" },
-        newFile: { name: "a.ts", contents: "" },
         contentHash: "DEL",
+        changeKind: "deleted" as const,
       },
       {
         path: "b.ts",
         hunks: [],
         oldPath: "b.ts",
         newPath: "b.ts", // untracked addition: no old side
-        oldFile: { name: "b.ts", contents: "" },
-        newFile: { name: "b.ts", contents: "l1\nEDITED\nl3\n" },
         contentHash: "ADD",
+        changeKind: "added" as const,
       },
     ],
     changes: [change({ id: "a.ts:d1", path: "a.ts", stableKey: "d1", side: "deletions" })],
@@ -427,8 +421,9 @@ test("resolveMovedFrom merges a declared move into one rename-changed entry (iss
   assert.equal(m.path, "b.ts");
   assert.equal(m.oldPath, "a.ts");
   assert.equal(m.newPath, "b.ts");
-  assert.equal(m.oldFile.contents, "l1\nl2\nl3\n"); // deletion's index side
-  assert.equal(m.newFile.contents, "l1\nEDITED\nl3\n"); // untracked working side
+  assert.equal(m.changeKind, "renamed");
+  assert.equal(m.renamePure, false); // moved AND edited — not a pure rename
+  assert.equal(m.contentHash, "ADD"); // reuses the untracked add's new-side OID (no re-hash)
   assert.equal(base.changes.length, 0); // the deletion's blocks are gone (UI derives new ones)
 });
 
@@ -454,7 +449,7 @@ test("resolveMovedFrom: movedFrom outside working repo mode is a strict error", 
   }
 });
 
-test("mergeReviewState migrates a comment + staged-hunk key across a working-mode move pairing (issue 02)", () => {
+test("mergeReviewState migrates a comment + staged-hunk key across a working-mode move pairing (issue 02)", async () => {
   // A plain mv paired into a rename-pure entry on reload: the file arrives at new.txt with no change
   // blocks, and everything the reviewer left against old.txt migrates to new.txt (issue 01's path).
   const paired = {
@@ -462,16 +457,16 @@ test("mergeReviewState migrates a comment + staged-hunk key across a working-mod
     hunks: [],
     oldPath: "old.txt",
     newPath: "new.txt",
-    oldFile: { name: "old.txt", contents: "x\n" },
-    newFile: { name: "new.txt", contents: "x\n" },
     contentHash: "H",
+    changeKind: "renamed" as const,
+    renamePure: true,
   };
   const base = state({ files: [paired], changes: [] });
   const saved = state({
     comments: [comment({ id: "c1", path: "old.txt", intent: "action", anchorText: "x" })],
     stagedChangeKeys: ["old.txt:additions:1:0:1"],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.equal(merged.comments.length, 1);
   assert.equal(merged.comments[0]!.path, "new.txt");
   assert.equal(merged.comments[0]!.status, "open");
@@ -480,47 +475,51 @@ test("mergeReviewState migrates a comment + staged-hunk key across a working-mod
 
 // ── Re-anchoring ─────────────────────────────────────────────────────────────
 
-function contentsFile(path: string, newContents: string, oldContents = newContents) {
+// A lean file entry paired with the contents a resolver would return for it (the state embeds
+// none — anchoring reads them on demand). `reanchor` wires those contents into reanchorComments.
+function withContents(path: string, newContents: string, oldContents = newContents) {
   return {
-    path,
-    hunks: [],
-    oldFile: { name: path, contents: oldContents },
-    newFile: { name: path, contents: newContents },
-    contentHash: "H",
+    file: { path, hunks: [], contentHash: "H", changeKind: "modified" as const },
+    contents: { oldContents, newContents },
   };
+}
+function reanchor(comments: ReviewComment[], entries: ReturnType<typeof withContents>[]) {
+  const map = new Map(entries.map((e) => [e.file.path, e.contents]));
+  return reanchorComments(
+    comments,
+    entries.map((e) => e.file),
+    (p) => map.get(p),
+  );
 }
 
 test("anchorTextFor reads the line from the right side's contents", () => {
-  const files = [contentsFile("a.ts", "n1\nn2\nn3", "o1\no2")];
-  assert.equal(anchorTextFor(files, "a.ts", "additions", 2), "n2");
-  assert.equal(anchorTextFor(files, "a.ts", "deletions", 2), "o2");
-  assert.equal(anchorTextFor(files, "a.ts", "additions", 9), undefined);
-  assert.equal(anchorTextFor(files, "b.ts", "additions", 1), undefined);
+  const c = { oldContents: "o1\no2", newContents: "n1\nn2\nn3" };
+  assert.equal(anchorTextFor(c, "additions", 2), "n2");
+  assert.equal(anchorTextFor(c, "deletions", 2), "o2");
+  assert.equal(anchorTextFor(c, "additions", 9), undefined);
+  assert.equal(anchorTextFor(undefined, "additions", 1), undefined); // file not resolved → no anchor
 });
 
 test("reanchorComments keeps a comment whose line still matches its anchor text", () => {
-  const files = [contentsFile("a.ts", "alpha\nbeta\ngamma")];
   const c = comment({ id: "c1", path: "a.ts", lineNumber: 2, anchorText: "beta" });
-  reanchorComments([c], files);
+  reanchor([c], [withContents("a.ts", "alpha\nbeta\ngamma")]);
   assert.equal(c.lineNumber, 2);
   assert.equal(c.unanchored, false);
 });
 
 test("reanchorComments moves a comment to the unique nearest matching line (endLine shifts too)", () => {
   // Two lines inserted above: "beta" moved from 2 to 4.
-  const files = [contentsFile("a.ts", "x\nalpha\ny\nbeta\ngamma")];
   const c = comment({ id: "c1", path: "a.ts", lineNumber: 2, endLine: 3, anchorText: "beta" });
-  reanchorComments([c], files);
+  reanchor([c], [withContents("a.ts", "x\nalpha\ny\nbeta\ngamma")]);
   assert.equal(c.lineNumber, 4);
   assert.equal(c.endLine, 5);
   assert.equal(c.unanchored, false);
 });
 
 test("reanchorComments flags an ambiguous or vanished anchor as unanchored", () => {
-  const files = [contentsFile("a.ts", "dup\nmid\ndup\nend")];
   const tie = comment({ id: "c1", path: "a.ts", lineNumber: 2, anchorText: "dup" }); // 1 and 3 equidistant
   const gone = comment({ id: "c2", path: "a.ts", lineNumber: 2, anchorText: "deleted line" });
-  reanchorComments([tie, gone], files);
+  reanchor([tie, gone], [withContents("a.ts", "dup\nmid\ndup\nend")]);
   assert.equal(tie.unanchored, true);
   assert.equal(tie.lineNumber, 2); // left where it was
   assert.equal(gone.unanchored, true);
@@ -529,29 +528,27 @@ test("reanchorComments flags an ambiguous or vanished anchor as unanchored", () 
 test("reanchorComments best-effort re-anchors a lightly-edited line to the nearest similar one", () => {
   // The anchored line "const total = a + b;" was tweaked to "...a + b + c;" — same line, edited,
   // so its exact text is gone. It should stay put (near its old spot), not fall to the strip.
-  const files = [
-    contentsFile("a.ts", "function sum() {\n  const total = a + b + c;\n  return total;\n}"),
-  ];
   const c = comment({
     id: "c1",
     path: "a.ts",
     lineNumber: 2,
     anchorText: "  const total = a + b;",
   });
-  reanchorComments([c], files);
+  reanchor(
+    [c],
+    [withContents("a.ts", "function sum() {\n  const total = a + b + c;\n  return total;\n}")],
+  );
   assert.equal(c.unanchored, false);
   assert.equal(c.lineNumber, 2);
 });
 
 test("reanchorComments leaves a comment unanchored when no surviving line is similar", () => {
-  const files = [contentsFile("a.ts", "wholly\ndifferent\ncontent\nhere")];
   const c = comment({ id: "c1", path: "a.ts", lineNumber: 2, anchorText: "const total = a + b;" });
-  reanchorComments([c], files);
+  reanchor([c], [withContents("a.ts", "wholly\ndifferent\ncontent\nhere")]);
   assert.equal(c.unanchored, true);
 });
 
 test("reanchorComments skips resolved comments and flags legacy ones only when out of range", () => {
-  const files = [contentsFile("a.ts", "one\ntwo")];
   const resolved = comment({
     id: "c1",
     path: "a.ts",
@@ -561,7 +558,7 @@ test("reanchorComments skips resolved comments and flags legacy ones only when o
   });
   const legacyIn = comment({ id: "c2", path: "a.ts", lineNumber: 2 }); // no anchorText
   const legacyOut = comment({ id: "c3", path: "a.ts", lineNumber: 7 });
-  reanchorComments([resolved, legacyIn, legacyOut], files);
+  reanchor([resolved, legacyIn, legacyOut], [withContents("a.ts", "one\ntwo")]);
   assert.equal(resolved.unanchored, undefined); // untouched
   assert.equal(legacyIn.unanchored, false);
   assert.equal(legacyOut.unanchored, true);
@@ -736,38 +733,38 @@ test("sanitizeSession normalizes branch names and falls back", () => {
   assert.equal(sanitizeSession("///"), "review");
 });
 
-test("mergeReviewState keeps a finished file when its content hash is unchanged", () => {
+test("mergeReviewState keeps a finished file when its content hash is unchanged", async () => {
   const base = state({ files: [file("a.ts", "H")] });
   const saved = state({
     files: [file("a.ts", "H")],
     reviewedFiles: ["a.ts"],
     reviewedFileHashes: { "a.ts": "H" },
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.deepEqual(merged.reviewedFiles, ["a.ts"]);
   assert.equal(merged.reviewedFileHashes!["a.ts"], "H");
 });
 
-test("mergeReviewState drops a finished file when its content hash changed (re-review)", () => {
+test("mergeReviewState drops a finished file when its content hash changed (re-review)", async () => {
   const base = state({ files: [file("a.ts", "NEW")] });
   const saved = state({
     files: [file("a.ts", "OLD")],
     reviewedFiles: ["a.ts"],
     reviewedFileHashes: { "a.ts": "OLD" },
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.deepEqual(merged.reviewedFiles, []);
   assert.deepEqual(merged.reviewedFileHashes, {});
 });
 
-test("mergeReviewState drops a finished file with no recorded hash (old viewed-era session)", () => {
+test("mergeReviewState drops a finished file with no recorded hash (old viewed-era session)", async () => {
   const base = state({ files: [file("a.ts", "H")] });
   const saved = state({ files: [file("a.ts", "H")], reviewedFiles: ["a.ts"] }); // no reviewedFileHashes
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.deepEqual(merged.reviewedFiles, []);
 });
 
-test("mergeReviewState (blob-OID migration): a pre-OID review loads — comments + unchanged-block decisions survive, file approval resets once", () => {
+test("mergeReviewState (blob-OID migration): a pre-OID review loads — comments + unchanged-block decisions survive, file approval resets once", async () => {
   // A review persisted before file-level keys became git blob OIDs: the file's contentHash is
   // the old 16-char sha slice ("OLDSHA16"), and reviewedFileHashes matches THAT. On the first
   // reload with OID keys, the fresh file entry carries a 40-hex blob OID, so the file hash no
@@ -786,7 +783,7 @@ test("mergeReviewState (blob-OID migration): a pre-OID review loads — comments
       decision({ key: "a.ts:k1", path: "a.ts", status: "accepted", reviewedHash: "BLOCKHASH" }),
     ],
   });
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   // Comments carry over.
   assert.equal(merged.comments.length, 1);
   assert.equal(merged.comments[0]!.id, "c1");
@@ -1029,4 +1026,43 @@ test("the reviewer save slice never carries skim (changes are server-owned)", ()
   });
   assert.equal(s.changes[0]!.skim, undefined); // changes (hence skim) are not a reviewer-save key
   assert.deepEqual(s.comments, []); // comments ARE reviewer-owned, so they applied
+});
+
+// ── Lean persistence (issue 04) ──────────────────────────────────────────────
+
+test("writeFileAtomic writes the content and leaves no temp file behind", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "galley-atomic-"));
+  try {
+    const target = path.join(dir, "review.json");
+    await writeFileAtomic(target, '{"ok":true}\n');
+    assert.equal(await fs.readFile(target, "utf8"), '{"ok":true}\n');
+    // Overwrite (the reviewer saved again) — the target updates and no *.tmp is stranded.
+    await writeFileAtomic(target, '{"ok":false}\n');
+    assert.equal(await fs.readFile(target, "utf8"), '{"ok":false}\n');
+    const leftovers = (await fs.readdir(dir)).filter((n) => n.endsWith(".tmp"));
+    assert.deepEqual(leftovers, [], "no temp file left after the rename");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("persistReview writes a lean review — no file contents on disk", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "galley-persist-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const s = state({ root: home, files: [file("a.ts", "H")] });
+    const written = await persistReview(s);
+    const raw = await fs.readFile(written, "utf8");
+    assert.equal(raw.includes('"oldFile"'), false);
+    assert.equal(raw.includes('"newFile"'), false);
+    assert.equal(raw.includes('"contents"'), false);
+    const parsed = JSON.parse(raw) as ReviewState;
+    assert.equal("oldFile" in parsed.files[0]!, false);
+    assert.equal("newFile" in parsed.files[0]!, false);
+    assert.equal(parsed.files[0]!.contentHash, "H"); // the OID key stays
+  } finally {
+    process.env.HOME = oldHome;
+    await fs.rm(home, { recursive: true, force: true });
+  }
 });

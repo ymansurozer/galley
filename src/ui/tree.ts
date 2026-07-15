@@ -104,17 +104,14 @@ export function treeRows(): TreeRow[] {
     node.files = node.files.filter((f) => !f.folded);
     for (const child of node.dirs.values()) groupTests(child);
   }
-  // A changed file's type, derived from its diff contents — drives the file-icon color.
-  // LEAN-STATE READER: one of the few sites still reading the embedded oldFile/newFile.contents
-  // (issue 02 moved the render path onto the per-file fetch). This is a cross-file derivation over
-  // every tree row, so it can't fetch per file; it needs the per-file `status` stamp the lean
-  // builder adds — issue 04 converts it and removes the embedded contents.
+  // A changed file's type — drives the file-icon color. Reads the lean builder's `changeKind` stamp
+  // (issue 04) instead of the embedded contents; a rename shows as "modified" (its icon), like before.
   function changeType(file: TreeFile): "new" | "modified" | "deleted" | null {
     if (file.index === undefined) return null;
     const sf = S.state.files[file.index];
     if (!sf) return null;
-    if (!sf.oldFile?.contents && sf.newFile?.contents) return "new";
-    if (!sf.newFile?.contents && sf.oldFile?.contents) return "deleted";
+    if (sf.changeKind === "added") return "new";
+    if (sf.changeKind === "deleted") return "deleted";
     return "modified";
   }
 

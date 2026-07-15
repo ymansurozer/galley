@@ -50,46 +50,109 @@ export function sanitizeSession(session: string) {
 }
 
 type DiffSource = { files: ReviewFile[]; changes: ChangeState[]; rawDiff: string };
+type FileContents = { oldContents: string; newContents: string };
 
+// New-side line count the way git's `@@ -0,0 +1,N @@` and @pierre count: split on \n, dropping one
+// trailing newline so a file ending in \n isn't over-counted by one. Stamps a hunk-less full-file
+// add's +count (no hunk to sum) — mirrors the derivation the UI used to run over the embedded copy.
+function lineCount(s: string): number {
+  if (!s) return 0;
+  const n = s.split("\n").length;
+  return s.endsWith("\n") ? n - 1 : n;
+}
+
+// +added / −removed line counts from a parsed diff file's hunks.
+function countHunkLines(hunks: DiffHunk[]): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const h of hunks)
+    for (const l of h.lines) {
+      if (l.kind === "add") added++;
+      else if (l.kind === "delete") removed++;
+    }
+  return { added, removed };
+}
+
+// Change class from the diff's paths alone (no contents): deleted (+++ /dev/null → no newPath),
+// added (--- /dev/null → no oldPath), renamed (distinct paths), else modified.
+function changeKindOf(
+  oldPath: string | undefined,
+  newPath: string | undefined,
+): ReviewFile["changeKind"] {
+  if (!newPath) return "deleted";
+  if (!oldPath) return "added";
+  return oldPath !== newPath ? "renamed" : "modified";
+}
+
+// A whole-file entry (file mode's tracked-unchanged / untracked-add; a repo untracked add). The new
+// side is always the working copy, so its byte size is free from the bytes we already hold. Carries
+// no contents — the tab fetches them on open (readFileContents).
 function fileEntry(filePath: string, oldContents: string, newContents: string): ReviewFile {
+  const changeKind = changeKindOf(
+    oldContents ? filePath : undefined,
+    newContents ? filePath : undefined,
+  );
   return {
     oldPath: filePath,
     newPath: filePath,
     hunks: [],
     path: filePath,
-    oldFile: { name: filePath, contents: oldContents },
-    newFile: { name: filePath, contents: newContents },
     contentHash: blobOid(newContents),
+    changeKind,
+    // Only a fresh add carries a +count here (no hunk to sum); a tracked-unchanged full file is 0/0.
+    added: changeKind === "added" ? lineCount(newContents) : 0,
+    removed: changeKind === "deleted" ? lineCount(oldContents) : 0,
+    renamePure: false,
+    size: Buffer.byteLength(newContents, "utf8"),
   };
 }
 
-// Parse a unified diff into review files + change blocks, fetching old/new file
-// contents however the mode requires, and tagging each change as stageable or not.
+// Parse a unified diff into review files + change blocks, stamping lean metadata and tagging each
+// change as stageable or not. Reads NO file contents for a committed new side — the file-level key
+// is git's own blob OID (newOids). Only a working-tree new side is read, and only to hash it (the
+// bytes aren't retained; the tab fetches contents on demand via readFileContents).
 async function assembleDiff(
   rawDiff: string,
-  fetchOld: (p?: string) => Promise<string>,
+  // Reads the working-tree new side to hash it. Called ONLY when there's no committed OID for the
+  // file (working/file mode), so pr/staged desks invoke it zero times → zero content reads at build.
   fetchNew: (p?: string) => Promise<string>,
   stageable: boolean,
   // Per-file new-side blob OIDs harvested from `git diff --raw` (committed new sides: pr's HEAD,
   // staged's index). Absent for a working-tree new side, where we hash the working copy instead.
   newOids?: Map<string, string>,
+  // The new side is the working tree (repo-unstaged / file mode) — its byte size is then free from
+  // the bytes we read to hash. Committed sides (pr/staged) leave size unstamped (see ReviewFile.size).
+  workingSide = false,
 ): Promise<{ files: ReviewFile[]; changes: ChangeState[] }> {
   const files: ReviewFile[] = [];
   const changes: ChangeState[] = [];
   for (const f of parseUnifiedDiff(rawDiff)) {
     const filePath = f.newPath ?? f.oldPath ?? "unknown";
-    const newContents = await fetchNew(f.newPath);
+    const committedOid = f.newPath ? newOids?.get(f.newPath) : undefined;
+    let contentHash: string;
+    let size: number | undefined;
+    if (committedOid) {
+      contentHash = committedOid; // git already hashed it — no read
+    } else {
+      // Working-tree new side (or a deletion, whose new side is /dev/null → fetchNew returns "").
+      const newContents = await fetchNew(f.newPath);
+      contentHash = blobOid(newContents);
+      if (workingSide && f.newPath) size = Buffer.byteLength(newContents, "utf8");
+    }
+    const { added, removed } = countHunkLines(f.hunks);
+    const changeKind = changeKindOf(f.oldPath, f.newPath);
     files.push({
-      ...f,
+      ...f, // oldPath/newPath carry the rename; the UI derives @pierre display names from them
       path: filePath,
-      // Old/new names carry the RENAME: distinct old/new paths make @pierre/diffs' parseDiffFromFile
-      // infer rename-pure/rename-changed (activating the amber rename color/icon + the moved badge).
-      // For non-renames both fall back to filePath, so a plain modify/add/delete is unchanged.
-      oldFile: { name: f.oldPath ?? filePath, contents: await fetchOld(f.oldPath) },
-      newFile: { name: f.newPath ?? filePath, contents: newContents },
-      // File-level staleness key = the new-side blob OID. Harvested from git for a committed new
-      // side (no re-hash); hashed locally when the new side is the working tree.
-      contentHash: (f.newPath && newOids?.get(f.newPath)) || blobOid(newContents),
+      contentHash,
+      changeKind,
+      added,
+      removed,
+      // A zero-hunk entry with distinct paths is a pure rename: git -M at 100% similarity emits no
+      // hunks, and parseUnifiedDiff only keeps such a zero-hunk section when it's a genuine rename.
+      // A rename WITH edits carries hunks, so it isn't pure.
+      renamePure: changeKind === "renamed" && f.hunks.length === 0,
+      ...(size !== undefined ? { size } : {}),
     });
     f.hunks.forEach((h, hunkIndex) => {
       changeBlocks(h).forEach((block) => {
@@ -226,9 +289,7 @@ export function resolveMovedFrom(
     // also declared it, redundantly. Nothing to restructure.
     if (state.files.some((f) => f.path === to && f.oldPath === from && f.newPath === to)) continue;
     const del = state.files.find((f) => f.path === from && !f.newPath); // full deletion (+++ /dev/null)
-    const add = state.files.find(
-      (f) => f.path === to && f.newPath === to && f.oldFile.contents === "" && !!f.newFile.contents,
-    ); // untracked addition (full-file add, no old side)
+    const add = state.files.find((f) => f.path === to && f.changeKind === "added"); // untracked full-file add
     if (!del || !add) {
       if (opts.strict)
         return {
@@ -237,9 +298,11 @@ export function resolveMovedFrom(
         };
       continue; // carried-forward guide whose move no longer holds → leave delete + add
     }
-    // Merge into one rename-changed entry at the new path. oldFile is the deletion's index (:0)
-    // side; newFile the untracked working side. Drop the deletion + its (deletion-block) changes
-    // and the untracked entry; the merged entry carries no ChangeState (blocks are UI-derived).
+    // Merge into one rename-CHANGED entry at the new path (contents differ — moved AND edited). No
+    // contents retained; the new-side OID is the untracked add's already-stamped contentHash, and the
+    // tab fetches old (index :0 at `from`) / new (working at `to`) on open. Drop the deletion + its
+    // (deletion-block) changes and the untracked entry; the merged entry carries no ChangeState
+    // (blocks are UI-derived on open). renamePure:false so it isn't muted as a no-change move.
     state.files = state.files.filter((f) => f !== del && f !== add);
     state.changes = state.changes.filter((c) => c.path !== from);
     state.files.push({
@@ -247,9 +310,11 @@ export function resolveMovedFrom(
       oldPath: from,
       newPath: to,
       hunks: [],
-      oldFile: { name: from, contents: del.oldFile.contents },
-      newFile: { name: to, contents: add.newFile.contents },
-      contentHash: blobOid(add.newFile.contents),
+      contentHash: add.contentHash,
+      changeKind: "renamed",
+      renamePure: false,
+      added: 0,
+      removed: 0,
     });
   }
   return { ok: true };
@@ -290,10 +355,9 @@ export async function buildDiffSource(opts: {
     const rawDiff = await git(["diff", "--no-ext-diff", "-M", `${base}..HEAD`], root);
     if (!rawDiff.trim()) return null;
     // The new side is HEAD (committed) — one `git diff --raw` harvests every new-side OID, so the
-    // file-level key needs no per-file re-hash.
+    // file-level key needs no per-file re-hash and assembleDiff reads no blob contents at all.
     const { files, changes } = await assembleDiff(
       rawDiff,
-      (p) => fileAt(root, p, base),
       (p) => fileAt(root, p, "HEAD"),
       false,
       await rawBlobOids(root, { base }),
@@ -314,13 +378,13 @@ export async function buildDiffSource(opts: {
     if (tracked) {
       const rawDiff = await git(["diff", "--no-ext-diff", "-M", "--", rel], root);
       if (rawDiff.trim()) {
-        // Old side reads from the INDEX (:0), not HEAD — `git diff` diffs working tree vs
-        // index, and the UI re-diffs old/new contents rather than rendering these hunks.
-        // A HEAD baseline would resurrect already-staged changes as pending diff.
+        // New side is the working tree — hashed locally (no committed OID). The UI re-diffs old/new
+        // (fetched on open against the INDEX baseline via readFileContents), not these hunks.
         const { files, changes } = await assembleDiff(
           rawDiff,
-          (p) => fileAt(root, p, ":0"),
           (p) => fileAt(root, p),
+          true,
+          undefined,
           true,
         );
         return { files, changes, rawDiff };
@@ -346,10 +410,12 @@ export async function buildDiffSource(opts: {
   const { files, changes } = rawDiff.trim()
     ? await assembleDiff(
         rawDiff,
-        (p) => fileAt(root, p, opts.staged ? "HEAD" : ":0"),
+        // Staged: new side is the index (committed), covered by newOids → fetchNew is never called.
+        // Unstaged: new side is the dirty working tree → read to hash (the one build-time read).
         (p) => (opts.staged ? fileAt(root, p, ":0") : fileAt(root, p)),
         true,
         opts.staged ? await rawBlobOids(root, { staged: true, path: opts.path }) : undefined,
+        !opts.staged,
       )
     : { files: [], changes: [] };
   // `git diff` never reports untracked files (a brand-new file has no index/HEAD side to
@@ -380,14 +446,18 @@ export async function buildDiffSource(opts: {
     // distinct old/new paths get issue 01's decision/comment migration for free.
     // Keyed by blob OID — byte-identical contents share an OID, so the map pairs a deletion with
     // an untracked file exactly when git would call it a rename (OID equality iff content equal).
-    const deletions = files.filter((f) => !f.newPath); // full deletions: old content in oldFile
+    // The deletion's old side lives in the index (:0); read it just to hash for pairing (a read, not
+    // retained — the merged entry stores no contents; the tab fetches them on open). Skip the reads
+    // entirely when there's nothing untracked to pair against.
+    const deletions = files.filter((f) => !f.newPath); // full deletions (+++ /dev/null)
     const delByHash = new Map<string, ReviewFile[]>();
-    for (const d of deletions) {
-      const h = blobOid(d.oldFile.contents);
-      const arr = delByHash.get(h);
-      if (arr) arr.push(d);
-      else delByHash.set(h, [d]);
-    }
+    if (untrackedEntries.length)
+      for (const d of deletions) {
+        const h = blobOid(await fileAt(root, d.oldPath ?? d.path, ":0"));
+        const arr = delByHash.get(h);
+        if (arr) arr.push(d);
+        else delByHash.set(h, [d]);
+      }
     const untByHash = new Map<string, Array<{ rel: string; working: string }>>();
     for (const u of untrackedEntries) {
       const h = blobOid(u.working);
@@ -404,16 +474,20 @@ export async function buildDiffSource(opts: {
       const unt = unts[0]!;
       pairedDel.add(del.path);
       pairedUnt.add(unt.rel);
-      // Merged entry: NEW (untracked) path with the OLD path recorded. Identical contents → @pierre
-      // infers rename-pure. oldFile content is the deletion's old side (index :0 at the old path).
+      // Merged entry: NEW (untracked) path with the OLD path recorded. Byte-identical content →
+      // a pure rename (the muted moved row / skim-group fold). No contents retained; the new side's
+      // OID is hashed from the working copy we already read.
       files.push({
         path: unt.rel,
         oldPath: del.path,
         newPath: unt.rel,
         hunks: [],
-        oldFile: { name: del.path, contents: del.oldFile.contents },
-        newFile: { name: unt.rel, contents: unt.working },
         contentHash: blobOid(unt.working),
+        changeKind: "renamed",
+        renamePure: true,
+        added: 0,
+        removed: 0,
+        size: Buffer.byteLength(unt.working, "utf8"),
       });
     }
     // Drop the paired deletions + their change blocks; keep unpaired untracked as full additions.
@@ -435,22 +509,24 @@ export async function buildDiffSource(opts: {
 // new-side blob OID, so a reload that rewrites the file changes the key and the stale entry
 // falls out naturally (no explicit invalidation). Process-global — one desk per process.
 const CONTENTS_CACHE_CAP = 30;
-const contentsCache = new Map<string, { oldContents: string; newContents: string }>();
+const contentsCache = new Map<string, FileContents>();
 
-// On-demand old/new contents for one reviewed file. Deliberately reads from git / the working
-// tree — NOT from the file entry's embedded oldFile/newFile.contents — replaying the exact same
-// per-mode ref semantics assembleDiff/buildDiffSource built the diff against, so a fetch returns
-// bytes identical to the embedded copies (proven in server.test.ts) before issue 04 removes them.
-async function resolveFileContents(
-  state: ReviewState,
-  file: ReviewFile,
-): Promise<{ oldContents: string; newContents: string }> {
+// On-demand old/new contents for one reviewed file — the state carries none (issue 04). Reads git /
+// the working tree, replaying the exact per-mode ref semantics buildDiffSource built the diff
+// against, so a fetch returns the bytes the diff was taken over. `changeKind` tells which sides
+// exist: an added file has no old side, a deletion no new side — so we return "" for a legitimately
+// absent side WITHOUT a read, and read the sides that must exist STRICTLY (committed blobs), so a
+// git object dropped by a mid-session rebase throws (→ /api/file-contents 404s with a reload hint)
+// instead of silently serving empty. The volatile working tree stays non-strict (missing → "").
+async function resolveFileContents(state: ReviewState, file: ReviewFile): Promise<FileContents> {
   const root = state.root;
+  const hasOld = file.changeKind !== "added"; // an added file has no old side
+  const hasNew = file.changeKind !== "deleted"; // a deleted file has no new side
   if (state.mode === "pr") {
     const base = state.base ?? "HEAD";
     return {
-      oldContents: await fileAt(root, file.oldPath, base),
-      newContents: await fileAt(root, file.newPath, "HEAD"),
+      oldContents: hasOld ? await fileAt(root, file.oldPath, base, true) : "",
+      newContents: hasNew ? await fileAt(root, file.newPath, "HEAD", true) : "",
     };
   }
   if (state.mode === "file") {
@@ -466,16 +542,16 @@ async function resolveFileContents(
       return { oldContents: await fileAt(root, file.oldPath, ":0"), newContents: working };
     return { oldContents: tracked ? working : "", newContents: working };
   }
-  // repo: staged diffs index vs HEAD (old HEAD, new :0); working diffs working tree vs index
-  // (old :0, new working). Untracked working files read "" for old (`:0:path` has no index entry
-  // → fileAt swallows to "") and the working file for new — matching their full-file-add entry.
+  // repo: staged diffs index vs HEAD (old HEAD, new :0 — both committed objects, read strictly);
+  // working diffs working tree vs index (old :0 committed → strict; new working → non-strict). An
+  // untracked add is changeKind "added" → hasOld false → old "" without a (failing) `:0:path` read.
   if (state.staged)
     return {
-      oldContents: await fileAt(root, file.oldPath, "HEAD"),
-      newContents: await fileAt(root, file.newPath, ":0"),
+      oldContents: hasOld ? await fileAt(root, file.oldPath, "HEAD", true) : "",
+      newContents: hasNew ? await fileAt(root, file.newPath, ":0", true) : "",
     };
   return {
-    oldContents: await fileAt(root, file.oldPath, ":0"),
+    oldContents: hasOld ? await fileAt(root, file.oldPath, ":0", true) : "",
     newContents: await fileAt(root, file.newPath),
   };
 }
@@ -483,7 +559,7 @@ async function resolveFileContents(
 export async function readFileContents(
   state: ReviewState,
   file: ReviewFile,
-): Promise<{ oldContents: string; newContents: string }> {
+): Promise<FileContents> {
   const key = `${state.root}\0${file.path}\0${file.contentHash}`;
   const hit = contentsCache.get(key);
   if (hit) {
@@ -678,12 +754,21 @@ export function mergeReviewerSave(state: ReviewState, body: unknown) {
   }
 }
 
+// Write via a same-directory temp file + rename so a desk killed mid-write never leaves a truncated
+// review behind: the rename is atomic on one filesystem, so a reader sees either the whole old file
+// or the whole new one, never a half. Same dir keeps source and target on the same filesystem.
+export async function writeFileAtomic(file: string, data: string) {
+  const tmp = `${file}.${crypto.randomUUID()}.tmp`;
+  await fs.writeFile(tmp, data, "utf8");
+  await fs.rename(tmp, file);
+}
+
 export async function persistReview(state: ReviewState) {
   const dir = await reviewDir(state.root, state.session);
   state.updatedAt = nowIso();
   const file = path.join(dir, state.persistFile ?? reviewFileName(state));
   state.persistFile = path.basename(file);
-  await fs.writeFile(file, JSON.stringify(state, null, 2) + "\n", "utf8");
+  await writeFileAtomic(file, JSON.stringify(state, null, 2) + "\n");
   return file;
 }
 
@@ -726,19 +811,17 @@ function effectiveDecisions(state: ReviewState): Decision[] {
   return state.changes.filter((c) => c.status !== "pending").map(decisionFromChange);
 }
 
-// The exact text of the line a comment anchors to, read from the review files' contents
-// (additions side = new file, deletions side = old file). Captured at comment creation;
+// The exact text of the line a comment anchors to, from the file's on-demand contents (additions
+// side = new file, deletions side = old file). Pure — the caller fetches the one file's contents
+// (readFileContents) since the state no longer embeds them. Captured at comment creation;
 // re-anchoring matches against it after the agent's edits move things around.
 export function anchorTextFor(
-  files: ReviewFile[],
-  filePath: string,
+  contents: FileContents | undefined,
   side: "additions" | "deletions",
   lineNumber: number,
 ): string | undefined {
-  const file = files.find((f) => f.path === filePath);
-  if (!file) return undefined;
-  const contents = side === "deletions" ? file.oldFile?.contents : file.newFile?.contents;
-  return contents?.split("\n")[lineNumber - 1];
+  const text = side === "deletions" ? contents?.oldContents : contents?.newContents;
+  return text?.split("\n")[lineNumber - 1];
 }
 
 // Sørensen–Dice similarity on character bigrams (whitespace-normalized), 0..1. Cheap and good
@@ -799,12 +882,21 @@ function nearestSimilarLine(
 // file-level strip rather than silently dropping it (an open change request blocks approval, so
 // it must stay reachable). Legacy comments without anchorText can only be flagged when their
 // line is provably out of range.
-export function reanchorComments(comments: ReviewComment[], files: ReviewFile[]) {
+//
+// `contentsOf` resolves a present file's on-demand contents (the state no longer embeds them). The
+// caller fetches only the files carrying an open comment — the same set this processes — so a file
+// with no resolved contents is treated as empty (matching a missing embedded side before issue 04).
+export function reanchorComments(
+  comments: ReviewComment[],
+  files: ReviewFile[],
+  contentsOf: (path: string) => FileContents | undefined,
+) {
   for (const c of comments) {
     if (c.status !== "open") continue;
     const file = files.find((f) => f.path === c.path);
     if (!file) continue; // file-level staleness is handled by the caller
-    const contents = c.side === "deletions" ? file.oldFile?.contents : file.newFile?.contents;
+    const co = contentsOf(c.path);
+    const contents = c.side === "deletions" ? co?.oldContents : co?.newContents;
     const lines = (contents ?? "").split("\n");
     if (!c.anchorText) {
       c.unanchored = c.lineNumber > lines.length;
@@ -842,7 +934,7 @@ export function reanchorComments(comments: ReviewComment[], files: ReviewFile[])
   return comments;
 }
 
-export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
+export async function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   if (!saved) return base;
   const currentFiles = new Set(base.files.map((file) => file.path));
   // A file that became a git-native rename on THIS reload arrives at its new path, but every
@@ -912,21 +1004,31 @@ export function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   const reviewedFileHashes = Object.fromEntries(
     reviewedFiles.map((file) => [file, savedHashes[file]!]),
   );
+  const comments = saved.comments
+    .map((comment) =>
+      renameMap.has(comment.path) ? { ...comment, path: migratePath(comment.path) } : comment,
+    )
+    .map((comment) =>
+      currentFiles.has(comment.path) ? comment : { ...comment, status: "stale" as const },
+    )
+    .filter((comment) => currentFiles.has(comment.path) || comment.intent === "action");
+  // Re-anchoring reads each commented file's contents on demand (the state embeds none). Fetch only
+  // the files carrying an OPEN comment — the set reanchorComments actually processes — so a reload
+  // spawns at most one content read per commented file, not per file in the diff. A read that fails
+  // (a git object dropped mid-reload) is swallowed to no-contents: the thread just falls to the
+  // file-level unanchored strip rather than crashing the whole reload.
+  const openPaths = new Set(comments.filter((c) => c.status === "open").map((c) => c.path));
+  const contentsByPath = new Map<string, FileContents>();
+  for (const f of base.files)
+    if (openPaths.has(f.path)) {
+      const resolved = await readFileContents(base, f).catch(() => undefined);
+      if (resolved) contentsByPath.set(f.path, resolved);
+    }
   return {
     ...base,
     id: saved.id,
     createdAt: saved.createdAt,
-    comments: reanchorComments(
-      saved.comments
-        .map((comment) =>
-          renameMap.has(comment.path) ? { ...comment, path: migratePath(comment.path) } : comment,
-        )
-        .map((comment) =>
-          currentFiles.has(comment.path) ? comment : { ...comment, status: "stale" as const },
-        )
-        .filter((comment) => currentFiles.has(comment.path) || comment.intent === "action"),
-      base.files,
-    ),
+    comments: reanchorComments(comments, base.files, (p) => contentsByPath.get(p)),
     reviewedFiles,
     reviewedFileHashes,
     stagedFiles: saved.stagedFiles,
@@ -983,6 +1085,9 @@ export async function appendComment(
   if (!saved)
     throw new Error(`No saved review for session "${session}" in ${root}. Open the desk first.`);
   const now = nowIso();
+  // Fetch just this file's contents (the state embeds none) to capture the anchor line.
+  const file = saved.files.find((f) => f.path === input.path);
+  const contents = file ? await readFileContents(saved, file) : undefined;
   const comment: ReviewComment = {
     id: crypto.randomUUID(),
     path: input.path,
@@ -994,7 +1099,7 @@ export async function appendComment(
     status: "open",
     intent: "note",
     role: input.role,
-    anchorText: anchorTextFor(saved.files, input.path, input.side, input.lineNumber),
+    anchorText: anchorTextFor(contents, input.side, input.lineNumber),
   };
   saved.comments.push(comment);
   await persistReview(saved);

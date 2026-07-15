@@ -120,13 +120,16 @@ S.previewFile = async (path) => {
       return;
     }
     S.overviewOpen = false;
-    // contentHash is unused for previews (they're never approved), so leave it empty.
+    // A preview is UI-only (never persisted/wired), so it carries its single contents inline via
+    // previewContents (old === new → no diff). contentHash is unused (previews are never approved).
     S.preview = {
       path,
       hunks: [],
       contentHash: "",
-      oldFile: { name: path, contents: r.contents },
-      newFile: { name: path, contents: r.contents },
+      changeKind: "modified",
+      added: 0,
+      removed: 0,
+      previewContents: r.contents,
     };
     D.fileDiff = null;
     cursorReset();

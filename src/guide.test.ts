@@ -169,19 +169,19 @@ function state(over: Partial<ReviewState>): ReviewState {
   };
 }
 
-test("mergeReviewState carries an attached guide across a reload", () => {
+test("mergeReviewState carries an attached guide across a reload", async () => {
   const guide: Guide = {
     overview: "o",
     files: [{ path: "a.ts", order: 0, category: "Config", orientation: "s" }],
   };
   const base = state({ baseDiffHash: "new" }); // freshly rebuilt diff — no guide
   const saved = state({ guide }); // live state with the attached guide
-  const merged = mergeReviewState(base, saved);
+  const merged = await mergeReviewState(base, saved);
   assert.deepEqual(merged.guide, guide);
   assert.equal(merged.baseDiffHash, "new");
 });
 
-test("mergeReviewState leaves guide undefined when none was attached", () => {
-  const merged = mergeReviewState(state({}), state({}));
+test("mergeReviewState leaves guide undefined when none was attached", async () => {
+  const merged = await mergeReviewState(state({}), state({}));
   assert.equal(merged.guide, undefined);
 });

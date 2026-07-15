@@ -47,6 +47,13 @@ export type Settings = {
   editorCommand: string;
 };
 
+// A previewed file (opened from the project tree via /api/file to read/comment on an unchanged
+// file) is a UI-only construct: it never rides the wire or persistence, so it carries its single
+// contents inline (old === new, no diff) rather than through the on-demand /api/file-contents
+// fetch that lean ReviewFiles use. contents.ts reads previewContents for it; everything else
+// treats it as an ordinary (zero-hunk) ReviewFile.
+export type PreviewFile = ReviewFile & { previewContents: string };
+
 // The line/range the action popover + composer currently target. These are DISPLAY
 // coordinates (the rendered diff's gutter numbers, which drift from real file lines once
 // decisions are replayed) — convert via D.lineMap before persisting (see submitComment).
@@ -200,7 +207,7 @@ export interface Store {
   fileIndex: number;
   // A non-review file (e.g. an unchanged file) the reviewer opened to read/comment on.
   // When set, it's the "current file" instead of state.files[fileIndex].
-  preview: ReviewFile | null;
+  preview: PreviewFile | null;
   // True while a (non-cached) diff render is in flight — drives the "Rendering…" indicator.
   rendering: boolean;
   awaitingAgent: boolean;

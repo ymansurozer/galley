@@ -16,15 +16,7 @@ test("reviewerSlice carries only reviewer-owned fields — no rawDiff, no file c
     baseDiffHash: "base",
     createdAt: "t",
     rawDiff: "diff --git a/a.ts …\n(huge)\n",
-    files: [
-      {
-        path: "a.ts",
-        hunks: [],
-        oldFile: { name: "a.ts", contents: "old huge contents" },
-        newFile: { name: "a.ts", contents: "new huge contents" },
-        contentHash: "H",
-      },
-    ],
+    files: [{ path: "a.ts", hunks: [], contentHash: "H", changeKind: "modified" }],
     comments: [],
     changes: [
       {
@@ -70,9 +62,8 @@ test("reviewerSlice carries only reviewer-owned fields — no rawDiff, no file c
   assert.equal("changes" in wire, false);
   assert.equal("stagedFiles" in wire, false);
   assert.equal("stagedChangeKeys" in wire, false);
-  // The serialized body carries no file contents at all.
+  // The serialized body carries none of the heavy server-owned state.
   const body = JSON.stringify(slice);
-  assert.equal(body.includes("huge contents"), false);
   assert.equal(body.includes("diff --git"), false);
 });
 

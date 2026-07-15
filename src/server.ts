@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { resolveEditorCommand } from "./editor.js";
-import { git, listProjectTree, patchForChange } from "./git.js";
+import { blobOid, git, listProjectTree, patchForChange } from "./git.js";
 import { validateGuide } from "./guide.js";
 import {
   anchorTextFor,
@@ -328,7 +328,15 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           );
         try {
           const { oldContents, newContents } = await readFileContents(state, file);
-          return json(res, 200, { path: rel, oldContents, newContents });
+          // newOid is the file-level staleness key (the new-side blob OID); oldOid is hashed locally
+          // from the resolved old side. Carried for a future client cache — the tab ignores them now.
+          return json(res, 200, {
+            path: rel,
+            oldContents,
+            newContents,
+            oldOid: blobOid(oldContents),
+            newOid: file.contentHash || blobOid(newContents),
+          });
         } catch (error) {
           // A git object that can't be read (e.g. rewritten/dropped by a rebase mid-session).
           return fail(
@@ -554,7 +562,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // bad NEW guide (strict) BEFORE committing the merge onto the live state, so a rejected
         // reload leaves the desk untouched. A guide carried forward re-resolves leniently —
         // stale spans drop, they never fail a reload (see resolveSkim's strict/lenient split).
-        const merged = mergeReviewState(base, state);
+        const merged = await mergeReviewState(base, state);
         if (validatedGuide) {
           merged.guide = { ...validatedGuide, baseDiffHash: merged.baseDiffHash };
           const skim = resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: true });
@@ -594,6 +602,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         const now = nowIso();
         const side = body.side === "deletions" ? ("deletions" as const) : ("additions" as const);
         const lineNumber = Number(body.lineNumber ?? 1);
+        // Fetch just this file's contents (the state embeds none) to capture the anchor line — works
+        // for a file the tab never opened, since the resolver reads git/the working tree directly.
+        const file = state.files.find((f) => f.path === body.path);
+        const contents = file
+          ? await readFileContents(state, file).catch(() => undefined)
+          : undefined;
         const comment = {
           id: crypto.randomUUID(),
           path: body.path,
@@ -605,7 +619,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           status: "open" as const,
           intent: "note" as const,
           role: body.role === "user" ? ("user" as const) : ("agent" as const),
-          anchorText: anchorTextFor(state.files, body.path, side, lineNumber),
+          anchorText: anchorTextFor(contents, side, lineNumber),
         };
         state.comments.push(comment);
         // The reply the reviewer was waiting on has landed — the "what I'm doing

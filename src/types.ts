@@ -100,14 +100,32 @@ export type Decision = {
 
 export type ReviewFile = DiffFile & {
   path: string;
-  oldFile: { name: string; contents: string };
-  newFile: { name: string; contents: string };
   // Git blob OID of the new-side contents — the file-level staleness key. Changes iff the
   // content changes, so a file's approval invalidates when its content changes between turns
   // (see reviewedFileHashes / mergeReviewState). Harvested from `git diff --raw` for a committed
   // new side; hashed locally (blobOid) for a working-tree side. NOT the block-level key:
   // ChangeState.contentHash stays a content-slice hash (a diff block is not a git object).
   contentHash: string;
+  // Lean metadata stamped by the builder (issue 04) so file contents never ride the state — the
+  // tab fetches them per file via GET /api/file-contents. Derived from the diff structure + the
+  // bytes read to hash a working side; never require re-reading a committed blob.
+  //
+  // Change class, from the diff's paths (no contents): added (--- /dev/null), deleted (+++
+  // /dev/null), renamed (distinct old/new paths), else modified.
+  changeKind?: "added" | "modified" | "deleted" | "renamed";
+  // +added / −removed line counts. From the parsed hunks; a hunk-less full-file add counts its
+  // whole content as additions (matching what the UI used to derive from the embedded contents).
+  added?: number;
+  removed?: number;
+  // A byte-identical move (distinct paths, unchanged content): git-native zero-hunk rename or a
+  // plain-`mv` untracked pair. A guide-declared movedFrom merge is a rename-CHANGED file and is
+  // NOT pure. Drives the UI's muted "renamed · no changes" row / skim-group fold without contents.
+  renamePure?: boolean;
+  // New-side byte size, stamped ONLY in working/file mode (free from the bytes read to hash the
+  // working copy). OMITTED for committed new sides (pr/staged) — sizes aren't in `git diff --raw`
+  // and a batched lookup wasn't worth a slice dominated by deletion. Issue 05's oversized-file
+  // threshold falls back to diff-text length + changed-line counts where size is absent.
+  size?: number;
 };
 
 export type ReviewMode = "repo" | "file" | "pr";
@@ -228,22 +246,24 @@ export type DeskStatus = {
   queuedReviews: number;
 };
 
-// One file's old/new contents, fetched on demand by the tab (GET /api/file-contents) so the
-// full contents never have to ride /api/state (they still do for compatibility until issue 04
-// strips them). The server resolves these from git/the working tree — never from the embedded
-// copies — so the equivalence is testable before those copies are removed. The tab caches the
-// payload keyed by path + the file's contentHash (which changes on reload, invalidating naturally).
+// One file's old/new contents, fetched on demand by the tab (GET /api/file-contents) so the full
+// contents never ride /api/state — the state itself is lean (issue 04 removed the embedded copies).
+// The server resolves these from git/the working tree. The tab caches the payload keyed by path +
+// the file's contentHash (which changes on reload, invalidating naturally). oldOid/newOid are the
+// blob OIDs of each side (newOid === the file's contentHash); carried for a future client-side
+// content cache, unused by the tab today.
 export type FileContentsPayload = {
   path: string;
   oldContents: string;
   newContents: string;
+  oldOid: string;
+  newOid: string;
 };
 
-// The tab's 1.5s heartbeat (GET /api/poll): just enough to detect change. The full
-// ReviewState carries the contents of every file in the diff — tens to hundreds of MB
-// on a big desk — so it must never ride the poll; the tab fetches /api/state exactly
-// once per baseDiffHash change and diffs guide/comments off this slice in between.
-// DeskStatus is merged into the response alongside these fields.
+// The tab's 1.5s heartbeat (GET /api/poll): just enough to detect change. Even lean, the full
+// ReviewState (hunks + rawDiff for every file) is far heavier than a heartbeat needs, so it must
+// never ride the poll; the tab fetches /api/state exactly once per baseDiffHash change and diffs
+// guide/comments off this slice in between. DeskStatus is merged into the response alongside these.
 export type PollPayload = Pick<ReviewState, "baseDiffHash" | "guide" | "comments">;
 
 // The structured payload printed to stdout (and written to result.json) when
