@@ -1379,6 +1379,304 @@
       color: var(--amber)
     }
 
+    /* Oversized-file placeholder (issue 05): a verdict-capable summary shown instead of a diff
+       that would freeze the tab. Reuses the panel / churn-count / flag idioms so it reads as
+       native; the change-kind accent (--ct-color) mirrors the diff header's ctColor language. */
+    .oversized-card {
+      --ct-color: var(--muted);
+      max-width: 620px;
+      margin: 40px auto;
+      padding: 20px 22px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-left: 2px solid var(--ct-color);
+      border-radius: var(--radius-lg);
+      font-family: var(--sans)
+    }
+
+    .oversized-card.ct-new {
+      --ct-color: var(--green)
+    }
+
+    .oversized-card.ct-modified {
+      --ct-color: var(--cyan)
+    }
+
+    .oversized-card.ct-deleted {
+      --ct-color: var(--red)
+    }
+
+    .oversized-card.ct-renamed {
+      --ct-color: var(--amber)
+    }
+
+    .oversized-card .ovsz-head {
+      display: flex;
+      align-items: center;
+      gap: 8px
+    }
+
+    .oversized-card .ovsz-icon {
+      flex: 0 0 auto;
+      width: 15px;
+      height: 15px;
+      color: var(--ct-color)
+    }
+
+    .oversized-card .ovsz-path {
+      font-family: var(--mono);
+      font-weight: 600;
+      font-size: var(--text-md);
+      color: var(--ink-bright);
+      word-break: break-all
+    }
+
+    .oversized-card .ovsz-moved {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-family: var(--mono);
+      font-size: var(--text-2xs);
+      color: var(--amber)
+    }
+
+    .oversized-card .ovsz-moved .ic {
+      width: 11px;
+      height: 11px
+    }
+
+    .oversized-card .ovsz-kind {
+      margin-left: auto;
+      flex: 0 0 auto;
+      font-size: var(--text-2xs);
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--ct-color)
+    }
+
+    .oversized-card .ovsz-badges {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 13px
+    }
+
+    .oversized-card .ovsz-cat {
+      font-size: var(--text-2xs);
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--cyan)
+    }
+
+    .oversized-card .ovsz-cat.crit {
+      color: var(--amber)
+    }
+
+    .oversized-card .ovsz-skim {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: var(--text-2xs);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted)
+    }
+
+    .oversized-card .ovsz-skim .ic {
+      width: 12px;
+      height: 12px
+    }
+
+    .oversized-card .ovsz-stats {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      margin-top: 16px
+    }
+
+    .oversized-card .ovsz-size {
+      font-family: var(--mono);
+      font-size: var(--text-xl);
+      font-weight: 600;
+      color: var(--ink-bright)
+    }
+
+    .oversized-card .ovsz-counts {
+      display: inline-flex;
+      gap: var(--churn-gap);
+      font-family: var(--mono);
+      font-size: var(--text-md)
+    }
+
+    .oversized-card .ovsz-counts .a {
+      color: var(--green)
+    }
+
+    .oversized-card .ovsz-counts .d {
+      color: var(--red)
+    }
+
+    .oversized-card .ovsz-note {
+      margin: 10px 0 0;
+      font-size: var(--text-sm);
+      color: var(--muted);
+      line-height: 1.5
+    }
+
+    /* Flag callout — the amber bordered box the guide header uses, restated here (its rules are
+       scoped under .ghdr, so they don't reach the card). "Decide this before approving." */
+    .oversized-card .ovsz-flag {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 8px 11px;
+      border: 1px solid rgba(224, 175, 104, .35);
+      background: rgba(224, 175, 104, .06);
+      border-radius: var(--radius-sm);
+      font-size: var(--text-sm);
+      line-height: 1.5;
+      color: var(--amber-fg)
+    }
+
+    .oversized-card .ovsz-flag .ic {
+      flex: 0 0 auto;
+      width: 13px;
+      height: 13px;
+      margin-top: 2px;
+      color: var(--amber);
+      fill: currentColor
+    }
+
+    .oversized-card .ovsz-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line)
+    }
+
+    .oversized-card .ovsz-verdict {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px
+    }
+
+    .oversized-card .ovsz-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border: 1px solid var(--line-strong);
+      background: var(--surface-raised);
+      color: var(--ink);
+      border-radius: var(--radius-sm);
+      font-family: var(--sans);
+      font-size: var(--text-sm);
+      cursor: pointer
+    }
+
+    .oversized-card .ovsz-btn:hover {
+      background: var(--panel3);
+      color: var(--ink-bright)
+    }
+
+    .oversized-card .ovsz-btn kbd {
+      pointer-events: none;
+      color: rgba(255, 255, 255, .95);
+      background: rgba(0, 0, 0, .22);
+      border-color: rgba(255, 255, 255, .2)
+    }
+
+    .oversized-card .ovsz-btn.primary {
+      border-color: transparent;
+      background: var(--green);
+      color: #04150e;
+      font-weight: 600
+    }
+
+    .oversized-card .ovsz-btn.primary:hover {
+      background: var(--green);
+      filter: brightness(1.08)
+    }
+
+    .oversized-card .ovsz-btn.primary.warn {
+      background: transparent;
+      border-color: rgba(224, 175, 104, .5);
+      color: var(--amber);
+      font-weight: 600
+    }
+
+    .oversized-card .ovsz-btn.primary.warn:hover {
+      background: rgba(224, 175, 104, .1)
+    }
+
+    .oversized-card .ovsz-btn.primary.warn kbd {
+      color: var(--amber);
+      background: rgba(224, 175, 104, .12);
+      border-color: rgba(224, 175, 104, .3)
+    }
+
+    .oversized-card .ovsz-btn.danger {
+      border-color: rgba(255, 77, 109, .4);
+      background: transparent;
+      color: var(--red)
+    }
+
+    .oversized-card .ovsz-btn.danger:hover {
+      background: rgba(255, 77, 109, .1)
+    }
+
+    .oversized-card .ovsz-btn.ghost {
+      color: var(--muted)
+    }
+
+    .oversized-card .ovsz-pill {
+      padding: 2px 9px;
+      border-radius: var(--radius-pill);
+      font-size: var(--text-2xs);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em
+    }
+
+    .oversized-card .ovsz-pill.ok {
+      background: rgba(0, 208, 132, .12);
+      color: var(--green)
+    }
+
+    .oversized-card .ovsz-pill.warn {
+      background: rgba(224, 175, 104, .12);
+      color: var(--amber)
+    }
+
+    .oversized-card .ovsz-load {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border: 1px solid var(--line-strong);
+      background: transparent;
+      color: var(--cyan);
+      border-radius: var(--radius-sm);
+      font-family: var(--sans);
+      font-size: var(--text-sm);
+      cursor: pointer
+    }
+
+    .oversized-card .ovsz-load:hover {
+      background: var(--surface-raised)
+    }
+
+    .oversized-card .ovsz-load kbd {
+      pointer-events: none
+    }
+
     /* "← old path" arrow on a pure-rename row in the Skimmed tree/walkthrough group. */
     .node .moved-from {
       margin-left: 6px;

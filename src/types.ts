@@ -126,6 +126,12 @@ export type ReviewFile = DiffFile & {
   // and a batched lookup wasn't worth a slice dominated by deletion. Issue 05's oversized-file
   // threshold falls back to diff-text length + changed-line counts where size is absent.
   size?: number;
+  // Set (issue 05) when this file's diff is big enough to freeze the tab if rendered — the UI shows
+  // a verdict-capable summary card instead of the diff (with a "Load diff anyway" escape hatch).
+  // Stamped by the builder from the diff alone (text length + changed lines, plus `size` where it's
+  // present); see isOversized in state.ts. Omitted (not `false`) on ordinary files, so the state
+  // stays lean and the UI reads it as a plain truthiness check.
+  oversized?: boolean;
 };
 
 export type ReviewMode = "repo" | "file" | "pr";

@@ -44,6 +44,7 @@ export const S: Store = Alpine.reactive<Store>({
   fileView: "rendered",
   diffScrolled: false,
   skimExpanded: new Set<string>(),
+  loadedOversized: new Set<string>(),
 });
 
 // Imperative-island objects kept OUT of the reactive store: the @pierre/diffs

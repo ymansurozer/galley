@@ -39,6 +39,7 @@ import {
   renderMovedPure,
   toggleFileSkim,
 } from "./skim";
+import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
@@ -289,6 +290,17 @@ async function renderCenter() {
   }
   const f = currentFile();
   const previewing = !!S.preview;
+  // An oversized file (server-stamped) paints a verdict-capable summary card instead of its diff —
+  // BEFORE the contents fetch below, so opening it never blocks on a multi-MB tokenization pass.
+  // "Load diff anyway" clears this (S.loadedOversized) and falls through to the normal render.
+  if (!previewing && isOversizedPlaceholder(f)) {
+    cursorReset();
+    dropInstance();
+    D.lineMap = null;
+    applyLayoutClasses();
+    renderOversizedCard();
+    return;
+  }
   // Pull this file's contents from the per-file endpoint before rendering anything that reads
   // them (the markdown/moved/skim/diff branches all follow). A "stale" result means the reviewer
   // switched files mid-fetch — abort silently, a newer render() is already handling the current

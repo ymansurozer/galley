@@ -46,9 +46,17 @@ try {
   git("config", "user.email", "s@s.dev");
   git("config", "user.name", "smoke");
   writeFileSync(path.join(tmp, "a.txt"), "one\ntwo\nthree\n");
+  // Two oversized fixtures (issue 05): committed at 6000 lines, rewritten whole in the working
+  // tree so each diff clears the >5000-changed-line threshold and gets stamped `oversized`.
+  const bigLines = (tag) =>
+    Array.from({ length: 6000 }, (_, i) => `${tag} line ${i}`).join("\n") + "\n";
+  writeFileSync(path.join(tmp, "huge-approved.txt"), bigLines("orig"));
+  writeFileSync(path.join(tmp, "huge-rejected.txt"), bigLines("orig"));
   git("add", "-A");
   git("commit", "-q", "-m", "init");
   writeFileSync(path.join(tmp, "a.txt"), "one\nCHANGED\nthree\n");
+  writeFileSync(path.join(tmp, "huge-approved.txt"), bigLines("edited"));
+  writeFileSync(path.join(tmp, "huge-rejected.txt"), bigLines("edited"));
 
   desk = spawn("node", [CLI, "--repo", tmp, "--session", ID, "--port", String(PORT), "--no-open"], {
     stdio: "ignore",
@@ -74,6 +82,14 @@ try {
   );
   assert.ok(!JSON.stringify(state.files).includes('"contents"'), "state.files has no contents");
   console.log(`✓ desk up — repo mode, ${state.changes.length} change(s), lean state (no contents)`);
+
+  // Oversized-file stamp (issue 05): the two 6000-line rewrites clear the threshold and are
+  // stamped `oversized`; the ordinary one-line change to a.txt is not.
+  const oversizedOf = (p) => state.files.find((f) => f.path === p)?.oversized;
+  assert.equal(oversizedOf("huge-approved.txt"), true, "huge-approved.txt stamped oversized");
+  assert.equal(oversizedOf("huge-rejected.txt"), true, "huge-rejected.txt stamped oversized");
+  assert.ok(!oversizedOf("a.txt"), "an ordinary file is not stamped oversized");
+  console.log("✓ oversized stamp present on the big fixtures, absent on ordinary files");
 
   // The tab's 1.5s heartbeat is the lite /api/poll — hash + guide + comments + liveness,
   // never the full state (whose file contents melt big desks when polled every tick).
@@ -111,6 +127,15 @@ try {
           skimReason: "smoke",
           skimBlocks: [{ lines: 2, reason: "line-two churn" }],
         },
+        // A whole-file skim on an oversized file (issue 05/06): the fold is UI-derived from these
+        // two stamps together (guide skim + oversized on the same file), so asserting both proves
+        // the placeholder still gathers into the Skimmed group.
+        {
+          path: "huge-approved.txt",
+          orientation: "Generated bundle — skim it.",
+          skim: true,
+          skimReason: "generated",
+        },
       ],
     }),
   );
@@ -122,7 +147,18 @@ try {
     guidedState.changes.some((c) => c.skim),
     "a skimBlocks span stamped a change block",
   );
-  console.log("✓ reload --guide with skim → accepted, file + block stamped");
+  // The oversized file is both guide-skimmed AND still stamped oversized after reload — the two
+  // stamps the Skimmed-group fold derives from.
+  const skimmedBig = guidedState.guide?.files?.find((f) => f.path === "huge-approved.txt");
+  assert.equal(skimmedBig?.skim, true, "oversized file carries the whole-file skim");
+  assert.equal(
+    guidedState.files.find((f) => f.path === "huge-approved.txt")?.oversized,
+    true,
+    "oversized stamp survives reload alongside the skim",
+  );
+  console.log(
+    "✓ reload --guide with skim → accepted, file + block stamped, oversized file skimmed",
+  );
 
   // A skim span that resolves to no change block is rejected (diff-aware validation).
   const badReload = await post("/api/reload", {
@@ -220,13 +256,47 @@ try {
 
   // human clicks Send → `galley await` yields a review event with a ReviewResult.
   // Attach an overall note and confirm it round-trips as a field on the structured result.
+  // Also drive both whole-file verdicts an oversized card offers, through the SAME reviewer slice
+  // the card mutates: approve (reviewedFiles + reviewedFileHashes) on huge-approved.txt, and reject
+  // (rejected decisions for every change block) on huge-rejected.txt. They must land in the result
+  // arrays exactly as verdicts on rendered files do.
   const NOTE = "After applying, run the formatter and update the changelog.";
-  await post("/api/send", { ...(await getJson("/api/state")), overallNote: NOTE });
+  const preSend = await getJson("/api/state");
+  const approvedHash = preSend.files.find((f) => f.path === "huge-approved.txt").contentHash;
+  const rejectedDecisions = preSend.changes
+    .filter((c) => c.path === "huge-rejected.txt")
+    .map((c) => ({
+      key: `${c.path}:${c.stableKey}`,
+      status: "rejected",
+      reviewedHash: c.contentHash,
+      path: c.path,
+      lineNumber: c.lineNumber,
+      side: c.side,
+      title: c.title,
+    }));
+  assert.ok(rejectedDecisions.length >= 1, "the oversized file has change blocks to reject");
+  await post("/api/send", {
+    ...preSend,
+    decisions: rejectedDecisions,
+    reviewedFiles: ["huge-approved.txt"],
+    reviewedFileHashes: { "huge-approved.txt": approvedHash },
+    decisionFiles: ["huge-approved.txt", "huge-rejected.txt"],
+    overallNote: NOTE,
+  });
   const ev2 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
   assert.equal(ev2.kind, "review");
   assert.equal(ev2.result.mode, "repo");
   for (const k of ["requestedChanges", "accepted", "rejected", "stagedFiles"])
     assert.ok(Array.isArray(ev2.result[k]), `result.${k} is an array`);
+  assert.ok(
+    ev2.result.approvedFiles.includes("huge-approved.txt"),
+    "card approve on an oversized file lands in approvedFiles",
+  );
+  assert.ok(
+    ev2.result.rejected.some((r) => r.path === "huge-rejected.txt"),
+    "card reject on an oversized file lands in rejected[]",
+  );
+  console.log("✓ oversized-card verdicts (approve + reject) land in the ReviewResult arrays");
   assert.equal(ev2.result.overallNote, NOTE, "overallNote round-trips on the result");
   // The contract is the structured arrays only — no prose summary field, no duplicate .md artifact.
   assert.equal(ev2.result.summaryMarkdown, undefined, "no summaryMarkdown field on the result");

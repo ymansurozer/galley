@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import {
   anchorTextFor,
+  buildDiffSource,
   buildReviewResult,
   computeApprovedFiles,
   deskLockPath,
@@ -653,6 +655,35 @@ test("buildReviewResult carries mode/target/base", () => {
   assert.equal(r.mode, "pr");
   assert.equal(r.target, "feature-x");
   assert.equal(r.base, "abc123");
+});
+
+test("buildDiffSource stamps oversized on a large-diff file, not on ordinary ones (issue 05)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "galley-oversized-"));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    // Commit a 6000-line file + a small one, then rewrite both in the working tree. The full
+    // rewrite of the big file clears the >5000-changed-line threshold; the small edit does not.
+    const lines = (tag: string) =>
+      Array.from({ length: 6000 }, (_, i) => `${tag} line ${i}`).join("\n") + "\n";
+    await fs.writeFile(path.join(dir, "big.txt"), lines("orig"));
+    await fs.writeFile(path.join(dir, "small.txt"), "a\nb\nc\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    await fs.writeFile(path.join(dir, "big.txt"), lines("edited"));
+    await fs.writeFile(path.join(dir, "small.txt"), "a\nB\nc\n");
+
+    const source = await buildDiffSource({ mode: "repo", root: dir });
+    assert.ok(source, "diff source built");
+    const big = source!.files.find((f) => f.path === "big.txt");
+    const small = source!.files.find((f) => f.path === "small.txt");
+    assert.equal(big?.oversized, true, "the >5000-changed-line file is stamped oversized");
+    assert.ok(!small?.oversized, "an ordinary one-line change is not oversized");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("global settings: write→read round-trip; missing and corrupt files read as {}", async () => {
