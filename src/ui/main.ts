@@ -13,6 +13,7 @@ import { closeComposerIfEmpty } from "./selection";
 import { treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
 import { render, deferRender } from "./render";
+import { cur } from "./contents";
 import { adoptDeskStatus, pollState } from "./poll";
 import { reviewerSlice } from "./save";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
@@ -387,7 +388,11 @@ const submitComment = (intent: "question" | "action") => {
   const file = currentFile();
   const side = S.selected.side;
   const lineNumber = fromDisplayLine(side, S.selected.lineNumber);
-  const contents = side === "deletions" ? file.oldFile?.contents : file.newFile?.contents;
+  // Anchor text comes from the current file's fetched contents (contents.ts `cur`, loaded by the
+  // render of this file). It's best-effort — the server re-derives its own anchorText on reload —
+  // so if cur isn't this file yet, leave it undefined rather than snapshot the wrong file's line.
+  const contents =
+    cur.path === file.path ? (side === "deletions" ? cur.oldContents : cur.newContents) : undefined;
   const c = {
     id: crypto.randomUUID(),
     path: file.path,

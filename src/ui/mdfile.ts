@@ -1,4 +1,5 @@
 import { S, $ } from "./store";
+import { cur } from "./contents";
 import { currentFile, currentComments } from "./changes";
 import { renderMarkdown } from "./markdown";
 import { buildCommentThread } from "./annotations";
@@ -16,7 +17,10 @@ export function defaultFileView(f: ReturnType<typeof currentFile>): "rendered" |
   // An explicit preference wins; "auto" (the default) keeps the smart rule below.
   const pref = S.settings.markdownView;
   if (pref === "rendered" || pref === "source") return pref;
-  const changed = f.oldFile.contents !== "" && f.oldFile.contents !== f.newFile.contents;
+  // "Changed" ≡ the file has a parsed diff (hunks) — derived from metadata, not contents, so this
+  // runs at file-select time before the per-file contents fetch. A new/unchanged markdown file
+  // (no hunks) opens rendered; a changed one opens as source so the diff shows first.
+  const changed = f.hunks.length > 0;
   return changed ? "source" : "rendered";
 }
 
@@ -41,7 +45,9 @@ export function renderMarkdownFile() {
   const host = $("diff");
   host.innerHTML = `<div class="md-file md"></div>`;
   const container = host.firstElementChild as HTMLElement;
-  container.innerHTML = renderMarkdown(f.newFile.contents);
+  // Contents come from the per-file fetch (render() awaits it before this runs); `cur` holds
+  // the current file's new-side bytes.
+  container.innerHTML = renderMarkdown(cur.newContents);
 
   const anchors = [...container.querySelectorAll<HTMLElement>("[data-line]")].filter(isAnchor);
   for (const el of anchors) {

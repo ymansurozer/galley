@@ -1,5 +1,6 @@
 import type { ChangeContent, FileDiffMetadata } from "@pierre/diffs";
 import { S, D } from "./store";
+import { cur } from "./contents";
 import { buildLineMap, type DecidedPosition } from "./linemap";
 import type { ChangeState, ReviewComment, ReviewState, Side } from "./types";
 
@@ -17,8 +18,12 @@ export function currentFile(): ReviewFile {
 export function currentSplittable(): boolean {
   const f = S.preview ?? S.state?.files?.[S.fileIndex];
   if (!f) return true;
-  const o = f.oldFile?.contents ?? "",
-    n = f.newFile?.contents ?? "";
+  // Two-sided-ness is a property of the contents, which now arrive via the per-file fetch
+  // (contents.ts `cur`). Until they're loaded for the current file, default to splittable — the
+  // render pass awaits the fetch before it reads this, so the meaningful call sites see real bytes.
+  if (cur.path !== f.path) return true;
+  const o = cur.oldContents,
+    n = cur.newContents;
   return o !== "" && n !== "" && o !== n;
 }
 export function currentChanges(): ChangeState[] {

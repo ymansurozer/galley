@@ -39,6 +39,10 @@ export function lineStats(files: FileLike[]): Map<string, LineStat> {
     // (same "new file" test as tree.ts's changeType). Count its whole content as additions
     // so the walkthrough shows an indicator, not a blank. PR-mode new files arrive with a
     // hunk, so the gate leaves their count untouched.
+    // LEAN-STATE READER: reads the embedded oldFile/newFile.contents (issue 02 moved the render
+    // path onto the per-file fetch, but this is a cross-file derivation over every walkthrough
+    // row). It needs the per-file line-count stamp the lean builder adds — issue 04 converts it
+    // and removes the embedded contents.
     if (added === 0 && removed === 0 && !f.oldFile?.contents && f.newFile?.contents)
       added = lineCount(f.newFile.contents);
     m.set(f.path, { added, removed });

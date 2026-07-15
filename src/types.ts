@@ -225,6 +225,17 @@ export type DeskStatus = {
   queuedReviews: number;
 };
 
+// One file's old/new contents, fetched on demand by the tab (GET /api/file-contents) so the
+// full contents never have to ride /api/state (they still do for compatibility until issue 04
+// strips them). The server resolves these from git/the working tree — never from the embedded
+// copies — so the equivalence is testable before those copies are removed. The tab caches the
+// payload keyed by path + the file's contentHash (which changes on reload, invalidating naturally).
+export type FileContentsPayload = {
+  path: string;
+  oldContents: string;
+  newContents: string;
+};
+
 // The tab's 1.5s heartbeat (GET /api/poll): just enough to detect change. The full
 // ReviewState carries the contents of every file in the diff — tens to hundreds of MB
 // on a big desk — so it must never ride the poll; the tab fetches /api/state exactly

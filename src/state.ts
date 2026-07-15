@@ -414,6 +414,77 @@ export async function buildDiffSource(opts: {
   return { files, changes, rawDiff };
 }
 
+// A small LRU of resolved file contents, so the tab re-opening a file (or re-fetching after a
+// render) doesn't re-spawn `git show`. Keyed by root + path + contentHash: contentHash is the
+// new-side content hash, so a reload that rewrites the file changes the key and the stale entry
+// falls out naturally (no explicit invalidation). Process-global — one desk per process.
+const CONTENTS_CACHE_CAP = 30;
+const contentsCache = new Map<string, { oldContents: string; newContents: string }>();
+
+// On-demand old/new contents for one reviewed file. Deliberately reads from git / the working
+// tree — NOT from the file entry's embedded oldFile/newFile.contents — replaying the exact same
+// per-mode ref semantics assembleDiff/buildDiffSource built the diff against, so a fetch returns
+// bytes identical to the embedded copies (proven in server.test.ts) before issue 04 removes them.
+async function resolveFileContents(
+  state: ReviewState,
+  file: ReviewFile,
+): Promise<{ oldContents: string; newContents: string }> {
+  const root = state.root;
+  if (state.mode === "pr") {
+    const base = state.base ?? "HEAD";
+    return {
+      oldContents: await fileAt(root, file.oldPath, base),
+      newContents: await fileAt(root, file.newPath, "HEAD"),
+    };
+  }
+  if (state.mode === "file") {
+    const abs = path.isAbsolute(file.path) ? file.path : path.join(root, file.path);
+    const working = await fs.readFile(abs, "utf8").catch(() => "");
+    const tracked = await git(["ls-files", "--error-unmatch", "--", file.path], root).then(
+      () => true,
+      () => false,
+    );
+    // tracked + changed reads old from the INDEX (:0) and new from the working tree (buildDiffSource's
+    // file-mode fetchers); tracked-unchanged is full-file working/working; untracked/new is ""/working.
+    if (tracked && file.hunks.length)
+      return { oldContents: await fileAt(root, file.oldPath, ":0"), newContents: working };
+    return { oldContents: tracked ? working : "", newContents: working };
+  }
+  // repo: staged diffs index vs HEAD (old HEAD, new :0); working diffs working tree vs index
+  // (old :0, new working). Untracked working files read "" for old (`:0:path` has no index entry
+  // → fileAt swallows to "") and the working file for new — matching their full-file-add entry.
+  if (state.staged)
+    return {
+      oldContents: await fileAt(root, file.oldPath, "HEAD"),
+      newContents: await fileAt(root, file.newPath, ":0"),
+    };
+  return {
+    oldContents: await fileAt(root, file.oldPath, ":0"),
+    newContents: await fileAt(root, file.newPath),
+  };
+}
+
+export async function readFileContents(
+  state: ReviewState,
+  file: ReviewFile,
+): Promise<{ oldContents: string; newContents: string }> {
+  const key = `${state.root} ${file.path} ${file.contentHash}`;
+  const hit = contentsCache.get(key);
+  if (hit) {
+    contentsCache.delete(key); // re-insert below → most-recently-used
+    contentsCache.set(key, hit);
+    return hit;
+  }
+  const resolved = await resolveFileContents(state, file);
+  contentsCache.set(key, resolved);
+  while (contentsCache.size > CONTENTS_CACHE_CAP) {
+    const oldest = contentsCache.keys().next().value;
+    if (oldest === undefined) break;
+    contentsCache.delete(oldest);
+  }
+  return resolved;
+}
+
 export async function buildReviewState(
   cwd: string,
   opts: {

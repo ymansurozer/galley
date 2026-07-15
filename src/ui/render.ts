@@ -1,6 +1,7 @@
 import type { DiffLineAnnotation, FileDiffMetadata } from "@pierre/diffs";
 import { getIconForType, SVGSpriteSheet } from "@pierre/diffs";
-import { S, D, $ } from "./store";
+import { S, D, $, esc } from "./store";
+import { cur, loadCurrentContents, peekContents } from "./contents";
 import {
   currentFile,
   currentSplittable,
@@ -64,9 +65,13 @@ const RENDER_INDICATOR_MIN_LINES = 400;
 export function deferRender(forceIfBig = false) {
   const f = currentFile();
   const lc = (s?: string) => (s?.match(/\n/g)?.length ?? 0) + 1;
+  // Contents now arrive via a per-file fetch (see contents.ts). When they aren't warm yet the
+  // upcoming render() gates on that fetch, so show the indicator; when they are, decide on size
+  // as before. peekContents never fetches, so this stays synchronous.
+  const warm = f ? peekContents(f) : null;
   const big =
-    !!f && Math.max(lc(f.oldFile.contents), lc(f.newFile.contents)) > RENDER_INDICATOR_MIN_LINES;
-  S.rendering = big && (forceIfBig || !D.diffCache.has(diffKey(!!S.preview)));
+    !!warm && Math.max(lc(warm.oldContents), lc(warm.newContents)) > RENDER_INDICATOR_MIN_LINES;
+  S.rendering = !!f && (!warm || (big && (forceIfBig || !D.diffCache.has(diffKey(!!S.preview)))));
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
       void render().finally(() => {
@@ -185,6 +190,17 @@ export function clearOverviewRuler() {
   o.replaceChildren();
 }
 
+// Shown when a file's contents can't be fetched (git object gone after a rebase, transport
+// failure). Names the file and points at a desk reload; the rest of the desk stays live, so the
+// reviewer can navigate to other files while this one is unresolvable.
+function renderContentsError(path: string) {
+  $("diff").innerHTML = `<div class="file-skim"><div class="file-skim-strip moved">
+    <svg class="ic"><use href="#gly-flag"></use></svg>
+    <span>couldn't load <span class="file-skim-name">${esc(path)}</span></span>
+    <span class="file-skim-meta">reload the desk to retry</span>
+  </div></div>`;
+}
+
 // VSCode-style change overview: map every change row's position in the scrolled content to a
 // tick in a fixed right-edge ruler, so changes are visible in one skim of the whole file.
 // Only meaningful in "expand unchanged" mode (otherwise the diff is already compact).
@@ -273,6 +289,21 @@ async function renderCenter() {
   }
   const f = currentFile();
   const previewing = !!S.preview;
+  // Pull this file's contents from the per-file endpoint before rendering anything that reads
+  // them (the markdown/moved/skim/diff branches all follow). A "stale" result means the reviewer
+  // switched files mid-fetch — abort silently, a newer render() is already handling the current
+  // file. An "error" means the contents can't be fetched (git object gone after a rebase); show
+  // an error card naming the file so navigation to other files keeps working.
+  const contentsStatus = await loadCurrentContents();
+  if (contentsStatus === "stale") return;
+  if (contentsStatus === "error") {
+    cursorReset();
+    dropInstance();
+    D.lineMap = null;
+    applyLayoutClasses();
+    renderContentsError(f.path);
+    return;
+  }
   // Markdown file in rendered mode: formatted preview with block-anchored comments,
   // instead of the @pierre/diffs view.
   if (
@@ -314,18 +345,25 @@ async function renderCenter() {
   // an "added" file; it stays line-selectable for comments.
   const viewOnly =
     previewing ||
-    (S.state.mode === "file" &&
-      (f.oldFile.contents === "" || f.oldFile.contents === f.newFile.contents));
+    (S.state.mode === "file" && (cur.oldContents === "" || cur.oldContents === cur.newContents));
+  // Old/new display names carry rename info to @pierre (distinct paths → rename coloring); they're
+  // metadata (oldPath/newPath), not contents, so they stay independent of the fetched bytes.
+  const oldName = f.oldPath ?? f.path;
+  const newName = f.newPath ?? f.path;
   // cacheKey lets @pierre reuse its highlighted token AST for the same content across renders
   // (and instances), so re-rendering after a decision — or re-opening a file — doesn't
   // re-tokenize. Keyed by content hash so it invalidates when the agent rewrites the file.
-  const newF = { ...f.newFile, cacheKey: f.contentHash || ckey(f.newFile.contents) };
+  const newF = {
+    name: newName,
+    contents: cur.newContents,
+    cacheKey: f.contentHash || ckey(cur.newContents),
+  };
   let fd: FileDiffMetadata;
   if (viewOnly) {
-    fd = D.parseDiffFromFile({ name: f.newFile.name, contents: "", cacheKey: "∅" }, newF);
+    fd = D.parseDiffFromFile({ name: newName, contents: "", cacheKey: "∅" }, newF);
     D.lineMap = null;
   } else {
-    const oldF = { ...f.oldFile, cacheKey: ckey(f.oldFile.contents) };
+    const oldF = { name: oldName, contents: cur.oldContents, cacheKey: ckey(cur.oldContents) };
     // Changes (identity, raw anchors) derive from the raw diff; the rendered diff is the
     // decision-replayed one, so display anchors must be re-read from it (resolutions
     // renumber lines — see linemap.ts).

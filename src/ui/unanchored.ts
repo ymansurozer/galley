@@ -1,4 +1,5 @@
 import type { ReviewComment, ReviewState, ThreadMeta } from "./types";
+import { cur } from "./contents";
 import { currentComments, currentFile } from "./changes";
 
 type ReviewFile = ReviewState["files"][number];
@@ -10,7 +11,12 @@ type ReviewFile = ReviewState["files"][number];
 // normal thread actions (reply / resolve / reopen).
 
 function sideLineCount(file: ReviewFile, side: ReviewComment["side"]): number {
-  const contents = side === "deletions" ? file.oldFile?.contents : file.newFile?.contents;
+  // Line counts come from the current file's fetched contents (contents.ts `cur`); this runs
+  // during render() for the current file, so cur is loaded. If it isn't the current file yet,
+  // return Infinity so the out-of-range fallback can't wrongly flag a thread as unanchored (the
+  // authoritative `unanchored` flag from server-side re-anchoring is still honored by the caller).
+  if (cur.path !== file.path) return Infinity;
+  const contents = side === "deletions" ? cur.oldContents : cur.newContents;
   if (!contents) return 0;
   return contents.split("\n").length;
 }

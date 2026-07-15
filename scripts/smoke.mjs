@@ -77,6 +77,18 @@ try {
   assert.ok(!("rawDiff" in poll) && !("files" in poll), "poll never ships the heavy state");
   console.log("✓ /api/poll → lite heartbeat (no rawDiff/files)");
 
+  // Per-file contents endpoint (issue 02): the tab fetches a file's contents on open instead of
+  // reading them off the state. Round-trip the changed file, and confirm the path boundary holds.
+  const fc = await getJson("/api/file-contents?path=a.txt");
+  assert.equal(fc.path, "a.txt");
+  assert.equal(fc.newContents, "one\nCHANGED\nthree\n", "new side is the working-tree content");
+  assert.equal(fc.oldContents, "one\ntwo\nthree\n", "old side is the committed content");
+  const fcEscape = await fetch(BASE + "/api/file-contents?path=" + encodeURIComponent("../escape"));
+  assert.equal(fcEscape.status, 400, "path escape rejected");
+  const fcMissing = await fetch(BASE + "/api/file-contents?path=not-in-review.txt");
+  assert.equal(fcMissing.status, 404, "unknown file 404s");
+  console.log("✓ /api/file-contents → round-trips a file + rejects escapes/unknowns");
+
   // guided review with skim (issue 06): attach a guide (OUTSIDE the repo so it isn't a stray
   // untracked file) whose skimBlocks span resolves to the change block, and a file-level skim.
   const guideDir = mkdtempSync(path.join(tmpdir(), "galley-smoke-guide-"));
