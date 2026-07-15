@@ -767,6 +767,37 @@ test("mergeReviewState drops a finished file with no recorded hash (old viewed-e
   assert.deepEqual(merged.reviewedFiles, []);
 });
 
+test("mergeReviewState (blob-OID migration): a pre-OID review loads — comments + unchanged-block decisions survive, file approval resets once", () => {
+  // A review persisted before file-level keys became git blob OIDs: the file's contentHash is
+  // the old 16-char sha slice ("OLDSHA16"), and reviewedFileHashes matches THAT. On the first
+  // reload with OID keys, the fresh file entry carries a 40-hex blob OID, so the file hash no
+  // longer matches — file approval resets. Block-level hashing is UNCHANGED (a diff block has no
+  // blob OID), so a saved decision on an unchanged block still matches and carries forward.
+  const base = state({
+    files: [file("a.ts", "0123456789abcdef0123456789abcdef01234567")], // fresh: blob OID
+    changes: [change({ id: "a.ts:k1", path: "a.ts", stableKey: "k1", contentHash: "BLOCKHASH" })],
+  });
+  const saved = state({
+    files: [file("a.ts", "OLDSHA16")], // old-format 16-char slice
+    comments: [comment({ id: "c1", path: "a.ts", intent: "action", body: "fix this" })],
+    reviewedFiles: ["a.ts"],
+    reviewedFileHashes: { "a.ts": "OLDSHA16" }, // old-format → won't match the OID
+    decisions: [
+      decision({ key: "a.ts:k1", path: "a.ts", status: "accepted", reviewedHash: "BLOCKHASH" }),
+    ],
+  });
+  const merged = mergeReviewState(base, saved);
+  // Comments carry over.
+  assert.equal(merged.comments.length, 1);
+  assert.equal(merged.comments[0]!.id, "c1");
+  // File approval / reviewed-file marks reset (the file-level key format changed).
+  assert.deepEqual(merged.reviewedFiles, []);
+  assert.deepEqual(merged.reviewedFileHashes, {});
+  // An unchanged-content block decision survives (block hashing is unchanged).
+  assert.equal(merged.changes[0]!.status, "accepted");
+  assert.ok(merged.decisions!.some((d) => d.key === "a.ts:k1"));
+});
+
 test("buildReviewResult.approvedFiles includes a clean signed-off file", () => {
   const s = state({
     files: [file("a.ts", "H")],
