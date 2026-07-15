@@ -69,6 +69,14 @@ try {
   assert.ok(state.changes.length >= 1, "desk has a change to review");
   console.log(`✓ desk up — repo mode, ${state.changes.length} change(s)`);
 
+  // The tab's 1.5s heartbeat is the lite /api/poll — hash + guide + comments + liveness,
+  // never the full state (whose file contents melt big desks when polled every tick).
+  const poll = await getJson("/api/poll");
+  assert.equal(poll.baseDiffHash, state.baseDiffHash, "poll carries the current diff hash");
+  assert.ok(Array.isArray(poll.comments), "poll carries comments");
+  assert.ok(!("rawDiff" in poll) && !("files" in poll), "poll never ships the heavy state");
+  console.log("✓ /api/poll → lite heartbeat (no rawDiff/files)");
+
   // guided review with skim (issue 06): attach a guide (OUTSIDE the repo so it isn't a stray
   // untracked file) whose skimBlocks span resolves to the change block, and a file-level skim.
   const guideDir = mkdtempSync(path.join(tmpdir(), "galley-smoke-guide-"));

@@ -225,6 +225,13 @@ export type DeskStatus = {
   queuedReviews: number;
 };
 
+// The tab's 1.5s heartbeat (GET /api/poll): just enough to detect change. The full
+// ReviewState carries the contents of every file in the diff — tens to hundreds of MB
+// on a big desk — so it must never ride the poll; the tab fetches /api/state exactly
+// once per baseDiffHash change and diffs guide/comments off this slice in between.
+// DeskStatus is merged into the response alongside these fields.
+export type PollPayload = Pick<ReviewState, "baseDiffHash" | "guide" | "comments">;
+
 // The structured payload printed to stdout (and written to result.json) when
 // the reviewer clicks "Send to agent". This is the handoff contract.
 export type ReviewResult = {

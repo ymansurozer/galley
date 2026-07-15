@@ -5,6 +5,7 @@ import type {
   Decision,
   DeskStatus,
   GuideFile,
+  PollPayload,
   ReviewFile,
   ReviewerSave,
 } from "../types";
@@ -311,5 +312,6 @@ export type {
   Decision,
   DeskStatus,
   GuideFile,
+  PollPayload,
   ReviewerSave,
 };
