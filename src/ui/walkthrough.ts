@@ -8,26 +8,25 @@ export type LineStat = { added: number; removed: number };
 type FileLike = {
   path: string;
   hunks?: DiffHunk[];
-  oldFile?: { contents: string };
-  newFile?: { contents: string };
+  // The lean builder's +added/−removed stamps (issue 04), including a hunk-less full-file add's
+  // whole-content count. Preferred when present; falls back to summing hunks (test fixtures).
+  added?: number;
+  removed?: number;
   // Distinct on a git rename (issue 01) — drives the "← old path" arrow on a pure-rename row.
   oldPath?: string;
   newPath?: string;
 };
 
-// Lines in a file's content, trimming one trailing newline so the count matches git's
-// `@@ -0,0 +1,N @@` (and what @pierre renders) rather than over-counting by one.
-function lineCount(s: string): number {
-  if (!s) return 0;
-  const n = s.split("\n").length;
-  return s.endsWith("\n") ? n - 1 : n;
-}
-
-// Per-file +added/−removed from the parsed hunks. Distinct from guide.ts's progress
-// weighting (which collapses both sides into one min-1 count): these are display numbers.
+// Per-file +added/−removed. Reads the lean builder's stamps (issue 04) — which already count a
+// hunk-less full-file add's whole content — and falls back to summing the parsed hunks when a
+// fixture supplies none. Distinct from guide.ts's progress weighting (one min-1 count): display numbers.
 export function lineStats(files: FileLike[]): Map<string, LineStat> {
   const m = new Map<string, LineStat>();
   for (const f of files) {
+    if (typeof f.added === "number" && typeof f.removed === "number") {
+      m.set(f.path, { added: f.added, removed: f.removed });
+      continue;
+    }
     let added = 0,
       removed = 0;
     for (const h of f.hunks ?? [])
@@ -35,16 +34,6 @@ export function lineStats(files: FileLike[]): Map<string, LineStat> {
         if (l.kind === "add") added++;
         else if (l.kind === "delete") removed++;
       }
-    // A new file has no old side, so git emits no hunk and the loop above finds nothing
-    // (same "new file" test as tree.ts's changeType). Count its whole content as additions
-    // so the walkthrough shows an indicator, not a blank. PR-mode new files arrive with a
-    // hunk, so the gate leaves their count untouched.
-    // LEAN-STATE READER: reads the embedded oldFile/newFile.contents (issue 02 moved the render
-    // path onto the per-file fetch, but this is a cross-file derivation over every walkthrough
-    // row). It needs the per-file line-count stamp the lean builder adds — issue 04 converts it
-    // and removes the embedded contents.
-    if (added === 0 && removed === 0 && !f.oldFile?.contents && f.newFile?.contents)
-      added = lineCount(f.newFile.contents);
     m.set(f.path, { added, removed });
   }
   return m;

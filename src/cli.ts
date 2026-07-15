@@ -501,7 +501,7 @@ async function runDesk(
       return;
     }
   }
-  const state = mergeReviewState(base, saved);
+  const state = await mergeReviewState(base, saved);
   // Optional agent-generated guided review, attached at startup. Required to be a readable,
   // valid JSON file when --guide is passed; survives reload via the state merge.
   if (newGuide) {

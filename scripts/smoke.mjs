@@ -67,7 +67,13 @@ try {
   const state = await getJson("/api/state");
   assert.equal(state.mode, "repo");
   assert.ok(state.changes.length >= 1, "desk has a change to review");
-  console.log(`✓ desk up — repo mode, ${state.changes.length} change(s)`);
+  // Lean wire (issue 04): file entries carry metadata, never contents.
+  assert.ok(
+    state.files.every((f) => !("oldFile" in f) && !("newFile" in f)),
+    "no file contents ride /api/state",
+  );
+  assert.ok(!JSON.stringify(state.files).includes('"contents"'), "state.files has no contents");
+  console.log(`✓ desk up — repo mode, ${state.changes.length} change(s), lean state (no contents)`);
 
   // The tab's 1.5s heartbeat is the lite /api/poll — hash + guide + comments + liveness,
   // never the full state (whose file contents melt big desks when polled every tick).

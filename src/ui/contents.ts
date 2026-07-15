@@ -19,9 +19,9 @@ const cache = new Map<string, Contents>();
 const cacheKey = (f: ReviewFile) => `${f.path}\0${f.contentHash}`;
 
 // The current file's resolved contents. The render pass and its synchronous helpers
-// (currentSplittable, the markdown/anchor readers) read from here instead of the embedded
-// oldFile/newFile.contents. `path` records which file these belong to so a helper can tell when
-// they're not yet loaded for the current file (before the first fetch resolves).
+// (currentSplittable, the markdown/anchor readers) read from here instead of fetching per call.
+// `path` records which file these belong to so a helper can tell when they're not yet loaded for
+// the current file (before the first fetch resolves).
 export const cur: { path: string | null; oldContents: string; newContents: string } = {
   path: null,
   oldContents: "",
@@ -31,7 +31,7 @@ export const cur: { path: string | null; oldContents: string; newContents: strin
 // Cache-only lookup (no fetch, no LRU touch). Preview files answer from their inline contents.
 export function peekContents(f: ReviewFile): Contents | null {
   if (S.preview && f === S.preview)
-    return { oldContents: f.oldFile.contents, newContents: f.newFile.contents };
+    return { oldContents: S.preview.previewContents, newContents: S.preview.previewContents };
   return cache.get(cacheKey(f)) ?? null;
 }
 
@@ -78,8 +78,8 @@ export async function loadCurrentContents(): Promise<"ok" | "stale" | "error"> {
   // A preview carries its contents inline (fetched from /api/file); nothing to fetch.
   if (S.preview && f === S.preview) {
     cur.path = f.path;
-    cur.oldContents = f.oldFile.contents;
-    cur.newContents = f.newFile.contents;
+    cur.oldContents = S.preview.previewContents;
+    cur.newContents = S.preview.previewContents;
     return "ok";
   }
   try {

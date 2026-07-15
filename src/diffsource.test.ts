@@ -5,12 +5,22 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test, before, after } from "node:test";
 
-import { buildDiffSource } from "./state.js";
+import { buildDiffSource, readFileContents } from "./state.js";
+import { gitStats } from "./git.js";
+import type { ReviewFile, ReviewMode, ReviewState } from "./types.js";
 
 let root: string;
 let mainBranch: string;
 const git = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
 const write = (rel: string, body: string) => writeFileSync(path.join(root, rel), body);
+
+// Resolve a built file's old/new contents the way the desk does — the DiffSource carries none
+// (issue 04), so contents come from git/the working tree on demand (readFileContents).
+const contentsOf = (
+  r: string,
+  file: ReviewFile,
+  over: { mode?: ReviewMode; staged?: boolean; base?: string } = {},
+) => readFileContents({ root: r, mode: "repo", staged: false, ...over } as ReviewState, file);
 
 before(() => {
   root = mkdtempSync(path.join(tmpdir(), "galley-ds-"));
@@ -29,8 +39,11 @@ test("file mode: untracked file → full file as additions, no per-hunk changes"
   const src = await buildDiffSource({ mode: "file", root, path: path.join(root, "PLAN.md") });
   assert.ok(src);
   assert.equal(src!.files.length, 1);
-  assert.equal(src!.files[0]!.oldFile.contents, ""); // nothing to diff against → all additions
-  assert.equal(src!.files[0]!.newFile.contents, "# Plan\n\n- step 1\n");
+  assert.equal(src!.files[0]!.changeKind, "added"); // nothing to diff against → all additions
+  assert.equal(src!.files[0]!.added, 3); // whole content counted as additions
+  const c = await contentsOf(root, src!.files[0]!, { mode: "file" });
+  assert.equal(c.oldContents, "");
+  assert.equal(c.newContents, "# Plan\n\n- step 1\n");
   assert.equal(src!.changes.length, 0); // a doc to comment on, not accept/reject
   rmSync(path.join(root, "PLAN.md"));
 });
@@ -39,7 +52,8 @@ test("file mode: tracked + unchanged → full file, no changes", async () => {
   const src = await buildDiffSource({ mode: "file", root, path: path.join(root, "a.txt") });
   assert.ok(src);
   assert.equal(src!.changes.length, 0);
-  assert.equal(src!.files[0]!.oldFile.contents, src!.files[0]!.newFile.contents);
+  const c = await contentsOf(root, src!.files[0]!, { mode: "file" });
+  assert.equal(c.oldContents, c.newContents); // tracked + unchanged → identical sides
 });
 
 test("file mode: tracked + changed → diff with stageable changes", async () => {
@@ -79,8 +93,9 @@ test("repo mode: staged content is the old-side baseline, not HEAD", async () =>
   write("a.txt", "a\nROUND1\nc\nROUND2\n"); // round 2: agent edits again
   const src = await buildDiffSource({ mode: "repo", root });
   assert.ok(src);
-  assert.equal(src!.files[0]!.oldFile.contents, "a\nROUND1\nc\n"); // index, not HEAD
-  assert.equal(src!.files[0]!.newFile.contents, "a\nROUND1\nc\nROUND2\n");
+  const c = await contentsOf(root, src!.files[0]!);
+  assert.equal(c.oldContents, "a\nROUND1\nc\n"); // index, not HEAD
+  assert.equal(c.newContents, "a\nROUND1\nc\nROUND2\n");
   assert.equal(src!.changes.length, 1); // only the round-2 edit is up for review
   assert.equal(src!.changes[0]!.side, "additions");
 });
@@ -95,7 +110,8 @@ test("file mode: staged content is the old-side baseline, not HEAD", async () =>
   write("a.txt", "a\nROUND1\nc\nFILE2\n");
   const src = await buildDiffSource({ mode: "file", root, path: path.join(root, "a.txt") });
   assert.ok(src);
-  assert.equal(src!.files[0]!.oldFile.contents, "a\nROUND1\nc\n"); // index, not HEAD
+  const c = await contentsOf(root, src!.files[0]!, { mode: "file" });
+  assert.equal(c.oldContents, "a\nROUND1\nc\n"); // index, not HEAD
   assert.equal(src!.changes.length, 1);
   git(["restore", "--staged", "a.txt"]);
   git(["checkout", "--", "a.txt"]);
@@ -110,8 +126,10 @@ test("repo mode: untracked file → full additions alongside tracked changes", a
   assert.ok(src);
   const newFile = src!.files.find((f) => f.path === "new.ts");
   assert.ok(newFile, "untracked file should appear in the working diff");
-  assert.equal(newFile!.oldFile.contents, ""); // nothing to diff against → all additions
-  assert.equal(newFile!.newFile.contents, "export const x = 1;\n");
+  assert.equal(newFile!.changeKind, "added"); // nothing to diff against → all additions
+  const nc = await contentsOf(root, newFile!);
+  assert.equal(nc.oldContents, "");
+  assert.equal(nc.newContents, "export const x = 1;\n");
   assert.equal(
     src!.changes.filter((c) => c.path === "new.ts").length,
     0, // no per-hunk changes — whole-file Approve stages it via `git add`
@@ -169,10 +187,13 @@ test("pr mode: rename+edit with diff.renames=false → one file at the new path,
   assert.equal(src!.files.length, 1);
   const f = src!.files[0]!;
   assert.equal(f.path, "new.txt");
-  assert.equal(f.oldFile.name, "old.txt"); // distinct names → @pierre infers rename-changed
-  assert.equal(f.newFile.name, "new.txt");
-  assert.equal(f.oldFile.contents, "a\nb\nc\n"); // full old content (moved, not re-added)
-  assert.equal(f.newFile.contents, "a\nB\nc\n");
+  assert.equal(f.oldPath, "old.txt"); // distinct old/new paths → the UI infers rename-changed
+  assert.equal(f.newPath, "new.txt");
+  assert.equal(f.changeKind, "renamed");
+  assert.equal(f.renamePure, false); // one line edited → not a pure rename
+  const c = await contentsOf(dir, f, { mode: "pr", base: main });
+  assert.equal(c.oldContents, "a\nb\nc\n"); // full old content (moved, not re-added)
+  assert.equal(c.newContents, "a\nB\nc\n");
   assert.equal(src!.changes.length, 1); // only the edited line is up for review, not the whole file
   rmSync(dir, { recursive: true, force: true });
 });
@@ -188,10 +209,13 @@ test("pr mode: a pure committed rename → a zero-hunk entry at the new path, di
   assert.equal(src!.files.length, 1);
   const f = src!.files[0]!;
   assert.equal(f.path, "new.txt");
-  assert.equal(f.oldFile.name, "old.txt");
-  assert.equal(f.newFile.name, "new.txt");
+  assert.equal(f.oldPath, "old.txt");
+  assert.equal(f.newPath, "new.txt");
   assert.equal(f.hunks.length, 0); // no content change
-  assert.equal(f.oldFile.contents, f.newFile.contents); // identical → the muted moved row in the UI
+  assert.equal(f.changeKind, "renamed");
+  assert.equal(f.renamePure, true); // identical content → the muted moved row in the UI
+  const c = await contentsOf(dir, f, { mode: "pr", base: main });
+  assert.equal(c.oldContents, c.newContents); // identical sides
   assert.equal(src!.changes.length, 0);
   rmSync(dir, { recursive: true, force: true });
 });
@@ -207,8 +231,9 @@ test("staged mode: a staged git mv + edit renders as a merged rename", async () 
   assert.equal(src!.files.length, 1);
   const f = src!.files[0]!;
   assert.equal(f.path, "new.txt");
-  assert.equal(f.oldFile.name, "old.txt");
-  assert.equal(f.newFile.name, "new.txt");
+  assert.equal(f.oldPath, "old.txt"); // rename metadata carried on the entry (no contents)
+  assert.equal(f.newPath, "new.txt");
+  assert.equal(f.changeKind, "renamed");
   assert.equal(src!.changes.length, 1);
   rmSync(dir, { recursive: true, force: true });
 });
@@ -227,9 +252,10 @@ test("repo mode: a plain mv (no edit) pairs into one rename-pure entry", async (
   assert.equal(f.path, "new.txt");
   assert.equal(f.oldPath, "old.txt");
   assert.equal(f.newPath, "new.txt");
-  assert.equal(f.oldFile.name, "old.txt");
-  assert.equal(f.newFile.name, "new.txt");
-  assert.equal(f.oldFile.contents, f.newFile.contents); // identical → the muted moved row
+  assert.equal(f.changeKind, "renamed");
+  assert.equal(f.renamePure, true); // byte-identical → the muted moved row, no contents on the entry
+  const c = await contentsOf(dir, f); // repo unstaged: old = index at old.txt, new = working at new.txt
+  assert.equal(c.oldContents, c.newContents); // identical sides
   assert.equal(src!.changes.length, 0);
   rmSync(dir, { recursive: true, force: true });
 });
@@ -260,7 +286,7 @@ test("repo mode: mv + edit is NOT paired — renders as delete + add (exact-cont
   assert.ok(src);
   assert.deepEqual(src!.files.map((f) => f.path).sort(), ["new.txt", "old.txt"]);
   assert.equal(src!.files.find((f) => f.path === "old.txt")!.newPath, undefined); // deletion
-  assert.equal(src!.files.find((f) => f.path === "new.txt")!.oldFile.contents, ""); // untracked add
+  assert.equal(src!.files.find((f) => f.path === "new.txt")!.changeKind, "added"); // untracked add
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -295,6 +321,24 @@ test("pr mode: committed new-side contentHash is git's HEAD blob OID (harvested 
   assert.ok(src);
   const f = src!.files.find((x) => x.path === "old.txt")!;
   assert.equal(f.contentHash, g(["rev-parse", "HEAD:old.txt"]).trim()); // the committed blob OID
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("pr mode: buildDiffSource reads ZERO blob contents (OIDs from --raw, hunks from rawDiff)", async () => {
+  // The payoff of the lean builder (issue 04): on a committed-changes desk, every file-level key is
+  // git's own blob OID (harvested in one `git diff --raw`), so assembleDiff never spawns a `git show`.
+  const { dir, main } = freshRepo(false);
+  const g = (args: string[]) => execFileSync("git", args, { cwd: dir }).toString();
+  g(["checkout", "-q", "-b", "feature"]);
+  writeFileSync(path.join(dir, "old.txt"), "a\nPR1\nc\n"); // a modification
+  writeFileSync(path.join(dir, "added.txt"), "brand\nnew\n"); // an addition
+  g(["add", "."]);
+  g(["commit", "-qam", "pr changes"]);
+  gitStats.fileReads = 0;
+  const src = await buildDiffSource({ mode: "pr", root: dir, base: main });
+  assert.ok(src);
+  assert.equal(src!.files.length, 2);
+  assert.equal(gitStats.fileReads, 0, "no blob/working reads during a pr-mode build");
   rmSync(dir, { recursive: true, force: true });
 });
 

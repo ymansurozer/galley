@@ -1,7 +1,7 @@
 import { S, $, esc } from "./store";
 import { currentChanges, currentFile } from "./changes";
 import { render } from "./render";
-import { isFullySkimmed, isMovedPure } from "./skim-derive";
+import { isFullySkimmed } from "./skim-derive";
 import type { ChangeState, GuideFile } from "./types";
 
 // ── Skimmable review (issue 06) ──────────────────────────────────────────────
@@ -51,18 +51,12 @@ export function fileFullySkimmed(path: string): boolean {
 // ── Pure renames (issue 01) ──────────────────────────────────────────────────
 // A file moved with identical content (distinct old/new paths, byte-equal old/new). It renders as
 // a muted "renamed old → new · no changes" row and, like a fully-skimmed file, leaves the main
-// review flow (folded into the Skimmed group, no progress/completion weight). Classified by CONTENT
-// equality (see isMovedPure) rather than "zero change blocks", so a guide-merged rename-CHANGED
-// file (issue 03, whose blocks are lazily client-derived) isn't misclassified as pure before it's
-// opened. `movedFrom` returns the old path (or "").
-// LEAN-STATE READER: reads the embedded oldFile/newFile.contents for byte-equality (issue 02
-// moved the render path onto the per-file fetch, but this is a cross-file classification the
-// tree/walkthrough/nav call over every file). It needs a rename-pure/OID stamp from the lean
-// builder — issue 04 converts it and removes the embedded contents.
+// review flow (folded into the Skimmed group, no progress/completion weight). Classified server-side
+// by CONTENT equality (the lean builder's `renamePure` stamp, issue 04) rather than "zero change
+// blocks", so a guide-merged rename-CHANGED file (issue 03, whose blocks are lazily client-derived)
+// isn't misclassified as pure before it's opened. `movedFrom` returns the old path (or "").
 export function fileMovedPure(path: string): boolean {
-  const f = S.state?.files?.find((x) => x.path === path);
-  if (!f) return false;
-  return isMovedPure(f.oldPath, f.newPath, f.oldFile.contents, f.newFile.contents);
+  return !!S.state?.files?.find((x) => x.path === path)?.renamePure;
 }
 export function movedFrom(path: string): string {
   const f = S.state?.files?.find((x) => x.path === path);

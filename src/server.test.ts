@@ -21,13 +21,7 @@ function state(root: string): ReviewState {
     createdAt: "t",
     rawDiff: "",
     files: [
-      {
-        path: "a.ts",
-        hunks: [],
-        oldFile: { name: "a.ts", contents: "" },
-        newFile: { name: "a.ts", contents: "hello\n" },
-        contentHash: "H",
-      },
+      { path: "a.ts", hunks: [], contentHash: "H", changeKind: "added", added: 1, removed: 0 },
     ],
     comments: [],
     changes: [],
@@ -371,14 +365,15 @@ test("save merges the reviewer-owned slice and leaves server-owned state authori
     // Server-owned fields are untouched — the wire never carried them.
     assert.equal(st.rawDiff, "SERVER DIFF");
     assert.equal(st.files.length, 1);
-    assert.equal(st.files[0]?.newFile.contents, "hello\n");
+    assert.equal(st.files[0]?.contentHash, "H");
   });
 });
 
 test("save from a stale full-state tab ignores server-owned fields in the body", async () => {
   await withServer(async (handle, _root, st) => {
-    const before = st.files[0]!.newFile.contents;
-    // A stale tab POSTs the whole old ReviewState — the server must pick only the slice.
+    const before = st.files[0]!.contentHash;
+    // A stale tab POSTs the whole old ReviewState (old shape, contents and all) — the server must
+    // pick only the reviewer slice and leave its own files untouched.
     await post(handle.url, "api/save", {
       reviewedFiles: ["a.ts"],
       rawDiff: "CLIENT DIFF SHOULD BE IGNORED",
@@ -387,8 +382,8 @@ test("save from a stale full-state tab ignores server-owned fields in the body",
         {
           path: "evil.ts",
           hunks: [],
-          oldFile: { name: "evil.ts", contents: "" },
-          newFile: { name: "evil.ts", contents: "x" },
+          oldFile: { contents: "" },
+          newFile: { contents: "x" },
           contentHash: "E",
         },
       ],
@@ -399,7 +394,7 @@ test("save from a stale full-state tab ignores server-owned fields in the body",
     assert.equal(st.baseDiffHash, "base");
     assert.equal(st.id, "id");
     assert.equal(st.files.length, 1);
-    assert.equal(st.files[0]?.newFile.contents, before);
+    assert.equal(st.files[0]?.contentHash, before);
   });
 });
 
@@ -490,14 +485,31 @@ test("/api/file-contents returns contents equal to the embedded copies; rejects 
   assert.ok(st, "built a review state for the working diff");
   const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
   try {
-    // The resolver reads git/the working tree, not the embedded copies — so it must match them.
+    // The state embeds no contents — the resolver reads git (old = committed) / the working tree
+    // (new). Assert the exact bytes, plus the OIDs the payload now carries (newOid = the file key).
+    const expected: Record<string, { old: string; new: string }> = {
+      "a.ts": { old: "one\ntwo\nthree\n", new: "one\nCHANGED\nthree\n" },
+      "b.ts": { old: "", new: "brand new\n" }, // untracked → no old side
+    };
     for (const rel of ["a.ts", "b.ts"]) {
       const file = st!.files.find((f) => f.path === rel)!;
       const r = (await fetch(`${handle.url}api/file-contents?path=${rel}`).then((res) =>
         res.json(),
-      )) as { path: string; oldContents: string; newContents: string };
-      assert.equal(r.oldContents, file.oldFile.contents, `${rel} old side matches embedded`);
-      assert.equal(r.newContents, file.newFile.contents, `${rel} new side matches embedded`);
+      )) as {
+        path: string;
+        oldContents: string;
+        newContents: string;
+        oldOid: string;
+        newOid: string;
+      };
+      assert.equal(r.oldContents, expected[rel]!.old, `${rel} old side resolves from git`);
+      assert.equal(
+        r.newContents,
+        expected[rel]!.new,
+        `${rel} new side resolves from the working tree`,
+      );
+      assert.equal(r.newOid, file.contentHash, `${rel} newOid is the file-level key`);
+      assert.match(r.oldOid, /^[0-9a-f]{40}$/, `${rel} oldOid is a blob OID`);
     }
     // Path escape → 400 BAD_PATH (same boundary as /api/file).
     const escape = await fetch(
@@ -509,6 +521,63 @@ test("/api/file-contents returns contents equal to the embedded copies; rejects 
     const missing = await fetch(`${handle.url}api/file-contents?path=nope.ts`);
     assert.equal(missing.status, 404);
     assert.equal(((await missing.json()) as { code?: string }).code, "NOT_FOUND");
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("/api/state carries no file contents (lean wire, issue 04)", async () => {
+  await withServer(async (handle) => {
+    const st = (await fetch(`${handle.url}api/state`).then((r) => r.json())) as {
+      files: Array<Record<string, unknown>>;
+    };
+    assert.ok(st.files.length >= 1);
+    for (const f of st.files) {
+      assert.equal("oldFile" in f, false);
+      assert.equal("newFile" in f, false);
+    }
+    assert.equal(JSON.stringify(st.files).includes('"contents"'), false);
+  });
+});
+
+test("POST /api/comment anchors a file the tab never opened (issue 04)", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-anchor-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\ntwo\nthree\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  await writeFile(path.join(root, "a.ts"), "one\nCHANGED\nthree\n");
+  const st = await buildReviewState(root, { session: "s" });
+  assert.ok(st);
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  try {
+    // Anchoring fetches the file's contents on demand (the state embeds none), so it works even
+    // though no tab ever opened a.ts. New-side line 2 is "CHANGED".
+    const res = await fetch(`${handle.url}api/comment`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        path: "a.ts",
+        side: "additions",
+        lineNumber: 2,
+        body: "why?",
+        role: "user",
+      }),
+    });
+    assert.equal(res.status, 200);
+    const state = (await fetch(`${handle.url}api/state`).then((r) => r.json())) as {
+      comments: Array<{ path: string; anchorText?: string }>;
+    };
+    const c = state.comments.find((x) => x.path === "a.ts");
+    assert.ok(c, "comment persisted");
+    assert.equal(c!.anchorText, "CHANGED");
   } finally {
     handle.server.close();
     process.env.HOME = oldHome;
