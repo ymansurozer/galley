@@ -468,7 +468,7 @@ export async function readFileContents(
   state: ReviewState,
   file: ReviewFile,
 ): Promise<{ oldContents: string; newContents: string }> {
-  const key = `${state.root} ${file.path} ${file.contentHash}`;
+  const key = `${state.root}\0${file.path}\0${file.contentHash}`;
   const hit = contentsCache.get(key);
   if (hit) {
     contentsCache.delete(key); // re-insert below → most-recently-used
