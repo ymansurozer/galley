@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import { startServer } from "./server.js";
+import { resolveBinding, startServer } from "./server.js";
 import { buildReviewState, hash, writeGlobalSettings } from "./state.js";
 import type { ReviewState } from "./types.js";
 
@@ -44,6 +44,8 @@ async function withServer(
     statusTtlMs?: number;
     idleTimeoutMs?: number;
     onShutdown?: (reason: "idle" | "stop") => void;
+    host?: string;
+    allowedHosts?: string[];
   } = {},
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "galley-server-"));
@@ -740,6 +742,113 @@ test("origin guard accepts a same-origin POST and a POST with no Origin", async 
     assert.equal(noOrigin.status, 200);
     assert.equal(noOrigin.headers["access-control-allow-origin"], undefined);
   });
+});
+
+test("resolveBinding: the loopback default widens nothing and keeps both URLs on 127.0.0.1", () => {
+  for (const h of ["127.0.0.1", "localhost", "::1", "[::1]"]) {
+    const b = resolveBinding(h, "devbox", ["exotic.example"]);
+    assert.equal(b.browserHost, "127.0.0.1", `${h} browserHost`);
+    assert.equal(b.lockHost, "127.0.0.1", `${h} lockHost`);
+    // The property to guard jealously: a loopback bind trusts ONLY the loopback authorities — the
+    // machine hostname and GALLEY_ALLOWED_HOSTS never leak in.
+    assert.deepEqual(b.allowedHosts, ["127.0.0.1", "localhost", "[::1]"], `${h} allowedHosts`);
+  }
+});
+
+test("resolveBinding: a wildcard bind advertises the hostname but locks over loopback", () => {
+  for (const h of ["0.0.0.0", "::", "[::]"]) {
+    const b = resolveBinding(h, "devbox", ["dev.tail1234.ts.net"]);
+    assert.equal(b.browserHost, "devbox", `${h} browserHost is the hostname`);
+    assert.equal(b.lockHost, "127.0.0.1", `${h} lockHost stays loopback (still reachable)`);
+    // Loopback set + hostname + env hosts; no single bound address to add for a wildcard.
+    assert.deepEqual(b.allowedHosts, [
+      "127.0.0.1",
+      "localhost",
+      "[::1]",
+      "devbox",
+      "dev.tail1234.ts.net",
+    ]);
+  }
+});
+
+test("resolveBinding: a specific non-loopback bind uses that address for both URLs and the guard", () => {
+  const b = resolveBinding("100.64.1.5", "devbox", []);
+  // Loopback can't reach a socket bound only to a specific address, so the lock must use it too.
+  assert.equal(b.browserHost, "100.64.1.5");
+  assert.equal(b.lockHost, "100.64.1.5");
+  assert.deepEqual(b.allowedHosts, ["127.0.0.1", "localhost", "[::1]", "devbox", "100.64.1.5"]);
+});
+
+test("resolveBinding: an IPv6 literal bind is bracket-wrapped for URLs and authorities", () => {
+  const b = resolveBinding("fd7a:115c:a1e0::1", "devbox", ["dev.tail1234.ts.net"]);
+  assert.equal(b.browserHost, "[fd7a:115c:a1e0::1]");
+  assert.equal(b.lockHost, "[fd7a:115c:a1e0::1]");
+  assert.deepEqual(b.allowedHosts, [
+    "127.0.0.1",
+    "localhost",
+    "[::1]",
+    "devbox",
+    "[fd7a:115c:a1e0::1]",
+    "dev.tail1234.ts.net",
+  ]);
+});
+
+// Connect over loopback (portable on CI) but present an arbitrary Host header — the only way to
+// exercise the origin guard, since undici drops a forbidden Host on fetch (see rawRequest).
+const withHost = (loopbackUrl: string, host: string, method = "GET") =>
+  rawRequest(loopbackUrl, {
+    method,
+    headers: {
+      host,
+      ...(method === "POST" ? { "content-type": "application/json" } : {}),
+    },
+    ...(method === "POST" ? { body: JSON.stringify({ body: "x" }) } : {}),
+  });
+
+test("default bind (loopback) still 403s the machine hostname — no widening", async () => {
+  await withServer(async (handle) => {
+    // handle.url is loopback by default; lockUrl equals it.
+    assert.equal(handle.lockUrl, handle.url);
+    const port = new URL(handle.url).port;
+    const res = await withHost(`${handle.url}api/state`, `${hostname()}:${port}`);
+    assert.equal(res.status, 403);
+    assert.equal((JSON.parse(res.body) as { code?: string }).code, "FORBIDDEN_HOST");
+  });
+});
+
+test("--host 0.0.0.0 accepts the hostname authority and loopback; lock stays loopback", async () => {
+  await withServer(
+    async (handle) => {
+      // The browser URL advertises the hostname; the lock (agent-side) stays on 127.0.0.1.
+      assert.match(handle.url, new RegExp(`^http://${hostname()}:\\d+/$`));
+      assert.match(handle.lockUrl, /^http:\/\/127\.0\.0\.1:\d+\/$/);
+      const port = new URL(handle.lockUrl).port;
+      // Reach the desk over loopback (the wildcard bind includes it) with the hostname in Host.
+      const named = await withHost(`${handle.lockUrl}api/state`, `${hostname()}:${port}`);
+      assert.equal(named.status, 200);
+      // Loopback authority still works.
+      const loop = await withHost(`${handle.lockUrl}api/state`, `127.0.0.1:${port}`);
+      assert.equal(loop.status, 200);
+      // A foreign Host is still refused — the guard is extended, not defeated.
+      const evil = await withHost(`${handle.lockUrl}api/state`, `evil.example:${port}`);
+      assert.equal(evil.status, 403);
+      assert.equal((JSON.parse(evil.body) as { code?: string }).code, "FORBIDDEN_HOST");
+    },
+    { host: "0.0.0.0", idleTimeoutMs: 0 },
+  );
+});
+
+test("GALLEY_ALLOWED_HOSTS entries pass the guard; a non-member 403s", async () => {
+  await withServer(
+    async (handle) => {
+      const port = new URL(handle.lockUrl).port;
+      const allowed = await withHost(`${handle.lockUrl}api/state`, `dev.tail1234.ts.net:${port}`);
+      assert.equal(allowed.status, 200);
+      const other = await withHost(`${handle.lockUrl}api/state`, `nope.example:${port}`);
+      assert.equal(other.status, 403);
+    },
+    { host: "0.0.0.0", allowedHosts: ["dev.tail1234.ts.net"], idleTimeoutMs: 0 },
+  );
 });
 
 test("concurrent /api/reload and /api/save leave the desk internally consistent (issue 05)", async () => {

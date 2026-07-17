@@ -50,6 +50,21 @@ I'm not saying this is *the* review surface. I built it in a week and I'm still 
 
    Galley opens in your browser and stays open. You review and click **Send to Agent**; the agent attaches, acts on each send, and replies in the same tab. The full agent contract — modes, the event loop, all flags (`--repo`, `--path`, `--port`, `--no-open`, `--guide`, …), `ReviewResult`, and the guided-review schema — is printed by **`galley spec`**.
 
+### Reviewing on a remote machine
+
+By default the desk binds to `127.0.0.1` — loopback-only, unreachable from any other device. For a remote-dev setup (the agent and desk run on a server, you review from a browser on your laptop), `--host` binds it wider:
+
+```bash
+galley --host 0.0.0.0                 # bind all interfaces; prints a hostname-based URL to open
+galley --host 100.64.1.5              # bind one specific address (e.g. a tailnet IP)
+GALLEY_HOST=0.0.0.0 galley            # same, via env — the default when --host is absent
+```
+
+The printed URL is what you open in the remote browser; the agent's `galley await`/`comment`/`reload` subcommands keep talking to the desk over loopback on the same machine, so they're unaffected. If you reach the desk by a name that isn't the machine's hostname or the bound address (a tailnet MagicDNS FQDN, say), add it to `GALLEY_ALLOWED_HOSTS` (comma-separated) so the origin guard accepts it.
+
+> [!WARNING]
+> **The desk API is unauthenticated.** Anyone who can reach the bound address can drive the desk — run your configured editor command, stage and reset changes, mutate the git index, read any file in the repo. Bind beyond loopback **only** on a fully trusted network: a personal tailnet, or a host whose firewall blocks the port from everything else. **Never on a shared office/coffee-shop LAN.**
+
 ## Features
 
 - **A beautiful and functional diff view** built on `@pierre/diffs`.
@@ -69,7 +84,7 @@ Galley is opinionated about exactly one thing: the review surface. It's a protoc
 
 - **No model runs here.** Galley doesn't call an LLM or orchestrate one. It renders the diff, validates the structured input it's given, and hands a result back.
 - **Your agent, not ours.** The contract is plain JSON over stdout and a localhost server, with no assumption about who's on the other end: Claude Code, Cursor, Codex, a shell script. The guided review, the answers to your questions, the code changes themselves are all *your* agent's work. Galley just gives it somewhere to land.
-- **Local and private.** The server binds to localhost on a random port. No telemetry. Your browser may fetch a web font; switch to system fonts and even that stops.
+- **Local and private.** The server binds to loopback (`127.0.0.1`) on a stable per-session port. No telemetry. Your browser may fetch a web font; switch to system fonts and even that stops. (For remote-dev setups, `--host` can bind it wider — see [Reviewing on a remote machine](#reviewing-on-a-remote-machine); the default stays loopback-only.)
 - **It won't touch your repo unless you ask.** Galley never edits your tracked files.
 
 ## Roadmap

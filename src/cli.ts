@@ -542,19 +542,31 @@ async function runDesk(
   // attached (see startServer). Minutes; 0 disables. Persistence + the stable port
   // make auto-exit safe — a later start restores the session in the same tab.
   const idleMinutes = typeof args["idle-timeout"] === "string" ? Number(args["idle-timeout"]) : NaN;
-  const { url } = await startServer({
+  // Bind address: --host, else GALLEY_HOST, else loopback (127.0.0.1). GALLEY_ALLOWED_HOSTS
+  // (comma-separated) widens the origin guard for exotic names the machine hostname / bound
+  // address don't cover (e.g. a tailnet MagicDNS FQDN). See resolveBinding + the README warning.
+  const host = typeof args.host === "string" ? args.host : process.env.GALLEY_HOST || "127.0.0.1";
+  const allowedHosts = (process.env.GALLEY_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+  const { url, lockUrl } = await startServer({
     state,
     port: typeof args.port === "string" ? Number(args.port) : stablePort(state.root, state.session),
+    host,
+    allowedHosts,
     open: args.open !== false,
     idleTimeoutMs:
       Number.isFinite(idleMinutes) && idleMinutes >= 0 ? idleMinutes * 60_000 : undefined,
   });
 
+  // The lock records the loopback-reachable URL: the agent subcommands run on THIS machine and
+  // reach the desk over loopback regardless of the (possibly non-loopback) browser URL.
   writeFileSync(
     lockFile,
     JSON.stringify({
       pid: process.pid,
-      url,
+      url: lockUrl,
       session: state.session,
       startedAt: new Date().toISOString(),
     }) + "\n",
@@ -585,6 +597,13 @@ async function runDesk(
   const label =
     mode === "repo" ? state.session : `${mode}:${state.target ?? ""} [${state.session}]`;
   console.error(`Galley ${label}: ${url}`);
+  // Bound beyond loopback: the desk API is unauthenticated and can run editor commands and mutate
+  // git, so anyone who can reach this address controls the desk. Warn every launch.
+  const loopbackBind = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(host);
+  if (!loopbackBind)
+    console.error(
+      "⚠ Bound beyond loopback — the desk API is unauthenticated (runs editor commands, mutates git). Only expose it on a fully trusted network (e.g. a personal tailnet).",
+    );
   console.error("Live desk — the agent attaches with `galley await`. Ctrl-C to stop.");
 
   // The desk is persistent: keep serving across rounds until interrupted.
@@ -609,6 +628,8 @@ Common flags:
   --repo <path>     Repo to review (default: cwd)
   --session <id>    Review session id (default: branch / file-<path> / pr-<ref>)
   --port <n>        Server port (default: a stable per-session port (41000–50999))
+  --host <addr>     Bind address (default: 127.0.0.1, loopback-only). Bind beyond loopback ONLY on a
+                    fully trusted network — the desk API is unauthenticated (see README)
   --guide <file>    Attach an AI review guide (JSON)
   --idle-timeout <m>  Desk auto-exits after <m> minutes with no tab or agent (default 120; 0 = never)
   --no-open         Don't open the browser
@@ -617,6 +638,8 @@ Common flags:
 
 Env:
   GALLEY_NO_UPDATE_CHECK=1   Skip the new-version check at desk start
+  GALLEY_HOST=<addr>         Default --host when the flag is absent
+  GALLEY_ALLOWED_HOSTS=a,b   Extra Host authorities to accept when bound beyond loopback
 
 Docs: https://github.com/ymansurozer/galley`;
 
