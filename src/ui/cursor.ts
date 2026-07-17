@@ -4,6 +4,7 @@ import { currentChanges, fromDisplayLine } from "./changes";
 import { acceptChange } from "./decisions";
 import { openCommentComposer } from "./selection";
 import { render } from "./render";
+import { diffShadowRoot } from "./diff-dom";
 
 // ── The diff line cursor ─────────────────────────────────────────────────────
 // Keyboard review needs a "current line" the diff doesn't otherwise have. We keep it as a
@@ -27,23 +28,13 @@ type Row = {
 
 let cur: { side: Side; line: number } | null = null;
 
-function shadow(): ShadowRoot | null {
-  let sh: ShadowRoot | null = null;
-  $("diff")
-    .querySelectorAll("*")
-    .forEach((el) => {
-      if ((el as HTMLElement).shadowRoot) sh = (el as HTMLElement).shadowRoot;
-    });
-  return sh;
-}
-
 // Every navigable code line in visual (top-to-bottom) order. @pierre tags each line's gutter with
 // a [data-line-number-content] span inside a [data-line-type] cell, within a [data-additions] /
 // [data-deletions] column (split) — that gives us side + number + row element. Context lines show
 // in both split columns at the same y; merge by rounded top into one row (additions side as the
 // primary, the deletions twin preserved as `alt` so either coordinate matches).
 function rows(): Row[] {
-  const sh = shadow();
+  const sh = diffShadowRoot();
   if (!sh) return [];
   const diff = $("diff");
   const diffTop = diff.getBoundingClientRect().top;

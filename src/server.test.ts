@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { startServer } from "./server.js";
@@ -628,6 +629,81 @@ test("an in-flight await-send long-poll pins the desk past the idle timeout", as
     },
     { idleTimeoutMs: 50, onShutdown: (reason) => reasons.push(reason) },
   );
+});
+
+// fetch (undici) silently drops the forbidden Host/Origin request headers, so the origin guard
+// can only be exercised with a raw http.request that lets us set them verbatim.
+function rawRequest(
+  url: string,
+  opts: { method?: string; headers?: Record<string, string>; body?: string } = {},
+) {
+  const u = new URL(url);
+  return new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }>(
+    (resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: u.hostname,
+          port: u.port,
+          path: u.pathname + u.search,
+          method: opts.method ?? "GET",
+          headers: opts.headers,
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (c) => (data += c));
+          res.on("end", () =>
+            resolve({ status: res.statusCode ?? 0, headers: res.headers, body: data }),
+          );
+        },
+      );
+      req.on("error", reject);
+      if (opts.body) req.write(opts.body);
+      req.end();
+    },
+  );
+}
+
+test("origin guard rejects a foreign Host before any route runs", async () => {
+  await withServer(async (handle) => {
+    const res = await rawRequest(`${handle.url}api/state`, { headers: { host: "evil.example" } });
+    assert.equal(res.status, 403);
+    assert.equal((JSON.parse(res.body) as { code?: string }).code, "FORBIDDEN_HOST");
+  });
+});
+
+test("origin guard rejects a cross-site Origin on a mutating POST", async () => {
+  await withServer(async (handle) => {
+    const res = await rawRequest(`${handle.url}api/status`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://evil.example" },
+      body: JSON.stringify({ body: "Reading…" }),
+    });
+    assert.equal(res.status, 403);
+    assert.equal((JSON.parse(res.body) as { code?: string }).code, "FORBIDDEN_ORIGIN");
+  });
+});
+
+test("origin guard accepts a same-origin POST and a POST with no Origin", async () => {
+  await withServer(async (handle) => {
+    // Same-origin: the desk's own http://127.0.0.1:<port> Origin passes.
+    const sameOrigin = await rawRequest(`${handle.url}api/status`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: new URL(handle.url).origin,
+      },
+      body: JSON.stringify({ body: "Reading…" }),
+    });
+    assert.equal(sameOrigin.status, 200);
+    // No Origin at all (curl / the CLI agent subcommands) is allowed — and no wildcard CORS leaks.
+    const noOrigin = await rawRequest(`${handle.url}api/status`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Working…" }),
+    });
+    assert.equal(noOrigin.status, 200);
+    assert.equal(noOrigin.headers["access-control-allow-origin"], undefined);
+  });
 });
 
 test("settings API round-trips editorCommand", async () => {

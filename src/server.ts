@@ -81,15 +81,49 @@ async function readBody(req: http.IncomingMessage, limit = 50_000_000) {
 }
 
 function json(res: http.ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "*",
-  });
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body));
 }
 
 function fail(res: http.ServerResponse, status: number, code: string, error: string, fix: string) {
   json(res, status, { error, code, fix, docs: DOCS });
+}
+
+// Lock the desk to its own loopback origin. stablePort binds a *deterministic* port on
+// 127.0.0.1, so the origin is guessable — without this, any page the reviewer has open in the
+// same browser could POST to the state-changing routes (CSRF: /api/reset wipes the review,
+// /api/shutdown kills the desk) or read the diff off-machine (the dropped wildcard CORS). The
+// Host check defeats DNS-rebinding — a rebinding attack arrives with the attacker's hostname in
+// Host — so only the desk's own loopback authorities pass. The Origin check blocks cross-site
+// POSTs; header-less callers (curl and the `galley await`/`comment`/`reload`/`status` CLI, which
+// target 127.0.0.1 and send no Origin) stay allowed. Returns false once it has answered 403.
+function originAllowed(req: http.IncomingMessage, res: http.ServerResponse, port: number): boolean {
+  const authorities = [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`];
+  const host = req.headers.host;
+  if (!host || !authorities.includes(host)) {
+    fail(
+      res,
+      403,
+      "FORBIDDEN_HOST",
+      `Host "${host ?? ""}" is not this desk.`,
+      "Reach the desk at its 127.0.0.1 origin.",
+    );
+    return false;
+  }
+  if (req.method === "POST") {
+    const origin = req.headers.origin;
+    if (origin && !authorities.some((a) => origin === `http://${a}`)) {
+      fail(
+        res,
+        403,
+        "FORBIDDEN_ORIGIN",
+        `Cross-site request from origin "${origin}" is not allowed.`,
+        "The desk only accepts same-origin requests.",
+      );
+      return false;
+    }
+  }
+  return true;
 }
 
 // Resolve a UI asset against the built location first (__dirname is dist/ in a
@@ -228,6 +262,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       lastActivity = Date.now();
     });
     try {
+      // Guard every route (current and future) before dispatch: the desk answers only its own
+      // loopback origin. server.address() is populated by the time requests arrive.
+      const bound = server.address();
+      const boundPort = typeof bound === "object" && bound ? bound.port : 0;
+      if (!originAllowed(req, res, boundPort)) return;
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       if (req.method === "GET" && url.pathname === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
