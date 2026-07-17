@@ -36,7 +36,7 @@ import {
 } from "./guide";
 import { setBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
-import { cursorReset, cursorSelection } from "./cursor";
+import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
 
 // Close the inline composer when clicking outside it (unless it has unsaved text). The
@@ -517,4 +517,8 @@ render();
 $("diff").addEventListener("scroll", () => {
   S.diffScrolled = $("diff").scrollTop > 140;
 });
+// A resize reflows line heights (and wrap), so the cursor's cached row measurements no longer
+// hold — drop the cache so the next navigation re-measures. (Scroll doesn't: the cached tops are
+// content-relative, so scrolling leaves the row list unchanged — see cursor.ts.)
+window.addEventListener("resize", invalidateCursorRows);
 setInterval(pollState, 1500);

@@ -26,7 +26,7 @@ import { approveCurrentFile, resetReview } from "./decisions";
 import { blockersChip } from "./blockers";
 import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
 import { renderMarkdown } from "./markdown";
-import { cursorResync, cursorReset } from "./cursor";
+import { cursorResync, cursorReset, invalidateCursorRows } from "./cursor";
 import { hasGuide, renderOverview, currentGuideEntry } from "./guide";
 import { updateProgress } from "./progress";
 import {
@@ -579,6 +579,9 @@ async function renderCenter() {
     // finds nothing; onPostRender fires when they exist. (afterRender still runs it too, for
     // the warm/cached path where rows are already present — both are idempotent.)
     onPostRender: (_node: HTMLElement, _inst: unknown, phase: string) => {
+      // The rendered rows just changed (mount, update, or @pierre's own expandHunk rerender —
+      // which never routes through our render()), so the cursor's cached row list is stale.
+      invalidateCursorRows();
       if (phase !== "unmount") applySkimCollapse();
     },
     // @pierre reserves a right-side gutter via `scrollbar-gutter: stable` on the code grid
