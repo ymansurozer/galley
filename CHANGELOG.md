@@ -1,6 +1,49 @@
 # Changelog
 
 
+## v0.7.3
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.7.2...v0.7.3)
+
+### 🚀 Enhancements
+
+- Add --host to bind the desk beyond loopback for remote review ([#63](https://github.com/ymansurozer/galley/pull/63))
+
+### 🔥 Performance
+
+- Cache cursor row measurements — no more per-keypress layout sweep ([#58](https://github.com/ymansurozer/galley/pull/58))
+
+### 🩹 Fixes
+
+- Lock desk HTTP server to the local origin ([#51](https://github.com/ymansurozer/galley/pull/51))
+- Don't freeze the tab while a comment composer is open ([#53](https://github.com/ymansurozer/galley/pull/53))
+- Route hard-coded whites through the token palette for light mode ([#54](https://github.com/ymansurozer/galley/pull/54))
+- Disable git core.quotePath so non-ASCII paths aren't corrupted ([#52](https://github.com/ymansurozer/galley/pull/52))
+- Resolve symlinks before serving repo files ([#57](https://github.com/ymansurozer/galley/pull/57))
+- Serialize mutating routes behind an in-process mutex ([#60](https://github.com/ymansurozer/galley/pull/60))
+- Use os.tmpdir() for hunk-staging patches — unbreaks Windows ([#61](https://github.com/ymansurozer/galley/pull/61))
+
+### 💅 Refactors
+
+- One shared diff shadow-root finder instead of three copies ([#56](https://github.com/ymansurozer/galley/pull/56))
+- Sweep of small review fixes — batched reset, LRU comment cache, drag side, port-safe smokes ([#62](https://github.com/ymansurozer/galley/pull/62))
+
+### 📖 Documentation
+
+- Fix wire-type note, --port default, and --guide schema hint ([#55](https://github.com/ymansurozer/galley/pull/55))
+
+### 📦 Build
+
+- Require Node 22 (drop EOL Node 20) ([#50](https://github.com/ymansurozer/galley/pull/50))
+
+### ✅ Tests
+
+- Cover guide staleness, desk-lock liveness, and stable-port fallback ([#59](https://github.com/ymansurozer/galley/pull/59))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.7.2
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.7.1...v0.7.2)
