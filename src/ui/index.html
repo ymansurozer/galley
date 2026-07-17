@@ -901,9 +901,9 @@
     }
 
     .diff-fab kbd {
-      color: rgba(255, 255, 255, .95);
+      color: var(--ink-bright);
       background: rgba(0, 0, 0, .22);
-      border-color: rgba(255, 255, 255, .2)
+      border-color: var(--line)
     }
 
     /* VSCode-style change overview: green/red ticks mapping the whole file to the gutter,
@@ -1261,8 +1261,9 @@
     }
 
     /* kbd chips inside buttons don't intercept clicks. On a colored/solid button (primary, the
-       diff verdict + approve actions) the default dark chip is unreadable, so use a subtle
-       translucent chip with light text that reads on any button color. */
+       diff verdict + approve actions) the default panel chip is unreadable, so use a subtle
+       translucent-black chip; the text is --ink-bright (near-white in dark, near-black in light)
+       so it reads against the darkened accent fill in either theme. */
     .btn kbd,
     .change-actions button kbd,
     .diff-header-action kbd {
@@ -1272,9 +1273,9 @@
     .btn.primary kbd,
     .change-actions button kbd,
     .diff-header-action kbd {
-      color: rgba(255, 255, 255, .95);
+      color: var(--ink-bright);
       background: rgba(0, 0, 0, .22);
-      border-color: rgba(255, 255, 255, .2)
+      border-color: var(--line)
     }
 
     .change-actions button,
@@ -1356,8 +1357,8 @@
       color: var(--muted);
       background: var(--panel);
       border: 0;
-      border-top: 1px solid rgba(255, 255, 255, .06);
-      border-bottom: 1px solid rgba(255, 255, 255, .06);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
       cursor: pointer;
       text-align: left
     }
@@ -1395,7 +1396,7 @@
       font-size: var(--text-sm);
       color: var(--muted);
       background: var(--panel);
-      border: 1px solid rgba(255, 255, 255, .08);
+      border: 1px solid var(--line);
       border-radius: var(--radius-sm);
       cursor: pointer;
       text-align: left
@@ -1645,15 +1646,15 @@
 
     .oversized-card .ovsz-btn kbd {
       pointer-events: none;
-      color: rgba(255, 255, 255, .95);
+      color: var(--ink-bright);
       background: rgba(0, 0, 0, .22);
-      border-color: rgba(255, 255, 255, .2)
+      border-color: var(--line)
     }
 
     .oversized-card .ovsz-btn.primary {
       border-color: transparent;
       background: var(--green);
-      color: #04150e;
+      color: var(--on-accent);
       font-weight: 600
     }
 
