@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { resolveEditorCommand } from "./editor.js";
 import { blobOid, git, listProjectTree, patchForChange } from "./git.js";
 import { validateGuide } from "./guide.js";
+import { createSerializer } from "./mutex.js";
 import {
   anchorTextFor,
   buildReviewResult,
@@ -275,6 +276,22 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     idleTimer.unref();
   }
 
+  // Serialize every state/git-index-mutating route through one promise-chain mutex. Both
+  // /api/send and /api/reload walk `state` across several awaits (send: mergeReviewerSave →
+  // syncGitState → persistReview → buildReviewResult; reload: buildReviewState → mergeReviewState
+  // → Object.assign(state) → syncGitState → persistReview). With no mutual exclusion a reload's
+  // Object.assign landing mid-send emits a ReviewResult (and persists a file) stitched from two
+  // snapshots — a baseDiffHash that no longer agrees with the decisions/changes beside it, or a
+  // reviewer save silently overwritten by a reload built from a pre-save snapshot. This is the
+  // exact window the two-actor design opens (an agent calls `galley reload` while the reviewer
+  // hits Send). Read-only routes (/api/state, /api/poll, /api/file*, /api/tree) stay OUTSIDE the
+  // queue, and the /api/await-send long-poll MUST stay out — it parks for the length of a round,
+  // so serializing it would wedge every mutation behind a waiter that only a mutation releases.
+  // A rejected fn settles the chain without poisoning it (chain swallows the error), while the
+  // caller still sees the rejection and the outer handler turns it into a 500. (createSerializer
+  // is unit-tested in mutex.test.ts; the ordering/non-poisoning guarantees live there.)
+  const serialize = createSerializer();
+
   const server = http.createServer(async (req, res) => {
     lastActivity = Date.now();
     activeRequests++;
@@ -451,34 +468,38 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // Merge only the reviewer-owned slice; the diff, file contents, changes, and desk
         // metadata stay authoritative here. Pick from whatever body arrives so a stale open
         // tab still posting the old full-state body keeps working (extra fields ignored).
-        mergeReviewerSave(state, JSON.parse(await readBody(req)));
-        const file = await persistReview(state);
-        return json(res, 200, { ok: true, file });
+        return await serialize(async () => {
+          mergeReviewerSave(state, JSON.parse(await readBody(req)));
+          const file = await persistReview(state);
+          return json(res, 200, { ok: true, file });
+        });
       }
       if (req.method === "POST" && url.pathname === "/api/send") {
-        const body = JSON.parse(await readBody(req));
-        // overallNote is an ephemeral, per-Send instruction threaded straight into the result —
-        // mergeReviewerSave never copies it onto `state`, so it is never persisted.
-        const overallNote = typeof body.overallNote === "string" ? body.overallNote.trim() : "";
-        // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
-        // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
-        // full ReviewState keeps working because everything else in the body is ignored.
-        mergeReviewerSave(state, body);
-        await syncGitState(state);
-        const file = await persistReview(state);
-        const sessionDir = path.dirname(file);
-        const resultJson = path.join(sessionDir, `${state.id}-result.json`);
-        const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
-        await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
-        res.on("finish", () => {
-          // Drop any still-queued questions: the review supersedes them (their unanswered ones
-          // ride out in result.openQuestions), so stale question events never dribble in after
-          // the round lands. This is also the invariant the await-send batch drain relies on.
-          for (let i = eventQueue.length - 1; i >= 0; i--)
-            if (eventQueue[i].kind === "question") eventQueue.splice(i, 1);
-          emitEvent({ kind: "review", result: payload });
+        return await serialize(async () => {
+          const body = JSON.parse(await readBody(req));
+          // overallNote is an ephemeral, per-Send instruction threaded straight into the result —
+          // mergeReviewerSave never copies it onto `state`, so it is never persisted.
+          const overallNote = typeof body.overallNote === "string" ? body.overallNote.trim() : "";
+          // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
+          // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
+          // full ReviewState keeps working because everything else in the body is ignored.
+          mergeReviewerSave(state, body);
+          await syncGitState(state);
+          const file = await persistReview(state);
+          const sessionDir = path.dirname(file);
+          const resultJson = path.join(sessionDir, `${state.id}-result.json`);
+          const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
+          await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
+          res.on("finish", () => {
+            // Drop any still-queued questions: the review supersedes them (their unanswered ones
+            // ride out in result.openQuestions), so stale question events never dribble in after
+            // the round lands. This is also the invariant the await-send batch drain relies on.
+            for (let i = eventQueue.length - 1; i >= 0; i--)
+              if (eventQueue[i].kind === "question") eventQueue.splice(i, 1);
+            emitEvent({ kind: "review", result: payload });
+          });
+          return json(res, 200, { ok: true, sent: true, resultJson });
         });
-        return json(res, 200, { ok: true, sent: true, resultJson });
       }
       if (req.method === "POST" && url.pathname === "/api/ask") {
         // Reviewer clicked Ask: push a question to the agent now (out of band from Send).
@@ -567,137 +588,141 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // agent's edits without a restart. Rebuilds using the stored mode params.
         // An optional { guide } in the body swaps the attached guide in the same
         // round-trip — the multi-round path: regenerate the guide, reload, same tab.
-        let newGuide: unknown;
-        try {
-          const raw = await readBody(req);
-          newGuide = raw ? (JSON.parse(raw) as { guide?: unknown }).guide : undefined;
-        } catch {
-          newGuide = undefined; // tolerate empty/non-JSON bodies (legacy callers)
-        }
-        let validatedGuide;
-        if (newGuide !== undefined) {
-          const result = validateGuide(newGuide);
-          if (!result.ok)
-            return fail(
-              res,
-              422,
-              "INVALID_GUIDE",
-              `Invalid guide: ${result.reason}.`,
-              "Run `galley spec` for the guided-review schema.",
+        return await serialize(async () => {
+          let newGuide: unknown;
+          try {
+            const raw = await readBody(req);
+            newGuide = raw ? (JSON.parse(raw) as { guide?: unknown }).guide : undefined;
+          } catch {
+            newGuide = undefined; // tolerate empty/non-JSON bodies (legacy callers)
+          }
+          let validatedGuide;
+          if (newGuide !== undefined) {
+            const result = validateGuide(newGuide);
+            if (!result.ok)
+              return fail(
+                res,
+                422,
+                "INVALID_GUIDE",
+                `Invalid guide: ${result.reason}.`,
+                "Run `galley spec` for the guided-review schema.",
+              );
+            validatedGuide = result.guide;
+          }
+          const base = await buildReviewState(state.root, {
+            mode: state.mode,
+            session: state.session,
+            staged: state.staged,
+            path: state.mode === "file" ? state.target : undefined,
+            target: state.mode === "pr" ? state.target : undefined,
+            base: state.mode === "pr" ? state.base : undefined,
+          });
+          if (!base) {
+            state.files = [];
+            state.changes = [];
+            state.rawDiff = "";
+            state.baseDiffHash = hash("");
+            await persistReview(state);
+            return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });
+          }
+          // Guide-declared moves (movedFrom) must merge into `base` BEFORE reconciliation, so a
+          // merged pair's distinct paths drive mergeReviewState's rename migration (issue 01). A new
+          // guide is strict (reject the reload naming the entry, desk untouched — nothing committed
+          // yet); a carried-forward guide is lenient (an unresolvable move drops to delete+add).
+          const moveGuide = validatedGuide ?? state.guide;
+          if (moveGuide) {
+            const moved = resolveMovedFrom(base, moveGuide, { strict: !!validatedGuide });
+            if (!moved.ok)
+              return fail(
+                res,
+                422,
+                "INVALID_GUIDE",
+                `Invalid guide: ${moved.reason}.`,
+                "Run `galley spec` for the guided-review schema.",
+              );
+          }
+          // The merge carries the old guide forward; a provided guide replaces it, stamped
+          // against the just-rebuilt diff so it isn't born stale. Resolve skim spans + reject a
+          // bad NEW guide (strict) BEFORE committing the merge onto the live state, so a rejected
+          // reload leaves the desk untouched. A guide carried forward re-resolves leniently —
+          // stale spans drop, they never fail a reload (see resolveSkim's strict/lenient split).
+          const merged = await mergeReviewState(base, state);
+          // merged.rawDiff shares identity with base.rawDiff, so the parse seeded on `base` (via
+          // buildReviewState) is the one resolveSkim needs — pass it so the reload parses once (06).
+          const parsed = parsedDiffOf(base);
+          if (validatedGuide) {
+            merged.guide = { ...validatedGuide, baseDiffHash: merged.baseDiffHash };
+            const skim = resolveSkim(
+              merged.rawDiff,
+              merged.changes,
+              merged.guide,
+              { strict: true },
+              parsed,
             );
-          validatedGuide = result.guide;
-        }
-        const base = await buildReviewState(state.root, {
-          mode: state.mode,
-          session: state.session,
-          staged: state.staged,
-          path: state.mode === "file" ? state.target : undefined,
-          target: state.mode === "pr" ? state.target : undefined,
-          base: state.mode === "pr" ? state.base : undefined,
-        });
-        if (!base) {
-          state.files = [];
-          state.changes = [];
-          state.rawDiff = "";
-          state.baseDiffHash = hash("");
+            if (!skim.ok)
+              return fail(
+                res,
+                422,
+                "INVALID_GUIDE",
+                `Invalid guide: ${skim.reason}.`,
+                "Run `galley spec` for the guided-review schema.",
+              );
+          } else if (merged.guide) {
+            resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: false }, parsed);
+          }
+          Object.assign(state, merged);
+          await syncGitState(state);
           await persistReview(state);
-          return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });
-        }
-        // Guide-declared moves (movedFrom) must merge into `base` BEFORE reconciliation, so a
-        // merged pair's distinct paths drive mergeReviewState's rename migration (issue 01). A new
-        // guide is strict (reject the reload naming the entry, desk untouched — nothing committed
-        // yet); a carried-forward guide is lenient (an unresolvable move drops to delete+add).
-        const moveGuide = validatedGuide ?? state.guide;
-        if (moveGuide) {
-          const moved = resolveMovedFrom(base, moveGuide, { strict: !!validatedGuide });
-          if (!moved.ok)
-            return fail(
-              res,
-              422,
-              "INVALID_GUIDE",
-              `Invalid guide: ${moved.reason}.`,
-              "Run `galley spec` for the guided-review schema.",
-            );
-        }
-        // The merge carries the old guide forward; a provided guide replaces it, stamped
-        // against the just-rebuilt diff so it isn't born stale. Resolve skim spans + reject a
-        // bad NEW guide (strict) BEFORE committing the merge onto the live state, so a rejected
-        // reload leaves the desk untouched. A guide carried forward re-resolves leniently —
-        // stale spans drop, they never fail a reload (see resolveSkim's strict/lenient split).
-        const merged = await mergeReviewState(base, state);
-        // merged.rawDiff shares identity with base.rawDiff, so the parse seeded on `base` (via
-        // buildReviewState) is the one resolveSkim needs — pass it so the reload parses once (06).
-        const parsed = parsedDiffOf(base);
-        if (validatedGuide) {
-          merged.guide = { ...validatedGuide, baseDiffHash: merged.baseDiffHash };
-          const skim = resolveSkim(
-            merged.rawDiff,
-            merged.changes,
-            merged.guide,
-            { strict: true },
-            parsed,
-          );
-          if (!skim.ok)
-            return fail(
-              res,
-              422,
-              "INVALID_GUIDE",
-              `Invalid guide: ${skim.reason}.`,
-              "Run `galley spec` for the guided-review schema.",
-            );
-        } else if (merged.guide) {
-          resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: false }, parsed);
-        }
-        Object.assign(state, merged);
-        await syncGitState(state);
-        await persistReview(state);
-        return json(res, 200, { ok: true, empty: false, baseDiffHash: state.baseDiffHash });
+          return json(res, 200, { ok: true, empty: false, baseDiffHash: state.baseDiffHash });
+        });
       }
       if (req.method === "POST" && url.pathname === "/api/comment") {
-        const body = JSON.parse(await readBody(req)) as {
-          path?: string;
-          side?: string;
-          lineNumber?: number;
-          body?: string;
-          role?: string;
-        };
-        const text = (body.body ?? "").trim();
-        if (!body.path || !text)
-          return fail(
-            res,
-            422,
-            "INVALID_COMMENT",
-            "comment requires path and body",
-            "Send { path, lineNumber, side, body } as JSON.",
-          );
-        const now = nowIso();
-        const side = body.side === "deletions" ? ("deletions" as const) : ("additions" as const);
-        const lineNumber = Number(body.lineNumber ?? 1);
-        // Fetch just this file's contents (the state embeds none) to capture the anchor line — works
-        // for a file the tab never opened, since the resolver reads git/the working tree directly.
-        const file = state.files.find((f) => f.path === body.path);
-        const contents = file
-          ? await readFileContents(state, file).catch(() => undefined)
-          : undefined;
-        const comment = {
-          id: crypto.randomUUID(),
-          path: body.path,
-          side,
-          lineNumber,
-          body: text,
-          createdAt: now,
-          updatedAt: now,
-          status: "open" as const,
-          intent: "note" as const,
-          role: body.role === "user" ? ("user" as const) : ("agent" as const),
-          anchorText: anchorTextFor(contents, side, lineNumber),
-        };
-        state.comments.push(comment);
-        // The reply the reviewer was waiting on has landed — the "what I'm doing
-        // now" line is obsolete the moment a real agent message exists.
-        if (comment.role === "agent") agentActivity = null;
-        await persistReview(state);
-        return json(res, 200, { ok: true, commentId: comment.id });
+        return await serialize(async () => {
+          const body = JSON.parse(await readBody(req)) as {
+            path?: string;
+            side?: string;
+            lineNumber?: number;
+            body?: string;
+            role?: string;
+          };
+          const text = (body.body ?? "").trim();
+          if (!body.path || !text)
+            return fail(
+              res,
+              422,
+              "INVALID_COMMENT",
+              "comment requires path and body",
+              "Send { path, lineNumber, side, body } as JSON.",
+            );
+          const now = nowIso();
+          const side = body.side === "deletions" ? ("deletions" as const) : ("additions" as const);
+          const lineNumber = Number(body.lineNumber ?? 1);
+          // Fetch just this file's contents (the state embeds none) to capture the anchor line — works
+          // for a file the tab never opened, since the resolver reads git/the working tree directly.
+          const file = state.files.find((f) => f.path === body.path);
+          const contents = file
+            ? await readFileContents(state, file).catch(() => undefined)
+            : undefined;
+          const comment = {
+            id: crypto.randomUUID(),
+            path: body.path,
+            side,
+            lineNumber,
+            body: text,
+            createdAt: now,
+            updatedAt: now,
+            status: "open" as const,
+            intent: "note" as const,
+            role: body.role === "user" ? ("user" as const) : ("agent" as const),
+            anchorText: anchorTextFor(contents, side, lineNumber),
+          };
+          state.comments.push(comment);
+          // The reply the reviewer was waiting on has landed — the "what I'm doing
+          // now" line is obsolete the moment a real agent message exists.
+          if (comment.role === "agent") agentActivity = null;
+          await persistReview(state);
+          return json(res, 200, { ok: true, commentId: comment.id });
+        });
       }
       if (req.method === "POST" && url.pathname === "/api/status") {
         // Ephemeral agent activity (`galley status`): a one-line "what I'm doing
@@ -716,25 +741,27 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/reset") {
-        for (const file of state.files) {
-          await git(["restore", "--staged", "--", file.path], state.root).catch(async () =>
-            git(["reset", "HEAD", "--", file.path], state.root),
-          );
-        }
-        state.comments = [];
-        state.reviewedFiles = [];
-        state.reviewedFileHashes = {};
-        state.stagedFiles = [];
-        state.stagedChangeKeys = [];
-        state.decisionFiles = [];
-        state.decisions = [];
-        state.changes = state.changes.map((change) => ({
-          ...change,
-          status: "pending",
-          reviewedHash: undefined,
-        }));
-        await persistReview(state);
-        return json(res, 200, { ok: true, state });
+        return await serialize(async () => {
+          for (const file of state.files) {
+            await git(["restore", "--staged", "--", file.path], state.root).catch(async () =>
+              git(["reset", "HEAD", "--", file.path], state.root),
+            );
+          }
+          state.comments = [];
+          state.reviewedFiles = [];
+          state.reviewedFileHashes = {};
+          state.stagedFiles = [];
+          state.stagedChangeKeys = [];
+          state.decisionFiles = [];
+          state.decisions = [];
+          state.changes = state.changes.map((change) => ({
+            ...change,
+            status: "pending",
+            reviewedHash: undefined,
+          }));
+          await persistReview(state);
+          return json(res, 200, { ok: true, state });
+        });
       }
       if (req.method === "POST" && url.pathname === "/api/stage") {
         if (state.mode === "pr")
@@ -749,13 +776,15 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // — used for a working-mode move pair, where `git add`-ing both the old (deleted) and new
         // path records the rename in the index. stagedFiles records the review file's path once:
         // the caller's `path`, else the last of `paths` (approveCurrentFile sends [old, new]).
-        const body = JSON.parse(await readBody(req)) as { path?: string; paths?: string[] };
-        const paths = body.paths ?? (body.path ? [body.path] : []);
-        if (paths.length) await git(["add", "--", ...paths], state.root);
-        const recorded = body.path ?? paths.at(-1);
-        if (recorded && !state.stagedFiles.includes(recorded)) state.stagedFiles.push(recorded);
-        await persistReview(state);
-        return json(res, 200, { ok: true });
+        return await serialize(async () => {
+          const body = JSON.parse(await readBody(req)) as { path?: string; paths?: string[] };
+          const paths = body.paths ?? (body.path ? [body.path] : []);
+          if (paths.length) await git(["add", "--", ...paths], state.root);
+          const recorded = body.path ?? paths.at(-1);
+          if (recorded && !state.stagedFiles.includes(recorded)) state.stagedFiles.push(recorded);
+          await persistReview(state);
+          return json(res, 200, { ok: true });
+        });
       }
       if (req.method === "POST" && url.pathname === "/api/stage-change") {
         if (state.mode === "pr")
@@ -766,44 +795,48 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             "Staging is unavailable in PR review mode.",
             "PR changes are committed; accept/reject are approve/request-changes verdicts.",
           );
-        const { path: filePath, stableKey } = JSON.parse(await readBody(req)) as {
-          path: string;
-          stableKey: string;
-        };
-        const key = `${filePath}:${stableKey}`;
-        state.stagedChangeKeys ??= [];
-        if (state.stagedChangeKeys.includes(key))
-          return json(res, 200, { ok: true, skipped: true });
-        let result: "applied" | "skipped";
-        try {
-          result = await applyPatchToIndex(
-            state.root,
-            patchForChange(state.rawDiff, filePath, stableKey),
-          );
-        } catch (error) {
-          return fail(
-            res,
-            409,
-            "PATCH_CONFLICT",
-            error instanceof Error ? error.message : String(error),
-            "The working tree changed since the desk loaded. Reload it (GET /api/state) and retry.",
-          );
-        }
-        state.stagedChangeKeys.push(key);
-        await persistReview(state);
-        return json(res, 200, { ok: true, skipped: result === "skipped" });
+        return await serialize(async () => {
+          const { path: filePath, stableKey } = JSON.parse(await readBody(req)) as {
+            path: string;
+            stableKey: string;
+          };
+          const key = `${filePath}:${stableKey}`;
+          state.stagedChangeKeys ??= [];
+          if (state.stagedChangeKeys.includes(key))
+            return json(res, 200, { ok: true, skipped: true });
+          let result: "applied" | "skipped";
+          try {
+            result = await applyPatchToIndex(
+              state.root,
+              patchForChange(state.rawDiff, filePath, stableKey),
+            );
+          } catch (error) {
+            return fail(
+              res,
+              409,
+              "PATCH_CONFLICT",
+              error instanceof Error ? error.message : String(error),
+              "The working tree changed since the desk loaded. Reload it (GET /api/state) and retry.",
+            );
+          }
+          state.stagedChangeKeys.push(key);
+          await persistReview(state);
+          return json(res, 200, { ok: true, skipped: result === "skipped" });
+        });
       }
       if (req.method === "POST" && url.pathname === "/api/unstage") {
-        const { path: filePath } = JSON.parse(await readBody(req)) as { path: string };
-        await git(["restore", "--staged", "--", filePath], state.root).catch(async () =>
-          git(["reset", "HEAD", "--", filePath], state.root),
-        );
-        state.stagedFiles = state.stagedFiles.filter((p) => p !== filePath);
-        state.stagedChangeKeys = (state.stagedChangeKeys ?? []).filter(
-          (key) => !key.startsWith(`${filePath}:`),
-        );
-        await persistReview(state);
-        return json(res, 200, { ok: true });
+        return await serialize(async () => {
+          const { path: filePath } = JSON.parse(await readBody(req)) as { path: string };
+          await git(["restore", "--staged", "--", filePath], state.root).catch(async () =>
+            git(["reset", "HEAD", "--", filePath], state.root),
+          );
+          state.stagedFiles = state.stagedFiles.filter((p) => p !== filePath);
+          state.stagedChangeKeys = (state.stagedChangeKeys ?? []).filter(
+            (key) => !key.startsWith(`${filePath}:`),
+          );
+          await persistReview(state);
+          return json(res, 200, { ok: true });
+        });
       }
       fail(res, 404, "NOT_FOUND", "Not found", `See ${DOCS} for the route list.`);
     } catch (error) {
