@@ -20,7 +20,6 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
 // is fetched from /api/state only when baseDiffHash moves: polling it every tick kept
 // the desk process pinned serializing it and the tab pinned re-parsing it.
 export async function pollState() {
-  if (S.composerOpen) return;
   let lite: PollPayload | undefined;
   try {
     const payload = await api<PollPayload & DeskStatus>("/api/poll");
@@ -35,12 +34,15 @@ export async function pollState() {
   }
   if (!lite || !Array.isArray(lite.comments)) return;
   if (lite.baseDiffHash !== S.lastBaseDiffHash) {
-    // The reload branch replaces S.state wholesale, which would clobber local decisions/
-    // comments not yet persisted. A coalesced save can leave a trailing write outstanding,
-    // so skip adopting while a save is busy — S.lastBaseDiffHash stays put, and the next
-    // tick re-detects the changed hash and adopts once the save has drained. This only
-    // narrows a race that already existed (fire-and-forget persist could lose the same way).
-    if (saver.isBusy()) return;
+    // The reload branch replaces S.state wholesale and re-renders, which would clobber local
+    // decisions/comments not yet persisted and rebuild the diff DOM out from under an open
+    // composer (losing in-progress typing). Defer while a save is busy OR a composer is open —
+    // S.lastBaseDiffHash stays put, and the next tick re-detects the changed hash and adopts
+    // once the save has drained and the composer has closed. This only narrows a race that
+    // already existed (fire-and-forget persist could lose the same way). Scoping the composer
+    // guard here (not at the top) keeps liveness/presence and the additive agent-reply comment
+    // merge running every tick while a reply box is open, so the desk never looks dead.
+    if (saver.isBusy() || S.composerOpen) return;
     // The diff moved — now (and only now) pull the full state.
     let server: ReviewState | undefined;
     try {
