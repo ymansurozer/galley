@@ -2,6 +2,7 @@ import { S, $, esc } from "./store";
 import { currentChanges, currentFile } from "./changes";
 import { render } from "./render";
 import { isFullySkimmed } from "./skim-derive";
+import { diffShadowRoot } from "./diff-dom";
 import type { ChangeState, GuideFile } from "./types";
 
 // ── Skimmable review (issue 06) ──────────────────────────────────────────────
@@ -16,9 +17,10 @@ import type { ChangeState, GuideFile } from "./types";
 // rejected — split view pairs the two `<code>` columns through unlabeled, variable-count
 // filler rows reachable only by grid position (a top-of-file block has no cell to anchor a
 // sibling selector, and a partial skim can't hide "all fillers"). So we hide the block's rows
-// by walking the shadow DOM (see applySkimCollapse) — the one place that reaches into it, so a
-// future block-fold API replaces just this file. The strip itself is a normal annotation (a
-// render input, so it survives re-renders in both views).
+// by walking the shadow DOM (see applySkimCollapse) — the only site that folds rendered rows by
+// hand, so a future block-fold API replaces just this file. (Locating the shadow root itself is
+// shared: diffShadowRoot in diff-dom.ts.) The strip itself is a normal annotation (a render
+// input, so it survives re-renders in both views).
 
 // The guide entry for a path (or null) — file-level skim reads off it.
 function guideEntry(path: string): GuideFile | null {
@@ -179,17 +181,6 @@ export function renderMovedPure() {
   </div></div>`;
 }
 
-function diffShadow(): ShadowRoot | null {
-  let shadow: ShadowRoot | null = null;
-  document
-    .getElementById("diff")
-    ?.querySelectorAll("*")
-    .forEach((el) => {
-      if ((el as HTMLElement).shadowRoot) shadow = (el as HTMLElement).shadowRoot;
-    });
-  return shadow;
-}
-
 // Collapse every skimmed (not-expanded) block on the current file by hiding its rendered rows.
 // Called synchronously in render()'s afterRender — before the browser paints — so there's no
 // expand-then-collapse flash, and re-run every render so it survives @pierre's internal
@@ -204,7 +195,7 @@ function diffShadow(): ShadowRoot | null {
 // gutters). Measurement was tried and abandoned: rects aren't laid out yet in afterRender.
 export function applySkimCollapse() {
   const blocks = currentChanges().filter((c) => isBlockSkimCollapsed(c));
-  const shadow = diffShadow();
+  const shadow = diffShadowRoot();
   if (!shadow) {
     // Blocks want collapsing but the diff shadow isn't up yet — a cold mount where render()
     // resolved before @pierre committed the rows. onPostRender re-invokes us when it is; if
