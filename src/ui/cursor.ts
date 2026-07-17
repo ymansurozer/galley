@@ -5,6 +5,7 @@ import { acceptChange } from "./decisions";
 import { openCommentComposer } from "./selection";
 import { render } from "./render";
 import { diffShadowRoot } from "./diff-dom";
+import { type Row, mergeRows } from "./cursor-rows";
 
 // ── The diff line cursor ─────────────────────────────────────────────────────
 // Keyboard review needs a "current line" the diff doesn't otherwise have. We keep it as a
@@ -14,28 +15,32 @@ import { diffShadowRoot } from "./diff-dom";
 // pointer and keyboard share ONE highlight: a click seeds the cursor (cursorSyncTo) and the
 // arrows move the same selection from there.
 
-type Row = {
-  el: HTMLElement;
-  side: Side;
-  line: number;
-  top: number;
-  height: number;
-  change: boolean;
-  // The split-view twin of a context row (see rows()): the deletions-side coordinates of the
-  // same visual line, kept so a cursor seeded from a left-column click still matches this row.
-  alt?: { side: Side; line: number };
-};
-
 let cur: { side: Side; line: number } | null = null;
+
+// rows() runs a full-file getBoundingClientRect sweep to build its Row[]; it's called per keypress
+// (cursorMoveLine/Hunk, landAt, ensureCursor) and after every render (cursorResync), so on a large
+// expanded file each arrow press forced a synchronous whole-file layout. The list is derived purely
+// from DOM structure and content-relative tops (the stored `top` is relative to the scrolled
+// content, not the viewport), so it's stable across scroll — only a re-render, or a resize
+// reflowing line heights, actually changes it. So we cache it and rebuild only on those events:
+// invalidateCursorRows() is wired to @pierre's onPostRender (render.ts — mount / update / unmount,
+// which covers our render() AND @pierre's own expandHunk rerenders) and to window resize (main.ts).
+// Scroll deliberately does NOT invalidate: scrolling never changes the list, and arrow navigation
+// (which scrolls via scrollIntoView) stays on cache hits instead of re-sweeping the file per press.
+let cached: Row[] | null = null;
+
+export function invalidateCursorRows() {
+  cached = null;
+}
 
 // Every navigable code line in visual (top-to-bottom) order. @pierre tags each line's gutter with
 // a [data-line-number-content] span inside a [data-line-type] cell, within a [data-additions] /
 // [data-deletions] column (split) — that gives us side + number + row element. Context lines show
-// in both split columns at the same y; merge by rounded top into one row (additions side as the
-// primary, the deletions twin preserved as `alt` so either coordinate matches).
+// in both split columns at the same y; mergeRows() folds those twins into one row.
 function rows(): Row[] {
+  if (cached) return cached;
   const sh = diffShadowRoot();
-  if (!sh) return [];
+  if (!sh) return []; // shadow not mounted yet — don't cache, retry on the next call
   const diff = $("diff");
   const diffTop = diff.getBoundingClientRect().top;
   const scrollTop = diff.scrollTop;
@@ -65,20 +70,8 @@ function rows(): Row[] {
       change: type.startsWith("change-"),
     });
   });
-  out.sort((a, b) => a.top - b.top || (a.side === b.side ? 0 : a.side === "additions" ? -1 : 1));
-  const seen = new Map<number, Row>();
-  const list: Row[] = [];
-  for (const r of out) {
-    const k = Math.round(r.top);
-    const kept = seen.get(k);
-    if (kept) {
-      kept.alt = { side: r.side, line: r.line };
-      continue;
-    }
-    seen.set(k, r);
-    list.push(r);
-  }
-  return list;
+  cached = mergeRows(out);
+  return cached;
 }
 
 // A row matches on its primary coordinates or its split-view twin (`alt`).
