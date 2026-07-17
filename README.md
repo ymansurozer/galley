@@ -24,7 +24,7 @@ I'm not saying this is *the* review surface. I built it in a week and I'm still 
 
 ## Getting started
 
-1. **Install the CLI** (needs **Node 20+** and **git**):
+1. **Install the CLI** (needs **Node 22+** and **git**):
 
    ```bash
    npm install -g galley-diff        # global, for any repo
