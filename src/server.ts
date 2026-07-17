@@ -191,6 +191,27 @@ function repoPath(root: string, rel: string) {
   return abs;
 }
 
+// Resolve a repo-relative path to an absolute one that provably stays inside the repo
+// AFTER symlinks are followed. The plain startsWith check runs on the UNRESOLVED path,
+// so an in-repo symlink pointing outside the repo passes it and readFile then follows
+// the link off-tree. Mirror state.ts's working-tree read: realpath the target and the
+// root, then re-check containment. "missing" (realpath ENOENT) stays distinct from
+// "escape" so a route can 404 a nonexistent file while /api/file-contents still serves
+// a file whose bytes come from git (deleted / index-only), not the working tree.
+async function resolveContained(
+  root: string,
+  rel: string,
+): Promise<{ abs: string } | { error: "escape" | "missing" }> {
+  const resolvedRoot = await fs.realpath(root).catch(() => path.resolve(root));
+  const abs = path.resolve(resolvedRoot, rel);
+  if (abs !== resolvedRoot && !abs.startsWith(resolvedRoot + path.sep)) return { error: "escape" };
+  const real = await fs.realpath(abs).catch(() => null);
+  if (real === null) return { error: "missing" };
+  if (real !== resolvedRoot && !real.startsWith(resolvedRoot + path.sep))
+    return { error: "escape" };
+  return { abs: real };
+}
+
 export async function startServer(options: ServerOptions): Promise<ServerHandle> {
   const { state } = options;
   // The desk is a living surface: it keeps serving across rounds. `galley await` is a
@@ -333,11 +354,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (req.method === "GET" && url.pathname === "/api/file") {
         // Read an arbitrary repo file (for previewing/commenting on unchanged files).
         const rel = url.searchParams.get("path") || "";
-        const root = path.resolve(state.root);
-        const abs = path.resolve(root, rel);
-        if (abs !== root && !abs.startsWith(root + path.sep))
+        const resolved = await resolveContained(state.root, rel);
+        if ("error" in resolved && resolved.error === "escape")
           return fail(res, 400, "BAD_PATH", "Path escapes the repo.", "Use a repo-relative path.");
-        const contents = await fs.readFile(abs, "utf8").catch(() => null);
+        const contents =
+          "abs" in resolved ? await fs.readFile(resolved.abs, "utf8").catch(() => null) : null;
         if (contents === null)
           return fail(
             res,
@@ -353,9 +374,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // have to ride /api/state. Same strict path boundary as /api/file (repo-relative, no
         // escapes). Resolves from git/the working tree via readFileContents — not the embedded copies.
         const rel = url.searchParams.get("path") || "";
-        const root = path.resolve(state.root);
-        const abs = path.resolve(root, rel);
-        if (abs !== root && !abs.startsWith(root + path.sep))
+        const resolved = await resolveContained(state.root, rel);
+        // Only an ESCAPE is fatal here: a "missing" working-tree file is legitimate because the
+        // old/new bytes may come from git (a deleted or index-only file has no working-tree path).
+        if ("error" in resolved && resolved.error === "escape")
           return fail(res, 400, "BAD_PATH", "Path escapes the repo.", "Use a repo-relative path.");
         const file = state.files.find((f) => f.path === rel);
         if (!file)
