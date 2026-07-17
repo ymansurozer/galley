@@ -1,6 +1,7 @@
 import { S, $, esc } from "./store";
 import { flowIndex } from "./changes";
 import type { FlowIndex } from "./flow-index";
+import { isGuideBaseStale } from "./guide-derive";
 import { navFileOrder, nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek";
 import { isSkimGroupExpanded } from "./skim";
 import { renderMarkdown } from "./markdown";
@@ -215,11 +216,7 @@ export function showGuideBar(): boolean {
 // The guide was generated against an older diff than the one now loaded (e.g. the agent
 // edited code and the desk reloaded). Advisory only — the guide still renders.
 export function guideStale(): boolean {
-  return (
-    hasGuide() &&
-    !!S.state.guide!.baseDiffHash &&
-    S.state.guide!.baseDiffHash !== S.state.baseDiffHash
-  );
+  return hasGuide() && isGuideBaseStale(S.state.baseDiffHash, S.state.guide!.baseDiffHash);
 }
 
 // Render the Overview page into #diff: overview → optional PR description → Start. No file

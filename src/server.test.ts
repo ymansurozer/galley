@@ -719,3 +719,36 @@ test("settings API round-trips editorCommand", async () => {
     assert.equal(loaded.settings?.editorCommand, "cursor -g {file}:{line}");
   });
 });
+
+test("stable-port EADDRINUSE falls back to a different port instead of throwing", async () => {
+  // A restarted desk's stablePort (deterministic per repo+session) can still be held by another
+  // process — startServer must rebind elsewhere rather than crash the launch.
+  const root = await mkdtemp(path.join(tmpdir(), "galley-portfallback-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const occupied = http.createServer();
+  await new Promise<void>((resolve) => occupied.listen(0, "127.0.0.1", resolve));
+  const address = occupied.address();
+  const takenPort = typeof address === "object" && address ? address.port : 0;
+  try {
+    const handle = await startServer({
+      state: state(root),
+      open: false,
+      idleTimeoutMs: 0,
+      port: takenPort,
+    });
+    try {
+      const boundPort = Number(new URL(handle.url).port);
+      assert.notEqual(boundPort, takenPort, "rebound to a different, non-zero port");
+      assert.ok(boundPort > 0);
+      const res = await fetch(`${handle.url}api/state`);
+      assert.equal(res.status, 200, "the fallback server actually answers");
+    } finally {
+      handle.server.close();
+    }
+  } finally {
+    occupied.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
