@@ -811,9 +811,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       }
       if (req.method === "POST" && url.pathname === "/api/reset") {
         return await serialize(async () => {
-          for (const file of state.files) {
-            await git(["restore", "--staged", "--", file.path], state.root).catch(async () =>
-              git(["reset", "HEAD", "--", file.path], state.root),
+          // Unstage everything the review touched in one spawn — `git restore --staged` takes many
+          // pathspecs, so we don't fork per file. PR mode has no working-tree index to restore
+          // (staging is disabled there), so skip the git work entirely and only clear review state.
+          if (state.mode !== "pr" && state.files.length) {
+            const paths = state.files.map((file) => file.path);
+            await git(["restore", "--staged", "--", ...paths], state.root).catch(async () =>
+              git(["reset", "HEAD", "--", ...paths], state.root),
             );
           }
           state.comments = [];

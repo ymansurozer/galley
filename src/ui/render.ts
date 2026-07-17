@@ -69,7 +69,14 @@ const RENDER_INDICATOR_MIN_LINES = 400;
 // otherwise a fast cached re-open skips the badge to avoid an appear-then-vanish flash.
 export function deferRender(forceIfBig = false) {
   const f = currentFile();
-  const lc = (s?: string) => (s?.match(/\n/g)?.length ?? 0) + 1;
+  // Count newlines with a loop rather than s.match(/\n/g): match allocates a full array of every
+  // newline over what can be a multi-MB file, on every file switch — the count is all we need.
+  const lc = (s?: string) => {
+    if (!s) return 1;
+    let n = 1;
+    for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n++;
+    return n;
+  };
   // Contents now arrive via a per-file fetch (see contents.ts). When they aren't warm yet the
   // upcoming render() gates on that fetch, so show the indicator; when they are, decide on size
   // as before. peekContents never fetches, so this stays synchronous.

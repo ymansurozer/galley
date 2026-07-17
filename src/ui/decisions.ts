@@ -1,5 +1,5 @@
-import { S, D, toast, api, persist } from "./store";
-import { currentFile, applyDecisionToDiff, fileObjections, flowIndex } from "./changes";
+import { S, toast, api, persist } from "./store";
+import { currentFile, fileObjections, flowIndex } from "./changes";
 import { render, deferRender } from "./render";
 import { nextUnreviewedFileIndex, guideProgress } from "./guide";
 import type { ChangeState, Decision } from "./types";
@@ -137,7 +137,9 @@ export async function acceptChange(id: string, status: Decision["status"]) {
   recordDecision(change, status);
   S.state.decisionFiles = S.state.decisionFiles || [];
   if (!S.state.decisionFiles.includes(change.path)) S.state.decisionFiles.push(change.path);
-  if (D.fileDiff) D.fileDiff = applyDecisionToDiff(D.fileDiff, change, status);
+  // No need to apply the decision to D.fileDiff here: renderCenter unconditionally rebuilds
+  // D.fileDiff from the raw diff (parse → ensureChanges → replayDecisions) every render, so a
+  // pre-render mutation is thrown away — the replay below picks the new status up from the record.
   toast(status === "rejected" ? "Rejected" : "Accepted");
   render();
   persist();

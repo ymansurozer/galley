@@ -1098,11 +1098,16 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
   // file-level unanchored strip rather than crashing the whole reload.
   const openPaths = new Set(comments.filter((c) => c.status === "open").map((c) => c.path));
   const contentsByPath = new Map<string, FileContents>();
-  for (const f of base.files)
-    if (openPaths.has(f.path)) {
-      const resolved = await readFileContents(base, f).catch(() => undefined);
-      if (resolved) contentsByPath.set(f.path, resolved);
-    }
+  // Read every commented file concurrently — each is an independent `git show` spawn, so awaiting
+  // them one at a time serialized the whole set behind the slowest read on every reload.
+  await Promise.all(
+    base.files
+      .filter((f) => openPaths.has(f.path))
+      .map(async (f) => {
+        const resolved = await readFileContents(base, f).catch(() => undefined);
+        if (resolved) contentsByPath.set(f.path, resolved);
+      }),
+  );
   return {
     ...base,
     id: saved.id,
