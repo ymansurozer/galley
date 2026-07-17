@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { tmpdir } from "node:os";
@@ -528,6 +528,42 @@ test("/api/file-contents returns contents equal to the embedded copies; rejects 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test(
+  "/api/file refuses a path that resolves outside the repo via an in-repo symlink (issue 03)",
+  // symlink creation is privileged on win32; skip there.
+  { skip: process.platform === "win32" },
+  async () => {
+    await withServer(async (handle, root) => {
+      // A secret file outside the repo, plus an in-repo symlink that points at it. The
+      // unresolved prefix check passes (leak.txt sits under root) but the resolved target
+      // escapes — the route must realpath and refuse to follow the link.
+      const outside = await mkdtemp(path.join(tmpdir(), "galley-outside-"));
+      const secret = path.join(outside, "secret.txt");
+      await writeFile(secret, "TOP SECRET\n");
+      await symlink(secret, path.join(root, "leak.txt"));
+      try {
+        const leak = await fetch(`${handle.url}api/file?path=leak.txt`);
+        assert.notEqual(leak.status, 200, "an escaping symlink is never served");
+        assert.equal(((await leak.json()) as { code?: string }).code, "BAD_PATH");
+
+        // A plain in-repo file is served unchanged.
+        await writeFile(path.join(root, "ok.txt"), "fine\n");
+        const ok = await fetch(`${handle.url}api/file?path=ok.txt`);
+        assert.equal(ok.status, 200);
+        assert.equal(((await ok.json()) as { contents: string }).contents, "fine\n");
+
+        // A symlink that still resolves INSIDE the repo keeps working.
+        await symlink(path.join(root, "ok.txt"), path.join(root, "alias.txt"));
+        const alias = await fetch(`${handle.url}api/file?path=alias.txt`);
+        assert.equal(alias.status, 200);
+        assert.equal(((await alias.json()) as { contents: string }).contents, "fine\n");
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  },
+);
 
 test("/api/state carries no file contents (lean wire, issue 04)", async () => {
   await withServer(async (handle) => {
