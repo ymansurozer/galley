@@ -40,6 +40,7 @@ import {
   toggleFileSkim,
 } from "./skim";
 import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
+import { diffShadowRoot } from "./diff-dom";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
@@ -178,18 +179,6 @@ function openEditorButton(): HTMLElement {
   return b;
 }
 
-// @pierre renders the diff into a shadow root mounted on some descendant of #diff. Find it
-// so we can measure rendered change rows for the overview ruler.
-function findDiffShadow(): ShadowRoot | null {
-  let shadow: ShadowRoot | null = null;
-  $("diff")
-    .querySelectorAll("*")
-    .forEach((el) => {
-      if ((el as HTMLElement).shadowRoot) shadow = (el as HTMLElement).shadowRoot;
-    });
-  return shadow;
-}
-
 export function clearOverviewRuler() {
   const o = $("ovr");
   o.classList.remove("show");
@@ -214,7 +203,7 @@ function renderOverviewRuler() {
   const ruler = $("ovr");
   ruler.replaceChildren();
   const diff = $("diff");
-  const shadow = findDiffShadow();
+  const shadow = diffShadowRoot();
   const contentH = diff.scrollHeight;
   const rows = shadow
     ? Array.from(shadow.querySelectorAll<HTMLElement>("[data-line-type^='change-']"))
