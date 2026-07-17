@@ -34,7 +34,7 @@ CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke — all mus
 - **Backend** (`src/*.ts`, excluding `src/ui/`): ESM with NodeNext resolution — intra-backend imports use `.js` extensions. Compiled by `tsc` to `dist/`. Entry: `src/cli.ts` (`dist/cli.js` is the published bin).
 - **UI** (`src/ui/*.ts`): browser code (Alpine.js) bundled by esbuild from `src/ui/main.ts` into `dist/ui.js`; type-checked (noEmit) with `tsconfig.ui.json` (bundler resolution, DOM libs). All markup lives in `src/ui/index.html` (~2400 lines, copied verbatim to `dist/`), with `@pierre/diffs` rendering the diff.
 
-The two worlds do not import each other. `src/types.ts` (backend) and `src/ui/types.ts` (UI) each declare the shared shapes (ReviewState, ReviewResult, Guide, …) — when you change a wire type, update **both** files.
+The two worlds do not import each other at runtime. `src/types.ts` is the single source of truth for the shared shapes (ReviewState, ReviewResult, Guide, …); `src/ui/types.ts` (and `src/ui/walkthrough.ts`) re-export what they need via `import type { ... } from "../types"` — type-only, erased by esbuild, so no backend code ships in the UI bundle and the runtime boundary holds. Change a wire type in `src/types.ts` alone; the UI picks it up through the re-export.
 
 ## Architecture
 

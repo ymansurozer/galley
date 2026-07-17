@@ -314,8 +314,7 @@ function loadGuideArg(value: string | boolean | undefined) {
     console.error("--guide requires a path to a guide JSON file, e.g. --guide guide.json");
     return null;
   }
-  const SCHEMA =
-    "Expected JSON: { overview, prDescription?, files: [{ path, order, category, orientation, flag?, skim?, skimReason?, skimBlocks? }] }.";
+  const SCHEMA = "Run `galley spec` for the full guide schema.";
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(value, "utf8"));
@@ -608,7 +607,7 @@ Usage:
 Common flags:
   --repo <path>     Repo to review (default: cwd)
   --session <id>    Review session id (default: branch / file-<path> / pr-<ref>)
-  --port <n>        Server port (default: random)
+  --port <n>        Server port (default: a stable per-session port (41000–50999))
   --guide <file>    Attach an AI review guide (JSON)
   --idle-timeout <m>  Desk auto-exits after <m> minutes with no tab or agent (default 120; 0 = never)
   --no-open         Don't open the browser
