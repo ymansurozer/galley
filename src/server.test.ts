@@ -6,7 +6,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { startServer } from "./server.js";
-import { buildReviewState, writeGlobalSettings } from "./state.js";
+import { buildReviewState, hash, writeGlobalSettings } from "./state.js";
 import type { ReviewState } from "./types.js";
 
 function state(root: string): ReviewState {
@@ -739,6 +739,68 @@ test("origin guard accepts a same-origin POST and a POST with no Origin", async 
     });
     assert.equal(noOrigin.status, 200);
     assert.equal(noOrigin.headers["access-control-allow-origin"], undefined);
+  });
+});
+
+test("concurrent /api/reload and /api/save leave the desk internally consistent (issue 05)", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-mutex-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\ntwo\nthree\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  // A real working-tree diff so /api/reload does its full (git-bound) rebuild each round.
+  await writeFile(path.join(root, "a.ts"), "one\nCHANGED\nthree\n");
+  const st = await buildReviewState(root, { session: "s" });
+  assert.ok(st, "built a review state for the working diff");
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  try {
+    // Fire the two mutating routes concurrently, many rounds. The queue's FIFO/non-poisoning
+    // contract is unit-tested in mutex.test.ts; here we assert the end-to-end invariant it exists
+    // to protect — that a reload's Object.assign never lands mid-save to stitch a half-applied
+    // snapshot. After every round the desk stays internally consistent: baseDiffHash is exactly
+    // the hash of the rawDiff it reports, never a value carried over from a different reload's diff.
+    for (let i = 0; i < 20; i++) {
+      const [reloadRes, saveRes] = await Promise.all([
+        post(handle.url, "api/reload", {}),
+        post(handle.url, "api/save", { reviewedFiles: ["a.ts"] }),
+      ]);
+      assert.equal(reloadRes.status, 200, `reload ${i} ok`);
+      assert.equal(saveRes.status, 200, `save ${i} ok`);
+      const snap = await getState(handle.url);
+      assert.equal(
+        snap.baseDiffHash,
+        hash(snap.rawDiff),
+        `baseDiffHash matches rawDiff (round ${i})`,
+      );
+    }
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a throwing wrapped route settles the mutex without poisoning the chain (issue 05)", async () => {
+  await withServer(async (handle, _root, st) => {
+    // Invalid JSON reaches the serialized /api/save body, where JSON.parse throws — the wrapped
+    // fn rejects. The chain must swallow that rejection (not wedge behind a permanently-rejected
+    // promise) while the caller still sees the 500.
+    const bad = await fetch(`${handle.url}api/save`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{ not valid json",
+    });
+    assert.equal(bad.status, 500);
+    assert.equal(((await bad.json()) as { code?: string }).code, "INTERNAL");
+    // A following mutation still runs to completion — proof the queue kept flowing.
+    const ok = await post(handle.url, "api/save", { reviewedFiles: ["a.ts"] });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(st.reviewedFiles, ["a.ts"]);
   });
 });
 
