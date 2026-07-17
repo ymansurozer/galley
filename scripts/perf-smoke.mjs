@@ -17,13 +17,46 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 
-const PORT = 6798,
-  ID = "perf-smoke";
+const ID = "perf-smoke";
 const CLI = path.join(process.cwd(), "dist", "cli.js");
 const UI_BUNDLE = path.join(process.cwd(), "dist", "ui.js");
-const BASE = `http://127.0.0.1:${PORT}`;
+// Bound lazily from the desk's startup line once it launches — see waitForDeskUrl. The desk
+// silently falls back to a random port when a fixed one is taken, so assuming a port here made
+// every fetch fail confusingly on a busy machine; we read the port it actually bound instead.
+let BASE;
 const FILE_COUNT = 1000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The desk prints `Galley <session>: http://127.0.0.1:<port>/` to stderr once it's listening.
+// Read that line (accumulating chunks — it can arrive split) and return the origin without the
+// trailing slash, so BASE + "/api/..." is well-formed.
+const waitForDeskUrl = (child) =>
+  new Promise((resolve, reject) => {
+    let buf = "";
+    const timer = setTimeout(() => {
+      cleanupListeners();
+      reject(new Error("timed out waiting for the desk to print its URL"));
+    }, 30_000);
+    const onData = (d) => {
+      buf += d;
+      const m = buf.match(/http:\/\/127\.0\.0\.1:\d+/);
+      if (m) {
+        cleanupListeners();
+        resolve(m[0]);
+      }
+    };
+    const onExit = () => {
+      cleanupListeners();
+      reject(new Error("desk exited before printing its URL"));
+    };
+    const cleanupListeners = () => {
+      clearTimeout(timer);
+      child.stderr.off("data", onData);
+      child.off("exit", onExit);
+    };
+    child.stderr.on("data", onData);
+    child.once("exit", onExit);
+  });
 const cli = (...args) => execFileSync("node", [CLI, ...args], { encoding: "utf8" }).trim();
 const getText = async (p) => (await fetch(BASE + p)).text();
 
@@ -101,10 +134,12 @@ try {
   writeFileSync(path.join(tmp, "generated-bundle.txt"), bigLines("edited"));
 
   const startedAt = Date.now();
-  desk = spawn("node", [CLI, "--repo", tmp, "--session", ID, "--port", String(PORT), "--no-open"], {
-    stdio: "ignore",
+  desk = spawn("node", [CLI, "--repo", tmp, "--session", ID, "--port", "0", "--no-open"], {
+    // stderr piped so we can read the bound URL; stdout ignored.
+    stdio: ["ignore", "ignore", "pipe"],
     env: { ...process.env, GALLEY_NO_UPDATE_CHECK: "1" },
   });
+  BASE = await waitForDeskUrl(desk);
   let up = false;
   for (let i = 0; i < 150; i++) {
     try {
