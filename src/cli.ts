@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { getBranch, getGitRoot, gh, git } from "./git.js";
 import { validateGuide } from "./guide.js";
@@ -103,8 +104,8 @@ function httpGetJson(urlStr: string): Promise<{ status: number; body: any }> {
 }
 
 // A desk lock can outlive its process (crash, SIGKILL) — trust it only if the
-// server actually answers.
-async function deskAlive(url: string): Promise<boolean> {
+// server actually answers. Exported for cli.test.ts; behavior is unchanged.
+export async function deskAlive(url: string): Promise<boolean> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 1500);
   try {
@@ -662,7 +663,22 @@ async function main() {
   return runDesk("repo", undefined, args);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : String(error));
-  process.exitCode = 1;
-});
+// Run only when executed as the bin (`galley` / `node dist/cli.js`), not when cli.test.ts
+// imports this module to reach deskAlive() — otherwise import alone would launch a desk. npm
+// installs the bin as a SYMLINK (.bin/galley -> dist/cli.js); Node resolves import.meta.url
+// through the symlink to the real path, but leaves process.argv[1] as the symlink path — so
+// argv[1] must be realpath'd before comparing, or the guard never fires under the published
+// bin and the CLI silently no-ops. try/catch guards a dangling/unusual argv[1].
+let isMain = false;
+try {
+  isMain =
+    !!process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+} catch {
+  /* argv[1] doesn't resolve — treat as not the entry point */
+}
+if (isMain) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack || error.message : String(error));
+    process.exitCode = 1;
+  });
+}
