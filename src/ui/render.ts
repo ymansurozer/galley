@@ -99,6 +99,8 @@ export function diffKey(previewing: boolean): string {
     S.settings.hunkSeparators,
     S.settings.lineDiffType,
     S.settings.theme,
+    // appearance flips @pierre's themeType, so a cached diff must invalidate on it
+    S.settings.appearance,
     !!currentGuideEntry(),
   ]);
 }
@@ -563,8 +565,11 @@ async function renderCenter() {
   const expandUnchanged = S.settings.unchangedLines === "expand";
   const diffIndicators = previewing ? "none" : S.settings.diffIndicators;
   const opts = {
-    theme: { dark: S.settings.theme, light: "pierre-light" },
-    themeType: "dark" as const,
+    // The code theme is the user's pick regardless of appearance (the settings dropdown groups
+    // dark and light themes; mixing is allowed). Both slots get it — themeType only decides
+    // which slot @pierre reads plus its own chrome colors, which should follow the appearance.
+    theme: { dark: S.settings.theme, light: S.settings.theme },
+    themeType: (S.settings.appearance === "light" ? "light" : "dark") as "light" | "dark",
     diffStyle,
     diffIndicators,
     expandUnchanged,

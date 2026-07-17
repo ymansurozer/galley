@@ -1,6 +1,7 @@
 import type { Settings } from "./types";
 
 export const DEFAULT_SETTINGS: Settings = {
+  appearance: "dark",
   lineDiffType: "word-alt",
   diffIndicators: "bars",
   hunkSeparators: "line-info",
@@ -125,6 +126,11 @@ export function applyAppearance(s: Settings) {
   const sf = SANS_FONTS[s.uiFont] ?? SANS_FONTS["geist"]!;
   ensureFont(s.font, f.google);
   ensureFont(s.uiFont, sf.google);
+  // Swap the whole CSS custom-property palette (and native color-scheme) by tagging <html>.
+  // The light overrides live under :root[data-theme="light"] in index.html; dark is the :root
+  // default, so setting "dark" simply falls through to it. Also flips native form controls.
+  const light = s.appearance === "light";
+  document.documentElement.dataset.theme = light ? "light" : "dark";
   const monoStack = `${f.stack}, ui-monospace, monospace`;
   const root = document.documentElement.style;
   root.setProperty("--mono", monoStack);
@@ -137,6 +143,8 @@ export function applyAppearance(s: Settings) {
   // mix target is the bright "modified" blue, which reads as distracting on a review surface —
   // override it with a muted steel so a selected/cursored row is a calm, low-saturation tint.
   // @pierre registers these as @property <color>, so they must be concrete colors set at :root.
-  root.setProperty("--diffs-bg-selection-override", "rgb(96,120,155)");
-  root.setProperty("--diffs-bg-selection-number-override", "rgb(96,120,155)");
+  // Light mode needs a lighter steel so the wash reads over a white canvas rather than muddying it.
+  const steel = light ? "rgb(150,180,210)" : "rgb(96,120,155)";
+  root.setProperty("--diffs-bg-selection-override", steel);
+  root.setProperty("--diffs-bg-selection-number-override", steel);
 }

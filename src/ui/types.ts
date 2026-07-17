@@ -25,7 +25,11 @@ export type Settings = {
   // Row add/remove tint emphasis: full (default), subtle (faint row + stronger word
   // emphasis), off (no row tint — focus entirely on the word diff).
   lineHighlight: "full" | "subtle" | "off";
-  theme: string; // Shiki bundled dark theme — applies to the diff AND comment code
+  // UI chrome palette: "dark" (default) or "light". Drives the [data-theme] attribute on
+  // <html> (which swaps the CSS custom-property palette) and the @pierre diff themeType.
+  // Independent of `theme` below — any code theme can pair with either appearance.
+  appearance: "dark" | "light";
+  theme: string; // Shiki bundled theme (dark or light) — applies to the diff AND comment code
   font: string; // key into the FONTS map — code font (diff + comment/markdown code)
   uiFont: string; // key into the SANS_FONTS map — UI chrome font (non-code)
   fontSize: number; // px — code font size (diff + comment code)

@@ -53,6 +53,13 @@ function buildMd(theme: string, breaks = false): MarkdownIt {
     .use(sourceLine);
 }
 
+// Diff-only themes (e.g. pierre-dark) aren't Shiki bundles → render comment code in the
+// GitHub theme matching the chrome appearance (applyAppearance sets <html data-theme>).
+function resolveTheme(want: string): string {
+  if (THEMES[want]) return want;
+  return document.documentElement.dataset.theme === "light" ? "github-light" : "github-dark";
+}
+
 // All curated themes preload into one highlighter, so switching is instant.
 void (async () => {
   hl = await createHighlighterCore({
@@ -60,8 +67,7 @@ void (async () => {
     langs: LANGS as never,
     engine: createJavaScriptRegexEngine(),
   });
-  const want = loadSettings().theme;
-  const theme = THEMES[want] ? want : "github-dark";
+  const theme = resolveTheme(loadSettings().theme);
   md = buildMd(theme);
   mdComment = buildMd(theme, true);
   if (S.state) render();
@@ -71,8 +77,7 @@ void (async () => {
 // the caller re-renders. @pierre/diffs handles the diff side with the same theme name.
 export function setMarkdownTheme(name: string) {
   if (!hl) return;
-  // Diff-only themes (e.g. pierre-dark) aren't Shiki bundles → render comment code in github-dark.
-  const theme = THEMES[name] ? name : "github-dark";
+  const theme = resolveTheme(name);
   md = buildMd(theme);
   mdComment = buildMd(theme, true);
   cache.clear();
