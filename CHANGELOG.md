@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.7.2
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.7.1...v0.7.2)
+
+### 🚀 Enhancements
+
+- Add light mode ([#49](https://github.com/ymansurozer/galley/pull/49))
+
+### ❤️ Contributors
+
+- Zişan Üzüm ([@Zisan-uzum](https://github.com/Zisan-uzum))
+
 ## v0.7.1
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.7.0...v0.7.1)
