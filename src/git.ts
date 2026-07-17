@@ -12,8 +12,17 @@ const execFileAsync = promisify(execFile);
 // full add/delete (fileAt swallows the error), so a too-small cap silently corrupts a large diff.
 const MAX_BUFFER = 256 * 1024 * 1024;
 
+// `core.quotePath` defaults to true, so any path with a non-ASCII byte comes back C-quoted and
+// wrapped in double quotes (café.txt → "caf\303\251.txt"), which the diff parser and every path
+// consumer downstream then mangle. Disabling it via `-c` here — the one wrapper git.ts and state.ts
+// both spawn git through — makes every invocation (diff builders, rawBlobOids, ls-files --others,
+// diff --cached --name-only, …) emit raw UTF-8 paths, in one place. It's a no-op for commands that
+// emit no paths, so applying it globally is safe rather than per-call-site (which could miss one).
 export async function git(args: string[], cwd: string) {
-  const { stdout } = await execFileAsync("git", args, { cwd, maxBuffer: MAX_BUFFER });
+  const { stdout } = await execFileAsync("git", ["-c", "core.quotePath=false", ...args], {
+    cwd,
+    maxBuffer: MAX_BUFFER,
+  });
   return String(stdout).trimEnd();
 }
 

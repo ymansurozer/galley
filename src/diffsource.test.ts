@@ -354,6 +354,36 @@ test("staged mode: contentHash is the index blob OID (harvested from --cached --
   rmSync(dir, { recursive: true, force: true });
 });
 
+// ── non-ASCII paths (issue 04) ────────────────────────────────────────────────
+// git's core.quotePath defaults true, so a path with non-ASCII bytes comes back C-quoted and
+// double-quoted ("caf\303\251.txt"); the shared git() spawn disables it so paths stay raw UTF-8.
+
+test("repo mode: an untracked file with a non-ASCII name keeps its real UTF-8 path", async () => {
+  const { dir } = freshRepo(false);
+  writeFileSync(path.join(dir, "café.txt"), "espresso\n"); // accented, > ASCII
+  const src = await buildDiffSource({ mode: "repo", root: dir });
+  assert.ok(src);
+  // Not the C-quoted "caf\303\251.txt" the default quotePath would have produced.
+  assert.equal(src!.files[0]!.path, "café.txt");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("pr mode: a committed non-ASCII path parses as raw UTF-8 (diff + blob-OID harvest)", async () => {
+  const { dir, main } = freshRepo(false);
+  const g = (args: string[]) => execFileSync("git", args, { cwd: dir }).toString();
+  g(["checkout", "-q", "-b", "feature"]);
+  const name = "naïve-café-🍵.txt"; // accents + emoji, all multi-byte
+  writeFileSync(path.join(dir, name), "a\nb\nc\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "add unicode file"]);
+  const src = await buildDiffSource({ mode: "pr", root: dir, base: main });
+  assert.ok(src);
+  const f = src!.files.find((x) => x.path === name);
+  assert.ok(f, "the non-ASCII path should survive the diff parse and OID harvest verbatim");
+  assert.equal(f!.contentHash, g(["rev-parse", `HEAD:${name}`]).trim()); // OID keyed by the real path
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("mode-only and same-path binary changes still produce no review entry", async () => {
   const { dir } = freshRepo(false);
   const g = (args: string[]) => execFileSync("git", args, { cwd: dir }).toString();
