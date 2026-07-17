@@ -28,6 +28,10 @@ let md: MarkdownIt | null = null;
 // markdown keeps the standard soft-break behavior via `md`, so hard-wrapped prose isn't shredded.
 let mdComment: MarkdownIt | null = null;
 let hl: Awaited<ReturnType<typeof createHighlighterCore>> | null = null;
+// Comment bodies re-render on every poll tick, and each edit mints a fresh id:updatedAt key —
+// so the cache would grow without bound (an orphaned entry per edit) if left uncapped. An LRU
+// keeps it bounded like the other UI caches (contents.ts, render.ts both cap at 30).
+const COMMENT_CACHE_CAP = 30;
 const cache = new Map<string, string>();
 
 // Stamp each commentable block-open token with its 1-based source line (1-based
@@ -101,9 +105,18 @@ export function renderMarkdownInline(text: string): string {
 export function renderCommentBody(c: ReviewComment): string {
   const key = `${c.id}:${c.updatedAt}`;
   const cached = cache.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    cache.delete(key); // re-insert → most-recently-used
+    cache.set(key, cached);
+    return cached;
+  }
   if (!mdComment) return `<p>${esc(c.body)}</p>`; // not ready yet — don't cache the fallback
   const html = DOMPurify.sanitize(mdComment.render(c.body || ""));
   cache.set(key, html);
+  while (cache.size > COMMENT_CACHE_CAP) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
   return html;
 }

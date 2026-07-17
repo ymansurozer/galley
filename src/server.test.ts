@@ -804,6 +804,121 @@ test("a throwing wrapped route settles the mutex without poisoning the chain (is
   });
 });
 
+test("/api/reset unstages every reviewed file in one batched restore and clears the review (issue 13)", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-reset-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\n");
+  await writeFile(path.join(root, "b.ts"), "two\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  // Change both files and stage them, so the index carries two paths for the reset to restore.
+  await writeFile(path.join(root, "a.ts"), "one CHANGED\n");
+  await writeFile(path.join(root, "b.ts"), "two CHANGED\n");
+  const st = await buildReviewState(root, { session: "s" });
+  assert.ok(st, "built a review state for the working diff");
+  g(["add", "."]);
+  assert.deepEqual(
+    g(["diff", "--cached", "--name-only"]).trim().split("\n").sort(),
+    ["a.ts", "b.ts"],
+    "both files staged before reset",
+  );
+  st!.comments.push({
+    id: "c1",
+    path: "a.ts",
+    side: "additions",
+    lineNumber: 1,
+    body: "x",
+    createdAt: "t",
+    updatedAt: "t",
+    status: "open",
+    role: "user",
+  });
+  st!.decisions = [
+    {
+      key: "a.ts:k",
+      status: "accepted",
+      path: "a.ts",
+      lineNumber: 1,
+      side: "additions",
+      title: "t",
+    },
+  ];
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  try {
+    const res = await fetch(`${handle.url}api/reset`, { method: "POST" });
+    assert.equal(res.status, 200);
+    // A single batched `git restore --staged -- a.ts b.ts` cleared the index for BOTH files.
+    assert.equal(
+      g(["diff", "--cached", "--name-only"]).trim(),
+      "",
+      "index restored for every file",
+    );
+    // …and the reviewer-owned slice is wiped.
+    assert.deepEqual(st!.comments, []);
+    assert.deepEqual(st!.decisions, []);
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("/api/reset in pr mode clears the review without touching the git index (issue 13)", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-reset-pr-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  // A staged change sitting in the index — if reset spawned git in pr mode, it would vanish.
+  await writeFile(path.join(root, "a.ts"), "one CHANGED\n");
+  g(["add", "."]);
+  const st: ReviewState = {
+    ...state(root),
+    mode: "pr",
+    comments: [
+      {
+        id: "c1",
+        path: "a.ts",
+        side: "additions",
+        lineNumber: 1,
+        body: "x",
+        createdAt: "t",
+        updatedAt: "t",
+        status: "open",
+        role: "user",
+      },
+    ],
+  };
+  const handle = await startServer({ state: st, open: false, idleTimeoutMs: 0 });
+  try {
+    const res = await fetch(`${handle.url}api/reset`, { method: "POST" });
+    assert.equal(res.status, 200);
+    // PR mode has no working-tree index to restore — the staged change is left exactly as it was
+    // (staging is disabled in pr mode), proving the route never spawned git here.
+    assert.equal(
+      g(["diff", "--cached", "--name-only"]).trim(),
+      "a.ts",
+      "index untouched in pr mode",
+    );
+    // The reviewer-owned slice is still cleared, git or no git.
+    assert.deepEqual(st.comments, []);
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("settings API round-trips editorCommand", async () => {
   await withServer(async (handle) => {
     await fetch(`${handle.url}api/settings`, {

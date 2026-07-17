@@ -2,6 +2,7 @@ import { S, $ } from "./store";
 import type { Side } from "./types";
 import { cursorSyncTo } from "./cursor";
 import { openComposer, closeComposer } from "./composer";
+import { sideFromLineType } from "./selection-derive";
 
 // Payload shapes coming out of @pierre/diffs' line callbacks are loosely
 // documented, so the extraction below is deliberately duck-typed.
@@ -38,10 +39,17 @@ function linePayloadFromPointerEvent(e: PointerEvent): LinePayload | null {
     if (!el || el.nodeType !== 1) continue;
     const text = (el.innerText || el.textContent || "").trim();
     if (/^\d+$/.test(text)) {
+      // Prefer the row's own side (@pierre's data-line-type on this cell or an ancestor): in
+      // Stacked (unified) view one column carries both sides, so a drag ending on a deletion's
+      // right half is mis-tagged by horizontal geometry. Fall back to geometry only when no row
+      // type is found (Split view, where the geometric split is correct).
+      const lineType = el.closest?.("[data-line-type]")?.getAttribute("data-line-type");
       const box = $("diff").getBoundingClientRect();
       return {
         lineNumber: Number(text),
-        side: e.clientX < box.left + box.width / 2 ? "deletions" : "additions",
+        side:
+          sideFromLineType(lineType) ??
+          (e.clientX < box.left + box.width / 2 ? "deletions" : "additions"),
         event: e,
       };
     }
