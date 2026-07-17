@@ -104,6 +104,62 @@
       font-family: var(--sans)
     }
 
+    /* ── Light mode ──────────────────────────────────────────────────────────
+       Overrides only the semantic color tokens; every other token (radius, type
+       scale, fonts) is mode-agnostic and inherits from :root above. Toggled by
+       Settings → Appearance, which sets data-theme="light" on <html> (see
+       applyAppearance in settings.ts). The attribute selector outranks :root, so
+       these win. Structural surfaces/lines/text flip wholesale; the saturated
+       accents (accept/cyan/green fills) keep their alpha so they blend to a light
+       tint over the white canvas and still read with the near-black --on-accent.
+       The diff + comment code themes flip separately to github-light (codeTheme). */
+    :root[data-theme="light"] {
+      color-scheme: light;
+
+      /* ── Surfaces (light → dark) ── */
+      --bg: #ffffff;
+      --surface: #f2f4f5;
+      --panel: #f7f8f9;
+      --surface-raised: #eceff1;
+      --panel3: #dfe4e7;
+
+      /* ── Lines ── */
+      --line: #d6dcdf;
+      --line-strong: #b6c0c4;
+
+      /* ── Text ── */
+      --ink: #1b1f21;
+      --ink-bright: #05080a;
+      --muted: #5a6469;
+      --ghost: #9aa4a8;
+      /* near-black text still reads on the light-tinted accent fills below */
+      --on-accent: #050608;
+
+      /* ── Accents (hue kept, darkened so text/rails read on white) ── */
+      --cyan: #0067c0;
+      --cyan-bg: #e8f2fb;
+      --cyan-bg-strong: #d7e9f8;
+      --cyan-line: #bcdaf0;
+      --cyan-line-strong: #7fb4de;
+      --cyan-fg: #1d5f86;
+      --green: #16a34a;
+      --green-bg: #e7f6ee;
+      --green-line: #b3e0c6;
+      --green-fg: #147a45;
+
+      /* Keep/Undo: accept keeps its alpha (blends to a readable light green); reject
+         flips from a dark neutral to a light one so --ink text reads on it. */
+      --accept: rgba(34, 197, 94, .72);
+      --accept-hover: rgba(34, 197, 94, .9);
+      --reject: rgba(0, 0, 0, .055);
+      --reject-hover: rgba(0, 0, 0, .1);
+      --amber: #b46f18;
+      --amber-fg: #8f5711;
+      --red: #d81f43;
+      --red-fg: #b3163a;
+      --guide: #ece7db;
+    }
+
     /* Code is always monospace, wherever it appears in the chrome (inline code, fenced blocks).
        The @pierre diff uses its own --diffs-font-family (set from the Code font in applyAppearance). */
     code,
@@ -3206,7 +3262,11 @@
                 <option value="expand">Expand all</option>
               </select></label></div>
           <div class="set-section">Appearance</div>
-          <div class="set-grid"><label>Code theme<select x-model="$store.g.settings.theme"
+          <div class="set-grid"><label>Theme<select x-model="$store.g.settings.appearance"
+                @change="$store.g.applySettings()">
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select></label><label>Code theme<select x-model="$store.g.settings.theme"
                 @change="$store.g.applySettings()">
                 <optgroup label="Diff + comments">
                   <option value="material-theme-palenight">Palenight</option>

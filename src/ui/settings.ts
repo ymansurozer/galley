@@ -1,6 +1,7 @@
 import type { Settings } from "./types";
 
 export const DEFAULT_SETTINGS: Settings = {
+  appearance: "dark",
   lineDiffType: "word-alt",
   diffIndicators: "bars",
   hunkSeparators: "line-info",
@@ -57,6 +58,18 @@ export const FONTS: Record<string, FontDef> = {
     google: "Roboto+Mono:wght@400;500;600;700",
   },
 };
+
+// The code (diff + comment/markdown) theme used when the chrome is in light mode. Kept as one
+// constant so the diff slot in render.ts and the markdown highlighter stay in sync. github-light
+// is a Shiki bundle (see shiki-curated.ts), so it styles both the @pierre diff and fenced code.
+export const LIGHT_CODE_THEME = "github-light";
+
+// Resolve the effective code theme for the current appearance: the picked dark theme in dark
+// mode, the fixed light theme in light mode. The `theme` setting only lists dark themes, so a
+// dark theme on light chrome would clash — light mode forces a matching light code theme.
+export function codeTheme(s: Settings): string {
+  return s.appearance === "light" ? LIGHT_CODE_THEME : s.theme;
+}
 
 // Curated sans fonts for the UI chrome (everything that isn't code). "system" loads nothing.
 export const SANS_FONTS: Record<string, FontDef> = {
@@ -125,6 +138,11 @@ export function applyAppearance(s: Settings) {
   const sf = SANS_FONTS[s.uiFont] ?? SANS_FONTS["geist"]!;
   ensureFont(s.font, f.google);
   ensureFont(s.uiFont, sf.google);
+  // Swap the whole CSS custom-property palette (and native color-scheme) by tagging <html>.
+  // The light overrides live under :root[data-theme="light"] in index.html; dark is the :root
+  // default, so setting "dark" simply falls through to it. Also flips native form controls.
+  const light = s.appearance === "light";
+  document.documentElement.dataset.theme = light ? "light" : "dark";
   const monoStack = `${f.stack}, ui-monospace, monospace`;
   const root = document.documentElement.style;
   root.setProperty("--mono", monoStack);
@@ -137,6 +155,8 @@ export function applyAppearance(s: Settings) {
   // mix target is the bright "modified" blue, which reads as distracting on a review surface —
   // override it with a muted steel so a selected/cursored row is a calm, low-saturation tint.
   // @pierre registers these as @property <color>, so they must be concrete colors set at :root.
-  root.setProperty("--diffs-bg-selection-override", "rgb(96,120,155)");
-  root.setProperty("--diffs-bg-selection-number-override", "rgb(96,120,155)");
+  // Light mode needs a lighter steel so the wash reads over a white canvas rather than muddying it.
+  const steel = light ? "rgb(150,180,210)" : "rgb(96,120,155)";
+  root.setProperty("--diffs-bg-selection-override", steel);
+  root.setProperty("--diffs-bg-selection-number-override", steel);
 }

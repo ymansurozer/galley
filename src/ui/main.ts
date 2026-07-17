@@ -17,7 +17,7 @@ import { cur, prefetchContents } from "./contents";
 import { adoptDeskStatus, pollState } from "./poll";
 import { reviewerSlice } from "./save";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
-import { applyAppearance, DEFAULT_SETTINGS } from "./settings";
+import { applyAppearance, codeTheme, DEFAULT_SETTINGS } from "./settings";
 import { setMarkdownTheme } from "./markdown";
 import { ensureIcons } from "./icons";
 import {
@@ -201,7 +201,7 @@ S.fabState = () => {
 S.applySettings = () => {
   persistPrefs();
   applyAppearance(S.settings);
-  setMarkdownTheme(S.settings.theme);
+  setMarkdownTheme(codeTheme(S.settings));
   render();
 };
 S.openSettings = () => {

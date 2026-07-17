@@ -10,6 +10,7 @@
 import palenight from "shiki/dist/themes/material-theme-palenight.mjs";
 import materialDarker from "shiki/dist/themes/material-theme-darker.mjs";
 import githubDark from "shiki/dist/themes/github-dark.mjs";
+import githubLight from "shiki/dist/themes/github-light.mjs";
 import dracula from "shiki/dist/themes/dracula.mjs";
 import ayuDark from "shiki/dist/themes/ayu-dark.mjs";
 import gruvbox from "shiki/dist/themes/gruvbox-dark-medium.mjs";
@@ -47,6 +48,9 @@ export const CURATED_THEMES: Record<string, unknown> = {
   "material-theme-palenight": palenight,
   "material-theme-darker": materialDarker,
   "github-dark": githubDark,
+  // Light code theme — used for both the diff and comment/markdown code when the chrome is in
+  // light mode (see codeTheme in settings.ts). Registered here so @pierre resolves it too.
+  "github-light": githubLight,
   dracula: dracula,
   "ayu-dark": ayuDark,
   "gruvbox-dark-medium": gruvbox,

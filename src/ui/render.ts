@@ -40,6 +40,7 @@ import {
   toggleFileSkim,
 } from "./skim";
 import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
+import { LIGHT_CODE_THEME } from "./settings";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
@@ -99,6 +100,8 @@ export function diffKey(previewing: boolean): string {
     S.settings.hunkSeparators,
     S.settings.lineDiffType,
     S.settings.theme,
+    // appearance flips themeType + the light code theme, so a cached diff must invalidate on it
+    S.settings.appearance,
     !!currentGuideEntry(),
   ]);
 }
@@ -563,8 +566,8 @@ async function renderCenter() {
   const expandUnchanged = S.settings.unchangedLines === "expand";
   const diffIndicators = previewing ? "none" : S.settings.diffIndicators;
   const opts = {
-    theme: { dark: S.settings.theme, light: "pierre-light" },
-    themeType: "dark" as const,
+    theme: { dark: S.settings.theme, light: LIGHT_CODE_THEME },
+    themeType: (S.settings.appearance === "light" ? "light" : "dark") as "light" | "dark",
     diffStyle,
     diffIndicators,
     expandUnchanged,
