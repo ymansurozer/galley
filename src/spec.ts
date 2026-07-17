@@ -182,7 +182,10 @@ naming the offending field.
 - Full restart (Ctrl-C, then \`galley --session <id>\`) is only for changing the diff source
   (working ↔ staged) or the mode.
 - A live desk writes <sessionDir>/desk.lock (with its url) and removes it on exit; trust a lock
-  only if the server actually answers.
+  only if the server actually answers. The lock url is always loopback-reachable, so your
+  subcommands work unchanged even when the desk is bound beyond loopback (--host <addr> /
+  GALLEY_HOST, for remote-dev — the browser url printed at start differs then; operator concern,
+  not yours).
 - A desk with no open tab and no attached agent for 2h auto-exits (--idle-timeout <min> at start
   overrides; 0 = never). An in-flight await pins it alive. Nothing is lost — state persists on
   every save and a restart reopens the session on the same port, so the old tab self-heals.

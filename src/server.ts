@@ -45,6 +45,13 @@ const DOCS = "Run `galley spec` for the full agent contract.";
 export type ServerOptions = {
   state: ReviewState;
   port?: number;
+  // Bind address. Defaults to 127.0.0.1 (loopback-only) — the desk stays local unless explicitly
+  // opted into a broader bind (--host / GALLEY_HOST). See resolveBinding for how this shapes the
+  // origin guard, the printed URL, and the lock-file URL.
+  host?: string;
+  // Extra host names (beyond the machine's hostname/bound address) whose authority the origin guard
+  // trusts when bound non-loopback — GALLEY_ALLOWED_HOSTS, for exotic names like a MagicDNS FQDN.
+  allowedHosts?: string[];
   open?: boolean;
   // Test seam: lets server.test.ts assert the resolved editor invocation without
   // actually launching anything.
@@ -63,7 +70,12 @@ export type ServerOptions = {
 
 export type ServerHandle = {
   server: http.Server;
+  // The URL to open/print — reachable from the reviewer's browser (hostname-based when bound
+  // non-loopback). Equals lockUrl for the default loopback bind.
   url: string;
+  // The URL the same-machine agent CLI reaches the desk at (recorded in the desk lock) — loopback
+  // for a loopback/wildcard bind, the bound address for a specific non-loopback bind.
+  lockUrl: string;
 };
 
 // 50 MB: pre-0.6.2 tabs post the entire multi-MB ReviewState on /api/send, and a big PR desk
@@ -91,16 +103,68 @@ function fail(res: http.ServerResponse, status: number, code: string, error: str
   json(res, status, { error, code, fix, docs: DOCS });
 }
 
-// Lock the desk to its own loopback origin. stablePort binds a *deterministic* port on
-// 127.0.0.1, so the origin is guessable — without this, any page the reviewer has open in the
-// same browser could POST to the state-changing routes (CSRF: /api/reset wipes the review,
-// /api/shutdown kills the desk) or read the diff off-machine (the dropped wildcard CORS). The
-// Host check defeats DNS-rebinding — a rebinding attack arrives with the attacker's hostname in
-// Host — so only the desk's own loopback authorities pass. The Origin check blocks cross-site
-// POSTs; header-less callers (curl and the `galley await`/`comment`/`reload`/`status` CLI, which
-// target 127.0.0.1 and send no Origin) stay allowed. Returns false once it has answered 403.
-function originAllowed(req: http.IncomingMessage, res: http.ServerResponse, port: number): boolean {
-  const authorities = [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`];
+// Wrap a bare IPv6 literal in brackets for use as a URL/authority host; leave names and IPv4
+// (and already-bracketed literals) untouched. An IPv6 address is the only host that needs it.
+function urlHost(host: string): string {
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+}
+
+// The loopback authorities #51 has always trusted. A non-loopback bind EXTENDS this set (never
+// replaces it) so the same-machine agent CLI, which talks to 127.0.0.1 regardless of bind address,
+// keeps working.
+const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"] as const;
+// Host strings that mean "this machine's loopback" (no widening) and "every interface" (a wildcard
+// bind has no single address to advertise, so loopback still reaches it).
+const LOOPBACK_BINDS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+const WILDCARD_BINDS = new Set(["0.0.0.0", "::", "[::]"]);
+
+export type Binding = {
+  // The URL a browser (possibly on another device) uses — printed and opened.
+  browserHost: string;
+  // The URL the same-machine agent CLI reaches the desk at, recorded in the desk lock.
+  lockHost: string;
+  // The host names whose `name:port` authority the origin guard accepts, beyond the port.
+  allowedHosts: string[];
+};
+
+// Derive the browser URL host, the lock-file URL host, and the origin-guard authority names from
+// the bind address. Pure (hostname + env injected) so it's unit-testable without binding exotic
+// addresses. The default (loopback) path adds NOTHING to the loopback authority set and keeps both
+// URLs on 127.0.0.1 — byte-for-byte the pre-flag behavior. A wildcard bind (0.0.0.0/::) advertises
+// the machine's hostname to the browser but keeps the lock on loopback (still reachable). A specific
+// non-loopback bind can't be reached over loopback, so both URLs use that exact address. os.hostname()
+// and any GALLEY_ALLOWED_HOSTS (a MagicDNS FQDN differs from the short hostname) widen the guard.
+export function resolveBinding(host: string, hostname: string, allowedHostsEnv: string[]): Binding {
+  if (LOOPBACK_BINDS.has(host))
+    return { browserHost: "127.0.0.1", lockHost: "127.0.0.1", allowedHosts: [...LOOPBACK_HOSTS] };
+  const wildcard = WILDCARD_BINDS.has(host);
+  const extra = [hostname, ...(wildcard ? [] : [urlHost(host)]), ...allowedHostsEnv].filter(
+    Boolean,
+  );
+  return {
+    browserHost: wildcard ? hostname : urlHost(host),
+    lockHost: wildcard ? "127.0.0.1" : urlHost(host),
+    allowedHosts: [...LOOPBACK_HOSTS, ...extra],
+  };
+}
+
+// Lock the desk to its own trusted origin. stablePort binds a *deterministic* port, so the origin is
+// guessable — without this, any page the reviewer has open in the same browser could POST to the
+// state-changing routes (CSRF: /api/reset wipes the review, /api/shutdown kills the desk) or read the
+// diff off-machine (the dropped wildcard CORS). The Host check defeats DNS-rebinding — a rebinding
+// attack arrives with the attacker's hostname in Host — so only the desk's own authorities pass.
+// `allowedHosts` is the loopback set by default (a loopback bind), EXTENDED with the machine's
+// hostname / bound address / GALLEY_ALLOWED_HOSTS when bound beyond loopback (see resolveBinding),
+// never widened otherwise. The Origin check blocks cross-site POSTs; header-less callers (curl and
+// the `galley await`/`comment`/`reload`/`status` CLI, which target 127.0.0.1 and send no Origin) stay
+// allowed. Returns false once it has answered 403.
+function originAllowed(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  port: number,
+  allowedHosts: readonly string[],
+): boolean {
+  const authorities = allowedHosts.map((h) => `${h}:${port}`);
   const host = req.headers.host;
   if (!host || !authorities.includes(host)) {
     fail(
@@ -218,6 +282,8 @@ async function resolveContained(
 
 export async function startServer(options: ServerOptions): Promise<ServerHandle> {
   const { state } = options;
+  const host = options.host ?? "127.0.0.1";
+  const binding = resolveBinding(host, os.hostname(), options.allowedHosts ?? []);
   // The desk is a living surface: it keeps serving across rounds. `galley await` is a
   // tagged event stream — a "question" (reviewer clicked Ask, wants an answer now) or a
   // "review" (Send). Events hand to a parked waiter, else queue (FIFO) until one arms.
@@ -307,7 +373,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       // loopback origin. server.address() is populated by the time requests arrive.
       const bound = server.address();
       const boundPort = typeof bound === "object" && bound ? bound.port : 0;
-      if (!originAllowed(req, res, boundPort)) return;
+      if (!originAllowed(req, res, boundPort, binding.allowedHosts)) return;
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       if (req.method === "GET" && url.pathname === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -861,11 +927,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (preferred !== 0 && (error.code === "EADDRINUSE" || error.code === "EACCES")) {
         console.error(`Port ${preferred} is taken — falling back to a random port.`);
         server.removeListener("error", onError);
-        server.listen(0, "127.0.0.1", resolve);
+        server.listen(0, host, resolve);
       } else reject(error);
     };
     server.once("error", onError);
-    server.listen(preferred, "127.0.0.1", () => {
+    server.listen(preferred, host, () => {
       server.removeListener("error", onError);
       resolve();
     });
@@ -875,7 +941,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   });
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : 0;
-  const url = `http://127.0.0.1:${port}/`;
+  const url = `http://${binding.browserHost}:${port}/`;
+  const lockUrl = `http://${binding.lockHost}:${port}/`;
   if (options.open !== false) await openUrl(url);
-  return { server, url };
+  return { server, url, lockUrl };
 }
