@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 // is ~650 KB); the total sits near 3 MB. This gate still catches a re-introduced fat barrel (that
 // regression is +9 MB) or the oniguruma wasm (+600 KB). Reaching "hundreds of KB" would require
 // lazy-loading grammar chunks (a code-split + a server route to serve them) — out of scope here.
-const SIZE_LIMIT = 3_200_000;
+// 3.2 → 3.3 MB when light mode added six curated light themes (~170 KB of theme JSON).
+const SIZE_LIMIT = 3_300_000;
 
 const shimPath = fileURLToPath(new URL("../src/ui/shiki-shim.ts", import.meta.url));
 const emptyModule = "export default {}; export {};";

@@ -59,18 +59,6 @@ export const FONTS: Record<string, FontDef> = {
   },
 };
 
-// The code (diff + comment/markdown) theme used when the chrome is in light mode. Kept as one
-// constant so the diff slot in render.ts and the markdown highlighter stay in sync. github-light
-// is a Shiki bundle (see shiki-curated.ts), so it styles both the @pierre diff and fenced code.
-export const LIGHT_CODE_THEME = "github-light";
-
-// Resolve the effective code theme for the current appearance: the picked dark theme in dark
-// mode, the fixed light theme in light mode. The `theme` setting only lists dark themes, so a
-// dark theme on light chrome would clash — light mode forces a matching light code theme.
-export function codeTheme(s: Settings): string {
-  return s.appearance === "light" ? LIGHT_CODE_THEME : s.theme;
-}
-
 // Curated sans fonts for the UI chrome (everything that isn't code). "system" loads nothing.
 export const SANS_FONTS: Record<string, FontDef> = {
   inter: { label: "Inter", stack: "'Inter'", google: "Inter:wght@400;500;600;700" },

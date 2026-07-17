@@ -112,7 +112,8 @@
        these win. Structural surfaces/lines/text flip wholesale; the saturated
        accents (accept/cyan/green fills) keep their alpha so they blend to a light
        tint over the white canvas and still read with the near-black --on-accent.
-       The diff + comment code themes flip separately to github-light (codeTheme). */
+       The diff/comment code theme is a separate, freely-mixable setting (the Code
+       theme picker groups Dark and Light shiki themes) — it does not flip here. */
     :root[data-theme="light"] {
       color-scheme: light;
 
@@ -3268,7 +3269,7 @@
                 <option value="light">Light</option>
               </select></label><label>Code theme<select x-model="$store.g.settings.theme"
                 @change="$store.g.applySettings()">
-                <optgroup label="Diff + comments">
+                <optgroup label="Dark">
                   <option value="material-theme-palenight">Palenight</option>
                   <option value="material-theme-darker">Material Darker</option>
                   <option value="github-dark">GitHub Dark</option>
@@ -3278,9 +3279,18 @@
                   <option value="everforest-dark">Everforest</option>
                   <option value="dark-plus">Dark+ (VS Code)</option>
                 </optgroup>
+                <optgroup label="Light">
+                  <option value="github-light">GitHub Light</option>
+                  <option value="one-light">One Light</option>
+                  <option value="vitesse-light">Vitesse Light</option>
+                  <option value="catppuccin-latte">Catppuccin Latte</option>
+                  <option value="everforest-light">Everforest Light</option>
+                  <option value="light-plus">Light+ (VS Code)</option>
+                </optgroup>
                 <optgroup label="Diff only">
                   <option value="pierre-dark">Pierre Dark</option>
                   <option value="pierre-dark-soft">Pierre Dark Soft</option>
+                  <option value="pierre-light">Pierre Light</option>
                 </optgroup>
               </select></label><label>Code font<select x-model="$store.g.settings.font" @change="$store.g.applySettings()">
                 <option value="jetbrains-mono">JetBrains Mono</option>

@@ -11,6 +11,11 @@ import palenight from "shiki/dist/themes/material-theme-palenight.mjs";
 import materialDarker from "shiki/dist/themes/material-theme-darker.mjs";
 import githubDark from "shiki/dist/themes/github-dark.mjs";
 import githubLight from "shiki/dist/themes/github-light.mjs";
+import oneLight from "shiki/dist/themes/one-light.mjs";
+import vitesseLight from "shiki/dist/themes/vitesse-light.mjs";
+import catppuccinLatte from "shiki/dist/themes/catppuccin-latte.mjs";
+import everforestLight from "shiki/dist/themes/everforest-light.mjs";
+import lightPlus from "shiki/dist/themes/light-plus.mjs";
 import dracula from "shiki/dist/themes/dracula.mjs";
 import ayuDark from "shiki/dist/themes/ayu-dark.mjs";
 import gruvbox from "shiki/dist/themes/gruvbox-dark-medium.mjs";
@@ -48,14 +53,20 @@ export const CURATED_THEMES: Record<string, unknown> = {
   "material-theme-palenight": palenight,
   "material-theme-darker": materialDarker,
   "github-dark": githubDark,
-  // Light code theme — used for both the diff and comment/markdown code when the chrome is in
-  // light mode (see codeTheme in settings.ts). Registered here so @pierre resolves it too.
-  "github-light": githubLight,
   dracula: dracula,
   "ayu-dark": ayuDark,
   "gruvbox-dark-medium": gruvbox,
   "everforest-dark": everforest,
   "dark-plus": darkPlus,
+  // Light code themes — the settings picker groups these under "Light"; the code theme is
+  // independent of the chrome appearance, so any of them can pair with either mode.
+  // (These ~170 KB of theme JSON are why the bundle gate moved 3.2 → 3.3 MB.)
+  "github-light": githubLight,
+  "one-light": oneLight,
+  "vitesse-light": vitesseLight,
+  "catppuccin-latte": catppuccinLatte,
+  "everforest-light": everforestLight,
+  "light-plus": lightPlus,
 };
 
 export const CURATED_LANGS = [
