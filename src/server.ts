@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -157,7 +158,9 @@ async function html() {
 
 async function applyPatchToIndex(root: string, patch: string) {
   const tmp = path.join(
-    await fs.mkdtemp(path.join(process.env.TMPDIR || "/tmp", "galley-")),
+    // os.tmpdir(), not $TMPDIR-or-/tmp: Windows sets TEMP/TMP instead, so the old fallback
+    // resolved to a nonexistent C:\tmp and mkdtemp ENOENT'd — hunk staging failed there.
+    await fs.mkdtemp(path.join(os.tmpdir(), "galley-")),
     `${crypto.randomUUID()}.diff`,
   );
   await fs.writeFile(tmp, patch, "utf8");
