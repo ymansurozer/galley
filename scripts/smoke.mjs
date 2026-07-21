@@ -47,7 +47,16 @@ const waitForDeskUrl = (child) =>
     child.stderr.on("data", onData);
     child.once("exit", onExit);
   });
-const cli = (...args) => execFileSync("node", [CLI, ...args], { encoding: "utf8" }).trim();
+// Keep the smoke hermetic to the caller's shell: devbox setups export GALLEY_HOST (and
+// GALLEY_ALLOWED_HOSTS) so real desks bind beyond loopback, but waitForDeskUrl asserts the
+// loopback URL — an inherited GALLEY_HOST would make every run time out. No update-check
+// network call at desk start either.
+const ENV = { ...process.env, GALLEY_NO_UPDATE_CHECK: "1" };
+delete ENV.GALLEY_HOST;
+delete ENV.GALLEY_ALLOWED_HOSTS;
+
+const cli = (...args) =>
+  execFileSync("node", [CLI, ...args], { encoding: "utf8", env: ENV }).trim();
 const getJson = async (p, init) => (await fetch(BASE + p, init)).json();
 const post = (p, body) =>
   fetch(BASE + p, {
@@ -94,8 +103,7 @@ try {
   desk = spawn("node", [CLI, "--repo", tmp, "--session", ID, "--port", "0", "--no-open"], {
     // stderr piped so we can read the bound URL; stdout ignored.
     stdio: ["ignore", "ignore", "pipe"],
-    // Keep the smoke hermetic: no update-check network call at desk start.
-    env: { ...process.env, GALLEY_NO_UPDATE_CHECK: "1" },
+    env: ENV,
   });
   BASE = await waitForDeskUrl(desk);
   for (let i = 0; i < 60; i++) {
