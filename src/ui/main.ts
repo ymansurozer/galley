@@ -37,6 +37,7 @@ import {
 import { setBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
+import { uuid } from "./uuid";
 import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
 
 // Close the inline composer when clicking outside it (unless it has unsaved text). The
@@ -405,7 +406,7 @@ const submitComment = (intent: "question" | "action") => {
   const contents =
     cur.path === file.path ? (side === "deletions" ? cur.oldContents : cur.newContents) : undefined;
   const c = {
-    id: crypto.randomUUID(),
+    id: uuid(),
     path: file.path,
     side,
     lineNumber,
