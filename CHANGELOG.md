@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.7.4
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.7.3...v0.7.4)
+
+### 🩹 Fixes
+
+- Fall back to getRandomValues for UUIDs on insecure origins ([#64](https://github.com/ymansurozer/galley/pull/64))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.7.3
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.7.2...v0.7.3)
