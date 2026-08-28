@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: Settings = {
   font: "jetbrains-mono",
   uiFont: "geist",
   fontSize: 12.5,
+  tabSize: 4,
   showUnchanged: false,
   unchangedLines: "collapse",
   progressBy: "lines",
@@ -138,6 +139,7 @@ export function applyAppearance(s: Settings) {
   root.setProperty("--code-size", `${s.fontSize}px`);
   root.setProperty("--diffs-font-family", monoStack);
   root.setProperty("--diffs-font-size", `${s.fontSize}px`);
+  root.setProperty("--diffs-tab-size", String(s.tabSize));
   applyLineHighlight(s.lineHighlight);
   // Tone down @pierre's line-selection highlight (the [data-selected-line] wash). Its default
   // mix target is the bright "modified" blue, which reads as distracting on a review surface —

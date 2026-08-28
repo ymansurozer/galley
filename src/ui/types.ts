@@ -33,6 +33,7 @@ export type Settings = {
   font: string; // key into the FONTS map — code font (diff + comment/markdown code)
   uiFont: string; // key into the SANS_FONTS map — UI chrome font (non-code)
   fontSize: number; // px — code font size (diff + comment code)
+  tabSize: number; // columns — rendered width of tab characters in the diff
   showUnchanged: boolean;
   // Diff view: "collapse" (default) folds long unchanged runs into a "N unmodified lines"
   // separator; "expand" renders every line (mapped to @pierre's expandUnchanged flag).
