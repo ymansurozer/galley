@@ -13,7 +13,10 @@ export const DEFAULT_SETTINGS: Settings = {
   font: "jetbrains-mono",
   uiFont: "geist",
   fontSize: 12.5,
-  tabSize: 4,
+  // 2 columns is @pierre's own fallback (`tab-size: var(--diffs-tab-size, 2)`), which is what
+  // every desk rendered before this setting existed — keeping it as the default means the
+  // preference arrives without silently re-indenting anyone's diff.
+  tabSize: 2,
   showUnchanged: false,
   unchangedLines: "collapse",
   progressBy: "lines",
