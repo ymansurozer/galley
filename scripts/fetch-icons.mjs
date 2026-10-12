@@ -27,6 +27,14 @@ const ICON_MAP = {
   // Walkthrough per-file status trio (gly-check doubles as the approved state).
   "gly-circle": "lucide:circle",
   "gly-circle-alert": "lucide:circle-alert",
+  // UI lane: the Code / UI switch, the browser-chrome bar, and its viewport presets.
+  "gly-code": "lucide:code",
+  "gly-app": "lucide:app-window",
+  "gly-refresh": "lucide:rotate-cw",
+  "gly-desktop": "lucide:monitor",
+  "gly-tablet": "lucide:tablet",
+  "gly-mobile": "lucide:smartphone",
+  "gly-fit": "lucide:scan",
 };
 
 // Hand-drawn glyphs with no good library equivalent (status primitives). 24-unit viewBox to

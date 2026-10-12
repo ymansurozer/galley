@@ -37,9 +37,9 @@
   },
   "scripts": {
     "dev": "node scripts/build-ui.mjs --watch & tsx src/cli.ts",
-    "build": "tsc && tsc -p tsconfig.ui.json && node scripts/build-ui.mjs && cp src/ui/index.html dist/index.html",
+    "build": "tsc && tsc -p tsconfig.ui.json && tsc -p tsconfig.bridge.json && node scripts/build-ui.mjs && cp src/ui/index.html dist/index.html",
     "start": "node dist/cli.js",
-    "check": "tsc --noEmit && tsc -p tsconfig.ui.json",
+    "check": "tsc --noEmit && tsc -p tsconfig.ui.json && tsc -p tsconfig.bridge.json",
     "lint": "oxlint src scripts && oxfmt --check src scripts",
     "lint:fix": "oxlint src scripts --fix && oxfmt src scripts",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",

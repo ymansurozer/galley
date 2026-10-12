@@ -452,15 +452,16 @@ test("proxy answers a document navigation with the waiting page while the dev se
     assert.equal(xhr.status, 502);
     assert.doesNotMatch(xhr.body, /Waiting for the dev server/, "XHR/assets get a plain 502");
     const health = await request(proxyPort, "/__galley/health");
-    assert.equal(health.status, 503);
+    assert.equal(health.status, 200, "never a console-noisy error status");
+    assert.deepEqual(JSON.parse(health.body), { up: false });
   });
 });
 
-test("the health probe turns 200 once the dev server answers", async () => {
+test("the health probe reports up once the dev server answers", async () => {
   const up = await startUpstream((_req, res) => res.end("ok"));
   try {
     await withProxy(`${up.url}/`, async (port) => {
-      assert.equal((await request(port, "/__galley/health")).status, 200);
+      assert.deepEqual(JSON.parse((await request(port, "/__galley/health")).body), { up: true });
     });
   } finally {
     up.server.close();

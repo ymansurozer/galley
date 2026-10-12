@@ -1,17 +1,27 @@
 import { S, D, api, toast, saver } from "./store";
 import { render } from "./render";
 import { updateAwaitingDom } from "./annotations";
+import { adoptUiStatus, adoptUiTarget, syncView } from "./appview";
 import type { DeskStatus, PollPayload, ReviewState } from "./types";
 
 // Pull the transient DeskStatus fields off a server payload into the store and
 // return the rest. They must never enter S.state: persist() posts S.state back
 // to /api/save, and the persisted review must not carry desk liveness.
 export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
-  const { agentActivity, agentListening, queuedQuestions, queuedReviews, ...server } = payload;
+  const {
+    agentActivity,
+    agentListening,
+    queuedQuestions,
+    queuedReviews,
+    uiProxy,
+    reloadGeneration,
+    ...server
+  } = payload;
   S.agentActivity = agentActivity?.body ?? null;
   S.agentListening = agentListening ?? false;
   S.queuedQuestions = queuedQuestions ?? 0;
   S.queuedReviews = queuedReviews ?? 0;
+  adoptUiStatus(uiProxy ?? null, reloadGeneration ?? 0);
   return server as T;
 }
 
@@ -33,6 +43,8 @@ export async function pollState() {
     return;
   }
   if (!lite || !Array.isArray(lite.comments)) return;
+  // `galley ui <url>` on the live desk: no diff change, so it rides the lite poll.
+  adoptUiTarget(lite.ui);
   if (lite.baseDiffHash !== S.lastBaseDiffHash) {
     // The reload branch replaces S.state wholesale and re-renders, which would clobber local
     // decisions/comments not yet persisted and rebuild the diff DOM out from under an open
@@ -63,6 +75,8 @@ export async function pollState() {
     if (remapped >= 0) S.fileIndex = remapped;
     else if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
     S.awaitingAgent = false;
+    // A diff that appeared (or emptied) makes a UI-only desk combined (or back).
+    syncView();
     // The diff changed (e.g. a reload added files) — refresh the project listing too so
     // the tree reflects newly tracked files, not the listing fetched at startup.
     api<{ files?: string[] }>("/api/tree")

@@ -271,7 +271,7 @@ export function waitingPage(target: string): string {
   html, body { height: 100%; margin: 0 }
   body { display: grid; place-items: center; padding: 20px; box-sizing: border-box; background: #070909;
     font: 12px/1.55 "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #d9d9d4 }
-  .card { width: min(440px, 100%); box-sizing: border-box; padding: 18px 20px; border: 1px solid #222a2d;
+  .card { width: min(480px, 100%); box-sizing: border-box; padding: 18px 20px; border: 1px solid #222a2d;
     border-radius: 12px; background: #0b0e0f }
   h1 { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 0 0 8px; font-size: 14px; font-weight: 600 }
   code { color: #8fc4d4; font: 500 13px "JetBrains Mono", ui-monospace, monospace }
@@ -292,7 +292,7 @@ export function waitingPage(target: string): string {
   async function probe() {
     try {
       const res = await fetch(${JSON.stringify(HEALTH_PATH)}, { cache: "no-store" });
-      if (res.ok) return location.replace(location.href);
+      if ((await res.json()).up) return location.replace(location.href);
     } catch {}
     attempt++;
     tries.textContent = "attempt " + attempt + " · retrying every 2 s";
@@ -373,16 +373,25 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
         return;
       }
       if (req.method === "GET" && pathname === HEALTH_PATH) {
-        const upstream = upstreamUrl();
-        if (typeof upstream === "string") return plain(res, 503, upstream);
-        const probe = net.connect(dialPort(upstream), dialHost(upstream));
+        // Always a 200 carrying {up}: a non-2xx would log a console error on every 2 s retry.
         const answer = (up: boolean) => {
-          probe.destroy();
-          if (!res.headersSent) plain(res, up ? 200 : 503, up ? "up" : "down");
+          if (res.headersSent) return;
+          res.writeHead(200, {
+            "content-type": "application/json",
+            "cache-control": "no-store",
+          });
+          res.end(JSON.stringify({ up }));
         };
-        probe.setTimeout(1500, () => answer(false));
-        probe.once("connect", () => answer(true));
-        probe.once("error", () => answer(false));
+        const upstream = upstreamUrl();
+        if (typeof upstream === "string") return answer(false);
+        const probe = net.connect(dialPort(upstream), dialHost(upstream));
+        probe.setTimeout(1500, () => probe.destroy());
+        probe.once("connect", () => {
+          answer(true);
+          probe.destroy();
+        });
+        probe.once("error", () => {}); // reported by "close" below
+        probe.once("close", () => answer(false));
         return;
       }
       return plain(res, 404, "Not found.");

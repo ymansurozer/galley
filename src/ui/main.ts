@@ -36,6 +36,19 @@ import {
 } from "./guide";
 import { setBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
+import {
+  appBack,
+  appForward,
+  appGo,
+  appHost,
+  appRefresh,
+  hasUi,
+  installAppView,
+  setView,
+  setViewport,
+  syncView,
+  uiOnly,
+} from "./appview";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { uuid } from "./uuid";
 import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
@@ -101,6 +114,7 @@ S.selectFile = (i) => {
   // way. The single funnel for tree/walkthrough clicks + next/prev + guide nav; no-op when shut.
   S.treeDrawerOpen = false;
   S.overviewOpen = false;
+  S.view = "code"; // like the Overview, the UI view is an alternate centre a file selection leaves
   S.preview = null;
   S.diffScrolled = false; // the new file renders at the top (see render.ts) — hide the floating action
   S.fileIndex = i;
@@ -327,6 +341,10 @@ S.promptFinish = () => {
 // (The button used to call send() directly with no confirm at all, which made accidental sends
 // too easy.)
 S.confirmSend = () => {
+  if (uiOnly()) {
+    openSendModal("You're about to send your review of the app. Send to the agent?");
+    return;
+  }
   const { files, lines, comments, rejections } = reviewStats();
   const parts = [
     plural(files, "file"),
@@ -462,6 +480,17 @@ S.send = async (overallNote = "") => {
   } else toast("Could not send review");
 };
 
+// The UI lane: the Code / UI switch and the chrome bar over the proxied app (appview.ts).
+S.hasUi = hasUi;
+S.uiOnly = uiOnly;
+S.setView = setView;
+S.appHost = appHost;
+S.appBack = appBack;
+S.appForward = appForward;
+S.appRefresh = appRefresh;
+S.appGo = appGo;
+S.setViewport = setViewport;
+
 // Alpine: register the reactive store, then start.
 (window as any).Alpine = Alpine;
 Alpine.store("g", S);
@@ -511,6 +540,8 @@ if (hasGuide()) {
   S.overviewOpen = true;
   S.sidebarTab = S.settings.sidebarDefault === "walkthrough" ? "walkthrough" : "tree";
 }
+installAppView();
+syncView(); // a UI-only desk opens straight on the app
 render();
 // Reveal the floating Approve button once the diff scrolls past its (non-sticky) header. #diff
 // is the persistent scroll container (x-ignore), so this listener is attached once and survives

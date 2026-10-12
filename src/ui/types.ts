@@ -1,14 +1,18 @@
 import type {
+  BridgeMessage,
+  BridgeNav,
   ReviewState,
   ReviewComment,
   ChangeState,
   Decision,
+  DeskMessage,
   DeskStatus,
   FileContentsPayload,
   GuideFile,
   PollPayload,
   ReviewFile,
   ReviewerSave,
+  UiProxyInfo,
 } from "../types";
 import type { WalkRow } from "./walkthrough";
 
@@ -268,6 +272,18 @@ export interface Store {
   // a file renders its real diff for the rest of the session instead of the summary card. Per-
   // session and never persisted — the oversized stamp is server-owned and re-derived on reload.
   loadedOversized: Set<string>;
+  // Which lane the centre shows: the diff ("code") or the proxied app ("ui"). Only "code" without
+  // a UI target; only "ui" on a UI-only desk (a target and no diff).
+  view: "code" | "ui";
+  // DeskStatus.uiProxy / reloadGeneration — desk-process liveness, held outside S.state like the
+  // agent fields above. reloadGeneration is the last one the tab adopted (see adoptUiStatus).
+  uiProxy: UiProxyInfo | null;
+  reloadGeneration: number;
+  // The app in the UI view, as the iframe was last pointed or the bridge last reported.
+  app: AppFrame;
+  viewport: Viewport;
+  // The chrome bar's "W × H" readout (plus the scale for a scaled-down preset).
+  frameLabel: string;
 
   treeRows?: () => TreeRow[];
   selectFile?: (i: number) => void;
@@ -320,16 +336,46 @@ export interface Store {
   sendConfirm?: () => void;
   sendCancel?: () => void;
   helpGroups?: () => { group: string; items: { combo: string; desc: string }[] }[];
+  // The UI lane (appview.ts): the Code/UI switch, and the chrome bar's controls over the iframe.
+  hasUi?: () => boolean;
+  uiOnly?: () => boolean;
+  setView?: (view: "code" | "ui") => void;
+  appHost?: () => string;
+  appBack?: () => void;
+  appForward?: () => void;
+  appRefresh?: () => void;
+  appGo?: (input: string) => void;
+  setViewport?: (viewport: Viewport) => void;
 }
 
+export type Viewport = "desktop" | "tablet" | "mobile" | "fit";
+
+export type AppFrame = {
+  // The iframe has been pointed at the app at least once (it then stays alive across view switches).
+  loaded: boolean;
+  route: string;
+  title: string;
+  // A bridge has handshaken on the current page. Off on the waiting page, non-HTML pages, and pages
+  // carrying a previous desk process's token; the controls then fall back to resetting the src.
+  connected: boolean;
+  canGoBack: boolean | null;
+  canGoForward: boolean | null;
+  // The agent ran `galley reload` since the app was last (re)loaded: the "App updated" pill.
+  stale: boolean;
+};
+
 export type {
+  BridgeMessage,
+  BridgeNav,
   ReviewState,
   ReviewComment,
   ChangeState,
   Decision,
+  DeskMessage,
   DeskStatus,
   FileContentsPayload,
   GuideFile,
   PollPayload,
   ReviewerSave,
+  UiProxyInfo,
 };
