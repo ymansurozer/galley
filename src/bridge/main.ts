@@ -5,10 +5,10 @@ import type { BridgeMessage, BridgeNav, DeskMessage } from "../types";
 // the desk API (a different origin, which the desk's origin guard refuses). Its tag carries the
 // desk origin and the per-desk token. Every message it posts carries the token and targets exactly
 // the desk origin. It obeys only messages from that origin, sent by the parent frame, that carry the
-// token. For now it does the handshake, reports navigation, and runs the desk's back/forward/
-// refresh/address commands.
+// token. It does the handshake, reports navigation, and runs the desk's back/forward/refresh/
+// address commands.
 (() => {
-  const tag = document.currentScript as HTMLScriptElement | null;
+  const tag = document.currentScript;
   const deskOrigin = tag?.dataset.galleyDesk;
   const token = tag?.dataset.galleyToken;
   // Outside the desk's iframe (the proxy URL opened in its own tab) the page runs untouched.

@@ -30,8 +30,10 @@ export const appHost = () => (S.state?.ui ? new URL(S.state.ui.target).host : ""
 const proxyOrigin = () =>
   S.uiProxy ? `${location.protocol}//${location.hostname}:${S.uiProxy.port}` : null;
 
+// The first page to load: the target's path + query exactly (a dev sign-in URL lands signed in).
 const targetRoute = () => {
-  const url = new URL(S.state.ui!.target);
+  if (!S.state.ui) return "/";
+  const url = new URL(S.state.ui.target);
   return url.pathname + url.search;
 };
 
@@ -154,6 +156,8 @@ export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number) {
     S.app.connected = false;
     // A restarted desk normally gets its stable proxy port back; if not, follow it.
     if (prev && proxy && prev.port !== proxy.port && S.app.loaded) loadApp(S.app.route);
+    // The UI view opened before the proxy was up: load now.
+    else if (proxy && S.view === "ui" && !S.app.loaded) loadApp(targetRoute());
     return;
   }
   if (generation !== S.reloadGeneration) {

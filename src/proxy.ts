@@ -129,7 +129,7 @@ export class HeadInjector {
         continue;
       }
       const name = head.slice(1, 5);
-      if ((name === "head" || name === "html" || name === "body") && /[\s/>]/.test(head[5]!)) {
+      if ((name === "head" || name === "html" || name === "body") && /[\s/>]/.test(head[5])) {
         if (name === "body") return this.fallbackAt;
         const end = tagEnd(b, lt + 5);
         if (end < 0) return null;
@@ -178,7 +178,7 @@ function injectStream(tag: string): Transform {
 // it; Partitioned requires Secure too.
 export function rewriteSetCookie(cookie: string, dropSecure: boolean): string {
   const [pair, ...attrs] = cookie.split(";");
-  const out = [pair!.trim()];
+  const out = [pair.trim()];
   for (const raw of attrs) {
     const attr = raw.trim();
     const [name = "", value = ""] = attr.split("=").map((s) => s.trim().toLowerCase());
@@ -251,11 +251,16 @@ function narrowAcceptEncoding(value: string | string[] | undefined): string | un
   return ok.length ? ok.join(", ") : undefined;
 }
 
+const HTML_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
 function escapeHtml(s: string): string {
-  return s.replace(
-    /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
-  );
+  return s.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c] ?? c);
 }
 
 // Served into the iframe for a document navigation while the dev server refuses connections: it
@@ -355,7 +360,7 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
     const proxyOrigin = `http://${name}:${port}`;
     const deskOrigin = `http://${name}:${opts.deskPort}`;
     const frameAncestors = `frame-ancestors ${deskOrigin}`;
-    const pathname = (req.url ?? "/").split("?")[0]!;
+    const pathname = (req.url ?? "/").split("?")[0];
 
     if (pathname.startsWith(RESERVED_PREFIX)) {
       if (req.method === "GET" && pathname === BRIDGE_PATH) {
@@ -460,7 +465,7 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
         delete out["content-security-policy-report-only"];
         out["content-security-policy"] = frameAncestors;
       }
-      const decoder = decoderFor(ur.headers["content-encoding"] as string | undefined);
+      const decoder = decoderFor(ur.headers["content-encoding"]);
       const inject =
         html &&
         document &&
@@ -505,7 +510,7 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
       connected = true;
       const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
-        const key = req.rawHeaders[i]!;
+        const key = req.rawHeaders[i];
         const lower = key.toLowerCase();
         const value =
           lower === "host"
