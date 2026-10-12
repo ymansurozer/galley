@@ -207,3 +207,28 @@ test("galley --ui on a dirty tree starts a combined desk with code and the UI ta
     await cleanup();
   }
 });
+
+test("a bare galley restarts a stopped UI-only desk on its persisted target", async () => {
+  const { repo, home, cleanup } = await tempRepo(false);
+  const children: ChildProcess[] = [];
+  try {
+    const first = await startDesk(
+      ["ui", "http://localhost:3000/app", "--repo", repo, "--port", "0"],
+      home,
+    );
+    children.push(first.child);
+    const stop = runCli(["stop", "--repo", repo, "--all"], home);
+    assert.equal(stop.status, 0, stop.stderr);
+    await new Promise((resolve) => first.child.once("exit", resolve));
+    // Still a clean tree, and no --ui: the saved target is what makes it a review.
+    const again = await startDesk(["--repo", repo, "--port", "0"], home);
+    children.push(again.child);
+    const state = await deskState(again.url);
+    assert.deepEqual(state.files, [], "back UI-only");
+    assert.deepEqual(state.ui, { target: "http://localhost:3000/app" });
+    assert.ok(state.uiProxy, "the proxy is back up");
+  } finally {
+    for (const c of children) c.kill();
+    await cleanup();
+  }
+});

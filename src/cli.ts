@@ -515,6 +515,10 @@ async function runDesk(
     }
     console.error("Live desk did not accept the reload — starting a fresh one.");
   }
+  // Repo/pr reviews are saved under the repo's git root, so read the saved one before the build:
+  // a UI target it persisted makes a clean tree a review too (a UI-only desk restarting with a bare
+  // `galley`). File mode's root comes from the file itself — its review is read after the build.
+  const early = mode === "file" ? undefined : await loadLatestReview(root, session);
   const base = await buildReviewState(repo, {
     mode,
     session,
@@ -529,8 +533,8 @@ async function runDesk(
           : undefined,
     target: mode === "pr" ? prTarget || branch : undefined,
     base: mode === "pr" ? prBase : undefined,
-    // With a UI target, a clean tree is still a review: the UI-only desk.
-    allowEmpty: !!uiTarget,
+    // With a UI target (given or saved), a clean tree is still a review: the UI-only desk.
+    allowEmpty: !!(uiTarget ?? early?.ui),
   });
   if (!base) {
     console.error(
@@ -543,7 +547,8 @@ async function runDesk(
     process.exitCode = 1;
     return;
   }
-  const saved = await loadLatestReview(base.root, session);
+  const saved =
+    early !== undefined && base.root === root ? early : await loadLatestReview(base.root, session);
   // Load the new guide (if any) up front — loadGuideArg validates it. Guide-declared moves
   // (movedFrom) must merge into `base` BEFORE reconciliation, so the merged pair's distinct paths
   // drive mergeReviewState's rename migration (issue 01). A new guide resolves strictly (an
