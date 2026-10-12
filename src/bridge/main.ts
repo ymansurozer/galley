@@ -63,6 +63,20 @@ import { capturePage } from "./capture";
   });
   addEventListener("pagehide", () => post({ type: "leave", token }));
 
+  // The crop's box: the selector's element as laid out now, else the rect the desk sent. A selector
+  // that matches nothing (or doesn't parse) gives no crop rather than failing the capture.
+  const captureTarget = (msg: Partial<Extract<DeskMessage, { type: "capture" }>>): Rect | null => {
+    if (typeof msg.selector === "string") {
+      try {
+        return document.querySelector(msg.selector)?.getBoundingClientRect() ?? null;
+      } catch {
+        return null;
+      }
+    }
+    const r = msg.rect;
+    return r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? r : null;
+  };
+
   addEventListener("message", (e: MessageEvent) => {
     if (e.origin !== deskOrigin || e.source !== window.parent) return;
     const msg = e.data as Partial<DeskMessage> | null;
@@ -92,20 +106,6 @@ import { capturePage } from "./capture";
       );
     }
   });
-
-  // The crop's box: the selector's element as laid out now, else the rect the desk sent. A selector
-  // that matches nothing (or doesn't parse) gives no crop rather than failing the capture.
-  const captureTarget = (msg: Partial<Extract<DeskMessage, { type: "capture" }>>): Rect | null => {
-    if (typeof msg.selector === "string") {
-      try {
-        return document.querySelector(msg.selector)?.getBoundingClientRect() ?? null;
-      } catch {
-        return null;
-      }
-    }
-    const r = msg.rect;
-    return r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? r : null;
-  };
 
   report("ready");
 })();

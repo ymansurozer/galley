@@ -7,7 +7,7 @@ import type { BridgeMessage } from "./types";
 const ROUTE_CAP = 2048;
 const TITLE_CAP = 300;
 const ERROR_CAP = 300;
-// Far past any real viewport render (a 4K window at 2× is ~33 MB raw RGBA, and PNG compresses UI
+// Far past any real viewport render (3840 × 2160 device px is ~33 MB of raw RGBA, and PNG packs UI
 // screens well below that), so only a page posting junk hits it.
 const SHOT_CAP = 32 * 1024 * 1024;
 
