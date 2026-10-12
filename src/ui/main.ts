@@ -49,6 +49,7 @@ import {
   syncView,
   uiOnly,
 } from "./appview";
+import { installCaptureDebug } from "./capturedebug";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { uuid } from "./uuid";
 import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
@@ -541,6 +542,7 @@ if (hasGuide()) {
   S.sidebarTab = S.settings.sidebarDefault === "walkthrough" ? "walkthrough" : "tree";
 }
 installAppView();
+installCaptureDebug();
 syncView(); // a UI-only desk opens straight on the app
 render();
 // Reveal the floating Approve button once the diff scrolls past its (non-sticky) header. #diff
