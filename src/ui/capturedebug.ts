@@ -42,7 +42,21 @@ export function installCaptureDebug() {
     viewport: q("[data-viewport-cap]", HTMLElement),
   };
 
-  const close = () => backdrop.classList.remove("show");
+  // Only the latest capture's reply reaches the modal (an earlier one still resolves its console
+  // call), and closing the modal drops any in flight, so no image URL outlives what's on screen.
+  let latest = 0;
+  const clear = () => {
+    for (const img of Object.values(images)) {
+      if (img.src) URL.revokeObjectURL(img.src);
+      img.removeAttribute("src");
+    }
+    for (const cap of Object.values(captions)) cap.textContent = "";
+  };
+  const close = () => {
+    latest++;
+    backdrop.classList.remove("show");
+    clear();
+  };
   backdrop.addEventListener("click", (e) => {
     if (e.target === backdrop || (e.target instanceof Element && e.target.closest("[data-close]")))
       close();
@@ -53,34 +67,35 @@ export function installCaptureDebug() {
   });
 
   async function capture(selector?: string) {
+    const seq = ++latest;
     backdrop.classList.add("show");
     input.value = selector ?? "";
     status.textContent = "Capturing…";
-    for (const img of Object.values(images)) {
-      if (img.src) URL.revokeObjectURL(img.src);
-      img.removeAttribute("src");
-    }
-    for (const cap of Object.values(captions)) cap.textContent = "";
+    clear();
     const t0 = performance.now();
     try {
       const shot = await captureApp(selector ? { selector } : {});
       const roundTrip = Math.round(performance.now() - t0);
-      status.textContent = `Rendered in the page in ${shot.ms} ms · ${roundTrip} ms round trip`;
-      show("viewport", shot.viewport);
-      if (shot.crop) show("crop", shot.crop);
-      else
-        captions.crop.textContent = selector
-          ? "No crop: nothing on screen matches"
-          : "No crop selector";
+      if (seq === latest) {
+        status.textContent = `Rendered in the page in ${shot.ms} ms · ${roundTrip} ms round trip`;
+        show("viewport", shot.viewport);
+        if (shot.crop) show("crop", shot.crop);
+        else
+          captions.crop.textContent = selector
+            ? "No crop: nothing on screen matches"
+            : "No crop selector";
+      }
       return { ...shot, roundTrip };
     } catch (err) {
-      status.textContent = `Capture failed: ${err instanceof Error ? err.message : String(err)}`;
+      if (seq === latest)
+        status.textContent = `Capture failed: ${err instanceof Error ? err.message : String(err)}`;
       throw err;
     }
   }
 
   function show(which: "crop" | "viewport", png: Blob) {
     const img = images[which];
+    if (img.src) URL.revokeObjectURL(img.src);
     img.onload = () => {
       // At the page's CSS size: the PNG is rendered at devicePixelRatio, the same as the desk's.
       img.style.width = `${img.naturalWidth / devicePixelRatio}px`;
