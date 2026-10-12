@@ -54,6 +54,13 @@ const ANCHORS = [
   // focused-review definition + flag (issue 04)
   "focused review",
   "mechanical churn skimmed",
+  // the running app: --ui / galley ui, loopback-only, UI-only desks, never auto-reloaded
+  "--ui <url>",
+  "galley ui <url>",
+  "loopback http:// URL",
+  "UI-only",
+  "never starts, restarts or stops it",
+  "App updated — refresh",
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",
   "auto-exits",
