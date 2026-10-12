@@ -49,11 +49,24 @@ const options = {
   plugins: [shikiShimPlugin],
 };
 
+// dist/bridge.js — the third world: injected by the UI proxy into the proxied app's pages as a
+// classic <script> (an IIFE, so it runs synchronously at the top of <head>, before the app's
+// router can grab history).
+const bridgeOptions = {
+  entryPoints: ["src/bridge/main.ts"],
+  bundle: true,
+  format: "iife",
+  target: "es2022",
+  outfile: "dist/bridge.js",
+  minify: true,
+  logLevel: "info",
+};
+
 if (process.argv.includes("--watch")) {
-  const ctx = await esbuild.context(options);
-  await ctx.watch();
-  console.error("esbuild: watching src/ui → dist/ui.js");
+  for (const opts of [options, bridgeOptions]) await (await esbuild.context(opts)).watch();
+  console.error("esbuild: watching src/ui → dist/ui.js, src/bridge → dist/bridge.js");
 } else {
+  await esbuild.build(bridgeOptions);
   await esbuild.build(options);
   const bytes = statSync(options.outfile).size;
   const kb = (bytes / 1000).toFixed(0);

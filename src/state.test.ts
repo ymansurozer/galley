@@ -24,6 +24,7 @@ import {
   reviewDir,
   sanitizeSession,
   stablePort,
+  stableUiPort,
   writeFileAtomic,
   writeGlobalSettings,
 } from "./state.js";
@@ -1158,5 +1159,43 @@ test("persistReview writes a lean review — no file contents on disk", async ()
   } finally {
     process.env.HOME = oldHome;
     await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("mergeReviewState carries the UI target across reload/restart (the rebuilt base has none)", async () => {
+  const base = state({ files: [file("a.ts")] });
+  const saved = state({ files: [file("a.ts")], ui: { target: "http://localhost:3000/app" } });
+  const merged = await mergeReviewState(base, saved);
+  assert.deepEqual(merged.ui, { target: "http://localhost:3000/app" });
+});
+
+test("stableUiPort is deterministic, in range, and distinct from the desk's stablePort", () => {
+  const a = stableUiPort("/work/repo", "main");
+  assert.equal(a, stableUiPort("/work/repo", "main"));
+  assert.ok(a >= 41000 && a < 51000);
+  assert.notEqual(a, stablePort("/work/repo", "main"), "the UI salt moves it off the desk port");
+  assert.notEqual(a, stableUiPort("/work/repo", "feature-x"));
+  assert.equal(stableUiPort("/work/repo", "feature/x"), stableUiPort("/work/repo", "feature-x"));
+});
+
+test("buildReviewState on a clean tree: null by default, an empty state with allowEmpty (UI-only desk)", async () => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-clean-")));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.co");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "a.txt"), "one\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    assert.equal(await buildReviewState(dir, { session: "s" }), null);
+    const empty = await buildReviewState(dir, { session: "s", allowEmpty: true });
+    assert.ok(empty, "an empty state is built");
+    assert.equal(empty!.root, dir);
+    assert.deepEqual(empty!.files, []);
+    assert.deepEqual(empty!.changes, []);
+    assert.equal(empty!.rawDiff, "");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
   }
 });

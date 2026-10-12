@@ -41,8 +41,16 @@ export function hash(text: string) {
 // origin, so an already-open tab self-heals through its state poll instead of dying on
 // a dead random port. Collisions with foreign processes fall back to a random port at
 // listen time (startServer).
-export function stablePort(root: string, session: string) {
-  return 41000 + (parseInt(hash(`${root}:${sanitizeSession(session)}`).slice(0, 8), 16) % 10000);
+export function stablePort(root: string, session: string, salt = "") {
+  const key = `${root}:${sanitizeSession(session)}${salt}`;
+  return 41000 + (parseInt(hash(key).slice(0, 8), 16) % 10000);
+}
+
+// The UI proxy's port: the same scheme with a salt (one no sanitized session can produce), so a
+// restarted desk serves the app on the same origin too — the open tab's iframe and its session
+// cookies keep working. Collisions fall back to the next free port (startUiProxy).
+export function stableUiPort(root: string, session: string) {
+  return stablePort(root, session, ":ui");
 }
 
 export function sanitizeSession(session: string) {
@@ -659,9 +667,14 @@ export async function buildReviewState(
     session: string;
     target?: string;
     base?: string;
+    // A clean tree (repo) / branch at its base (pr) builds an empty state instead of null — the
+    // UI-only desk, where the app is the whole review. File mode's null (unreadable file) stays.
+    allowEmpty?: boolean;
   },
 ): Promise<ReviewState | null> {
   const mode = opts.mode ?? "repo";
+  const emptySource: DiffSource = { files: [], changes: [], rawDiff: "", parsedDiff: [] };
+  const orEmpty = (source: DiffSource | null) => source ?? (opts.allowEmpty ? emptySource : null);
   const make = (
     root: string,
     source: DiffSource,
@@ -718,7 +731,7 @@ export async function buildReviewState(
     const root = await getGitRoot(cwd);
     const defaultBranch = opts.base ?? (await resolveDefaultBranch(root));
     const base = await git(["merge-base", defaultBranch, "HEAD"], root).catch(() => defaultBranch);
-    const source = await buildDiffSource({ mode, root, base });
+    const source = orEmpty(await buildDiffSource({ mode, root, base }));
     if (!source) return null;
     return make(root, source, { staged: false, target: opts.target, base }, await getHead(root));
   }
@@ -731,7 +744,7 @@ export async function buildReviewState(
   const discovery = opts.path ? (stat?.isDirectory() ? requested : path.dirname(requested)) : cwd;
   const root = await getGitRoot(discovery);
   const rel = opts.path ? path.relative(root, requested) : undefined;
-  const source = await buildDiffSource({ mode, root, path: rel, staged: opts.staged });
+  const source = orEmpty(await buildDiffSource({ mode, root, path: rel, staged: opts.staged }));
   if (!source) return null;
   return make(root, source, { staged: !!opts.staged }, await getHead(root));
 }
@@ -1123,6 +1136,8 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
     decisions,
     // Carry the attached guide forward across reload/restart (the rebuilt base has none).
     guide: saved.guide ?? base.guide,
+    // Same for the UI target; a `--ui` at restart replaces it after the merge (runDesk).
+    ui: saved.ui ?? base.ui,
     persistFile: saved.persistFile,
   } satisfies ReviewState;
 }

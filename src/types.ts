@@ -220,6 +220,10 @@ export type ReviewState = {
   // Agent-generated guided review (overview + per-file orientation/order/category).
   // Optional: absent → no guide surfaces render.
   guide?: Guide;
+  // The running app under review (`--ui <url>` / `galley ui <url>`): a loopback http:// URL the
+  // desk reverse-proxies into its UI view. Agent-owned like `target` — set by the CLI, carried
+  // across reload/restart by mergeReviewState, never posted back by the tab. Absent → no UI lane.
+  ui?: { target: string };
   persistFile?: string;
 };
 
@@ -250,7 +254,38 @@ export type DeskStatus = {
   // count means "asked/sent, but nothing picked it up yet".
   queuedQuestions: number;
   queuedReviews: number;
+  // The UI proxy serving `ui.target`, once one is running: its port (the tab builds the iframe URL
+  // from its own hostname + this port) and the per-desk-process bridge token the tab and the
+  // injected bridge exchange. Safe here: the desk API answers only its own origin.
+  uiProxy: UiProxyInfo | null;
+  // Bumped by every `galley reload` (POST /api/reload) in this desk process — the tab's signal that
+  // the agent changed something, even when the diff didn't move (UI-only desks, server-only
+  // edits). Process-local: a restarted desk starts again from 0 under a new uiProxy token.
+  reloadGeneration: number;
 };
+
+export type UiProxyInfo = { port: number; token: string };
+
+// postMessage traffic between the bridge (injected into every proxied HTML page) and the desk tab.
+// Each side checks the other's origin and the token before acting (never "*"). The bridge only
+// reports and obeys; the desk does all persistence. Page-sourced fields are re-validated and
+// capped by the desk before use.
+export type BridgeNav = {
+  // path + query of the app page (the address-bar route).
+  route: string;
+  title: string;
+  // Per-frame history state (Navigation API); null where the browser lacks it.
+  canGoBack: boolean | null;
+  canGoForward: boolean | null;
+};
+export type BridgeMessage =
+  // `ready` on every page load (the handshake), `nav` on in-page route/title changes.
+  | ({ type: "ready" | "nav"; token: string } & BridgeNav)
+  // The page is unloading — until the next `ready`, no bridge is listening.
+  | { type: "leave"; token: string };
+export type DeskMessage =
+  | { type: "navigate"; token: string; route: string }
+  | { type: "back" | "forward" | "reload"; token: string };
 
 // One file's old/new contents, fetched on demand by the tab (GET /api/file-contents) so the full
 // contents never ride /api/state — the state itself is lean (issue 04 removed the embedded copies).
@@ -270,7 +305,8 @@ export type FileContentsPayload = {
 // ReviewState (hunks + rawDiff for every file) is far heavier than a heartbeat needs, so it must
 // never ride the poll; the tab fetches /api/state exactly once per baseDiffHash change and diffs
 // guide/comments off this slice in between. DeskStatus is merged into the response alongside these.
-export type PollPayload = Pick<ReviewState, "baseDiffHash" | "guide" | "comments">;
+// `ui` rides along so `galley ui` on a live desk reaches the open tab without a diff change.
+export type PollPayload = Pick<ReviewState, "baseDiffHash" | "guide" | "comments" | "ui">;
 
 // The structured payload printed to stdout (and written to result.json) when
 // the reviewer clicks "Send to agent". This is the handoff contract.

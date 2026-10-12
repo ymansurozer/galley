@@ -3,8 +3,9 @@
 // event ({kind:"question"|"review"}), `galley comment` answers, and a Send produces a
 // ReviewResult. Validates the event-stream contract that SKILL.md documents.
 // Run: pnpm build && pnpm smoke
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -65,6 +66,17 @@ const post = (p, body) =>
     body: JSON.stringify(body),
   });
 
+// A tiny fixture dev server for the UI lane, served by the smoke itself so it stays hermetic: a
+// dev-auth style sign-in that redirects into the app, and one HTML page.
+const fixture = http.createServer((req, res) => {
+  if (req.url.startsWith("/sign-in")) {
+    res.writeHead(302, { location: `http://localhost:${fixture.address().port}/app` });
+    return res.end();
+  }
+  res.writeHead(200, { "content-type": "text/html; charset=utf-8", "x-frame-options": "DENY" });
+  res.end("<!doctype html><html><head><title>Fixture</title></head><body>app</body></html>");
+});
+
 let desk, tmp;
 const cleanup = () => {
   try {
@@ -72,6 +84,7 @@ const cleanup = () => {
   } catch {
     /**/
   }
+  fixture.close();
   try {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   } catch {
@@ -100,7 +113,12 @@ try {
   writeFileSync(path.join(tmp, "huge-approved.txt"), bigLines("edited"));
   writeFileSync(path.join(tmp, "huge-rejected.txt"), bigLines("edited"));
 
-  desk = spawn("node", [CLI, "--repo", tmp, "--session", ID, "--port", "0", "--no-open"], {
+  await new Promise((resolve) => fixture.listen(0, "127.0.0.1", resolve));
+  const FIXTURE = `http://localhost:${fixture.address().port}`;
+  const UI_START = `${FIXTURE}/sign-in?as=smoke`;
+
+  const deskArgs = [CLI, "--repo", tmp, "--session", ID, "--port", "0", "--no-open"];
+  desk = spawn("node", [...deskArgs, "--ui", UI_START], {
     // stderr piped so we can read the bound URL; stdout ignored.
     stdio: ["ignore", "ignore", "pipe"],
     env: ENV,
@@ -125,6 +143,37 @@ try {
   );
   assert.ok(!JSON.stringify(state.files).includes('"contents"'), "state.files has no contents");
   console.log(`✓ desk up — repo mode, ${state.changes.length} change(s), lean state (no contents)`);
+
+  // UI lane (issue 02): the desk started with --ui serves the fixture through its UI proxy, with the
+  // bridge injected into every page, and `galley ui` swaps the target on the live desk.
+  assert.equal(state.ui?.target, UI_START, "the --ui target is on the state");
+  const PROXY = `http://127.0.0.1:${state.uiProxy?.port}`;
+  assert.ok(state.uiProxy?.port && /^[0-9a-f]{32}$/.test(state.uiProxy.token), "proxy + token");
+  const signIn = await fetch(PROXY + "/sign-in?as=smoke", { redirect: "manual" });
+  assert.equal(signIn.status, 302);
+  assert.equal(signIn.headers.get("location"), `${PROXY}/app`, "redirect lands on the proxy");
+  const proxied = await fetch(PROXY + "/app", { headers: { accept: "text/html" } });
+  const html = await proxied.text();
+  assert.match(
+    html,
+    /<head><script src="\/__galley\/bridge\.js" data-galley-desk="http:\/\/127\.0\.0\.1:\d+" data-galley-token="[0-9a-f]{32}"><\/script><title>/,
+    "the proxied HTML carries the bridge tag right after <head>",
+  );
+  assert.equal(proxied.headers.get("x-frame-options"), null, "framing headers replaced");
+  const bridge = await fetch(PROXY + "/__galley/bridge.js");
+  assert.equal(bridge.status, 200);
+  assert.ok((await bridge.text()).includes("postMessage"), "the built bridge bundle is served");
+  const switched = JSON.parse(cli("ui", `${FIXTURE}/app?round=2`, "--repo", tmp, "--session", ID));
+  assert.ok(switched.ok && switched.live, "galley ui reached the live desk");
+  const pollUi = await getJson("/api/poll");
+  assert.equal(pollUi.ui?.target, `${FIXTURE}/app?round=2`, "the tab sees the new target");
+  const remote = spawnSync("node", [CLI, "ui", "http://example.com/", "--repo", tmp], {
+    encoding: "utf8",
+    env: ENV,
+  });
+  assert.equal(remote.status, 1, "a non-loopback UI target exits non-zero");
+  assert.match(remote.stderr, /not a loopback host/);
+  console.log("✓ --ui → proxied app with the bridge injected; galley ui switches it live");
 
   // Oversized-file stamp (issue 05): the two 6000-line rewrites clear the threshold and are
   // stamped `oversized`; the ordinary one-line change to a.txt is not.

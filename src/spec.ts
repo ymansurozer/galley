@@ -17,7 +17,7 @@ attach via CLI subcommands — receive each Send, answer questions, post replies
 and re-diff your edits into the same tab. No model runs in the desk; the review is the human's.
 
 ## Review modes
-Pick one at start. await/comment/status/reload auto-target the lone live desk and omit --session
+Pick one at start. await/comment/status/reload/ui auto-target the lone live desk and omit --session
 below; --session at start (and restart) names the desk — needed only for a stable id or a second desk.
 - repo (default) — \`galley\`: working-tree diff; \`--diff staged\` for the index; \`--path <p>\`
   limits to a path. Untracked (new) files show as full-file additions. Approve stages the file
@@ -112,6 +112,20 @@ new Send). Live questions arrive only via await, so a file-poller sees Sends but
 In pr mode the diff is committed changes: amend the branch/commits to apply the review, leaving
 approved hunks as-is (rather than editing the working tree).
 Then \`galley reload\` to surface your edits, and \`galley await\` for the next round.
+
+## The running app (UI review, optional)
+Start the dev server yourself — Galley never starts, restarts or stops it — then hand over its URL:
+- \`--ui <url>\` on any desk start (\`galley --ui http://localhost:3000\`, \`galley pr <ref> --ui …\`).
+- \`galley ui <url>\` — sets or replaces the UI target on the live desk (prints
+  {ok,live:true,session,target}; the open tab's UI view switches to it, no restart). With no live
+  desk it starts one exactly as \`galley\` would (background it with &) — UI-only when the tree is
+  clean, so no diff is needed.
+<url> must be a loopback http:// URL (localhost, 127.0.0.0/8, ::1; a bare host:port gets http://);
+anything else exits non-zero and starts nothing. Its path+query is the first page loaded: hand over a
+dev sign-in URL (e.g. …/api/dev-auth/sign-in?as=<user>) and the human lands signed in. The desk
+serves the app through its own proxy on a second port, behind a Code / UI switch. The target
+survives reload and restart. After editing app code, \`galley reload\` as usual — the human gets an
+"App updated — refresh" prompt; the app is never reloaded under them.
 
 ## Guided review (optional)
 Attach with \`galley <mode> --guide <file>\`: an overview page + your files in order with per-file

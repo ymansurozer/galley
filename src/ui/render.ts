@@ -294,6 +294,16 @@ async function renderCenter() {
   }
   const f = currentFile();
   const previewing = !!S.preview;
+  // No file at all: the diff emptied (a reload after the agent's edits left a clean tree), or a
+  // UI-only desk, whose centre is the app. Nothing to draw.
+  if (!f) {
+    cursorReset();
+    dropInstance();
+    D.lineMap = null;
+    applyLayoutClasses();
+    host.replaceChildren();
+    return;
+  }
   // An oversized file (server-stamped) paints a verdict-capable summary card instead of its diff —
   // BEFORE the contents fetch below, so opening it never blocks on a multi-MB tokenization pass.
   // "Load diff anyway" clears this (S.loadedOversized) and falls through to the normal render.

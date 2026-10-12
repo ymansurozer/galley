@@ -1074,3 +1074,138 @@ test("stable-port EADDRINUSE falls back to a different port instead of throwing"
     await rm(root, { recursive: true, force: true });
   }
 });
+
+type PollWithUi = {
+  ui?: { target: string };
+  uiProxy: { port: number; token: string } | null;
+  reloadGeneration: number;
+};
+const getPoll = (url: string) =>
+  fetch(`${url}api/poll`).then((r) => r.json() as Promise<PollWithUi>);
+
+test("POST /api/ui sets the UI target, starts the proxy once, and the poll carries both", async () => {
+  await withServer(async (handle, root, st) => {
+    const before = await getPoll(handle.url);
+    assert.equal(before.ui, undefined);
+    assert.equal(before.uiProxy, null, "no proxy until a UI target exists");
+
+    const res = await post(handle.url, "api/ui", { target: "http://localhost:3000/sign-in?as=x" });
+    assert.equal(res.status, 200);
+    assert.deepEqual(st.ui, { target: "http://localhost:3000/sign-in?as=x" });
+    const poll = await getPoll(handle.url);
+    assert.deepEqual(poll.ui, { target: "http://localhost:3000/sign-in?as=x" });
+    assert.ok(poll.uiProxy && poll.uiProxy.port > 0);
+    assert.match(poll.uiProxy.token, /^[0-9a-f]{32}$/);
+    const bridge = await fetch(`http://127.0.0.1:${poll.uiProxy.port}/__galley/bridge.js`);
+    assert.notEqual(bridge.status, 403, "the proxy answers on the advertised port");
+    await bridge.arrayBuffer();
+
+    // Replacing the target keeps the same proxy — the open tab's iframe origin doesn't move.
+    await post(handle.url, "api/ui", { target: "http://127.0.0.1:4000/" });
+    const replaced = await getPoll(handle.url);
+    assert.deepEqual(replaced.ui, { target: "http://127.0.0.1:4000/" });
+    assert.deepEqual(replaced.uiProxy, poll.uiProxy);
+    // Persisted with the review, so a restart keeps it.
+    const saved = JSON.parse(
+      await readFile(path.join(root, ".galley", hash(root), "s", st.persistFile!), "utf8"),
+    ) as ReviewState;
+    assert.deepEqual(saved.ui, { target: "http://127.0.0.1:4000/" });
+  });
+});
+
+test("POST /api/ui refuses a non-loopback or https target with 422", async () => {
+  await withServer(async (handle, _root, st) => {
+    for (const target of ["http://example.com:3000/", "https://localhost:3000/"]) {
+      const res = await post(handle.url, "api/ui", { target });
+      assert.equal(res.status, 422, target);
+      assert.equal(((await res.json()) as { code?: string }).code, "INVALID_UI_TARGET");
+    }
+    assert.equal(st.ui, undefined, "nothing was set");
+    assert.equal((await getPoll(handle.url)).uiProxy, null, "no proxy was started");
+  });
+});
+
+test("a page on the proxy origin cannot call the desk's mutating routes", async () => {
+  await withServer(async (handle) => {
+    await post(handle.url, "api/ui", { target: "http://localhost:3000/" });
+    const { uiProxy } = await getPoll(handle.url);
+    const proxyOrigin = `http://127.0.0.1:${uiProxy!.port}`;
+    for (const route of ["api/reset", "api/ui", "api/shutdown"]) {
+      const res = await rawRequest(`${handle.url}${route}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: proxyOrigin },
+        body: JSON.stringify({ target: "http://localhost:4000/" }),
+      });
+      assert.equal(res.status, 403, route);
+      assert.equal((JSON.parse(res.body) as { code?: string }).code, "FORBIDDEN_ORIGIN");
+    }
+  });
+});
+
+test("a desk started with a UI target serves it at once; proxy traffic never keeps it alive", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-uiidle-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const reasons: string[] = [];
+  const st = { ...state(root), ui: { target: "http://localhost:3000/" } };
+  const handle = await startServer({
+    state: st,
+    open: false,
+    idleTimeoutMs: 150,
+    onShutdown: (reason) => reasons.push(reason),
+  });
+  try {
+    const { uiProxy } = await getPoll(handle.url);
+    assert.ok(uiProxy, "the proxy started with the desk");
+    // Hammer the proxy well past the idle timeout: a desk nobody but the app's own traffic touches
+    // is still abandoned.
+    const until = Date.now() + 500;
+    while (Date.now() < until && !reasons.length) {
+      await fetch(`http://127.0.0.1:${uiProxy.port}/__galley/health`).then((r) => r.arrayBuffer());
+      await sleep(20);
+    }
+    assert.deepEqual(reasons, ["idle"]);
+    // The proxy closes with the desk.
+    await new Promise<void>((resolve) => handle.server.close(() => resolve()));
+    const after = await fetch(`http://127.0.0.1:${uiProxy.port}/__galley/health`).then(
+      () => "answered",
+      () => "refused",
+    );
+    assert.equal(after, "refused");
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("every /api/reload bumps reloadGeneration, even when the diff doesn't move", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-reloadgen-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  // A clean tree: the UI-only desk shape, where the diff never moves on reload.
+  const st = await buildReviewState(root, { session: "s", allowEmpty: true });
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  try {
+    assert.equal((await getPoll(handle.url)).reloadGeneration, 0);
+    const hashBefore = (await getPoll(handle.url)) as unknown as { baseDiffHash: string };
+    await post(handle.url, "api/reload", {});
+    const once = (await getPoll(handle.url)) as PollWithUi & { baseDiffHash: string };
+    assert.equal(once.reloadGeneration, 1);
+    assert.equal(once.baseDiffHash, hashBefore.baseDiffHash, "the diff didn't move");
+    await writeFile(path.join(root, "a.ts"), "two\n");
+    await post(handle.url, "api/reload", {});
+    assert.equal((await getPoll(handle.url)).reloadGeneration, 2);
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -3,6 +3,7 @@ import { hasGuide } from "./guide";
 import { approveCurrentFile } from "./decisions";
 import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
 import { closeComposer } from "./composer";
+import { hasUi, toggleView, uiOnly } from "./appview";
 import {
   cursorMoveLine,
   cursorMoveHunk,
@@ -39,8 +40,11 @@ type Hotkey = {
 const inComposer = () => S.composerOpen;
 const inModal = () => S.settingsOpen || !!S.confirmMsg || S.sendOpen;
 const inOverview = () => !!S.overviewOpen && hasGuide();
-const inDiff = () => !inComposer() && !inModal() && !inOverview();
+// The UI view (the proxied app) takes over the centre: diff and file bindings stand down there.
+const inUiView = () => S.view === "ui";
+const inDiff = () => !inComposer() && !inModal() && !inOverview() && !inUiView();
 const navigable = () => !inComposer() && !inModal();
+const inCode = () => navigable() && !inUiView();
 const isMd = () => inDiff() && !!S.isMarkdownFile?.();
 
 // Key matchers
@@ -137,7 +141,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Next file (review order)",
     group: "Navigate",
     test: shift("ArrowRight"),
-    when: navigable,
+    when: inCode,
     run: () => S.nextFile?.(),
   },
   {
@@ -145,7 +149,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Previous file (review order)",
     group: "Navigate",
     test: shift("ArrowLeft"),
-    when: navigable,
+    when: inCode,
     run: () => S.prevFile?.(),
   },
   {
@@ -153,7 +157,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Next file (tree order)",
     group: "Navigate",
     test: cmdShift("ArrowDown"),
-    when: navigable,
+    when: inCode,
     run: () => S.treeStep?.(1),
   },
   {
@@ -161,7 +165,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Previous file (tree order)",
     group: "Navigate",
     test: cmdShift("ArrowUp"),
-    when: navigable,
+    when: inCode,
     run: () => S.treeStep?.(-1),
   },
   {
@@ -228,7 +232,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Overview",
     group: "Navigate",
     test: k("o"),
-    when: () => hasGuide() && navigable(),
+    when: () => hasGuide() && inCode(),
     run: () => S.openOverview?.(),
   },
   {
@@ -342,15 +346,24 @@ const HOTKEYS: Hotkey[] = [
     combo: "w",
     desc: "Tree / Walkthrough sidebar",
     group: "View",
-    when: () => hasGuide() && navigable(),
+    when: () => hasGuide() && inCode(),
     test: k("w"),
     run: () => (S.sidebarTab = S.sidebarTab === "tree" ? "walkthrough" : "tree"),
+  },
+  {
+    combo: "⇧U",
+    desc: "Code / UI view",
+    group: "View",
+    // Only with both lanes. Keys typed inside the app's iframe never reach the desk.
+    when: () => navigable() && hasUi() && !uiOnly(),
+    test: shift("U"),
+    run: toggleView,
   },
   {
     combo: "⇧B",
     desc: "Files drawer (narrow screens)",
     group: "View",
-    when: navigable,
+    when: inCode,
     test: shift("B"),
     // Toggles the off-canvas file tree at narrow widths; inert on desktop (drawer is media-gated).
     run: () => (S.treeDrawerOpen = !S.treeDrawerOpen),

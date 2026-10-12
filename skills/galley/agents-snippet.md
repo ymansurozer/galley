@@ -12,6 +12,8 @@ When the user should review a plan, a PR, or code changes you've made, hand it t
 - **A markdown plan / single artifact** → `galley file <path> &`.
 - **A branch / PR** → `galley pr <ref> &`.
 
+To have the user review the running app's UI as well, hand over your dev server with `galley ui <url>` (see `galley spec`).
+
 When the review session is over, run `galley stop` (idempotent; review state persists for a later restart).
 
 For a **focused review** (mechanical churn de-emphasized so only the real changes stand out), attach a guide — `galley spec` documents it.
