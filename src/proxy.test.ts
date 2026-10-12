@@ -195,7 +195,11 @@ const bridgeTag = (deskHost = "127.0.0.1") =>
 
 test("proxy injects the bridge tag after <head> of an HTML page, preserving UTF-8", async () => {
   const up = await startUpstream((_req, res) => {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "max-age=3600",
+      etag: '"v1"',
+    });
     res.end(PAGE);
   });
   try {
@@ -203,6 +207,9 @@ test("proxy injects the bridge tag after <head> of an HTML page, preserving UTF-
       const res = await request(port, "/app?x=1");
       assert.equal(res.status, 200);
       assert.equal(res.body, PAGE.replace("<head>", `<head>${bridgeTag()}`));
+      // The page embeds this desk process's token: never let the browser reuse a cached copy.
+      assert.equal(res.headers["cache-control"], "no-store");
+      assert.equal(res.headers.etag, undefined);
       assert.equal(up.hits[0]!.url, "/app?x=1", "path + query forwarded as-is");
       assert.equal(up.hits[0]!.headers.host, `localhost:${up.port}`, "Host rewritten to upstream");
     });
@@ -378,6 +385,33 @@ test("proxy rewrites Origin and Referer to the dev server's own origin", async (
       );
       assert.equal(up.hits[0]!.headers.origin, up.url);
       assert.equal(up.hits[0]!.headers.referer, `${up.url}/app?x=1`);
+    });
+  } finally {
+    up.server.close();
+  }
+});
+
+test("proxy refuses a cross-site mutating request before the dev server's origin check can be fooled", async () => {
+  const up = await startUpstream((_req, res) => res.end("ok"));
+  try {
+    await withProxy(`${up.url}/`, async (port) => {
+      // Rewriting a foreign Origin to the dev server's own would turn a cross-site POST into a
+      // same-origin one in the app's eyes (its CSRF/origin checks). Only the proxied app may mutate.
+      for (const origin of ["http://evil.example", "null", `http://127.0.0.1:${DESK_PORT}`]) {
+        const res = await request(port, "/api/delete", { origin }, "POST");
+        assert.equal(res.status, 403, origin);
+      }
+      assert.equal(up.hits.length, 0, "the upstream was never contacted");
+      // A cross-site GET still passes, with its real Origin, so the app's CORS logic decides.
+      await request(port, "/api/public", { origin: "http://evil.example" });
+      assert.equal(
+        up.hits[0]!.headers.origin,
+        "http://evil.example",
+        "a foreign Origin isn't laundered",
+      );
+      // No Origin at all (a plain navigation, curl) passes as before.
+      const bare = await request(port, "/api/delete", {}, "POST");
+      assert.equal(bare.status, 200);
     });
   } finally {
     up.server.close();

@@ -335,6 +335,10 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
   // request was addressed to, or null when it isn't one of the desk's own authorities.
   const trustedName = (req: http.IncomingMessage) =>
     opts.allowedHosts.find((h) => req.headers.host === `${h}:${port}`) ?? null;
+  // The proxied app's own origin, under any of the desk's names: the only page that may mutate
+  // through the proxy or open a websocket on it.
+  const isOwnOrigin = (origin: string) =>
+    opts.allowedHosts.some((h) => origin === `http://${h}:${port}`);
 
   const upstreamUrl = (): URL | string => {
     const target = opts.target();
@@ -402,6 +406,15 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
       return plain(res, 404, "Not found.");
     }
 
+    // The Origin is rewritten to the dev server's own below, which makes the request look
+    // same-origin to the app's CSRF/origin checks. So a mutating request carrying any Origin but the
+    // proxied app's own (a cross-site page, a sandboxed "null") is refused before the dev server
+    // sees it. Requests with no Origin (navigations, curl) pass.
+    const origin = req.headers.origin;
+    const ownOrigin = origin !== undefined && isOwnOrigin(origin);
+    if (origin !== undefined && !ownOrigin && req.method !== "GET" && req.method !== "HEAD")
+      return plain(res, 403, `Cross-site request from origin "${origin}" is not allowed.`);
+
     const upstream = upstreamUrl();
     if (typeof upstream === "string") return plain(res, 502, `Galley UI proxy: ${upstream}.`);
 
@@ -409,9 +422,10 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
     const headers: http.OutgoingHttpHeaders = {};
     for (const [k, v] of Object.entries(req.headers)) if (!HOP_BY_HOP.has(k)) headers[k] = v;
     // The dev server sees itself addressed directly: dev-auth and origin checks (better-auth) key
-    // on Host/Origin matching its own configured origin.
+    // on Host/Origin matching its own configured origin. A foreign Origin (a cross-site GET) passes
+    // unchanged, so the app's own CORS logic still judges it.
     headers.host = upstream.host;
-    if (headers.origin) headers.origin = upstream.origin;
+    if (ownOrigin) headers.origin = upstream.origin;
     if (typeof headers.referer === "string" && headers.referer.startsWith(proxyOrigin))
       headers.referer = upstream.origin + headers.referer.slice(proxyOrigin.length);
     const encoding = narrowAcceptEncoding(req.headers["accept-encoding"]);
@@ -482,6 +496,9 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
       delete out["content-encoding"];
       delete out["etag"];
       delete out["last-modified"];
+      // The page now embeds this desk process's token: a cached copy (say, from a max-age the dev
+      // server sent) would come back carrying a stale one.
+      out["cache-control"] = "no-store";
       res.writeHead(status, out);
       const tag = `<script src="${BRIDGE_PATH}" data-galley-desk="${escapeHtml(deskOrigin)}" data-galley-token="${escapeHtml(opts.token)}"></script>`;
       if (decoder) pipeline(ur, decoder, injectStream(tag), res, () => {});
@@ -499,14 +516,21 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
     socket.on("error", () => socket.destroy());
     const name = trustedName(req);
     const origin = req.headers.origin;
-    if (!name || (origin && !opts.allowedHosts.some((h) => origin === `http://${h}:${port}`)))
-      return refuse("403 Forbidden");
+    if (!name || (origin !== undefined && !isOwnOrigin(origin))) return refuse("403 Forbidden");
     const upstream = upstreamUrl();
     if (typeof upstream === "string") return refuse("502 Bad Gateway");
     const conn = net.connect(dialPort(upstream), dialHost(upstream));
+    // Tied together before the dial completes: a client that leaves mid-dial takes the upstream
+    // connection with it.
+    upgraded.add(socket);
+    socket.on("close", () => {
+      upgraded.delete(socket);
+      conn.destroy();
+    });
     let connected = false;
     conn.on("error", () => (connected ? socket.destroy() : refuse("502 Bad Gateway")));
     conn.on("connect", () => {
+      if (socket.destroyed) return void conn.destroy();
       connected = true;
       const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
@@ -522,11 +546,6 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
       }
       conn.write(lines.join("\r\n") + "\r\n\r\n");
       if (head.length) conn.write(head);
-      upgraded.add(socket);
-      socket.on("close", () => {
-        upgraded.delete(socket);
-        conn.destroy();
-      });
       conn.on("close", () => socket.destroy());
       socket.pipe(conn).pipe(socket);
     });
