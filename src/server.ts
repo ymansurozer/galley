@@ -11,6 +11,8 @@ import { resolveEditorCommand } from "./editor.js";
 import { blobOid, git, listProjectTree, patchForChange } from "./git.js";
 import { validateGuide } from "./guide.js";
 import { createSerializer } from "./mutex.js";
+import { parseUiTarget, startUiProxy } from "./proxy.js";
+import type { UiProxy } from "./proxy.js";
 import {
   anchorTextFor,
   buildReviewResult,
@@ -52,6 +54,9 @@ export type ServerOptions = {
   // Extra host names (beyond the machine's hostname/bound address) whose authority the origin guard
   // trusts when bound non-loopback — GALLEY_ALLOWED_HOSTS, for exotic names like a MagicDNS FQDN.
   allowedHosts?: string[];
+  // Preferred port for the UI proxy (stableUiPort), started once the state has a UI target.
+  // Default: a random port.
+  uiPort?: number;
   open?: boolean;
   // Test seam: lets server.test.ts assert the resolved editor invocation without
   // actually launching anything.
@@ -212,6 +217,15 @@ async function uiBundlePath() {
   return firstExisting(path.join(__dirname, "ui.js"), path.join(process.cwd(), "dist", "ui.js"));
 }
 
+// The bridge bundle the UI proxy injects into every proxied page (dist/bridge.js); null if unbuilt.
+async function bridgeJs() {
+  const file = await firstExisting(
+    path.join(__dirname, "bridge.js"),
+    path.join(process.cwd(), "dist", "bridge.js"),
+  );
+  return fs.readFile(file, "utf8").catch(() => null);
+}
+
 async function html() {
   const file = await firstExisting(
     path.join(__dirname, "index.html"),
@@ -306,11 +320,38 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       agentActivity = null;
     return agentActivity;
   };
+  // The UI proxy: started lazily once the state has a UI target (at launch, or by POST /api/ui),
+  // then kept for the desk's lifetime — `galley ui` only swaps the target it reads per request.
+  // A separate listener, so its traffic never touches lastActivity/activeRequests: the app's own
+  // polling and live-reload socket must not keep an abandoned desk alive.
+  const uiToken = crypto.randomBytes(16).toString("hex");
+  let uiProxy: UiProxy | null = null;
+  let uiProxyStart: Promise<UiProxy> | null = null;
+  const ensureUiProxy = () =>
+    (uiProxyStart ??= startUiProxy({
+      host,
+      port: options.uiPort ?? 0,
+      allowedHosts: binding.allowedHosts,
+      deskPort: boundPort(),
+      token: uiToken,
+      target: () => state.ui?.target,
+      bridgeJs,
+    }).then(
+      (proxy) => (uiProxy = proxy),
+      (error: unknown) => {
+        uiProxyStart = null; // let a later call retry the bind
+        throw error;
+      },
+    ));
+  let reloadGeneration = 0;
+
   const deskStatus = (): DeskStatus => ({
     agentActivity: liveActivity(),
     agentListening: eventWaiters.length > 0,
     queuedQuestions: eventQueue.filter((e) => e.kind === "question").length,
     queuedReviews: eventQueue.filter((e) => e.kind === "review").length,
+    uiProxy: uiProxy ? { port: uiProxy.port, token: uiToken } : null,
+    reloadGeneration,
   });
 
   // Desk lifecycle: without this, an abandoned desk (tab closed, agent gone) serves
@@ -361,6 +402,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // is unit-tested in mutex.test.ts; the ordering/non-poisoning guarantees live there.)
   const serialize = createSerializer();
 
+  // server.address() is populated once listening — always true by the time requests arrive.
+  const boundPort = () => {
+    const bound = server.address();
+    return typeof bound === "object" && bound ? bound.port : 0;
+  };
+
   const server = http.createServer(async (req, res) => {
     lastActivity = Date.now();
     activeRequests++;
@@ -370,10 +417,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     });
     try {
       // Guard every route (current and future) before dispatch: the desk answers only its own
-      // loopback origin. server.address() is populated by the time requests arrive.
-      const bound = server.address();
-      const boundPort = typeof bound === "object" && bound ? bound.port : 0;
-      if (!originAllowed(req, res, boundPort, binding.allowedHosts)) return;
+      // loopback origin.
+      if (!originAllowed(req, res, boundPort(), binding.allowedHosts)) return;
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       if (req.method === "GET" && url.pathname === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -412,6 +457,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           baseDiffHash: state.baseDiffHash,
           guide: state.guide,
           comments: state.comments,
+          ui: state.ui,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
       }
@@ -692,6 +738,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             state.rawDiff = "";
             state.baseDiffHash = hash("");
             await persistReview(state);
+            reloadGeneration++;
             return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });
           }
           // Guide-declared moves (movedFrom) must merge into `base` BEFORE reconciliation, so a
@@ -742,7 +789,29 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           Object.assign(state, merged);
           await syncGitState(state);
           await persistReview(state);
+          reloadGeneration++;
           return json(res, 200, { ok: true, empty: false, baseDiffHash: state.baseDiffHash });
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/api/ui") {
+        // `galley ui <url>` on a live desk: set or replace the UI target. The open tab picks it up
+        // from the poll and reloads its UI view; the proxy starts on first use and then just reads
+        // the new target per request.
+        return await serialize(async () => {
+          const body = JSON.parse(await readBody(req)) as { target?: unknown };
+          const parsed = parseUiTarget(typeof body.target === "string" ? body.target : "");
+          if (!parsed.ok)
+            return fail(
+              res,
+              422,
+              "INVALID_UI_TARGET",
+              `Invalid UI target: ${parsed.reason}.`,
+              "Pass the running dev server's loopback http:// URL, e.g. http://localhost:3000.",
+            );
+          state.ui = { target: parsed.url };
+          await persistReview(state);
+          const proxy = await ensureUiProxy();
+          return json(res, 200, { ok: true, target: parsed.url, proxyPort: proxy.port });
         });
       }
       if (req.method === "POST" && url.pathname === "/api/comment") {
@@ -942,9 +1011,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   });
   server.on("close", () => {
     if (idleTimer) clearInterval(idleTimer);
+    uiProxy?.close();
   });
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : 0;
+  if (state.ui) await ensureUiProxy();
+  const port = boundPort();
   const url = `http://${binding.browserHost}:${port}/`;
   const lockUrl = `http://${binding.lockHost}:${port}/`;
   if (options.open !== false) await openUrl(url);
