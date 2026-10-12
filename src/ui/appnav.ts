@@ -1,4 +1,4 @@
-import type { BridgeMessage } from "./types";
+import type { BridgeMessage, BridgeShot } from "./types";
 
 // Pure helpers for the UI view's traffic with the bridge (kept free of the store so they unit-test
 // without a DOM). The app page is untrusted: what it posts is re-validated and capped here before
@@ -48,6 +48,36 @@ function readCaptured(d: Record<string, unknown>, token: string): BridgeMessage 
   if (!isPng(viewport) || (crop !== null && !isPng(crop))) return null;
   if (typeof ms !== "number" || !Number.isFinite(ms)) return null;
   return { type: "captured", token, id, shot: { viewport, crop, ms } };
+}
+
+// Captures awaiting the bridge's reply, by request id. Each settles once: with its reply (a shot or
+// an error), with `abandon` when the page leaves and no reply can come, or on its own after
+// `timeoutMs`. A reply for an id that already settled is ignored.
+export function captureWaits(timeoutMs: number) {
+  const pending = new Map<number, (reply: BridgeShot | Error) => void>();
+  return {
+    wait(id: number) {
+      return new Promise<BridgeShot>((resolve, reject) => {
+        const settle = (reply: BridgeShot | Error) => {
+          clearTimeout(timer);
+          pending.delete(id);
+          if (reply instanceof Error) reject(reply);
+          else resolve(reply);
+        };
+        const timer = setTimeout(
+          () => settle(new Error("The app page didn't answer the capture")),
+          timeoutMs,
+        );
+        pending.set(id, settle);
+      });
+    },
+    settle(id: number, reply: BridgeShot | Error) {
+      pending.get(id)?.(reply);
+    },
+    abandon(reason: string) {
+      for (const settle of [...pending.values()]) settle(new Error(reason));
+    },
+  };
 }
 
 // The address bar's input as a route on the app: a path as typed (a leading "/" added), or a full
