@@ -1,7 +1,7 @@
 import { S, $, toast } from "./store";
 import { render } from "./render";
 import { readBridgeMessage, routeFromInput } from "./appnav";
-import type { DeskMessage, ReviewState, UiProxyInfo, Viewport } from "./types";
+import type { BridgeShot, DeskMessage, Rect, ReviewState, UiProxyInfo, Viewport } from "./types";
 
 // The UI lane: the agent's running app, served by the desk's UI proxy (a second port, so a
 // different origin from the desk) and shown in an iframe in the centre pane. The iframe is
@@ -108,6 +108,34 @@ export function appGo(input: string) {
   S.app.route = route;
 }
 
+// Captures awaiting the bridge's reply, by request id. A page that unloads mid-capture never
+// answers, so each request also times out.
+const captures = new Map<number, (reply: BridgeShot | Error) => void>();
+let captureSeq = 0;
+const CAPTURE_TIMEOUT = 30_000;
+
+// Screenshot the app page as the reviewer sees it: the viewport, plus a crop around `selector`'s
+// element (or `rect`) when one is given. The bridge renders both in the page.
+export function captureApp(target: { selector?: string; rect?: Rect } = {}): Promise<BridgeShot> {
+  if (!S.uiProxy || !S.app.connected)
+    return Promise.reject(new Error("No bridge is listening on the app page"));
+  const id = ++captureSeq;
+  const msg: DeskMessage = { type: "capture", token: S.uiProxy.token, id, ...target };
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      captures.delete(id);
+      reject(new Error("The app page didn't answer the capture"));
+    }, CAPTURE_TIMEOUT);
+    captures.set(id, (reply) => {
+      clearTimeout(timer);
+      captures.delete(id);
+      if (reply instanceof Error) reject(reply);
+      else resolve(reply);
+    });
+    post(msg);
+  });
+}
+
 export function setViewport(viewport: Viewport) {
   S.viewport = viewport;
   sizeFrame();
@@ -195,6 +223,10 @@ export function installAppView() {
       return;
     }
     if (e.source !== frame.contentWindow) return;
+    if (msg.type === "captured") {
+      captures.get(msg.id)?.("shot" in msg ? msg.shot : new Error(msg.error));
+      return;
+    }
     Object.assign(S.app, {
       connected: true,
       route: msg.route,

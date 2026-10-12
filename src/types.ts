@@ -278,14 +278,24 @@ export type BridgeNav = {
   canGoBack: boolean | null;
   canGoForward: boolean | null;
 };
+// A box in the app page's viewport, in CSS pixels (getBoundingClientRect's frame).
+export type Rect = { x: number; y: number; width: number; height: number };
+// The page as the reviewer sees it, re-rendered from the live DOM by the bridge: PNGs at the page's
+// devicePixelRatio. `crop` frames the requested target plus context padding, and is null when no
+// target was asked for or it lies off-screen. `ms` is the in-page cost of rendering and encoding.
+export type BridgeShot = { viewport: Blob; crop: Blob | null; ms: number };
 export type BridgeMessage =
   // `ready` on every page load (the handshake), `nav` on in-page route/title changes.
   | ({ type: "ready" | "nav"; token: string } & BridgeNav)
   // The page is unloading — until the next `ready`, no bridge is listening.
-  | { type: "leave"; token: string };
+  | { type: "leave"; token: string }
+  // The answer to the desk's `capture` with the same id.
+  | ({ type: "captured"; token: string; id: number } & ({ shot: BridgeShot } | { error: string }));
 export type DeskMessage =
   | { type: "navigate"; token: string; route: string }
-  | { type: "back" | "forward" | "reload"; token: string };
+  | { type: "back" | "forward" | "reload"; token: string }
+  // Screenshot the page. The crop target is the element `selector` matches, else `rect`.
+  | { type: "capture"; token: string; id: number; selector?: string; rect?: Rect };
 
 // One file's old/new contents, fetched on demand by the tab (GET /api/file-contents) so the full
 // contents never ride /api/state — the state itself is lean (issue 04 removed the embedded copies).
