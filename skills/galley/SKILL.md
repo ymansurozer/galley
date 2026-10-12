@@ -28,6 +28,8 @@ Three ways to start a review desk (each runs in the background and stays alive a
 - **A markdown plan / single artifact** → `galley file <path> &`.
 - **A branch / PR** → `galley pr <ref> &`.
 
+To have the human review the running app's UI as well, hand over your dev server with `galley ui <url>` (see `galley spec`).
+
 When the review session is over (the human is done, the task is complete), run `galley stop` — it's idempotent and all review state persists for a later restart. An abandoned desk also auto-exits after ~2h with no tab and no agent attached.
 
 ## The authoritative contract: `galley spec`
