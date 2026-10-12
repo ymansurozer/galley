@@ -63,12 +63,14 @@ import { capturePage } from "./capture";
   });
   addEventListener("pagehide", () => post({ type: "leave", token }));
 
-  // The crop's box: the selector's element as laid out now, else the rect the desk sent. A selector
-  // that matches nothing (or doesn't parse) gives no crop rather than failing the capture.
-  const captureTarget = (msg: Partial<Extract<DeskMessage, { type: "capture" }>>): Rect | null => {
+  // The crop's target: the selector's element, else the rect the desk sent. A selector that matches
+  // nothing (or doesn't parse) gives no crop rather than failing the capture.
+  const captureTarget = (
+    msg: Partial<Extract<DeskMessage, { type: "capture" }>>,
+  ): Element | Rect | null => {
     if (typeof msg.selector === "string") {
       try {
-        return document.querySelector(msg.selector)?.getBoundingClientRect() ?? null;
+        return document.querySelector(msg.selector);
       } catch {
         return null;
       }

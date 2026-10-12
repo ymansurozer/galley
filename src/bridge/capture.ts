@@ -1,6 +1,6 @@
 import { domToCanvas } from "modern-screenshot";
 import type { BridgeShot, Rect } from "../types";
-import { cropFrame } from "./crop";
+import { atRenderScroll, cropFrame } from "./crop";
 
 // Marks the bridge's own overlay host (outline, markers, labels). A capture never includes it: an
 // annotation's mark is drawn onto the image, not rendered from the page.
@@ -13,13 +13,17 @@ const ASSET_TIMEOUT = 10_000;
 // styles, input values and embedded fonts/images into an SVG and draws that), not by reading the
 // screen's pixels: tab capture needs a secure origin, which the devbox desk isn't. One render makes
 // the viewport image, and the crop is cut from it so both show the same instant.
-export async function capturePage(target: Rect | null): Promise<BridgeShot> {
+export async function capturePage(target: Element | Rect | null): Promise<BridgeShot> {
   const start = performance.now();
   const dpr = window.devicePixelRatio || 1;
   const root = document.documentElement;
   // The layout viewport (scrollbars excluded), the frame element rects are measured in.
   const view = { width: root.clientWidth, height: root.clientHeight };
   const scroll = { x: scrollX, y: scrollY };
+  // The crop's box. A target element is measured again when the renderer reaches it, the moment
+  // its clone samples it, so one that moves during a long render is cut where the image shows it.
+  // Measuring after the render would be later than what the image shows.
+  let box = target instanceof Element ? target.getBoundingClientRect() : target;
   const fields = formFields();
   const canvas = await domToCanvas(root, {
     ...view,
@@ -27,6 +31,8 @@ export async function capturePage(target: Rect | null): Promise<BridgeShot> {
     timeout: ASSET_TIMEOUT,
     filter: (node) => {
       if (node instanceof Element && node.hasAttribute(OVERLAY_ATTR)) return false;
+      if (target instanceof Element && node === target)
+        box = atRenderScroll(target.getBoundingClientRect(), { x: scrollX, y: scrollY }, scroll);
       fields.seen(node);
       return true;
     },
@@ -41,7 +47,7 @@ export async function capturePage(target: Rect | null): Promise<BridgeShot> {
       fields.finish(clone);
     },
   });
-  const frame = target && cropFrame(target, view, dpr);
+  const frame = box && cropFrame(box, view, dpr);
   const [viewport, crop] = await Promise.all([
     toPng(canvas),
     frame ? toPng(cut(canvas, frame)) : null,
@@ -70,7 +76,7 @@ const isField = (node: unknown): node is Field =>
   node instanceof HTMLSelectElement;
 
 // Form state the clone loses. modern-screenshot copies an input's value, but not a textarea's (its
-// typed text isn't its content), a checkbox's checked state, a select's chosen option, or the
+// typed text isn't its content), a checkbox's checked state, a select's chosen options, or the
 // page's ::placeholder style, so an empty field would show its placeholder in the browser's default
 // colour, which reads like typed text. The library has no hook that sees a node and its clone
 // together, but it calls `filter` on each node just before cloning it and `onCloneEachNode` on the
@@ -92,7 +98,7 @@ function formFields() {
         clone.toggleAttribute("checked", live.checked);
       if (live instanceof HTMLSelectElement && clone instanceof HTMLSelectElement)
         for (const [i, option] of [...clone.options].entries())
-          option.toggleAttribute("selected", i === live.selectedIndex);
+          option.toggleAttribute("selected", live.options[i]?.selected ?? false);
       if (!(live instanceof HTMLSelectElement) && live.placeholder && !live.value) {
         const ph = getComputedStyle(live, "::placeholder");
         const cls = `galley-ph-${rules.length}`;

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { cropFrame } from "./crop";
+import { atRenderScroll, cropFrame } from "./crop";
 
 const VIEW = { width: 1440, height: 900 };
 
@@ -77,4 +77,17 @@ test("cropFrame frames only the on-screen part of a partly visible box", () => {
     width: 132,
     height: 82,
   });
+});
+
+test("atRenderScroll moves a rect measured at one window scroll into a render taken at another", () => {
+  // Measured with the window at y = 600: the element sits at document y = 700. The render offset
+  // the document by 560, so the element is at 700 − 560 = 140 in the image.
+  assert.deepEqual(
+    atRenderScroll({ x: 10, y: 100, width: 50, height: 20 }, { x: 0, y: 600 }, { x: 0, y: 560 }),
+    { x: 10, y: 140, width: 50, height: 20 },
+  );
+  assert.deepEqual(
+    atRenderScroll({ x: 10, y: 100, width: 50, height: 20 }, { x: 30, y: 0 }, { x: 0, y: 0 }),
+    { x: 40, y: 100, width: 50, height: 20 },
+  );
 });
