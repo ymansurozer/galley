@@ -104,7 +104,9 @@ import { capturePage } from "./capture";
       const id = msg.id;
       const number = msg.mark?.number;
       const mark =
-        typeof number === "number" && Number.isSafeInteger(number) ? { number } : undefined;
+        typeof number === "number" && Number.isSafeInteger(number)
+          ? { number, question: msg.mark?.question === true }
+          : undefined;
       capturePage(captureTarget(msg), mark).then(
         (shot) => post({ type: "captured", token, id, shot }),
         (err: unknown) =>

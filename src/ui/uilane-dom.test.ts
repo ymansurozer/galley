@@ -107,6 +107,11 @@ test("a row shows the body's first line as text", () => {
   assert.equal(row.querySelector("img"), null);
   assert.equal(row.querySelector(".ann-body")!.textContent, "<img src=x onerror=alert(1)>");
   assert.equal(row.className, "ann-row k-change sel");
+  assert.equal(
+    rowLine(d, { ...a, intent: "question" }, false).className,
+    "ann-row k-question",
+    "a question's numeral is tinted as one",
+  );
 });
 
 test("a row's screenshot reads capturing…, then opens the stored pair, or says the capture failed", () => {

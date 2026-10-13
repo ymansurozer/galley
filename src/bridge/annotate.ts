@@ -39,6 +39,8 @@ const STYLE = `
   .annotate .pin { pointer-events: auto; cursor: pointer }
   .annotate .pin:hover { transform: translate(-50%, -50%) scale(1.12) }
   .pin.sel { transform: translate(-50%, -50%) scale(1.2); box-shadow: 0 0 0 2px #fff, 0 0 0 5px rgba(0, 168, 255, .45), 0 2px 8px rgba(0, 0, 0, .35) }
+  .pin.q { background: #00a8ff }
+  .outline.q { border-color: #00a8ff }
   .pin.resolved { background: #e5e5e5; color: #737373 }
 `;
 
@@ -211,10 +213,11 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
       const r = el?.getBoundingClientRect();
       if (!r || !inView(r)) continue;
       const sel = m.id === selected;
-      if (sel) html += box(r, "outline");
+      const q = m.question ? " q" : "";
+      if (sel) html += box(r, `outline${q}`);
       const x = Math.max(11, Math.min(innerWidth - 11, r.left));
       const y = Math.max(11, r.top);
-      html += `<div class="pin${sel ? " sel" : ""}${m.resolved ? " resolved" : ""}" data-id="${escapeHtml(m.id)}" title="#${m.number}" style="left:${x}px;top:${y}px">${m.number}</div>`;
+      html += `<div class="pin${q}${sel ? " sel" : ""}${m.resolved ? " resolved" : ""}" data-id="${escapeHtml(m.id)}" title="#${m.number}" style="left:${x}px;top:${y}px">${m.number}</div>`;
     }
     if (overlay.marks.innerHTML !== html) overlay.marks.innerHTML = html;
     const pr = picked?.isConnected ? picked.getBoundingClientRect() : null;

@@ -34,6 +34,41 @@ export function pageName(title: string | undefined, route: string): string {
 export const openChangeCount = (list: readonly UiAnnotationRecord[]) =>
   list.filter((a) => a.status === "open" && a.intent === "change").length;
 
+// An open annotation waits on the agent while a question of the reviewer's in its thread has no
+// agent reply after it (the code lane's "answered" rule, annotations.ts).
+export const isWaiting = (a: UiAnnotationRecord) =>
+  a.status === "open" &&
+  a.comments.some(
+    (m) =>
+      m.role !== "agent" &&
+      m.intent === "question" &&
+      !a.comments.some(
+        (r) => r.role === "agent" && +new Date(r.createdAt) > +new Date(m.createdAt),
+      ),
+  );
+
+export const waitingCount = (list: readonly UiAnnotationRecord[]) => list.filter(isWaiting).length;
+
+// The agent's replies from the poll (`galley comment --ui`) that the tab's threads lack, added to
+// them. Only agent messages: the tab owns everything else, and a message or annotation it dropped
+// isn't brought back. Returns how many it added.
+export function mergeAgentReplies(
+  local: readonly UiAnnotationRecord[],
+  server: readonly UiAnnotationRecord[],
+): number {
+  let added = 0;
+  for (const a of local) {
+    const have = new Set(a.comments.map((m) => m.id));
+    const replies =
+      server
+        .find((s) => s.id === a.id)
+        ?.comments.filter((m) => m.role === "agent" && !have.has(m.id)) ?? [];
+    a.comments.push(...replies);
+    added += replies.length;
+  }
+  return added;
+}
+
 // Numbers are global and never reused: past every annotation here and the highest number ever
 // given (`last`), so deleting the newest #3 doesn't free 3 for a different annotation.
 export const nextNumber = (list: readonly UiAnnotationRecord[], last: number) =>
@@ -49,9 +84,21 @@ export function firstLine(body: string): string {
     .trim();
 }
 
-// The row's tooltip carries the state the row itself doesn't draw.
+// The row's tooltip carries the state the row itself doesn't draw: resolved, else waiting on the
+// agent, else whether the agent had the last word.
 export function rowTitle(a: UiAnnotationRecord): string {
-  return [`#${a.number}`, "Change request", a.status === "resolved" ? "Resolved" : ""]
+  const question = a.intent === "question";
+  const state =
+    a.status === "resolved"
+      ? "Resolved"
+      : isWaiting(a)
+        ? "Waiting"
+        : a.comments.at(-1)?.role === "agent"
+          ? question
+            ? "Answered"
+            : "Agent replied"
+          : "";
+  return [`#${a.number}`, question ? "Question" : "Change request", state]
     .filter(Boolean)
     .join(" · ");
 }
@@ -122,6 +169,7 @@ export function marksFor(
       // An element target has at least one element: the tab and the server both refuse one without.
       selector: a.target.elements[0]!.selector,
       resolved: a.status === "resolved",
+      question: a.intent === "question",
     }));
 }
 

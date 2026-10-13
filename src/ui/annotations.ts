@@ -188,8 +188,6 @@ function relTime(iso?: string): string {
 export type ThreadControls = {
   // Its reply composer is open.
   replying: boolean;
-  // The reply composer offers Ask beside Request change.
-  ask: boolean;
   reply: () => void;
   setStatus: (status: "open" | "resolved") => void;
   edit: (messageId: string) => void;
@@ -200,7 +198,6 @@ export type ThreadControls = {
 export function lineThread(c: ThreadMeta): ThreadControls {
   return {
     replying: composerTargets(c.side, c.lineNumber),
-    ask: true,
     reply: () => {
       // S.selected is display space; the thread's anchor is raw.
       S.selected = { side: c.side, lineNumber: toDisplayLine(c.side, c.lineNumber) };
@@ -277,7 +274,7 @@ export function buildCommentThread(
   }
   // Mount the reply composer above the action bar.
   if (replyOpen && c.status !== "resolved")
-    box.querySelector(".thread-actions")?.before(buildComposer({ ask: controls.ask }));
+    box.querySelector(".thread-actions")?.before(buildComposer());
   const reply = box.querySelector(".reply-thread") as HTMLButtonElement | null;
   if (reply) reply.onclick = controls.reply;
   box

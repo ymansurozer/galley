@@ -310,8 +310,15 @@ export type ForwardedKey = { key: string; code: string; shiftKey: boolean; altKe
 // Interact: the app gets every click and key. Annotate: the bridge takes the pointer, and a click
 // picks the element under it.
 export type AppMode = "interact" | "annotate";
-// A numbered pin the bridge draws on the current page, at the element `selector` matches.
-export type UiMark = { id: string; number: number; selector: string; resolved: boolean };
+// A numbered pin the bridge draws on the current page, at the element `selector` matches: amber for
+// a change request, cyan for a question.
+export type UiMark = {
+  id: string;
+  number: number;
+  selector: string;
+  resolved: boolean;
+  question: boolean;
+};
 export type BridgeMessage =
   // `ready` on every page load (the handshake), `nav` on in-page route/title changes.
   | ({ type: "ready" | "nav"; token: string } & BridgeNav)
@@ -330,14 +337,15 @@ export type DeskMessage =
   | { type: "navigate"; token: string; route: string }
   | { type: "back" | "forward" | "reload"; token: string }
   // Screenshot the page. The crop target is the element `selector` matches, else `rect`. With
-  // `mark`, an annotation's pin (its number) and a box around the target are drawn onto both images.
+  // `mark`, an annotation's pin (its number) and a box around the target are drawn onto both images,
+  // in its kind's colour.
   | {
       type: "capture";
       token: string;
       id: number;
       selector?: string;
       rect?: Rect;
-      mark?: { number: number };
+      mark?: { number: number; question: boolean };
     }
   | { type: "mode"; token: string; mode: AppMode }
   // The pins for the current page, the selected annotation (outlined, scrolled into view), and

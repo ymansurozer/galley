@@ -3319,6 +3319,14 @@
       border-color: var(--line)
     }
 
+    /* The rail's count of questions waiting on the agent: cyan like a question, shown only when
+       there are some. */
+    .lane-count.waiting {
+      color: var(--cyan);
+      background: var(--cyan-bg);
+      border-color: var(--cyan-line-strong)
+    }
+
     /* Interact / Annotate: Annotate lights up cyan so the mode reads at a glance. */
     .chrome .mode {
       flex: 0 0 auto;
@@ -3440,6 +3448,7 @@
     .annside {
       --ann-ax: 40px;
       --ann-change: color-mix(in oklab, var(--amber) 85%, var(--panel));
+      --ann-question: color-mix(in oklab, var(--cyan) 85%, var(--panel));
       --ann-faint: color-mix(in oklab, var(--muted) 85%, var(--panel));
       min-width: 0;
       min-height: 0;
@@ -3482,6 +3491,10 @@
       font-size: var(--text-xs);
       white-space: nowrap;
       font-variant-numeric: tabular-nums
+    }
+
+    .ann-top .cnt .waiting {
+      color: var(--ann-question)
     }
 
     .ann-top .grow {
@@ -3656,6 +3669,10 @@
 
     .ann-row.k-change .ann-num {
       color: var(--ann-change)
+    }
+
+    .ann-row.k-question .ann-num {
+      color: var(--ann-question)
     }
 
     .ann-body {
@@ -4256,11 +4273,15 @@
         </div>
       </section>
       <!-- The annotation sidebar (UI view): page groups of one-line rows; a row expands in place to its
-           thread. #annotationList is drawn by uilane.ts. Collapsed, it's a rail with the open count;
-           below 1100px the rail stays and the list opens as a drawer over the app. -->
+           thread. #annotationList is drawn by uilane.ts. Collapsed, it's a rail with the open count
+           and the waiting count; below 1100px the rail stays and the list opens as a drawer over the
+           app. -->
       <aside class="annside" x-cloak x-show="$store.g.view==='ui'">
         <div class="ann-panel">
-          <div class="ann-top"><span class="ttl">Annotations</span><span class="cnt" x-text="$store.g.openChanges() + ' open'"></span><span
+          <div class="ann-top"><span class="ttl">Annotations</span><span class="cnt"><span
+                x-text="$store.g.openChanges() + ' open'"></span><span x-show="$store.g.waitingQuestions()"> · <span
+                  class="waiting" title="Questions waiting for the agent"
+                  x-text="$store.g.waitingQuestions() + ' waiting'"></span></span></span><span
               class="grow"></span><button class="sq" data-tip="Collapse (⇧L)" data-tip-align="end" aria-label="Collapse annotations"
               @click="$store.g.toggleAnnotations()"><svg class="ic"><use href="#gly-panel-close"></use></svg></button></div>
           <div class="ann-list" id="annotationList" x-ignore></div>
@@ -4268,7 +4289,8 @@
         <button class="ann-rail" aria-label="Show annotations (⇧L)" data-tip="Annotations (⇧L)" data-tip-align="end"
           @click="$store.g.toggleAnnotations()"><svg class="ic"><use href="#gly-panel-open"></use></svg><span class="lane-count"
             :class="{zero: !$store.g.openChanges()}" title="Open change requests" x-text="$store.g.openChanges()"></span><span
-            class="vt">Annotations</span></button>
+            class="lane-count waiting" x-show="$store.g.waitingQuestions()" title="Questions waiting for the agent"
+            x-text="$store.g.waitingQuestions()"></span><span class="vt">Annotations</span></button>
       </aside>
       <div class="annside-backdrop" x-show="$store.g.view==='ui' && $store.g.annotationsOpen" @click="$store.g.toggleAnnotations()"></div>
       <!-- The floating composer on an element picked in Annotate mode (uilane.ts): beside its target,

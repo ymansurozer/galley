@@ -380,6 +380,7 @@ export interface Store {
   setAppMode?: (mode: AppMode) => void;
   toggleAnnotations?: () => void;
   openChanges?: () => number;
+  waitingQuestions?: () => number;
   closeShot?: () => void;
   shotSrc?: () => string;
   shotTitle?: () => string;
