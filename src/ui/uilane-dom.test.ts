@@ -32,11 +32,34 @@ test("esc escapes both quotes, so string-built attributes can't be broken out of
 
 test("a page head with a hostile route and title renders them as text", () => {
   const d = doc();
-  const head = pageHead(d, { route: `/x?${HOSTILE}`, title: HOSTILE, open: [], resolved: [] });
+  const head = pageHead(d, {
+    route: `/x?${HOSTILE}`,
+    title: HOSTILE,
+    open: [],
+    resolved: [],
+    unchecked: false,
+  });
   assert.deepEqual(attributeNames(head).sort(), ["class", "class", "class", "data-route", "title"]);
   assert.equal(head.dataset.route, `/x?${HOSTILE}`);
   assert.equal(head.title, `${HOSTILE}\n/x?${HOSTILE}`);
   assert.ok(head.textContent!.includes(`x" onmouseover=`), "the name shows the text as typed");
+});
+
+test("a page head says once that its page isn't checked, between its name and its count", () => {
+  const group = { route: "/files", title: "Files", open: [], resolved: [] };
+  const head = pageHead(doc(), { ...group, unchecked: true });
+  assert.deepEqual(
+    [...head.children].map((c) => [c.className, c.textContent]),
+    [
+      ["ann-page-name", "Files"],
+      ["ann-unchecked", "not checked"],
+      ["ann-count", ""],
+    ],
+  );
+  assert.equal(
+    pageHead(doc(), { ...group, unchecked: false }).querySelector(".ann-unchecked"),
+    null,
+  );
 });
 
 test("the composer head shows a hostile selector and name as text", () => {

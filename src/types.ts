@@ -319,15 +319,32 @@ export type UiMark = {
   resolved: boolean;
   question: boolean;
 };
-// Where a mark goes on the page, found again from what the annotation recorded: on the elements
-// `selectors` match (the pin on the first, all outlined while selected); a dashed box, kept where it
-// sat relative to its `anchor` element as that element moves (where it was drawn, without one); or
-// `quote` highlighted inside the element `selector` matches. A page annotation has no mark on the
-// page: the desk shows its pin in the address bar.
+// An element as the bridge finds it again: where its source said it was rendered, the selector it
+// was captured with, what it showed (tag, text, else accessible name, and its classes) to check a
+// match against, and its box then. Taken from the annotation's UiElement.
+export type UiMarkElement = {
+  selector: string;
+  tag: string;
+  text?: string;
+  name?: string;
+  classes?: string[];
+  source?: UiSource;
+  rect: Rect;
+};
+// Where a mark goes on the page, found again from what the annotation recorded: on its elements
+// (the pin on the first, all outlined while selected); a dashed box, kept where it sat relative to
+// the first of its elements still on the page as that element moves (where it was drawn, without
+// one); or `quote` highlighted inside its element. A page annotation has no mark on the page: the
+// desk shows its pin in the address bar.
 export type UiMarkTarget =
-  | { kind: "element"; selectors: string[] }
-  | { kind: "region"; rect: Rect; anchor?: { selector: string; rect: Rect } }
-  | { kind: "text"; selector: string; quote: string };
+  | { kind: "element"; elements: UiMarkElement[] }
+  | { kind: "region"; rect: Rect; elements: UiMarkElement[] }
+  | { kind: "text"; quote: string; element: UiMarkElement };
+// Whether an annotation's target was found on its page the last time that page loaded: `placed`
+// (its mark is drawn there), `unplaced` (not found once the page settled, so no mark), or
+// `unvisited` (its page hasn't loaded since the last `galley reload` or desk restart). An
+// annotation is placed when it's made.
+export type UiPlacement = "placed" | "unplaced" | "unvisited";
 // What the bridge can pick on the page. A page target is the desk's own: it needs nothing from the
 // page but its route.
 export type PickedTarget = Exclude<UiTarget, { kind: "page" }>;
@@ -347,6 +364,13 @@ export type BridgeMessage =
   | { type: "anchor"; token: string; rect: Rect }
   // The reviewer clicked an annotation's pin.
   | { type: "select"; token: string; id: string }
+  // Where the page's marks were found once it settled after a load or route change, and later
+  // whenever one is found or lost again: only the marks whose placement changed.
+  | {
+      type: "placements";
+      token: string;
+      placements: Array<{ id: string; placement: Exclude<UiPlacement, "unvisited"> }>;
+    }
   | ({ type: "key"; token: string } & ForwardedKey);
 export type DeskMessage =
   | { type: "navigate"; token: string; route: string }
@@ -364,8 +388,10 @@ export type DeskMessage =
   | { type: "mode"; token: string; mode: AppMode }
   // Drop the ⇧-clicked elements waiting for ⇧'s release (the Esc cascade's level for them).
   | { type: "clearPicks"; token: string }
-  // The pins for the current page, the selected annotation (outlined, scrolled into view), and
-  // whether the composer is open on the last pick (its highlight stays until the composer closes).
+  // The pins for the current page, the selected annotation (outlined, scrolled into view once
+  // found), and whether the composer is open on the last pick (its highlight stays until the
+  // composer closes). The bridge looks for each new pin's target once the page settles, and reports
+  // where it found them (`placements`).
   | { type: "marks"; token: string; marks: UiMark[]; selected: string | null; picking: boolean };
 
 // ── UI annotations ──────────────────────────────────────────────────────────────────────────────
@@ -458,8 +484,8 @@ export type UiAnnotationRecord = {
   // change it, but a question whose thread has a Request change reply is sent in uiAnnotations too.
   intent: "change" | "question";
   status: "open" | "resolved";
-  // Whether the target was found on the page. An annotation is placed when it's made.
-  placement: "placed";
+  // Whether its target was found on its page the last time that page loaded, as the bridge reported.
+  placement: UiPlacement;
   page: UiPage;
   target: UiTarget;
   comments: ThreadMessage[];

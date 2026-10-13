@@ -31,6 +31,9 @@ const CAPS: UiCaps = {
   elements: 16,
 };
 const ERROR_CAP = 300;
+// Far past the annotations one page carries: a page posting more is posting junk.
+const PLACEMENTS_CAP = 1000;
+type Placements = Extract<BridgeMessage, { type: "placements" }>["placements"];
 // Far past any real viewport render (3840 × 2160 device px is ~33 MB of raw RGBA, and PNG packs UI
 // screens well below that), so only a page posting junk hits it.
 const SHOT_CAP = 32 * 1024 * 1024;
@@ -64,6 +67,20 @@ export function readBridgeMessage(data: unknown, token: string): BridgeMessage |
     return typeof d.id === "string" && d.id.length <= 64
       ? { type: "select", token, id: d.id }
       : null;
+  if (d.type === "placements") {
+    if (!Array.isArray(d.placements)) return null;
+    const placements: Placements = d.placements
+      .slice(0, PLACEMENTS_CAP)
+      .filter(isObj)
+      .flatMap(({ id, placement }) =>
+        typeof id === "string" &&
+        id.length <= 64 &&
+        (placement === "placed" || placement === "unplaced")
+          ? [{ id, placement }]
+          : [],
+      );
+    return { type: "placements", token, placements };
+  }
   if (d.type === "key") {
     const k = forwardedKey(d);
     return k && { type: "key", token, ...k };

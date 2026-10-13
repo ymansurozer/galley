@@ -3,6 +3,7 @@ import type {
   UiAnnotationRecord,
   UiElement,
   UiMark,
+  UiMarkElement,
   UiMarkTarget,
   UiSource,
   UiTarget,
@@ -12,11 +13,13 @@ import type {
 // see skim-derive.ts for the pattern). uilane.ts is the store-reading side.
 
 // One page's annotations: open rows in number order, and the resolved ones its toggle reveals.
+// `unchecked`: an open one hasn't been looked for since the last reload (its page hasn't loaded).
 export type PageGroup = {
   route: string;
   title: string;
   open: UiAnnotationRecord[];
   resolved: UiAnnotationRecord[];
+  unchecked: boolean;
 };
 
 // Annotations grouped by page. A page is its path + query (the address-bar route); pages come in
@@ -26,9 +29,13 @@ export function pageGroups(list: readonly UiAnnotationRecord[]): PageGroup[] {
   for (const a of [...list].sort((x, y) => x.number - y.number)) {
     let g = groups.get(a.page.route);
     if (!g)
-      groups.set(a.page.route, (g = { route: a.page.route, title: "", open: [], resolved: [] }));
+      groups.set(
+        a.page.route,
+        (g = { route: a.page.route, title: "", open: [], resolved: [], unchecked: false }),
+      );
     if (a.page.title) g.title = a.page.title;
     (a.status === "resolved" ? g.resolved : g.open).push(a);
+    if (a.status === "open" && a.placement === "unvisited") g.unchecked = true;
   }
   return [...groups.values()];
 }
@@ -127,20 +134,28 @@ export function firstLine(body: string): string {
 }
 
 // The row's tooltip carries the state the row itself doesn't draw: resolved, else waiting on the
-// agent, else whether the agent had the last word.
+// agent, else whether the agent had the last word; and, while open, whether its target wasn't found
+// on its page or hasn't been looked for since the last reload.
 export function rowTitle(a: UiAnnotationRecord): string {
   const question = a.intent === "question";
-  const state =
-    a.status === "resolved"
-      ? "Resolved"
-      : isWaiting(a)
-        ? "Waiting"
-        : a.comments.at(-1)?.role === "agent"
-          ? question
-            ? "Answered"
-            : "Agent replied"
-          : "";
-  return [`#${a.number}`, question ? "Question" : "Change request", state]
+  const open = a.status === "open";
+  const state = !open
+    ? "Resolved"
+    : isWaiting(a)
+      ? "Waiting"
+      : a.comments.at(-1)?.role === "agent"
+        ? question
+          ? "Answered"
+          : "Agent replied"
+        : "";
+  const placement = !open
+    ? ""
+    : a.placement === "unplaced"
+      ? "Unplaced"
+      : a.placement === "unvisited"
+        ? "Not checked"
+        : "";
+  return [`#${a.number}`, question ? "Question" : "Change request", state, placement]
     .filter(Boolean)
     .join(" · ");
 }
@@ -242,21 +257,44 @@ export function stepFrom(order: readonly string[], current: string | null, dir: 
   return order[(i + dir + order.length) % order.length]!;
 }
 
-// How the bridge finds a target's mark on the page (types.ts, UiMarkTarget): by its elements'
-// selectors, by its box moving with its first element, or by its quote in its holder. A page target
-// has no mark on the page. Built of fresh objects: it's posted to the page, and postMessage can't
-// clone the store's reactive proxies.
+// The classes an element had, read off the start of its outline (`<button class="btn primary" …>`).
+// The outline caps each attribute's value, so a class list cut short loses its last, partial class.
+export function outlineClasses(outline: string | undefined): string[] {
+  const value = outline?.match(/^<[a-z][\w-]*\s+class="([^"]*)"/)?.[1];
+  if (!value) return [];
+  const classes = value
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (value.endsWith("…")) classes.pop();
+  return classes;
+}
+
+// What the bridge finds an element by again (types.ts, UiMarkElement).
+function markElement(el: UiElement): UiMarkElement {
+  const out: UiMarkElement = { selector: el.selector, tag: el.tag, rect: { ...el.rect } };
+  if (el.text) out.text = el.text;
+  if (el.name) out.name = el.name;
+  const classes = outlineClasses(el.outline);
+  if (classes.length) out.classes = classes;
+  if (el.source) out.source = { ...el.source };
+  return out;
+}
+
+// How the bridge finds a target's mark on the page (types.ts, UiMarkTarget): by its elements, by
+// its box moving with the first of its elements still found, or by its quote in its holder. A page
+// target has no mark on the page. Built of fresh objects: it's posted to the page, and postMessage
+// can't clone the store's reactive proxies.
 export function markTarget(target: UiTarget): UiMarkTarget | null {
   if (target.kind === "page") return null;
   if (target.kind === "text")
-    return { kind: "text", selector: target.element.selector, quote: target.quote };
-  if (target.kind === "element")
-    return { kind: "element", selectors: target.elements.map((el) => el.selector) };
-  const rect = { ...target.rect };
-  const [first] = target.elements;
-  return first
-    ? { kind: "region", rect, anchor: { selector: first.selector, rect: { ...first.rect } } }
-    : { kind: "region", rect };
+    return { kind: "text", quote: target.quote, element: markElement(target.element) };
+  const elements = target.elements.map(markElement);
+  return target.kind === "element"
+    ? { kind: "element", elements }
+    : { kind: "region", rect: { ...target.rect }, elements };
 }
 
 // Shown on the page: its open annotations, plus a resolved one while it's selected (its row revealed

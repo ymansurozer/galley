@@ -1601,6 +1601,72 @@ test("a desk started with a UI target serves it at once; proxy traffic never kee
   }
 });
 
+test("/api/reload leaves every annotation unvisited, whether or not the tree has a diff", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-unvisited-"));
+  // HOME outside the repo, so the desk's own files leave its tree clean.
+  const home = await mkdtemp(path.join(tmpdir(), "galley-unvisited-home-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  const st = await buildReviewState(root, { session: "s", allowEmpty: true });
+  st!.ui = { target: "http://localhost:3000/" };
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  const reload = async () =>
+    ((await (await post(handle.url, "api/reload", {})).json()) as { empty: boolean }).empty;
+  const placements = async () =>
+    ((await getPoll(handle.url)).annotations as Array<{ placement: string }>).map(
+      (a) => a.placement,
+    );
+  const annotation = (id: string, number: number, placement: string) => ({
+    id,
+    number,
+    intent: "change",
+    status: "open",
+    placement,
+    page: {
+      url: "http://localhost:3000/app",
+      route: "/app",
+      viewport: { width: 1280, height: 800, dpr: 1 },
+    },
+    target: { kind: "page" },
+    comments: [
+      {
+        id: `${id}-m`,
+        role: "user",
+        intent: "action",
+        body: "Fix",
+        createdAt: "t",
+        updatedAt: "t",
+      },
+    ],
+  });
+  const save = () =>
+    post(handle.url, "api/save", {
+      annotations: [annotation("a1", 1, "placed"), annotation("a2", 2, "unplaced")],
+    });
+  try {
+    await save();
+    assert.deepEqual(await placements(), ["placed", "unplaced"]);
+    assert.equal(await reload(), true, "a clean tree: the reload finds no diff");
+    assert.deepEqual(await placements(), ["unvisited", "unvisited"]);
+    await save();
+    await writeFile(path.join(root, "a.ts"), "two\n");
+    assert.equal(await reload(), false);
+    assert.deepEqual(await placements(), ["unvisited", "unvisited"]);
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("every /api/reload bumps reloadGeneration, even when the diff doesn't move", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "galley-reloadgen-"));
   const oldHome = process.env.HOME;

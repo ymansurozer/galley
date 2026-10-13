@@ -2,13 +2,17 @@ import type { AppMode, BridgeMessage, PickedTarget, Rect, UiMark } from "../type
 import { OVERLAY_ATTR } from "./capture";
 import { unionRect } from "./crop";
 import { CAPS, describeElement, labelOf, targetOf } from "./describe";
-import { locate, quoteFinder, regionElements, textRects, textTarget, togglePick } from "./targets";
+import { marksPlacer } from "./placement";
+import { located } from "./refind";
+import { quoteFinder, regionElements, textRects, textTarget, togglePick } from "./targets";
 
 // Annotate mode and the marks on the page. Everything the bridge draws (the hover outline and its
 // label, the pick being composed on, ⇧-picks waiting for ⇧'s release, the drag in progress, and
 // the annotations' marks and numbered pins) lives in one host element with a closed shadow root,
 // carrying OVERLAY_ATTR so screenshots leave it out. The app's own elements are only ever read,
-// never written: no attributes, classes or styles, and not its selection either.
+// never written: no attributes, classes or styles, and not its selection either. A mark is drawn
+// once its target is found again on the page (placement.ts), and not while it's looked for or when
+// it isn't there.
 //
 // In Annotate mode a transparent veil in that root takes the pointer, so the app sees no hovers or
 // clicks; hit-testing looks under the veil. A click picks an element, ⇧-clicks gather up to 16 for
@@ -125,10 +129,48 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
   let sentPending = 0;
   let gesture: Gesture | null = null;
   let lastAnchor = "";
+  // The selected mark, until it's found and scrolled into view (or found missing).
+  let revealing: string | null = null;
 
   // Created on first use, so a page that is never annotated never gets the host.
   let overlay: ReturnType<typeof buildOverlay> | null = null;
   const ui = () => (overlay ??= buildOverlay());
+
+  const placer = marksPlacer(
+    document,
+    {
+      now: () => performance.now(),
+      after: (ms, fn) => {
+        const t = setTimeout(fn, ms);
+        return () => clearTimeout(t);
+      },
+    },
+    (placements) => post({ type: "placements", token, placements }),
+    () => {
+      reveal();
+      layout();
+    },
+  );
+  new MutationObserver(() => placer.changed()).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+  if (document.readyState === "loading")
+    addEventListener("DOMContentLoaded", () => placer.ready(), { once: true });
+  else placer.ready();
+
+  // Scroll the selected mark's target into view once it's found, when it's off screen.
+  function reveal() {
+    const id = revealing;
+    if (!id || placer.placement(id) === "pending") return;
+    revealing = null;
+    const mark = marks.find((m) => m.id === id);
+    const at = mark && locateMark(mark);
+    const r = at?.boxes[0];
+    if (at?.anchor && r && (r.y < 0 || r.y + r.height > innerHeight))
+      at.anchor.scrollIntoView({ block: "center" });
+  }
 
   function buildOverlay() {
     const host = document.createElement("galley-overlay");
@@ -436,11 +478,13 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     return [{ ...p.rect, x: p.rect.x + now.x - a.rect.x, y: p.rect.y + now.y - a.rect.y }];
   }
 
-  // A mark's target where it is now. Its quote, for a text mark, is searched for once and reused
-  // while it stands: layout runs on every scroll frame.
+  // A mark's target where it is now, if it was found. Its quote, for a text mark, is searched for
+  // once and reused while it stands: layout runs on every scroll frame.
   const quotes = quoteFinder();
-  const locateMark = (m: UiMark) =>
-    locate(document, m.target, (holder, quote) => quotes.find(m.id, holder, quote));
+  const locateMark = (m: UiMark) => {
+    const found = placer.found(m.id);
+    return found && located(found, (holder, quote) => quotes.find(m.id, holder, quote));
+  };
 
   // Redraw the marks, the pick and the ⇧-picks where their targets are now, and tell the desk where
   // the pick went, so its composer follows.
@@ -574,17 +618,17 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     setMarks(next: UiMark[], nextSelected: string | null, picking: boolean) {
       if (!picking) picked = null;
       quotes.keep(new Set(next.map((m) => m.id)));
-      if (nextSelected && nextSelected !== selected) {
-        const mark = next.find((m) => m.id === nextSelected);
-        const at = mark && locateMark(mark);
-        const r = at?.boxes[0];
-        if (at?.anchor && r && (r.y < 0 || r.y + r.height > innerHeight))
-          at.anchor.scrollIntoView({ block: "center" });
-      }
+      placer.set(next);
+      if (nextSelected !== selected) revealing = nextSelected;
       marks = next;
       selected = nextSelected;
       if (marks.length || picked || overlay) ui();
+      reveal();
       layout();
+    },
+    // The route changed in-page.
+    navigated() {
+      placer.navigated();
     },
     clearPicks() {
       pending = [];

@@ -42,6 +42,7 @@ import type {
   Rect,
   UiAnnotationRecord,
   UiPage,
+  UiPlacement,
   UiTarget,
 } from "./types";
 
@@ -111,16 +112,24 @@ export function toggleAnnotations() {
   S.annotationsOpen = !S.annotationsOpen;
 }
 
+// The annotation selected on another page, until that page says whether its target is there: if
+// it isn't, the reviewer is told why nothing is outlined.
+let revealing: string | null = null;
+
 // Expand an annotation's row and outline its target, taking the app to its page first. Null
 // collapses the row. A reply or edit open in another thread is set aside with its text.
 export function selectAnnotation(id: string | null) {
   const a = find(id);
   if (S.composerAnnotation && S.composerAnnotation !== a?.id) setUiComposerAside();
   S.selectedAnnotation = a?.id ?? null;
+  revealing = null;
   if (a) {
     if (a.status === "resolved") S.shownResolved.add(a.page.route);
     S.annotationsOpen = true;
-    if (S.view === "ui" && a.page.route !== S.app.route) appGo(a.page.route);
+    if (S.view === "ui" && a.page.route !== S.app.route) {
+      if (a.target.kind !== "page") revealing = a.id;
+      appGo(a.page.route);
+    }
   }
   if (!a || S.composerOpen || !resumeThreadDraft(a.id)) renderUiLane();
   if (a)
@@ -191,7 +200,8 @@ export function clearPendingPicks() {
 export const pagePins = () => pageMarks(annotationsOf(), S.app.route, S.selectedAnnotation);
 
 // The app loaded a page (`fresh`: a new document, whose bridge has drawn nothing) or moved to
-// another route in-page. The pick it was composing on is gone with the old page.
+// another route in-page. The pick it was composing on is gone with the old page. The page's own
+// page annotations are placed: their target is the page, and here it is.
 let sentMode = "";
 let sentMarks = "";
 export function appPageChanged(fresh: boolean) {
@@ -200,8 +210,43 @@ export function appPageChanged(fresh: boolean) {
     S.pendingPicks = 0;
   }
   pickDraft = null;
+  const pages = annotationsOf().filter(
+    (a) => a.target.kind === "page" && a.page.route === S.app.route && a.placement !== "placed",
+  );
+  for (const a of pages) a.placement = "placed";
   if (S.annotationDraft) closeComposer();
   else renderUiLane();
+  if (pages.length) persist();
+}
+
+// Where the bridge found this page's marks: each one's first answer once the page settled, then
+// its changes. Only annotations on the page the app shows take an answer, so a late one from a page
+// the app has since left changes nothing.
+export function placedInApp(placements: ReadonlyArray<{ id: string; placement: UiPlacement }>) {
+  let changed = false;
+  for (const { id, placement } of placements) {
+    const a = find(id);
+    if (!a || a.page.route !== S.app.route) continue;
+    if (id === revealing) {
+      revealing = null;
+      if (placement === "unplaced")
+        toast(`Couldn't find #${a.number} on this page — it's still sent`);
+    }
+    if (a.placement === placement) continue;
+    a.placement = placement;
+    changed = true;
+  }
+  if (!changed) return;
+  renderUiLane();
+  persist();
+}
+
+// `galley reload` ran or the desk restarted: no annotation has been looked for since, until its
+// page loads again. The desk marked its own copy; this keeps the tab's in step, so its next save
+// doesn't undo it.
+export function annotationsUnvisited() {
+  for (const a of annotationsOf()) a.placement = "unvisited";
+  renderUiLane();
 }
 
 // Tell the bridge the mode and this page's pins, when they changed since it was last told.
@@ -455,6 +500,15 @@ function row(a: UiAnnotationRecord): HTMLElement {
       sep,
       sourceLink(document, sourcePlace(source, S.state.root), "ann-src", openEditorAt),
     );
+  }
+  if (a.placement === "unplaced") {
+    const sep = document.createElement("span");
+    sep.textContent = "·";
+    const note = document.createElement("span");
+    note.className = "ann-unplaced";
+    note.textContent = "Unplaced";
+    note.title = "Couldn't find it on its page when the page last loaded. It's still sent.";
+    ctx.append(sep, note);
   }
   item.append(ctx);
   const thread = document.createElement("div");

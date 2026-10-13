@@ -1,7 +1,7 @@
 import type { BridgeMessage, BridgeNav, DeskMessage, UiMarkTarget } from "../types";
 import { installAnnotate } from "./annotate";
 import { capturePage } from "./capture";
-import { locate, type Located } from "./targets";
+import { located, refind, type Located } from "./refind";
 
 // The bridge: the desk's UI proxy injects it as the first script in every proxied HTML page. It is
 // the app page's only line to the desk, and the line is postMessage to the parent desk frame, never
@@ -37,11 +37,14 @@ import { locate, type Located } from "./targets";
     canGoForward: nav ? nav.canGoForward : null,
   });
   let last = "";
+  let lastRoute = "";
   const report = (type: "ready" | "nav") => {
     const now = snapshot();
     const key = JSON.stringify(now);
     if (type === "nav" && key === last) return;
     last = key;
+    if (type === "nav" && now.route !== lastRoute) annotate.navigated();
+    lastRoute = now.route;
     post({ type, token, ...now });
   };
   // Deferred a microtask so the report sees the state the router just committed.
@@ -70,7 +73,8 @@ import { locate, type Located } from "./targets";
   // page can't read) gives no crop rather than failing the capture.
   const captureTarget = (target: UiMarkTarget | undefined): Located | null => {
     try {
-      return target ? locate(document, target) : null;
+      const found = target && refind(document, target);
+      return found ? located(found) : null;
     } catch {
       return null;
     }

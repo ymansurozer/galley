@@ -32,6 +32,7 @@ import {
   reviewDir,
   syncGitState,
   uiQuestionPayload,
+  unvisitedAnnotations,
   writeFileAtomic,
   writeGlobalSettings,
 } from "./state.js";
@@ -802,6 +803,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             state.changes = [];
             state.rawDiff = "";
             state.baseDiffHash = hash("");
+            state.annotations = unvisitedAnnotations(state.annotations);
             await persistReview(state);
             reloadGeneration++;
             return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });

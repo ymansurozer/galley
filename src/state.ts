@@ -1059,6 +1059,11 @@ export function reanchorComments(
   return comments;
 }
 
+// After `galley reload` or a desk restart the app may have changed under every annotation, so none
+// counts as found until its page loads in the desk again and the bridge looks for it.
+export const unvisitedAnnotations = (list: UiAnnotationRecord[] | undefined) =>
+  list?.map((a) => ({ ...a, placement: "unvisited" as const }));
+
 export async function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   if (!saved) return base;
   const currentFiles = new Set(base.files.map((file) => file.path));
@@ -1171,8 +1176,9 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
     guide: saved.guide ?? base.guide,
     // Same for the UI target; a `--ui` at restart replaces it after the merge (runDesk).
     ui: saved.ui ?? base.ui,
-    // Annotations are the reviewer's, on the app rather than the diff: a re-diff never touches them.
-    annotations: saved.annotations ?? base.annotations,
+    // Annotations are the reviewer's, on the app rather than the diff: a re-diff never touches them,
+    // but none has been looked for on the changed app yet.
+    annotations: unvisitedAnnotations(saved.annotations ?? base.annotations),
     lastAnnotationNumber: saved.lastAnnotationNumber,
     persistFile: saved.persistFile,
   } satisfies ReviewState;

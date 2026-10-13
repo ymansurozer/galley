@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { Rect } from "../types";
-import { findQuote, locate, quoteFinder, regionElements, textTarget, togglePick } from "./targets";
+import { findQuote, quoteFinder, regionElements, textTarget, togglePick } from "./targets";
 
 // A fixture page whose elements have the boxes their `data-box="x y width height"` gives (happy-dom
 // lays nothing out), and a hit test over those boxes: the last element in document order whose box
@@ -199,36 +199,4 @@ test("a text mark's quote is searched once, and again only when its text changes
   assert.equal(quotes.find("n3", $("#m"), "Date recieved"), null, "a miss holds for a while");
   now += 1000;
   assert.equal(quotes.find("n3", $("#m"), "Date recieved")?.toString(), "Date recieved");
-});
-
-test("a mark is found where its target is now", () => {
-  const { doc } = page(`
-    <button id="save" data-box="100 50 80 24">Save</button>
-    <button id="cancel" data-box="200 50 80 24">Cancel</button>
-    <p id="note" data-box="0 100 300 20">Due soon</p>`);
-  assert.deepEqual(locate(doc, { kind: "element", selectors: ["#gone", "#save", "#cancel"] }), {
-    kind: "element",
-    boxes: [
-      { x: 100, y: 50, width: 80, height: 24 },
-      { x: 200, y: 50, width: 80, height: 24 },
-    ],
-    anchor: doc.querySelector("#save"),
-  });
-  assert.equal(locate(doc, { kind: "element", selectors: ["#gone", "nav >"] }), null);
-
-  // A region follows its anchor element: captured at y 20, the button is at y 50 now.
-  const rect = { x: 90, y: 10, width: 120, height: 60 };
-  const anchor = { selector: "#save", rect: { x: 100, y: 20, width: 80, height: 24 } };
-  assert.deepEqual(locate(doc, { kind: "region", rect, anchor })?.boxes, [
-    { x: 90, y: 40, width: 120, height: 60 },
-  ]);
-  assert.deepEqual(
-    locate(doc, { kind: "region", rect, anchor: { ...anchor, selector: "#gone" } })?.boxes,
-    [rect],
-    "an anchor that's gone leaves the box where it was drawn",
-  );
-  assert.deepEqual(locate(doc, { kind: "region", rect })?.boxes, [rect]);
-
-  assert.equal(locate(doc, { kind: "text", selector: "#note", quote: "Overdue" }), null);
-  assert.equal(locate(doc, { kind: "text", selector: "#gone", quote: "Due" }), null);
 });

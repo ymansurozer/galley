@@ -9,6 +9,7 @@ import {
   mergeAgentReplies,
   nextNumber,
   openChangeCount,
+  outlineClasses,
   pageGroups,
   pageMarks,
   pageName,
@@ -76,6 +77,28 @@ test("pages group on path + query, ordered by their lowest number; rows in numbe
   );
 });
 
+test("a page is not checked while an open annotation on it hasn't been looked for since the reload", () => {
+  const groups = pageGroups([
+    ann("a", 1, "/p", { placement: "unvisited" }),
+    ann("b", 2, "/p", { placement: "unplaced" }),
+    ann("c", 3, "/q", { placement: "unplaced" }),
+    ann("d", 4, "/r", { placement: "unvisited", status: "resolved" }),
+  ]);
+  assert.deepEqual(
+    groups.map((g) => [g.route, g.unchecked]),
+    [
+      ["/p", true],
+      ["/q", false],
+      ["/r", false],
+    ],
+  );
+  assert.deepEqual(
+    groups[0]!.open.map((a) => a.id),
+    ["a", "b"],
+    "unplaced and unchecked rows stay in their page's list, in number order",
+  );
+});
+
 test("a page group whose annotations are all resolved still lists them, behind the toggle", () => {
   const [g] = pageGroups([ann("a", 1, "/x", { status: "resolved" })]);
   assert.deepEqual(g!.open, []);
@@ -105,6 +128,18 @@ test("counts, numbering, the row's first line and its tooltip", () => {
   assert.equal(firstLine("> quoted"), "quoted");
   assert.equal(rowTitle(list[0]!), "#1 · Change request");
   assert.equal(rowTitle(list[1]!), "#7 · Change request · Resolved");
+  assert.equal(
+    rowTitle(ann("u", 3, "/", { placement: "unplaced" })),
+    "#3 · Change request · Unplaced",
+  );
+  assert.equal(
+    rowTitle(ann("v", 4, "/", { placement: "unvisited" })),
+    "#4 · Change request · Not checked",
+  );
+  assert.equal(
+    rowTitle(ann("w", 5, "/", { placement: "unplaced", status: "resolved" })),
+    "#5 · Change request · Resolved",
+  );
 });
 
 test("⇧↓/⇧↑ step through the visible rows in list order and wrap", () => {
@@ -131,7 +166,10 @@ test("the page gets pins for its open annotations, and for a resolved one only w
     {
       id: "a",
       number: 1,
-      target: { kind: "element", selectors: ["#el-a"] },
+      target: {
+        kind: "element",
+        elements: [{ selector: "#el-a", tag: "button", rect: { x: 0, y: 0, width: 1, height: 1 } }],
+      },
       resolved: false,
       question: false,
     },
@@ -172,20 +210,21 @@ test("each kind's pin finds its target its own way, and a page annotation's pin 
     ann("t", 4, "/p", { target: { kind: "text", quote: "Date recieved", element: uiEl("#th") } }),
     ann("pg", 5, "/p", { target: { kind: "page" } }),
   ];
+  const found = (selector: string, r = { x: 0, y: 0, width: 1, height: 1 }) => ({
+    selector,
+    tag: "button",
+    rect: r,
+  });
   assert.deepEqual(
     marksFor(list, "/p", null).map((m) => [m.id, m.target]),
     [
-      ["e", { kind: "element", selectors: ["#a", "#b"] }],
+      ["e", { kind: "element", elements: [found("#a"), found("#b")] }],
       [
         "r",
-        {
-          kind: "region",
-          rect,
-          anchor: { selector: "#a", rect: { x: 12, y: 30, width: 80, height: 20 } },
-        },
+        { kind: "region", rect, elements: [found("#a", { x: 12, y: 30, width: 80, height: 20 })] },
       ],
-      ["bare", { kind: "region", rect }],
-      ["t", { kind: "text", selector: "#th", quote: "Date recieved" }],
+      ["bare", { kind: "region", rect, elements: [] }],
+      ["t", { kind: "text", quote: "Date recieved", element: found("#th") }],
     ],
   );
   assert.deepEqual(pageMarks(list, "/p", null), [
@@ -206,9 +245,64 @@ test("a pin's target can be posted to the page while the store holds the annotat
   // refuses.
   const proxied = <T extends object>(o: T): T => new Proxy(o, {});
   const rect = proxied({ x: 10, y: 20, width: 300, height: 100 });
-  const el = { ...uiEl("#a"), rect: proxied({ x: 12, y: 30, width: 80, height: 20 }) };
+  const el = {
+    ...uiEl("#a"),
+    rect: proxied({ x: 12, y: 30, width: 80, height: 20 }),
+    source: proxied({ file: "/app/pages/files.vue", line: 3, via: "vue-tracer" as const }),
+  };
   const region = ann("r", 1, "/p", { target: { kind: "region", rect, elements: [proxied(el)] } });
   assert.doesNotThrow(() => structuredClone(marksFor([region], "/p", null)));
+});
+
+test("a pin carries what the bridge checks a match against: text, name, classes and source", () => {
+  const source = { file: "/app/pages/files.vue", line: 41, column: 9, via: "vue-tracer" as const };
+  const upload = {
+    ...uiEl("div:nth-of-type(2) > button"),
+    text: "Upload",
+    name: "Upload",
+    role: "button",
+    heading: "Files",
+    outline: `<button class="btn btn-primary w-full" type="button">Upload</button>`,
+    source,
+  };
+  const [mark] = marksFor(
+    [ann("u", 1, "/p", { target: { kind: "element", elements: [upload] } })],
+    "/p",
+    null,
+  );
+  assert.deepEqual(mark!.target, {
+    kind: "element",
+    elements: [
+      {
+        selector: "div:nth-of-type(2) > button",
+        tag: "button",
+        text: "Upload",
+        name: "Upload",
+        classes: ["btn", "btn-primary", "w-full"],
+        source,
+        rect: { x: 0, y: 0, width: 1, height: 1 },
+      },
+    ],
+  });
+});
+
+test("an element's classes are read off its outline, without a class its cap cut short", () => {
+  assert.deepEqual(outlineClasses(`<a class="nav-link active" href="/x">X</a>`), [
+    "nav-link",
+    "active",
+  ]);
+  assert.deepEqual(outlineClasses(`<div class="say &quot;hi&quot; a&amp;b">`), [
+    "say",
+    '"hi"',
+    "a&b",
+  ]);
+  assert.deepEqual(outlineClasses(`<div class="card shadow-lg rounded-x…"><p>…</p></div>`), [
+    "card",
+    "shadow-lg",
+  ]);
+  assert.deepEqual(outlineClasses(`<div><p class="inner">x</p></div>`), [], "a child's aren't its");
+  assert.deepEqual(outlineClasses(`<div>`), []);
+  assert.deepEqual(outlineClasses(undefined), []);
 });
 
 test("the composer's head names each kind of target", () => {

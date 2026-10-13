@@ -144,6 +144,38 @@ const picked = (over: Record<string, unknown> = {}, el = element()) => ({
   ...over,
 });
 
+test("readBridgeMessage takes the placements the bridge found, dropping malformed ones", () => {
+  const placements = [
+    { id: "a1", placement: "placed" },
+    { id: "a2", placement: "unplaced" },
+  ];
+  assert.deepEqual(readBridgeMessage({ type: "placements", token: TOKEN, placements }, TOKEN), {
+    type: "placements",
+    token: TOKEN,
+    placements,
+  });
+  const junk = [
+    "a1",
+    { id: "a3", placement: "unvisited" }, // only the desk says unvisited
+    { id: "a4", placement: "lost" },
+    { id: 4, placement: "placed" },
+    { id: "x".repeat(65), placement: "placed" },
+    { id: "a5", placement: "placed", extra: "<b>" },
+  ];
+  assert.deepEqual(
+    readBridgeMessage({ type: "placements", token: TOKEN, placements: junk }, TOKEN),
+    { type: "placements", token: TOKEN, placements: [{ id: "a5", placement: "placed" }] },
+  );
+  const flood = Array.from({ length: 5000 }, (_, i) => ({ id: `a${i}`, placement: "placed" }));
+  const capped = readBridgeMessage({ type: "placements", token: TOKEN, placements: flood }, TOKEN);
+  assert.equal(capped?.type === "placements" && capped.placements.length, 1000);
+  assert.equal(
+    readBridgeMessage({ type: "placements", token: TOKEN, placements: {} }, TOKEN),
+    null,
+  );
+  assert.equal(readBridgeMessage({ type: "placements", token: "other", placements }, TOKEN), null);
+});
+
 test("readBridgeMessage accepts a picked element as the bridge describes it", () => {
   assert.deepEqual(readBridgeMessage(picked(), TOKEN), picked());
 });

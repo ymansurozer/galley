@@ -1,4 +1,4 @@
-import type { PickedTarget, Rect, UiMarkTarget } from "../types";
+import type { PickedTarget, Rect } from "../types";
 import {
   CAPS,
   CONTROLS,
@@ -11,9 +11,9 @@ import {
 } from "./describe";
 
 // The targets beyond a single click: ⇧-clicked elements gathered into one pick, the meaningful
-// elements under a dragged box, a text selection's quote and holder, and finding any of them again
-// on the page for its mark. Read from the live DOM, never written to it; pure over the document
-// (hit testing is passed in), so it runs under happy-dom in tests.
+// elements under a dragged box, a text selection's quote and holder, and finding a quote again in
+// its holder for its mark (refind.ts finds the rest). Read from the live DOM, never written to it;
+// pure over the document (hit testing is passed in), so it runs under happy-dom in tests.
 
 // A ⇧-click on `el`: added to the picks, or taken out when it's already there. Once the picks hold
 // CAPS.elements, another is refused: the picks stay as they are and the answer is false.
@@ -242,51 +242,4 @@ export function textRects(range: Range): Rect[] {
       .filter((r) => r.width > 0 && r.height > 0)
       .map((r) => ({ x: r.x, y: r.y, width: r.width, height: r.height })),
   );
-}
-
-const query = (doc: Document, selector: string) => {
-  try {
-    return doc.querySelector(selector);
-  } catch {
-    return null;
-  }
-};
-
-// A mark's target where it is now: its boxes (the elements' boxes, the region's box, or the quote's
-// line boxes; the pin goes on the first), and the element it moves with (the first element, the
-// region's anchor, the quote's holder). Elements that are gone are left out; null when nothing of
-// it is on the page.
-export type Located = {
-  kind: UiMarkTarget["kind"];
-  boxes: [Rect, ...Rect[]];
-  anchor: Element | null;
-};
-
-// `find` finds a text target's quote in its holder: a quoteFinder's, for marks redrawn again and
-// again.
-export function locate(
-  doc: Document,
-  target: UiMarkTarget,
-  find: (holder: Element, quote: string) => Range | null = findQuote,
-): Located | null {
-  const { kind } = target;
-  if (target.kind === "element") {
-    const els = target.selectors.map((s) => query(doc, s)).filter((el) => el !== null);
-    const [first, ...rest] = els;
-    return first ? { kind, boxes: [boxOf(first), ...rest.map(boxOf)], anchor: first } : null;
-  }
-  if (target.kind === "region") {
-    const { rect, anchor } = target;
-    const el = anchor ? query(doc, anchor.selector) : null;
-    const now = el && boxOf(el);
-    // An anchor that's gone, or hidden (no box), leaves the region where it was drawn.
-    if (!anchor || !el || !now || now.width + now.height === 0)
-      return { kind, boxes: [rect], anchor: null };
-    const moved = { ...rect, x: rect.x + now.x - anchor.rect.x, y: rect.y + now.y - anchor.rect.y };
-    return { kind, boxes: [moved], anchor: el };
-  }
-  const el = query(doc, target.selector);
-  const range = el && find(el, target.quote);
-  const [first, ...rest] = range ? textRects(range) : [];
-  return first ? { kind, boxes: [first, ...rest], anchor: el } : null;
 }
