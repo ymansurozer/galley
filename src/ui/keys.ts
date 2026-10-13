@@ -377,10 +377,12 @@ const HOTKEYS: Hotkey[] = [
     combo: "⇧U",
     desc: "Code / UI view",
     group: "View",
-    // Only with both lanes. Keys typed inside the app's iframe never reach the desk.
+    // Only with both lanes. From inside the app it arrives only while annotating (dispatchKey).
     when: () => navigable() && hasUi() && !uiOnly(),
     test: shift("U"),
-    run: toggleView,
+    // Called through an arrow: appview and uilane import this module back, so their exports
+    // aren't initialised yet while this table is built.
+    run: () => toggleView(),
   },
   // UI view: the app's mode, the annotation sidebar, and stepping through annotations. ⌥A and ⇧
   // chords pressed in the app arrive here too: the bridge forwards them (dispatchKey).
@@ -391,7 +393,7 @@ const HOTKEYS: Hotkey[] = [
     // By code, not key: ⌥A types "å" on a Mac keyboard.
     test: (e) => e.code === "KeyA" && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey,
     when: () => inUiView() && !inModal(),
-    run: toggleAppMode,
+    run: () => toggleAppMode(),
   },
   {
     combo: "⇧L",
@@ -399,7 +401,7 @@ const HOTKEYS: Hotkey[] = [
     group: "UI",
     test: shift("L"),
     when: () => inUiView() && navigable(),
-    run: toggleAnnotations,
+    run: () => toggleAnnotations(),
   },
   {
     combo: "⇧↓",

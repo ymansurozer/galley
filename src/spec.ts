@@ -87,7 +87,8 @@ The \`result\` field of a review event:
 - session, repoRoot, mode, staged, head (sha|null), baseDiffHash (hash of the reviewed diff)
 - accepted[], rejected[]: {path, lineNumber, side, title}
 - codeChangeRequests[]: {path, lineNumber, side, body}
-- uiTarget? — the app URL the UI annotations were made against (absent without a UI target)
+- uiTarget? — the app URL the desk serves (absent without a UI target); each annotation's own page
+  is in its page.url
 - uiAnnotations[] — the human's open change requests on the running app (resolved ones are not
   sent; empty without a UI target): {id, number, body, status, placement, page, target, thread}
   - number is the pin the human saw on the page; body is the request; thread[] {role, body, at}

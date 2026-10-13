@@ -443,8 +443,8 @@ export type ReviewResult = {
   accepted: Array<{ path: string; lineNumber: number; side: string; title: string }>;
   rejected: Array<{ path: string; lineNumber: number; side: string; title: string }>;
   codeChangeRequests: Array<{ path: string; lineNumber: number; side: string; body: string }>;
-  // The open change requests on the running app (resolved ones are not sent), and the app URL
-  // they were made against. Without a UI target: empty, and no uiTarget.
+  // The open change requests on the running app (resolved ones are not sent), and the app URL the
+  // desk serves (each annotation records its own page.url). Without a UI target: empty, no uiTarget.
   uiAnnotations: UiAnnotation[];
   uiTarget?: string;
   // An optional note the reviewer attached at Send time about the whole review — an overall
