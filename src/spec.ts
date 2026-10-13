@@ -223,10 +223,11 @@ One JSON object:
 - prDescription? — author/PR intent, shown on the overview page.
 - files (required, non-empty array) — one entry per reviewed file:
   - path (required, non-empty) — repo-relative; must be a file in the diff.
-  - orientation (required, non-empty) — the lens to read this file with: its role, the
-    problem it solves, what to expect before opening it, what's non-obvious or worth
+  - orientation (non-empty; required unless skim: true) — the lens to read this file with: its
+    role, the problem it solves, what to expect before opening it, what's non-obvious or worth
     scrutinizing. Orientation, not a changelog — the reviewer already sees the diff. Shown
-    in the file's diff header.
+    in the file's diff header. A whole-file skim entry normally omits orientation (its
+    skimReason says why); every other entry, skimBlocks-only ones included, requires one.
   - order? — ascending review order; defaults to array position.
   - category? — group label (default "Changes"). Files group by adjacency in review order, so a
     label repeated non-adjacently makes a second section — keep a category's files together.

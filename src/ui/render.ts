@@ -511,10 +511,19 @@ async function renderCenter() {
       chip.className = "ghdr-cat" + (entry.flag ? " crit" : "");
       chip.textContent = entry.category;
       guide.appendChild(chip);
-      const expl = document.createElement("div");
-      expl.className = "ghdr-expl md";
-      expl.innerHTML = renderMarkdown(entry.orientation);
-      guide.appendChild(expl);
+      // A whole-file skim entry may omit its orientation; the skim reason (if any) takes the
+      // slot. Only the expanded file reaches this header — the collapsed strip shows the reason.
+      if (entry.orientation) {
+        const expl = document.createElement("div");
+        expl.className = "ghdr-expl md";
+        expl.innerHTML = renderMarkdown(entry.orientation);
+        guide.appendChild(expl);
+      } else if (entry.skimReason) {
+        const why = document.createElement("div");
+        why.className = "ghdr-skim";
+        why.textContent = `skimmed · ${entry.skimReason}`;
+        guide.appendChild(why);
+      }
       // A flagged file gets its own readable callout within the card.
       if (entry.flag) {
         const flag = document.createElement("div");

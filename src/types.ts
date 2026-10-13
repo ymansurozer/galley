@@ -152,7 +152,9 @@ export type GuideFile = {
   path: string;
   order: number;
   category: string;
-  orientation: string;
+  // Required (non-empty) unless `skim: true`: a whole-file skim leaves the review flow, so
+  // its entry normally omits the lens and `skimReason` says why. Never present-but-blank.
+  orientation?: string;
   flag?: string;
   // Focused-review skimming (agent-supplied, for "show me only the major changes"). The
   // desk collapses skimmed parts by default but never removes them — the reviewer can
