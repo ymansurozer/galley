@@ -99,6 +99,14 @@ export function navOrder(): number[] {
   return navOrderWith(flowIndex());
 }
 
+// navOrder with the fully-skimmed files kept, where the tree or the guide lists them: the order the
+// change-request walk (requests.ts) crosses files in. A skimmed file left the flow, but an open
+// request on it still waits to be checked.
+export function reviewFileOrder(): number[] {
+  const n = S.state?.files?.length ?? 0;
+  return navFileOrder(n, hasGuide() ? guideOrder() : treeOrder(flowIndex()), () => true);
+}
+
 // "Unreviewed" for the seek — a file not signed off in the current state, matching the tree
 // badges and floating approve button (an agent edit after sign-off invalidates the hash, so
 // the file counts as unreviewed again). Index-reading equivalent of fileFinished.

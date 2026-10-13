@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mergeRows, type Row } from "./cursor-rows";
+import { mergeRows, rowMatches, type Row } from "./cursor-rows";
 
 // Build a measured row with the only fields mergeRows reads; `el` is carried through untouched.
 function row(side: Row["side"], line: number, top: number, change = false): Row {
@@ -38,4 +38,14 @@ test("keeps rows at distinct tops separate and merges only on rounded equality",
   );
   assert.deepEqual(out[0].alt, { side: "deletions", line: 9 });
   assert.equal(out[1].alt, undefined);
+});
+
+test("a row matches a line by its own side's number, on either column of a context row", () => {
+  // A context row: new line 5 beside old line 3.
+  const [ctx] = mergeRows([row("deletions", 3, 10), row("additions", 5, 10)]);
+  assert.ok(rowMatches(ctx!, "additions", 5));
+  assert.ok(rowMatches(ctx!, "deletions", 3));
+  // The same number on the other side is a different line, which may sit folded away.
+  assert.ok(!rowMatches(ctx!, "deletions", 5));
+  assert.ok(!rowMatches(ctx!, "additions", 3));
 });

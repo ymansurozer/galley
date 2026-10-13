@@ -82,6 +82,7 @@ import {
   waitingQuestions,
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
+import { openRequests, stepOpenRequest } from "./requests";
 import { uuid } from "./uuid";
 import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
@@ -140,7 +141,7 @@ S.treeRows = treeRows;
 // Update the lightweight state synchronously (so the tree active-row + guide bar repaint
 // immediately — the click feels instant), then run the heavier diff render via deferRender,
 // which shows the "Rendering…" indicator only for a cold open of a big file.
-S.selectFile = (i) => {
+S.selectFile = async (i) => {
   if (i < 0 || !S.state.files[i]) return; // ignore out-of-range selections
   // Narrow-width drawer: opening a file is the drawer's whole purpose, so get it out of the
   // way. The single funnel for tree/walkthrough clicks + next/prev + guide nav; no-op when shut.
@@ -156,11 +157,12 @@ S.selectFile = (i) => {
   // Move the sidebar highlight in place — switching files no longer rebuilds the row lists
   // (the "active" class left the row models; see applyActiveRow in tree.ts).
   applyActiveRow();
-  deferRender();
+  const rendered = deferRender();
   // Quietly warm the next file in review order (guide order when guided, else tree order — the
   // exact resolution keyboard nav uses) so the common next-file step never waits on the wire.
   const n = nextFileIndex(i);
   if (n !== null) prefetchContents(S.state.files[n]);
+  await rendered;
 };
 // Open any repo file (incl. unchanged ones) for read/comment: fetch its contents and show it
 // as a plain view (old === new → no diff blocks). Comments anchor to it like any file.
@@ -187,7 +189,7 @@ S.previewFile = async (path) => {
     };
     D.fileDiff = null;
     cursorReset();
-    render();
+    await render();
   } catch {
     toast("Could not open file");
   }
@@ -362,6 +364,9 @@ S.treeStep = (dir) => {
   if (target.fileIndex !== undefined) S.selectFile?.(target.fileIndex);
   else S.previewFile?.(target.path);
 };
+// The top bar's count of open change requests; a click steps to the next, as `]` does.
+S.openRequests = openRequests;
+S.nextRequest = () => stepOpenRequest(1);
 // Keyboard help overlay + destructive-action confirm dialog (keys.ts owns the dialog state).
 S.helpGroups = helpGroups;
 S.confirmYes = confirmYes;

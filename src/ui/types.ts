@@ -337,8 +337,9 @@ export interface Store {
   shotView: { id: string; kind: "crop" | "viewport" } | null;
 
   treeRows?: () => TreeRow[];
-  selectFile?: (i: number) => void;
-  previewFile?: (path: string) => void;
+  // Both resolve once the file has rendered.
+  selectFile?: (i: number) => Promise<void>;
+  previewFile?: (path: string) => Promise<void>;
   toggleDir?: (full: string, changed: boolean) => void;
   toggleAllDirs?: () => void;
   treeAnyOpen?: () => boolean;
@@ -386,6 +387,9 @@ export interface Store {
   nextFile?: () => void;
   prevFile?: () => void;
   treeStep?: (dir: 1 | -1) => void;
+  // The walk through open change requests (requests.ts): the top bar's count, and its next stop.
+  openRequests?: () => number;
+  nextRequest?: () => void;
   confirmYes?: () => void;
   confirmNo?: () => void;
   promptFinish?: () => void;

@@ -143,7 +143,7 @@ export function toggleFileSkim(path: string) {
   const key = `file:${path}`;
   if (S.skimExpanded.has(key)) S.skimExpanded.delete(key);
   else S.skimExpanded.add(key);
-  render();
+  return render();
 }
 
 // Render the collapsed placeholder for a skim-flagged file: the whole diff folds behind one

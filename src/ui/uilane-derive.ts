@@ -53,8 +53,10 @@ export function pageName(title: string | undefined, route: string): string {
 export const requestsChange = (a: UiAnnotationRecord) =>
   a.intent === "change" || a.comments.some((m) => m.role !== "agent" && m.intent === "action");
 
+export const isOpenChange = (a: UiAnnotationRecord) => a.status === "open" && requestsChange(a);
+
 export const openChangeCount = (list: readonly UiAnnotationRecord[]) =>
-  list.filter((a) => a.status === "open" && requestsChange(a)).length;
+  list.filter(isOpenChange).length;
 
 // A question is answered once an agent reply lands after it was asked, in its thread: the code
 // lane's waiting indicator (annotations.ts) and the UI lane's rows both read it. state.ts keeps the
@@ -298,11 +300,23 @@ export function stepOrder(groups: readonly PageGroup[], shownResolved: ReadonlyS
   );
 }
 
-export function stepFrom(order: readonly string[], current: string | null, dir: 1 | -1) {
-  if (!order.length) return null;
+// The row after (dir 1) or before (dir -1) `current` in `order`, wrapping, among the rows `keep`
+// admits; `current` needn't be one of them (an ask selected while `]` walks the change requests).
+// With no selection, the first kept row, or the last going back.
+export function stepFrom(
+  order: readonly string[],
+  current: string | null,
+  dir: 1 | -1,
+  keep: (id: string) => boolean = () => true,
+) {
+  const n = order.length;
   const i = current ? order.indexOf(current) : -1;
-  if (i < 0) return dir > 0 ? order[0]! : order[order.length - 1]!;
-  return order[(i + dir + order.length) % order.length]!;
+  const from = i < 0 ? (dir > 0 ? -1 : n) : i;
+  for (let s = 1; s <= n; s++) {
+    const id = order[(((from + dir * s) % n) + n) % n]!;
+    if (keep(id)) return id;
+  }
+  return null;
 }
 
 // The classes an element had, read off the start of its outline (`<button class="btn primary" …>`).

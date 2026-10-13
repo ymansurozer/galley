@@ -68,7 +68,8 @@ const RENDER_INDICATOR_MIN_LINES = 400;
 // rAF is required: the indicator must paint *before* the synchronous Shiki work begins.
 // `forceIfBig` shows it for any big file (Reset re-tokenizes even when the diff key is cached);
 // otherwise a fast cached re-open skips the badge to avoid an appear-then-vanish flash.
-export function deferRender(forceIfBig = false) {
+// Resolves once that render has finished.
+export function deferRender(forceIfBig = false): Promise<void> {
   const f = currentFile();
   // Count newlines with a loop rather than s.match(/\n/g): match allocates a full array of every
   // newline over what can be a multi-MB file, on every file switch — the count is all we need.
@@ -85,12 +86,15 @@ export function deferRender(forceIfBig = false) {
   const big =
     !!warm && Math.max(lc(warm.oldContents), lc(warm.newContents)) > RENDER_INDICATOR_MIN_LINES;
   S.rendering = !!f && (!warm || (big && (forceIfBig || !D.diffCache.has(diffKey(!!S.preview)))));
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      void render().finally(() => {
-        S.rendering = false;
-      });
-    }),
+  return new Promise((resolve) =>
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        void render().finally(() => {
+          S.rendering = false;
+          resolve();
+        });
+      }),
+    ),
   );
 }
 // Identity of a rendered diff for the LRU cache: the current file + every option that changes
@@ -122,6 +126,9 @@ function ensureSprite() {
   const holder = document.createElement("div");
   holder.innerHTML = SVGSpriteSheet;
   const svg = holder.firstElementChild;
+  // Out of the flow, like icons.ts's sprite: an inline svg after .app adds a line box below the
+  // full-height layout, and a jump scrolling a row into view would scroll the page by that much.
+  svg?.setAttribute("style", "position:absolute");
   if (svg) document.body.appendChild(svg);
   spriteInjected = true;
 }

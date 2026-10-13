@@ -5,7 +5,7 @@ import { acceptChange } from "./decisions";
 import { openCommentComposer } from "./selection";
 import { render } from "./render";
 import { diffShadowRoot } from "./diff-dom";
-import { type Row, mergeRows } from "./cursor-rows";
+import { type Row, mergeRows, rowMatches as matches } from "./cursor-rows";
 
 // ── The diff line cursor ─────────────────────────────────────────────────────
 // Keyboard review needs a "current line" the diff doesn't otherwise have. We keep it as a
@@ -72,13 +72,6 @@ function rows(): Row[] {
   });
   cached = mergeRows(out);
   return cached;
-}
-
-// A row matches on its primary coordinates or its split-view twin (`alt`).
-function matches(r: Row, side: Side, line: number): boolean {
-  return (
-    (r.side === side && r.line === line) || (r.alt?.side === side && r.alt?.line === line) || false
-  );
 }
 
 function indexOfCur(list: Row[]): number {
@@ -159,6 +152,19 @@ function landAt(side: Side, line: number): boolean {
 export function cursorJumpTo(side: Side, line: number) {
   if (!landAt(side, line))
     requestAnimationFrame(() => requestAnimationFrame(() => landAt(side, line)));
+}
+
+// Whether this DISPLAY line has a rendered row: exactly, not landAt's line-only fallback, whose
+// same-numbered row on the other side can be another line while this one sits folded away.
+export function isRendered(side: Side, line: number): boolean {
+  return rows().some((r) => matches(r, side, line));
+}
+
+// Whether the cursor sits on this DISPLAY line's row, in either column of a context row.
+export function cursorOn(side: Side, line: number): boolean {
+  const at = cur;
+  const r = at && rows().find((x) => matches(x, at.side, at.line));
+  return !!r && matches(r, side, line);
 }
 
 // ── Go to line ───────────────────────────────────────────────────────────────
