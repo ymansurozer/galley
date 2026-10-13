@@ -5,6 +5,7 @@ import {
   annotationSource,
   draftAnchor,
   firstLine,
+  keepPlacements,
   marksFor,
   mergeAgentReplies,
   nextNumber,
@@ -541,4 +542,26 @@ test("the poll's agent replies join the tab's threads once, and nothing else fro
   );
   assert.equal(mergeAgentReplies(local, server), 0, "a reply the tab has isn't added again");
   assert.equal(local[0]!.comments.length, 2);
+});
+
+test("adopting the desk's state after a reload keeps the placements the tab has looked for since", () => {
+  // The tab saw the reload, marked everything unvisited and asked the page to look again; the
+  // page answered while the desk's state, read before that answer was saved, was on its way.
+  const local = [
+    ann("a", 1, "/", { placement: "placed" }),
+    ann("b", 2, "/", { placement: "unplaced" }),
+    ann("c", 3, "/other", { placement: "unvisited" }),
+  ];
+  const server = [
+    ann("a", 1, "/", { placement: "unvisited" }),
+    ann("b", 2, "/", { placement: "unvisited" }),
+    ann("c", 3, "/other", { placement: "placed" }),
+    ann("d", 4, "/", { placement: "unvisited" }),
+  ];
+  keepPlacements(server, local);
+  assert.deepEqual(
+    server.map((a) => a.placement),
+    // c: the tab hasn't looked, so the desk's copy stands; d: the tab doesn't have it.
+    ["placed", "unplaced", "placed", "unvisited"],
+  );
 });

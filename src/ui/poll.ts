@@ -3,7 +3,7 @@ import { render } from "./render";
 import { updateAwaitingDom } from "./annotations";
 import { adoptUiStatus, adoptUiTarget, syncView } from "./appview";
 import { renderUiLane } from "./uilane";
-import { mergeAgentReplies } from "./uilane-derive";
+import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
 import type { DeskStatus, PollPayload, ReviewState } from "./types";
 
 // Pull the transient DeskStatus fields off a server payload into the store and
@@ -73,6 +73,7 @@ export async function pollState() {
     // rather than trusting the numeric index — otherwise the shown file, and guided auto-advance
     // (which resolves "next" from the current index), silently jump to whatever now sits there.
     const curPath = S.state?.files?.[S.fileIndex]?.path;
+    keepPlacements(server.annotations ?? [], S.state.annotations ?? []);
     S.state = server;
     D.fileDiff = null;
     const remapped = curPath ? S.state.files.findIndex((f) => f.path === curPath) : -1;

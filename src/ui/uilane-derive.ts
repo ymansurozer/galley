@@ -118,6 +118,20 @@ export function mergeAgentReplies(
   return added;
 }
 
+// The tab's placements, kept on the desk's state the poll is adopting (`server`, after a reload
+// moved the diff). The tab marks every annotation unvisited as soon as it sees the reload, and the
+// page's answers to its relook land on the tab's copy, possibly while the desk's state is still
+// on its way: a placement the tab has looked for is never older than the desk's.
+export function keepPlacements(
+  server: readonly UiAnnotationRecord[],
+  local: readonly UiAnnotationRecord[],
+) {
+  for (const a of server) {
+    const looked = local.find((l) => l.id === a.id)?.placement;
+    if (looked && looked !== "unvisited") a.placement = looked;
+  }
+}
+
 // Numbers are global and never reused: past every annotation here and the highest number ever
 // given (`last`), so deleting the newest #3 doesn't free 3 for a different annotation.
 export const nextNumber = (list: readonly UiAnnotationRecord[], last: number) =>
