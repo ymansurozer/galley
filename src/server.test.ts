@@ -812,6 +812,63 @@ test("a queued question turned into a change request, resolved or deleted is wit
   });
 });
 
+test("a queued question whose file a reload drops from the diff is still delivered", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-dropped-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\n");
+  await writeFile(path.join(root, "b.ts"), "one\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  await writeFile(path.join(root, "a.ts"), "two\n");
+  await writeFile(path.join(root, "b.ts"), "two\n");
+  const st = await buildReviewState(root, { session: "s" });
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  try {
+    const asked = { ...requested, path: "b.ts", body: "Why two?", intent: "question" };
+    await post(handle.url, "api/save", { comments: [asked] });
+    assert.equal((await post(handle.url, "api/ask", { id: "c1" })).status, 200);
+    // No agent was listening; meanwhile the agent reverts b.ts, so the reload drops the thread,
+    // and the tab's next save no longer carries it.
+    g(["checkout", "--", "b.ts"]);
+    await post(handle.url, "api/reload", {});
+    await post(handle.url, "api/save", { comments: [] });
+    const ev = (await awaitEvent(handle.url, "?timeout=1").then((r) => r.json())) as {
+      questions: Array<{ path: string; body: string }>;
+    };
+    assert.deepEqual(
+      ev.questions.map((q) => [q.path, q.body]),
+      [["b.ts", "Why two?"]],
+    );
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a reset withdraws the queued questions whose threads it clears", async () => {
+  await withQuestionDesk(async (handle, st) => {
+    st.mode = "pr"; // no working-tree index for the reset to restore
+    await post(handle.url, "api/save", { comments: [{ ...requested, intent: "question" }] });
+    await post(handle.url, "api/ask", { id: "c1" });
+    await post(handle.url, "api/ask", { annotationId: "q1", messageId: "q1-m1" });
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
+    assert.equal((await post(handle.url, "api/reset", {})).status, 200);
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
+      questions: Array<{ body: string }>;
+    };
+    assert.deepEqual(
+      ev.questions.map((q) => q.body),
+      ["why?"],
+    );
+  });
+});
+
 test("asking the same message again while its question sits queued queues it once", async () => {
   await withQuestionDesk(async (handle) => {
     await post(handle.url, "api/save", { comments: [{ ...requested, intent: "question" }] });

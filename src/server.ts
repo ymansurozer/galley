@@ -368,20 +368,25 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     const m = a?.comments.find((x) => x.id === id && isAsked(x));
     return a && m ? { a, m } : undefined;
   };
-  // The message each question was asked in. A queued question whose message is no longer an open
-  // question (turned into a change request, resolved or deleted) has nothing left to answer, so
-  // it's withdrawn: after every save, and before the await drains the queue. One asked by its
-  // path and body alone names no message, and stays.
+  // The message each question was asked in. A queued question the reviewer takes back (its message
+  // turned into a change request, resolved or deleted by a save or a reset) has nothing left to
+  // answer, so it's withdrawn. Only the reviewer's own change withdraws: a reload that drops a
+  // thread along with its file leaves its question queued, and it's still delivered. One asked by
+  // its path and body alone names no message, and stays.
   const askedIn = new WeakMap<QuestionPayload, string>();
   const stillAsked = (q: QuestionPayload) => {
     const id = askedIn.get(q);
     if (id === undefined) return true;
     return q.lane === "code" ? !!codeQuestion(id) : !!uiQuestion(q.annotationId, id);
   };
-  const withdrawQuestions = () => {
+  // Taken just before the reviewer's change: withdrawQuestions drops the ones it took back.
+  const askedQuestions = () =>
+    new Set(eventQueue.filter((ev) => ev.kind === "question" && stillAsked(ev.question)));
+  const withdrawQuestions = (askedBefore: Set<AwaitEvent>) => {
     for (let i = eventQueue.length - 1; i >= 0; i--) {
       const ev = eventQueue[i];
-      if (ev.kind === "question" && !stillAsked(ev.question)) eventQueue.splice(i, 1);
+      if (ev.kind === "question" && askedBefore.has(ev) && !stillAsked(ev.question))
+        eventQueue.splice(i, 1);
     }
   };
 
@@ -696,8 +701,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // metadata stay authoritative here. Pick from whatever body arrives so a stale open
         // tab still posting the old full-state body keeps working (extra fields ignored).
         return await serialize(async () => {
-          mergeReviewerSave(state, JSON.parse(await readBody(req)), saveStamp());
-          withdrawQuestions();
+          const body: unknown = JSON.parse(await readBody(req));
+          const asked = askedQuestions();
+          mergeReviewerSave(state, body, saveStamp());
+          withdrawQuestions(asked);
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
           return json(res, 200, { ok: true, file });
@@ -819,9 +826,6 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // `questions` holds them in arrival order. Safe because a Send flushes every queued
         // question before enqueuing its review (see /api/send), so a review can never sit
         // between two queued questions; draining all questions can't skip past a review.
-        // Questions withdrawn while they sat queued are dropped first; if none are left, the agent
-        // gets the next event.
-        withdrawQuestions();
         if (eventQueue[0]?.kind === "question") {
           const batched: QuestionPayload[] = [];
           for (let i = eventQueue.length - 1; i >= 0; i--) {
@@ -1216,8 +1220,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               git(["reset", "HEAD", "--", ...paths], state.root),
             );
           }
+          const asked = askedQuestions();
           state.comments = [];
           state.annotations = [];
+          withdrawQuestions(asked);
           state.lastAnnotationNumber = 0;
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
