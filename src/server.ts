@@ -191,10 +191,12 @@ export function resolveBinding(host: string, hostname: string, allowedHostsEnv: 
 // allowed. Fetch metadata closes what Origin leaves open, since a GET carries no Origin and the
 // proxied app knows the desk's origin. The browser marks another page's requests `same-site` (the
 // proxy is another port on the same host) or `cross-site`, on every method; the desk tab's own are
-// `same-origin`, a typed or opened URL is `none`, and the CLI sends none at all. Browsers send
-// fetch metadata only to a secure context (loopback counts), so over a plain-http `GALLEY_HOST`
-// bind this check is absent, and the GET that matters most is guarded on its own (AGENT_HEADER).
-// Returns false once it has answered 403.
+// `same-origin`, a typed or opened URL is `none`, and the CLI sends none at all. The one request
+// from another site let through is a link followed to the desk page: a top-level navigation, which
+// lands on the desk's own page and can't frame it (frame-ancestors). Browsers send fetch metadata
+// only to a secure context (loopback counts), so over a plain-http `GALLEY_HOST` bind this check
+// is absent, and the GET that matters most is guarded on its own (AGENT_HEADER). Returns false
+// once it has answered 403.
 function originAllowed(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -214,7 +216,12 @@ function originAllowed(
     return false;
   }
   const site = req.headers["sec-fetch-site"];
-  if (site === "same-site" || site === "cross-site") {
+  const openedPage =
+    req.method === "GET" &&
+    new URL(req.url ?? "/", "http://127.0.0.1").pathname === "/" &&
+    req.headers["sec-fetch-mode"] === "navigate" &&
+    req.headers["sec-fetch-dest"] === "document";
+  if ((site === "same-site" || site === "cross-site") && !openedPage) {
     fail(
       res,
       403,

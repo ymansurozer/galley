@@ -1237,6 +1237,26 @@ test("the desk forbids framing, so no page can overlay it", async () => {
   });
 });
 
+test("a link from another site opens the desk page, but reaches nothing else", async () => {
+  await withServer(async (handle) => {
+    const crossSite = (route: string, mode: string, dest: string) =>
+      rawRequest(`${handle.url}${route}`, {
+        headers: { "sec-fetch-site": "cross-site", "sec-fetch-mode": mode, "sec-fetch-dest": dest },
+      });
+    assert.equal((await crossSite("", "navigate", "document")).status, 200, "a followed link");
+    assert.equal((await crossSite("?from=chat", "navigate", "document")).status, 200);
+    for (const [route, mode, dest] of [
+      ["", "navigate", "iframe"],
+      ["", "no-cors", "image"],
+      ["api/poll", "navigate", "document"],
+      ["ui.js", "no-cors", "script"],
+    ]) {
+      const res = await crossSite(route!, mode!, dest!);
+      assert.equal(res.status, 403, `${route} ${mode} ${dest}`);
+    }
+  });
+});
+
 test("the event long-poll answers only the CLI, so a page can't take the agent's event even off loopback", async () => {
   await withServer(
     async (handle) => {
