@@ -66,6 +66,17 @@ export const answered = (question: ThreadMessage, thread: readonly ThreadMessage
       +new Date(r.createdAt) > +new Date(question.askedAt ?? question.createdAt),
   );
 
+// What a reviewer's message turns into: a change request into a question, and back. A note, or
+// the agent's message, doesn't turn.
+export const turnsInto = (m: ThreadMessage) =>
+  m.role === "agent"
+    ? null
+    : m.intent === "action"
+      ? ("question" as const)
+      : m.intent === "question"
+        ? ("action" as const)
+        : null;
+
 // Turn a reviewer's message into the other kind. Turned into a question, it's asked now, so an
 // agent reply from before doesn't answer it.
 export function turnInto(m: ThreadMessage, intent: "action" | "question", now: string) {

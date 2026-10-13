@@ -1,7 +1,7 @@
 import { S, toast, persist, saver } from "./store";
 import { toDisplayLine } from "./changes";
 import { render } from "./render";
-import { turnInto } from "./uilane-derive";
+import { turnInto, turnsInto } from "./uilane-derive";
 
 // Edit & delete the reviewer's own comments. Agent replies (role "agent") are
 // read-only and never get edit/delete affordances, but we guard here too.
@@ -48,8 +48,8 @@ export async function askComment(id: string) {
 // is asked now, as a fresh Ask is; a question turned into a change request goes with the next Send.
 export function turnComment(id: string) {
   const comment = S.state.comments.find((c) => c.id === id);
-  if (!comment || comment.role === "agent") return;
-  const intent = comment.intent === "question" ? "action" : "question";
+  const intent = comment && turnsInto(comment);
+  if (!comment || !intent) return;
   turnInto(comment, intent, new Date().toISOString());
   render();
   persist();

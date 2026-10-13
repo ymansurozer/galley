@@ -787,7 +787,16 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             body: text,
           });
         }
-        if (asked !== undefined) askedIn.set(question, asked);
+        if (asked !== undefined) {
+          // Asked again while its question is still queued (turned into a change request and back
+          // before the save in between landed): this ask replaces the queued one.
+          for (let i = eventQueue.length - 1; i >= 0; i--) {
+            const ev = eventQueue[i];
+            if (ev.kind === "question" && askedIn.get(ev.question) === asked)
+              eventQueue.splice(i, 1);
+          }
+          askedIn.set(question, asked);
+        }
         // Bake the singular into a one-element `questions` here so a question handed straight
         // to a parked waiter already carries the array — batching only has to merge on drain.
         emitEvent({ kind: "question", question, questions: [question] });

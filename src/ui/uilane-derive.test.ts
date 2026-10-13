@@ -25,6 +25,7 @@ import {
   stepOrder,
   targetLabel,
   turnAnnotationInto,
+  turnsInto,
   waitingCount,
 } from "./uilane-derive.js";
 
@@ -555,6 +556,14 @@ test("turning an annotation into a question turns its pin and what's sent togeth
   a.comments.push(msg("a4", "agent", "2026-10-13T10:05:00.000Z"));
   assert.equal(isWaiting(a), false);
   assert.equal(rowTitle(a), "#1 · Question · Answered");
+});
+
+test("only a reviewer's change request or question turns", () => {
+  assert.equal(turnsInto(msg("a", "user", T0, "action")), "question");
+  assert.equal(turnsInto(msg("q", "user", T0, "question")), "action");
+  assert.equal(turnsInto(msg("n", "user", T0, "note")), null);
+  assert.equal(turnsInto(msg("u", "user", T0)), null);
+  assert.equal(turnsInto(msg("r", "agent", T0, "action")), null);
 });
 
 test("a code thread's question is answered by an agent reply after it was asked", () => {

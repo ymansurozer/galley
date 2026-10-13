@@ -25,6 +25,7 @@ import {
   stepFrom,
   stepOrder,
   turnAnnotationInto,
+  turnsInto,
   waitingCount,
 } from "./uilane-derive";
 import {
@@ -549,8 +550,8 @@ function threadControls(a: UiAnnotationRecord): ThreadControls {
     },
     turn: (messageId) => {
       const opener = a.comments[0];
-      if (opener?.id !== messageId || opener.role === "agent") return;
-      const intent = opener.intent === "question" ? "action" : "question";
+      const intent = opener?.id === messageId ? turnsInto(opener) : null;
+      if (!opener || !intent) return;
       turnAnnotationInto(a, intent, new Date().toISOString());
       renderUiLane();
       persist();

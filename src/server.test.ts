@@ -812,6 +812,29 @@ test("a queued question turned into a change request, resolved or deleted is wit
   });
 });
 
+test("asking the same message again while its question sits queued queues it once", async () => {
+  await withQuestionDesk(async (handle) => {
+    await post(handle.url, "api/save", { comments: [{ ...requested, intent: "question" }] });
+    // Turned into a change request and back within one save window: the save in between never
+    // lands, so the first ask is still queued when the second arrives.
+    for (const body of [
+      { id: "c1" },
+      { id: "c1" },
+      { annotationId: "q1", messageId: "q1-m1" },
+      { annotationId: "q1", messageId: "q1-m1" },
+    ])
+      await post(handle.url, "api/ask", body);
+    assert.equal((await getState(handle.url)).queuedQuestions, 2);
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
+      questions: Array<{ body: string }>;
+    };
+    assert.deepEqual(
+      ev.questions.map((q) => q.body),
+      ["Rename this", "Why is this a draft?"],
+    );
+  });
+});
+
 test("a code ask by id names a saved, open question of the reviewer's, or is a 404", async () => {
   await withServer(async (handle) => {
     await post(handle.url, "api/save", {

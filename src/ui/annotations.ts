@@ -19,7 +19,7 @@ import {
 } from "./composer";
 import { render } from "./render";
 import { isBlockSkimCollapsed, skimStripLabel, toggleSkimBlock } from "./skim";
-import { answered } from "./uilane-derive";
+import { answered, turnsInto } from "./uilane-derive";
 import type {
   AnnotationInput,
   AnnotationMeta,
@@ -247,10 +247,10 @@ export function buildCommentThread(
                   : "";
             const awaiting = own && m.intent === "question" && !answered(m, c.comments);
             // Only the opening message carries the thread's kind, so only it turns.
-            const turn =
-              own && i === 0
-                ? `<button class="turn-comment" data-id="${m.id}">${m.intent === "question" ? "Turn into change request" : "Turn into ask"}</button>`
-                : "";
+            const into = i === 0 ? turnsInto(m) : null;
+            const turn = into
+              ? `<button class="turn-comment" data-id="${m.id}">${into === "question" ? "Turn into ask" : "Turn into change request"}</button>`
+              : "";
             const actions =
               own && !editing
                 ? `<span class="msg-actions">${turn}<button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>`
