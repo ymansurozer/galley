@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -67,18 +67,34 @@ test("running cli.ts through a symlink (npm bin shape) still runs main()", async
 
 const CLI = fileURLToPath(new URL("./cli.ts", import.meta.url));
 
-// Hermetic: HOME isolates ~/.galley, no update check, and no inherited GALLEY_HOST (the desk must
-// print its loopback URL).
+// Hermetic: HOME isolates ~/.galley, no update check, HOME/bin's fake browser opener shadows the
+// real one (see tempRepo), and no inherited GALLEY_HOST (the desk must print its loopback URL).
 function cliEnv(home: string) {
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, GALLEY_NO_UPDATE_CHECK: "1" };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HOME: home,
+    GALLEY_NO_UPDATE_CHECK: "1",
+    PATH: `${path.join(home, "bin")}${path.delimiter}${process.env.PATH ?? ""}`,
+  };
   delete env.GALLEY_HOST;
   delete env.GALLEY_ALLOWED_HOSTS;
   return env;
 }
 
-// A throwaway repo, plus a separate HOME so the desk's ~/.galley never lands in the tree.
+// The OS command a desk opens its URL with (server.ts openUrl). Windows' `cmd /c start` can't be
+// shadowed on PATH, so the browser-opening test skips there.
+const OPENER = process.platform === "darwin" ? "open" : "xdg-open";
+
+// A throwaway repo, plus a separate HOME so the desk's ~/.galley never lands in the tree. HOME/bin
+// holds a fake opener that logs each URL to HOME/opened.log instead of opening a tab.
 async function tempRepo(dirty: boolean) {
   const home = await mkdtemp(path.join(tmpdir(), "galley-cli-home-"));
+  await mkdir(path.join(home, "bin"));
+  await writeFile(
+    path.join(home, "bin", OPENER),
+    `#!/bin/sh\nprintf '%s\\n' "$1" >> "${path.join(home, "opened.log")}"\n`,
+    { mode: 0o755 },
+  );
   const dir = await realpath(await mkdtemp(path.join(tmpdir(), "galley-cli-ui-")));
   const run = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
   run("init", "-q");
@@ -102,9 +118,16 @@ const runCli = (args: string[], home: string) =>
     timeout: 30_000,
   });
 
+// The URLs the fake opener was handed, in order.
+const opened = (home: string) =>
+  readFile(path.join(home, "opened.log"), "utf8").then(
+    (log) => log.split("\n").filter(Boolean),
+    () => [],
+  );
+
 // Launch a persistent desk and resolve with its loopback URL once it prints it.
 function startDesk(args: string[], home: string): Promise<{ child: ChildProcess; url: string }> {
-  const child = spawn(process.execPath, ["--import", "tsx", CLI, ...args, "--no-open"], {
+  const child = spawn(process.execPath, ["--import", "tsx", CLI, ...args], {
     env: cliEnv(home),
     stdio: ["ignore", "ignore", "pipe"],
   });
@@ -234,6 +257,34 @@ test("a bare galley restarts a stopped UI-only desk on its persisted target", as
     await cleanup();
   }
 });
+
+// ── Opening the browser: a desk start prints its URL and opens a tab only on --open ───────────
+
+test(
+  "a fresh desk start opens no browser unless --open; --no-open still parses",
+  { skip: process.platform === "win32" },
+  async () => {
+    const { repo, home, cleanup } = await tempRepo(true);
+    const children: ChildProcess[] = [];
+    const start = async (args: string[]) => {
+      const desk = await startDesk([...args, "--repo", repo, "--port", "0"], home);
+      children.push(desk.child);
+      return desk.url;
+    };
+    try {
+      await start(["--session", "plain"]);
+      await start(["file", path.join(repo, "a.txt")]);
+      await start(["--session", "legacy", "--no-open"]);
+      // startServer awaits the opener before the URL is printed, so the log is final here.
+      assert.deepEqual(await opened(home), [], "no tab by default");
+      const url = await start(["--session", "asked", "--open"]);
+      assert.deepEqual(await opened(home), [url], "--open opens the printed URL");
+    } finally {
+      for (const c of children) c.kill();
+      await cleanup();
+    }
+  },
+);
 
 // ── `galley comment --ui`: live over HTTP, else appended to the saved review ──────────────────
 

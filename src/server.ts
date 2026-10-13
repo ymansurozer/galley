@@ -79,6 +79,8 @@ export type ServerOptions = {
   // Preferred port for the UI proxy (stableUiPort), started once the state has a UI target.
   // Default: a random port.
   uiPort?: number;
+  // Open the browser URL once listening (--open). Default: don't — an agent usually starts the
+  // desk in the background, so an uninvited tab gets in the way; the reviewer opens the printed URL.
   open?: boolean;
   // Test seam: lets server.test.ts assert the resolved editor invocation without
   // actually launching anything.
@@ -1285,6 +1287,6 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   const port = boundPort();
   const url = `http://${binding.browserHost}:${port}/`;
   const lockUrl = `http://${binding.lockHost}:${port}/`;
-  if (options.open !== false) await openUrl(url);
+  if (options.open) await openUrl(url);
   return { server, url, lockUrl };
 }
