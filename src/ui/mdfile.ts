@@ -75,6 +75,7 @@ export function renderMarkdownFile() {
     comments.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
     const thread = document.createElement("div");
     thread.className = "annotation md-thread";
+    thread.dataset.thread = String(line); // the change-request walk's target (requests.ts)
     const meta: ThreadMeta = {
       type: "thread",
       path: f.path,

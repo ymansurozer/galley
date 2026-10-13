@@ -155,10 +155,11 @@ function landAt(side: Side, line: number): boolean {
 }
 
 // Jump used by the blockers list. Retries once across two frames so a just-triggered
-// collapsed-region expansion (which rerenders) has laid out its rows.
-export function cursorJumpTo(side: Side, line: number) {
-  if (!landAt(side, line))
-    requestAnimationFrame(() => requestAnimationFrame(() => landAt(side, line)));
+// collapsed-region expansion (which rerenders) has laid out its rows. True when it landed at once.
+export function cursorJumpTo(side: Side, line: number): boolean {
+  if (landAt(side, line)) return true;
+  requestAnimationFrame(() => requestAnimationFrame(() => landAt(side, line)));
+  return false;
 }
 
 // ── Go to line ───────────────────────────────────────────────────────────────

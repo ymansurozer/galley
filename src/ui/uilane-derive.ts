@@ -53,8 +53,10 @@ export function pageName(title: string | undefined, route: string): string {
 export const requestsChange = (a: UiAnnotationRecord) =>
   a.intent === "change" || a.comments.some((m) => m.role !== "agent" && m.intent === "action");
 
+export const isOpenChange = (a: UiAnnotationRecord) => a.status === "open" && requestsChange(a);
+
 export const openChangeCount = (list: readonly UiAnnotationRecord[]) =>
-  list.filter((a) => a.status === "open" && requestsChange(a)).length;
+  list.filter(isOpenChange).length;
 
 // A question is answered once an agent reply lands after it was asked, in its thread: the code
 // lane's waiting indicator (annotations.ts) and the UI lane's rows both read it. state.ts keeps the

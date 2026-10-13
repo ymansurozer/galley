@@ -2096,6 +2096,59 @@
       color: var(--amber)
     }
 
+    /* The review's open change requests, in the top bar: a click (or ]) walks to the next one.
+       Quiet beside Send, borderless like the blockers chip; amber is the change-request color the
+       tree's flag badge wears. Narrow, it keeps the flag and the count; narrower still it would
+       push the actions onto two lines, so it leaves the bar to them (] still walks). */
+    .actions .req-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 0;
+      border-radius: var(--radius);
+      background: transparent;
+      padding: 5px 8px;
+      color: var(--muted);
+      font-size: var(--text-sm);
+      white-space: nowrap;
+      cursor: pointer
+    }
+
+    .actions .req-chip .ic {
+      color: var(--amber)
+    }
+
+    .actions .req-chip b {
+      margin-right: -2px;
+      color: var(--amber-fg);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums
+    }
+
+    .actions .req-chip:hover {
+      color: var(--ink);
+      background: color-mix(in srgb, var(--amber) 10%, transparent)
+    }
+
+    .actions .req-chip:focus-visible {
+      outline: 1px solid var(--amber);
+      outline-offset: 1px
+    }
+
+    @media(max-width:1100px) {
+
+      .actions .req-chip .req-label,
+      .actions .req-chip kbd {
+        display: none
+      }
+    }
+
+    @media(max-width:760px) {
+      .actions .req-chip {
+        display: none
+      }
+    }
+
     .actions .agent-status {
       font-size: var(--text-xs);
       color: var(--cyan);
@@ -2674,7 +2727,8 @@
       color: var(--muted)
     }
 
-    /* Flash a strip thread when jumped to from the blockers list. */
+    /* Flash a thread off the diff rows (the strip's, a rendered markdown file's) when jumped to
+       from the blockers list or the change-request walk. */
     @keyframes blocker-flash {
       0% {
         background: rgba(224, 175, 104, .25)
@@ -2685,7 +2739,8 @@
       }
     }
 
-    .unanchored-strip .annotation.flash {
+    .unanchored-strip .annotation.flash,
+    .md-file .md-thread.flash {
       animation: blocker-flash 1.2s ease-out
     }
 
@@ -4396,7 +4451,11 @@
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
         </div>
       </div>
-      <div class="actions"><span class="agent-status" x-cloak
+      <div class="actions"><button class="req-chip" x-cloak x-show="$store.g.view==='code' && $store.g.openRequests()"
+          data-tip="Next open change request (])" :aria-label="'Next open change request, ' + $store.g.openRequests() + ' open'"
+          @click="$store.g.nextRequest()"><svg class="ic"><use href="#gly-flag"></use></svg><b
+            x-text="$store.g.openRequests()"></b><span class="req-label"
+            x-text="$store.g.openRequests() === 1 ? 'open request' : 'open requests'"></span><kbd>]</kbd></button><span class="agent-status" x-cloak
           :class="{queued: $store.g.queuedReviews > 0}"
           x-show="$store.g.awaitingAgent && ($store.g.queuedReviews > 0 || $store.g.agentActivity)"
           x-text="$store.g.queuedReviews > 0 ? 'No agent attached — review queued' : $store.g.agentActivity"></span><span class="top-pct" id="progressPct" style="display:none"></span><button class="btn icon top-settings" data-tip="Settings (⇧,)" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
