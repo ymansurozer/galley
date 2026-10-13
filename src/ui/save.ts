@@ -31,7 +31,7 @@ export type Saver = {
   // Request a save. Sends immediately if idle; otherwise schedules exactly one trailing save.
   trigger: () => void;
   // Request a save that can wait (what the app page reports, not what the reviewer did): one
-  // trigger `soonMs` later however many arrive meanwhile, or none if a trigger() saves first, since
+  // trigger a second later however many arrive meanwhile, or none if a trigger() saves first, since
   // its snapshot carries them. Not busy while it waits, so a page reporting in a loop can neither
   // flood the desk with full saves nor hold off the poll's diff adoption.
   triggerSoon: () => void;
@@ -44,11 +44,9 @@ export type Saver = {
   settled: () => Promise<void>;
 };
 
-export function createSaver<T>(
-  getPayload: () => T,
-  send: (payload: T) => Promise<unknown>,
-  soonMs = 1000,
-): Saver {
+const SOON_MS = 1000;
+
+export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promise<unknown>): Saver {
   let inFlight = false;
   let pending = false;
   let soon: ReturnType<typeof setTimeout> | undefined;
@@ -84,7 +82,7 @@ export function createSaver<T>(
   return {
     trigger,
     triggerSoon() {
-      soon ??= setTimeout(trigger, soonMs);
+      soon ??= setTimeout(trigger, SOON_MS);
     },
     isBusy() {
       return inFlight || pending;
