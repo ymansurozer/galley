@@ -7,12 +7,21 @@ import { refind, stands, type Found } from "./refind";
 // navigation, then a quiet spell without DOM changes (or, on a page that never stops changing, a
 // bounded wait). A target found there is placed. One not found is looked for again at each later
 // quiet spell, and is unplaced only once `cap` has passed since the page's scripts ran (or since
-// its mark came, if later): a slow page isn't taken for a missing target. After that, every DOM
-// change has the marks checked again: a mark whose elements left the page (a re-render, a closed
-// dialog) is looked for anew, and an unplaced one may turn up. The desk hears each mark's first
-// answer, then only changes.
+// its mark came, if later) and the page has gone `idle` without changing its DOM or loading
+// anything: a dev server still serving modules, or data still arriving, isn't taken for a missing
+// target. A page that never idles gives up after `giveUp`. After that, every DOM change has the
+// marks checked again: a mark whose elements left the page (a re-render, a closed dialog) is
+// looked for anew, and an unplaced one may turn up. The desk hears each mark's first answer, then
+// only changes.
 
-export const SETTLE = { grace: 600, quiet: 400, maxWait: 2000, cap: 4000 };
+export const SETTLE = {
+  grace: 600,
+  quiet: 400,
+  maxWait: 2000,
+  cap: 4000,
+  idle: 1500,
+  giveUp: 30_000,
+};
 
 // Time, passed in so tests can run it by hand: `after` runs `fn` once in `ms`, and returns a cancel.
 export type Clock = { now: () => number; after: (ms: number, fn: () => void) => () => void };
@@ -40,14 +49,20 @@ export function marksPlacer(
   const entries = new Map<string, Entry>();
   let navAt = clock.now();
   let lastChange = navAt;
+  // The last DOM change or resource load: the page is idle once this is `idle` behind.
+  let lastBusy = navAt;
   // When the page's scripts had run (DOMContentLoaded): no target is unplaced before that.
   let readyAt: number | null = null;
   // Since when a look is due because the page changed or a mark came; null when none is.
   let dueSince: number | null = null;
   let cancel: (() => void) | null = null;
 
-  const deadline = (e: Entry) =>
-    readyAt === null ? Infinity : Math.max(readyAt, e.since) + SETTLE.cap;
+  // When a mark still looked for is unplaced: past its cap with the page idle, or past giving up.
+  const deadline = (e: Entry) => {
+    if (readyAt === null) return Infinity;
+    const from = Math.max(readyAt, e.since);
+    return Math.min(Math.max(from + SETTLE.cap, lastBusy + SETTLE.idle), from + SETTLE.giveUp);
+  };
 
   function look() {
     cancel = null;
@@ -119,8 +134,13 @@ export function marksPlacer(
     },
     // The page's DOM changed.
     changed() {
-      lastChange = clock.now();
+      lastChange = lastBusy = clock.now();
       if (entries.size) due();
+    },
+    // The page loaded a resource (a module, a stylesheet, data): it's still busy, so a target not
+    // found yet isn't unplaced yet.
+    fetched() {
+      lastBusy = clock.now();
     },
     // The page's scripts have run.
     ready() {
@@ -129,7 +149,7 @@ export function marksPlacer(
     },
     // The route changed in-page: what it renders next settles anew.
     navigated() {
-      navAt = lastChange = clock.now();
+      navAt = lastChange = lastBusy = clock.now();
     },
     // What a placed mark was found as; null while it's looked for, or unplaced.
     found(id: string): Found | null {

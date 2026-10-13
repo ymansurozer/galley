@@ -103,6 +103,33 @@ test("a target not found is unplaced only once the cap has passed since the page
   assert.equal(reports.length, 2, "looked for again, b is still unplaced: nothing to tell");
 });
 
+test("a page still loading isn't taken for a missing target, until it idles or the bridge gives up", () => {
+  const { placer, tick, reports } = setup(``);
+  placer.ready();
+  placer.set([mark("a", "#save", "Save")]);
+  // A dev server serving the app's modules one after another, past the cap.
+  for (let t = 0; t < SETTLE.cap * 2; t += 500) {
+    placer.fetched();
+    tick(500);
+  }
+  assert.deepEqual(reports, [], "still loading");
+  tick(SETTLE.idle);
+  assert.deepEqual(reports, [[{ id: "a", placement: "unplaced" }]], "idle, and still not there");
+
+  // A page that never stops loading (a poll every half second).
+  const busy = setup(``);
+  busy.placer.ready();
+  busy.placer.set([mark("b", "#help", "Help")]);
+  for (let t = 0; t < SETTLE.giveUp - 500; t += 500) {
+    busy.placer.fetched();
+    busy.tick(500);
+  }
+  assert.deepEqual(busy.reports, []);
+  busy.placer.fetched();
+  busy.tick(500);
+  assert.deepEqual(busy.reports, [[{ id: "b", placement: "unplaced" }]], "given up on");
+});
+
 test("a mark whose element leaves the page is looked for again, and comes back when it does", () => {
   const { doc, placer, tick, reports } = setup(`<button id="save">Save</button>`);
   placer.ready();

@@ -156,6 +156,12 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     subtree: true,
     characterData: true,
   });
+  // Resource timing reports each script, stylesheet and fetch the page finishes loading.
+  try {
+    new PerformanceObserver(() => placer.fetched()).observe({ type: "resource" });
+  } catch {
+    // No resource timing here: the page counts as idle once its DOM stops changing.
+  }
   if (document.readyState === "loading")
     addEventListener("DOMContentLoaded", () => placer.ready(), { once: true });
   else placer.ready();
