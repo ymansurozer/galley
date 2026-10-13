@@ -266,14 +266,21 @@ export function applyActiveRow() {
   if (path) followActiveRow(path);
 }
 
-// Bring the active row into view: open the collapsed folders above it, then scroll to it. Only a
-// reviewed in-flow file can be hidden: all its folders are changed ones (open unless in
-// collapsedDirs) and, as a changed test, it holds its parent's test fold open. A preview only
-// ever opens from its visible row, and an out-of-flow file sits in the Skimmed group instead.
+// Bring the active row into view: open the collapsed folders above it, then scroll to it. A
+// reviewed in-flow file's folders are all changed ones (open unless in collapsedDirs) and, as a
+// changed test, it holds its parent's test fold open. A preview can open without its row showing
+// (`]` to a change request on an unchanged file), and its folders may be unchanged ones, closed
+// unless in expandedDirs; with unchanged files hidden it has no row at all. An out-of-flow file
+// sits in the Skimmed group instead.
 function followActiveRow(path: string) {
-  if (!S.preview && !flowIndex().outOfFlow.has(path)) {
+  const reveal = S.preview ? S.settings.showUnchanged : !flowIndex().outOfFlow.has(path);
+  if (reveal) {
     const parts = path.split("/").filter(Boolean);
-    for (let i = 1; i < parts.length; i++) S.collapsedDirs.delete(parts.slice(0, i).join("/"));
+    for (let i = 1; i < parts.length; i++) {
+      const dir = parts.slice(0, i).join("/");
+      S.collapsedDirs.delete(dir);
+      if (S.preview) S.expandedDirs.add(dir);
+    }
   }
   showActiveRow();
 }
