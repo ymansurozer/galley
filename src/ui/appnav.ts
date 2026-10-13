@@ -11,9 +11,10 @@ import type {
   UiSource,
 } from "./types";
 
-// Pure helpers for the UI view's traffic with the bridge (kept free of the store so they unit-test
-// without a DOM). The app page is untrusted: what it posts is re-validated and capped here before
-// it touches the store. The server checks a saved annotation against the same caps again.
+// Pure helpers for the UI view's traffic with the bridge and the desk's UI status (kept free of the
+// store so they unit-test without a DOM). The app page is untrusted: what it posts is re-validated
+// and capped here before it touches the store. The server checks a saved annotation against the
+// same caps again.
 
 const CAPS: UiCaps = {
   selector: 512,
@@ -104,6 +105,16 @@ function forwardedKey(d: Obj): ForwardedKey | null {
     return { key, code: SHIFT_CHORDS[key]!, shiftKey: true, altKey: false };
   return null;
 }
+
+// Whether `galley reload` ran since the tab last adopted the desk's reload counter
+// (DeskStatus.reloadGeneration): it moved within one desk process. A different proxy token is a
+// new process, whose counter starts over, so that's only a new baseline. A reload is the agent
+// coming back from a Send whether or not the diff moved: on a UI-only desk the counter is the
+// only thing that does.
+export const reloadRan = (
+  adopted: { token: string | undefined; generation: number },
+  polled: { token: string | undefined; generation: number },
+) => adopted.token === polled.token && adopted.generation !== polled.generation;
 
 // Whether a key passed up from the app runs: ⌥A always; the rest only while annotating, since in
 // Interact mode the app's keys are its own (Esc included).

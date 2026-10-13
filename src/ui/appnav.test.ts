@@ -1,7 +1,13 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 
-import { captureWaits, forwardedKeyRuns, readBridgeMessage, routeFromInput } from "./appnav";
+import {
+  captureWaits,
+  forwardedKeyRuns,
+  readBridgeMessage,
+  reloadRan,
+  routeFromInput,
+} from "./appnav";
 
 const TOKEN = "t0k";
 
@@ -343,6 +349,19 @@ test("a forwarded key runs only while annotating, except ⌥A", () => {
   assert.equal(forwardedKeyRuns(altP, "annotate"), true);
   assert.equal(forwardedKeyRuns(shiftL, "annotate"), true);
   assert.equal(forwardedKeyRuns(escape, "annotate"), true);
+});
+
+test("a moved reload counter is the agent's `galley reload`, diff or no diff; a new desk process isn't", () => {
+  const desk = (token: string | undefined, generation: number) => ({ token, generation });
+  // A UI-only desk: the diff stays empty, so the counter is all that says the agent is back.
+  assert.equal(reloadRan(desk("t1", 3), desk("t1", 4)), true);
+  assert.equal(reloadRan(desk("t1", 4), desk("t1", 4)), false, "no reload since the last poll");
+  // A desk without a UI target has no proxy token; its counter moves the same way.
+  assert.equal(reloadRan(desk(undefined, 0), desk(undefined, 1)), true);
+  // A restarted desk (new token) counts from 0 again, and the tab's first poll meets the first
+  // token it sees: both are a baseline, not a reload.
+  assert.equal(reloadRan(desk("t1", 5), desk("t2", 0)), false);
+  assert.equal(reloadRan(desk(undefined, 0), desk("t1", 2)), false);
 });
 
 test("readBridgeMessage reads pin clicks and anchor moves", () => {

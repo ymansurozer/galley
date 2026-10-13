@@ -1,6 +1,12 @@
 import { S, $, toast } from "./store";
 import { render } from "./render";
-import { captureWaits, forwardedKeyRuns, readBridgeMessage, routeFromInput } from "./appnav";
+import {
+  captureWaits,
+  forwardedKeyRuns,
+  readBridgeMessage,
+  reloadRan,
+  routeFromInput,
+} from "./appnav";
 import { dispatchKey } from "./keys";
 import {
   appModeNow,
@@ -211,26 +217,31 @@ export function fromAppViewport(r: Rect): Rect | null {
   };
 }
 
-// The desk's UI status off every poll. A changed token means a new desk process: its reload
-// counter starts over, so adopt it as the baseline, and the loaded page's bridge (still carrying
-// the old token) is no longer trusted until the page reloads. Within one process, a moved
-// generation means `galley reload` ran, which raises the refresh pill but never reloads the app.
-export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number) {
+// The desk's UI status off every poll; true when `galley reload` ran since the last one. A changed
+// token means a new desk process: its reload counter starts over, so adopt it as the baseline, and
+// the loaded page's bridge (still carrying the old token) is no longer trusted until the page
+// reloads. Within one process, a moved generation means `galley reload` ran, which raises the
+// refresh pill but never reloads the app.
+export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): boolean {
   const prev = S.uiProxy;
+  const reloaded = reloadRan(
+    { token: prev?.token, generation: S.reloadGeneration },
+    { token: proxy?.token, generation },
+  );
   S.uiProxy = proxy;
+  S.reloadGeneration = generation;
+  if (reloaded) {
+    if (S.app.loaded) S.app.stale = true;
+    return true;
+  }
   if (prev?.token !== proxy?.token) {
-    S.reloadGeneration = generation;
     S.app.connected = false;
     // A restarted desk normally gets its stable proxy port back; if not, follow it.
     if (prev && proxy && prev.port !== proxy.port && S.app.loaded) loadApp(S.app.route);
     // The UI view opened before the proxy was up: load now.
     else if (proxy && S.view === "ui" && !S.app.loaded) loadApp(targetRoute());
-    return;
   }
-  if (generation !== S.reloadGeneration) {
-    S.reloadGeneration = generation;
-    if (S.app.loaded) S.app.stale = true;
-  }
+  return false;
 }
 
 // The UI target off the poll: `galley ui <url>` on the live desk. A loaded view switches to it.
