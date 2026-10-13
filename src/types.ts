@@ -198,6 +198,13 @@ export type ReviewState = {
   // Stable identity of the review: repo + session (branch by default).
   session: string;
   root: string;
+  // What the desk's header and tab title name. project is the MAIN worktree's folder, so a desk in
+  // a linked worktree (whose root is the worktree folder) still names the real project; a file
+  // outside any repo names its folder. branch is the checked-out branch, absent on a detached HEAD.
+  // Recomputed on every build — a reload/restart takes the rebuild's, never a saved review's.
+  // Optional because reviews saved by older versions lack both.
+  project?: string;
+  branch?: string;
   repoHash: string;
   // How this review was built — drives staging semantics, result wording, and
   // how `reload` rebuilds the diff.
@@ -552,7 +559,7 @@ export type FileContentsPayload = {
 // `ui` rides along so `galley ui` on a live desk reaches the open tab without a diff change.
 export type PollPayload = Pick<
   ReviewState,
-  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations"
+  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations" | "project" | "branch"
 >;
 
 // The structured payload printed to stdout (and written to result.json) when

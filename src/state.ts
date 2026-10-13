@@ -7,8 +7,10 @@ import {
   changeBlockContent,
   changeStableKeyFromBlock,
   fileAt,
+  getCheckedOutBranch,
   getGitRoot,
   getHead,
+  getProjectName,
   git,
   parseUnifiedDiff,
   rawBlobOids,
@@ -680,16 +682,19 @@ export async function buildReviewState(
   const mode = opts.mode ?? "repo";
   const emptySource: DiffSource = { files: [], changes: [], rawDiff: "", parsedDiff: [] };
   const orEmpty = (source: DiffSource | null) => source ?? (opts.allowEmpty ? emptySource : null);
-  const make = (
+  const make = async (
     root: string,
     source: DiffSource,
     extra: { staged: boolean; target?: string; base?: string },
     head: string | null,
-  ): ReviewState => {
+  ): Promise<ReviewState> => {
+    const [project, branch] = await Promise.all([getProjectName(root), getCheckedOutBranch(root)]);
     const state: ReviewState = {
       id: crypto.randomUUID(),
       session: sanitizeSession(opts.session),
       root,
+      project,
+      branch,
       repoHash: hash(root),
       mode,
       target: extra.target,

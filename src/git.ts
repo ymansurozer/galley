@@ -37,6 +37,24 @@ export async function getGitRoot(cwd: string) {
   return git(["rev-parse", "--show-toplevel"], cwd);
 }
 
+// The folder name of the MAIN worktree, for display. A linked worktree's show-toplevel is its own
+// folder, but the common git dir is always the main worktree's `.git`. Any other layout (a bare
+// repo, a submodule's .git/modules/<name>, no repo at all) names root's own folder instead.
+export async function getProjectName(root: string) {
+  const common = await git(["rev-parse", "--path-format=absolute", "--git-common-dir"], root).catch(
+    () => "",
+  );
+  return path.basename(common) === ".git"
+    ? path.basename(path.dirname(common))
+    : path.basename(root);
+}
+
+// The checked-out branch, or undefined on a detached HEAD or outside a repo — unlike getBranch,
+// which names a detached HEAD because a session key must always exist.
+export async function getCheckedOutBranch(cwd: string) {
+  return (await git(["symbolic-ref", "--short", "-q", "HEAD"], cwd).catch(() => "")) || undefined;
+}
+
 export async function getHead(cwd: string) {
   try {
     return await git(["rev-parse", "HEAD"], cwd);

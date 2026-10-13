@@ -8,7 +8,14 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { resolveEditorCommand } from "./editor.js";
-import { blobOid, git, listProjectTree, patchForChange } from "./git.js";
+import {
+  blobOid,
+  getCheckedOutBranch,
+  getProjectName,
+  git,
+  listProjectTree,
+  patchForChange,
+} from "./git.js";
 import { validateGuide } from "./guide.js";
 import { createSerializer } from "./mutex.js";
 import { parseUiTarget, startUiProxy } from "./proxy.js";
@@ -503,14 +510,16 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // The tab's 1.5s heartbeat. Deliberately tiny and git-free: the full ReviewState
         // carries the contents of every file in the diff (>100 MB on a big monorepo PR),
         // and re-serializing it every tick pegged both the desk process and the tab.
-        // Ship only what pollState diffs — hash, guide, comments, liveness; the tab
-        // fetches /api/state exactly once per baseDiffHash change.
+        // Ship only what pollState diffs — hash, guide, comments, the names the title shows,
+        // liveness; the tab fetches /api/state exactly once per baseDiffHash change.
         const poll: PollPayload = {
           baseDiffHash: state.baseDiffHash,
           guide: state.guide,
           comments: state.comments,
           ui: state.ui,
           annotations: state.annotations,
+          project: state.project,
+          branch: state.branch,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
       }
@@ -852,6 +861,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             state.rawDiff = "";
             state.baseDiffHash = hash("");
             state.annotations = unvisitedAnnotations(state.annotations);
+            // No rebuild to take them from, but the agent may have switched branches.
+            [state.project, state.branch] = await Promise.all([
+              getProjectName(state.root),
+              getCheckedOutBranch(state.root),
+            ]);
             await persistReview(state);
             reloadGeneration++;
             return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });

@@ -1,5 +1,6 @@
 import { S, D, api, toast, saver } from "./store";
 import { render } from "./render";
+import { refreshBaseTitle, updateProgress } from "./progress";
 import { updateAwaitingDom } from "./annotations";
 import { adoptUiStatus, adoptUiTarget, syncView } from "./appview";
 import { renderUiLane } from "./uilane";
@@ -29,7 +30,7 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
   return server as T;
 }
 
-// The 1.5s tick hits /api/poll — a slice of hash + guide + comments + liveness. The
+// The 1.5s tick hits /api/poll — a slice of hash + guide + comments + names + liveness. The
 // full ReviewState (file contents for the whole diff; >100 MB on a big monorepo PR)
 // is fetched from /api/state only when baseDiffHash moves: polling it every tick kept
 // the desk process pinned serializing it and the tab pinned re-parsing it.
@@ -75,6 +76,7 @@ export async function pollState() {
     const curPath = S.state?.files?.[S.fileIndex]?.path;
     keepPlacements(server.annotations ?? [], S.state.annotations ?? []);
     S.state = server;
+    refreshBaseTitle();
     D.fileDiff = null;
     const remapped = curPath ? S.state.files.findIndex((f) => f.path === curPath) : -1;
     if (remapped >= 0) S.fileIndex = remapped;
@@ -99,6 +101,14 @@ export async function pollState() {
     S.state.guide = lite.guide;
     render();
     toast("Guide updated");
+  }
+  // A branch switch can leave the diff unchanged too (`git checkout -b` keeps the working tree), so
+  // the names the header and tab title show ride the lite poll.
+  if (lite.project !== S.state.project || lite.branch !== S.state.branch) {
+    S.state.project = lite.project;
+    S.state.branch = lite.branch;
+    refreshBaseTitle();
+    updateProgress();
   }
   const localIds = new Set(S.state.comments.map((c) => c.id));
   const incoming = lite.comments.filter((c) => !localIds.has(c.id));

@@ -1844,3 +1844,33 @@ test("every /api/reload bumps reloadGeneration, even when the diff doesn't move"
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("/api/reload on a clean tree still refreshes the branch the desk names", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-reloadbranch-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q", "-b", "main"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  const st = await buildReviewState(root, { session: "s", allowEmpty: true });
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  try {
+    g(["checkout", "-q", "-b", "next"]);
+    const res = (await (await post(handle.url, "api/reload", {})).json()) as { empty: boolean };
+    assert.equal(res.empty, true, "a clean tree: the reload finds no diff");
+    const after = (await (await fetch(`${handle.url}api/state`)).json()) as ReviewState;
+    assert.equal(after.branch, "next");
+    assert.equal(after.project, path.basename(root));
+    // The diff didn't move, so the tab only learns of the switch from the poll.
+    const poll = (await getPoll(handle.url)) as unknown as ReviewState;
+    assert.equal(poll.branch, "next");
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});

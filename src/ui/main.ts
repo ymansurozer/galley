@@ -35,7 +35,7 @@ import {
   navOrder,
   walkthroughRows,
 } from "./guide";
-import { setBaseTitle, reviewStats } from "./progress";
+import { refreshBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import {
   appBack,
@@ -572,21 +572,7 @@ setMarkdownTheme(S.settings.theme);
 S.state = adoptDeskStatus(state);
 S.projectFiles = tree.files || [];
 S.lastBaseDiffHash = S.state.baseDiffHash;
-// Tab title: name the session so multiple desks are distinguishable in the browser.
-// Repo mode → repo folder; file mode → file name; pr mode → the (truncated) ref.
-{
-  const base = (p?: string) => p?.replace(/\/+$/, "").split("/").pop() || "";
-  const ref = S.state.target ?? S.state.session ?? "";
-  const name =
-    S.state.mode === "file"
-      ? base(S.state.target)
-      : S.state.mode === "pr"
-        ? ref.slice(0, 32) + (ref.length > 32 ? "…" : "")
-        : base(S.state.root);
-  if (name) document.title = `Galley — ${name}`;
-  // progress.ts prefixes the title with the review % — hand it the base to prefix.
-  setBaseTitle(document.title);
-}
+refreshBaseTitle();
 S.selected = {
   side: S.state.changes[0]?.side || "additions",
   lineNumber: S.state.changes[0]?.lineNumber || 1,
