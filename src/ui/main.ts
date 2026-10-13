@@ -35,7 +35,7 @@ import {
   navOrder,
   walkthroughRows,
 } from "./guide";
-import { setBaseTitle, reviewStats } from "./progress";
+import { refreshBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import {
   appBack,
@@ -572,18 +572,7 @@ setMarkdownTheme(S.settings.theme);
 S.state = adoptDeskStatus(state);
 S.projectFiles = tree.files || [];
 S.lastBaseDiffHash = S.state.baseDiffHash;
-// Tab title: name the project and what of it is under review, so multiple desks are
-// distinguishable in the browser. Context: repo mode → the branch; pr mode → the (truncated) head
-// branch; file mode → the file name. A detached HEAD has no branch, so the title drops it.
-{
-  const base = (p?: string) => p?.replace(/\/+$/, "").split("/").pop() || "";
-  const { mode, target, branch, project, root } = S.state;
-  const ref = (mode === "pr" ? target : branch) ?? "";
-  const context = mode === "file" ? base(target) : ref.slice(0, 32) + (ref.length > 32 ? "…" : "");
-  document.title = `Galley — ${project ?? base(root)}${context ? ` · ${context}` : ""}`;
-  // progress.ts prefixes the title with the review % — hand it the base to prefix.
-  setBaseTitle(document.title);
-}
+refreshBaseTitle();
 S.selected = {
   side: S.state.changes[0]?.side || "additions",
   lineNumber: S.state.changes[0]?.lineNumber || 1,

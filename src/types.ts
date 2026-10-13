@@ -559,7 +559,7 @@ export type FileContentsPayload = {
 // `ui` rides along so `galley ui` on a live desk reaches the open tab without a diff change.
 export type PollPayload = Pick<
   ReviewState,
-  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations"
+  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations" | "project" | "branch"
 >;
 
 // The structured payload printed to stdout (and written to result.json) when
