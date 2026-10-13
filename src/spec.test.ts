@@ -44,6 +44,9 @@ const ANCHORS = [
   "files (required, non-empty array)",
   "repo-relative; must be a file in the diff",
   "Orientation, not a changelog",
+  // a whole-file skim needs no orientation; everything else, skimBlocks-only included, does
+  "normally omits orientation",
+  "skimBlocks-only ones included",
   // skimmable review (issue 06) — the fields and the "only on request / opposite of flag" rule
   "skimBlocks?",
   "new-file-side [start, end] span",

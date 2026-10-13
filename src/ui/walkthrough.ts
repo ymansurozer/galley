@@ -45,7 +45,7 @@ export type WalkFile = {
   dir: string;
   name: string;
   fileIndex: number;
-  orientation: string; // guide markdown ("" for files the guide didn't list)
+  orientation: string; // guide markdown ("" for unlisted files and orientation-less skims)
   flag: string; // flag note ("" = not flagged); presence raises the flag icon
   skim: boolean; // the guide marked the whole file skimmable → a muted indicator
   movedFrom: string; // pure rename (issue 01): the old path, "" when not a rename
