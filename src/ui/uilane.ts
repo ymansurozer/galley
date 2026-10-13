@@ -162,6 +162,15 @@ function trimGaps(list: HTMLElement) {
   }
 }
 
+// Where the list's content ends, in its scroll coordinates. scrollHeight can't say once the content
+// fits: it never reads less than the list's own height.
+function contentEnd(list: HTMLElement) {
+  const last = list.lastElementChild;
+  if (!last) return 0;
+  const bottom = last.getBoundingClientRect().bottom - list.getBoundingClientRect().top;
+  return bottom + list.scrollTop + parseFloat(getComputedStyle(list).paddingBottom);
+}
+
 function dropGaps(list: HTMLElement) {
   if (!gaps.size) return;
   gaps.clear();
@@ -170,14 +179,21 @@ function dropGaps(list: HTMLElement) {
 
 // Expand an annotation's row and outline its target, taking the app to its page first. Null
 // collapses the row. A reply or edit open in another thread is set aside with its text.
-export function selectAnnotation(id: string | null) {
+export function selectAnnotation(id: string | null, fromList = false) {
   const a = find(id);
   const list = $("annotationList");
   const open = S.selectedAnnotation;
-  // A row in sight stays where it is. Gaps under it may close: only what's below a row moves.
-  const row = a && rowIn(list, a.id);
+  // Only a click in the list holds rows in place, since the pointer is on them. A step from the
+  // keyboard or a pin in the app scrolls its row into view instead, and leaves no gaps behind:
+  // with no pointer in the list, nothing would take them out again.
+  if (!fromList) dropGaps(list);
+  // A row in sight stays where it is: the one clicked, or the one collapsing. Gaps under it may
+  // close: only what's below a row moves.
+  const held = fromList ? (a?.id ?? open) : null;
+  const row = held ? rowIn(list, held) : null;
   const was = row?.getBoundingClientRect().top;
   const sight = list.getBoundingClientRect();
+  const scrolled = list.scrollTop;
   const keep = was !== undefined && was >= sight.top && was < sight.bottom;
   if (row)
     for (const gid of gaps.keys()) {
@@ -200,16 +216,27 @@ export function selectAnnotation(id: string | null) {
     }
   }
   if (!a || S.composerOpen || !resumeThreadDraft(a.id)) renderUiLane();
-  if (!a) return;
-  // A thread that closed above the row pulled it up: leave its space where it was.
-  if (keep && open && open !== a.id) {
-    const now = rowIn(list, a.id)?.getBoundingClientRect().top;
-    if (now !== undefined && was - now > 0.5) {
+  const now = keep && held ? rowIn(list, held)?.getBoundingClientRect().top : undefined;
+  if (now !== undefined && was !== undefined) {
+    if (a && open && open !== a.id && was - now > 0.5) {
+      // A thread that closed above the row pulled it up: leave its space where it was.
       gaps.set(open, (gaps.get(open) ?? 0) + was - now);
       placeGaps(list);
       trimGaps(list);
+    } else if (now - was > 0.5) {
+      // Space closed below the row while the list was scrolled to its end, and the scroll fell
+      // back: put back at the end what it takes to scroll where it was, then scroll there.
+      const rows = list.querySelectorAll<HTMLElement>("[data-annotation]");
+      const last = rows[rows.length - 1]?.dataset.annotation;
+      const short = scrolled + list.clientHeight - contentEnd(list);
+      if (last && short > 0.5) {
+        gaps.set(last, (gaps.get(last) ?? 0) + short);
+        placeGaps(list);
+        list.scrollTop = scrolled;
+      }
     }
   }
+  if (!a) return;
   requestAnimationFrame(() => rowIn(list, a.id)?.scrollIntoView({ block: "nearest" }));
 }
 
@@ -682,7 +709,7 @@ export function installUiLane() {
     const rowEl = t.closest<HTMLElement>("[data-annotation]");
     if (rowEl) {
       const id = rowEl.dataset.annotation ?? null;
-      selectAnnotation(id === S.selectedAnnotation ? null : id);
+      selectAnnotation(id === S.selectedAnnotation ? null : id, true);
       return;
     }
     const head = t.closest<HTMLElement>("[data-route]");
