@@ -24,6 +24,7 @@ import {
   sourcePlace,
   stepFrom,
   stepOrder,
+  turnAnnotationInto,
   waitingCount,
 } from "./uilane-derive";
 import {
@@ -545,6 +546,18 @@ function threadControls(a: UiAnnotationRecord): ThreadControls {
       if (!m || m.role === "agent") return;
       if (S.composerOpen) closeComposer();
       openComposer(a.id, m.body, m.id);
+    },
+    turn: (messageId) => {
+      const opener = a.comments[0];
+      if (opener?.id !== messageId || opener.role === "agent") return;
+      const intent = opener.intent === "question" ? "action" : "question";
+      turnAnnotationInto(a, intent, new Date().toISOString());
+      renderUiLane();
+      persist();
+      if (intent === "question") {
+        void askAgent(a.id, opener.id);
+        toast(`#${a.number} turned into an ask — waiting for answer`);
+      } else toast(`#${a.number} turned into a change request — it goes with the next Send`);
     },
     // The opening message is the annotation's body: deleting it deletes the annotation. Later
     // messages delete like code comments.

@@ -1,5 +1,6 @@
 import type {
   Rect,
+  ThreadMessage,
   UiAnnotationRecord,
   UiElement,
   UiMark,
@@ -55,18 +56,40 @@ export const requestsChange = (a: UiAnnotationRecord) =>
 export const openChangeCount = (list: readonly UiAnnotationRecord[]) =>
   list.filter((a) => a.status === "open" && requestsChange(a)).length;
 
-// An open annotation waits on the agent while a question of the reviewer's in its thread has no
-// agent reply after it (the code lane's "answered" rule, annotations.ts).
+// A question is answered once an agent reply lands after it was asked, in its thread: the code
+// lane's waiting indicator (annotations.ts) and the UI lane's rows both read it. state.ts keeps the
+// server's copy, for openQuestions.
+export const answered = (question: ThreadMessage, thread: readonly ThreadMessage[]) =>
+  thread.some(
+    (r) =>
+      r.role === "agent" &&
+      +new Date(r.createdAt) > +new Date(question.askedAt ?? question.createdAt),
+  );
+
+// Turn a reviewer's message into the other kind. Turned into a question, it's asked now, so an
+// agent reply from before doesn't answer it.
+export function turnInto(m: ThreadMessage, intent: "action" | "question", now: string) {
+  m.intent = intent;
+  if (intent === "question") m.askedAt = now;
+  else delete m.askedAt;
+}
+
+// An annotation's kind lives on it (its pin, row tint and tooltip) and on its opening message (what
+// the Send sends), so the two turn together.
+export function turnAnnotationInto(
+  a: UiAnnotationRecord,
+  intent: "action" | "question",
+  now: string,
+) {
+  a.intent = intent === "question" ? "question" : "change";
+  if (a.comments[0]) turnInto(a.comments[0], intent, now);
+}
+
+// An open annotation waits on the agent while a question of the reviewer's in its thread is
+// unanswered.
 export const isWaiting = (a: UiAnnotationRecord) =>
   a.status === "open" &&
-  a.comments.some(
-    (m) =>
-      m.role !== "agent" &&
-      m.intent === "question" &&
-      !a.comments.some(
-        (r) => r.role === "agent" && +new Date(r.createdAt) > +new Date(m.createdAt),
-      ),
-  );
+  a.comments.some((m) => m.role !== "agent" && m.intent === "question" && !answered(m, a.comments));
 
 export const waitingCount = (list: readonly UiAnnotationRecord[]) => list.filter(isWaiting).length;
 

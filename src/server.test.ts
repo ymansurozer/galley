@@ -815,7 +815,11 @@ test("a queued question turned into a change request, resolved or deleted is wit
 test("a code ask by id names a saved, open question of the reviewer's, or is a 404", async () => {
   await withServer(async (handle) => {
     await post(handle.url, "api/save", {
-      comments: [requested, replied, { ...requested, id: "c2", intent: "question", status: "resolved" }],
+      comments: [
+        requested,
+        replied,
+        { ...requested, id: "c2", intent: "question", status: "resolved" },
+      ],
     });
     for (const id of ["nope", "c1", "r1", "c2"]) {
       const res = await post(handle.url, "api/ask", { id });

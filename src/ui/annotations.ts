@@ -8,7 +8,7 @@ import {
 } from "./changes";
 import { isUnanchored } from "./unanchored";
 import { acceptChange } from "./decisions";
-import { editComment, deleteComment } from "./comments";
+import { editComment, deleteComment, turnComment } from "./comments";
 import { renderCommentBody } from "./markdown";
 import {
   buildComposer,
@@ -19,6 +19,7 @@ import {
 } from "./composer";
 import { render } from "./render";
 import { isBlockSkimCollapsed, skimStripLabel, toggleSkimBlock } from "./skim";
+import { answered } from "./uilane-derive";
 import type {
   AnnotationInput,
   AnnotationMeta,
@@ -192,6 +193,8 @@ export type ThreadControls = {
   setStatus: (status: "open" | "resolved") => void;
   edit: (messageId: string) => void;
   remove: (messageId: string) => void;
+  // Turn the opening message into the other kind: a change request into a question, or back.
+  turn: (messageId: string) => void;
 };
 
 // A code thread's controls: its comments are the ones on the thread's path/side/line.
@@ -213,6 +216,7 @@ export function lineThread(c: ThreadMeta): ThreadControls {
     },
     edit: editComment,
     remove: deleteComment,
+    turn: turnComment,
   };
 }
 
@@ -230,7 +234,7 @@ export function buildCommentThread(
     c.status === "resolved"
       ? `<div class="thread-summary"><b>${c.comments.length}</b> comment${c.comments.length === 1 ? "" : "s"} <span>(Resolved)</span><button class="reopen-inline">Reopen</button></div>`
       : c.comments
-          .map((m) => {
+          .map((m, i) => {
             const own = m.role !== "agent";
             const editing = S.editingCommentId === m.id;
             const edited =
@@ -241,16 +245,15 @@ export function buildCommentThread(
                 : own && m.intent === "action"
                   ? '<span class="intent-badge a">Change requested</span>'
                   : "";
-            // A question is "answered" once an agent reply lands after it in this thread.
-            const awaiting =
-              own &&
-              m.intent === "question" &&
-              !c.comments.some(
-                (x) => x.role === "agent" && +new Date(x.createdAt) > +new Date(m.createdAt),
-              );
+            const awaiting = own && m.intent === "question" && !answered(m, c.comments);
+            // Only the opening message carries the thread's kind, so only it turns.
+            const turn =
+              own && i === 0
+                ? `<button class="turn-comment" data-id="${m.id}">${m.intent === "question" ? "Turn into change request" : "Turn into ask"}</button>`
+                : "";
             const actions =
               own && !editing
-                ? `<span class="msg-actions"><button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>`
+                ? `<span class="msg-actions">${turn}<button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>`
                 : "";
             // The body is left empty for the message being edited — buildEditor replaces it
             // below (it needs live DOM wiring, not an innerHTML string).
@@ -282,6 +285,12 @@ export function buildCommentThread(
     .forEach(
       (b) =>
         ((b as HTMLButtonElement).onclick = () => controls.edit((b as HTMLElement).dataset.id!)),
+    );
+  box
+    .querySelectorAll(".turn-comment")
+    .forEach(
+      (b) =>
+        ((b as HTMLButtonElement).onclick = () => controls.turn((b as HTMLElement).dataset.id!)),
     );
   box
     .querySelectorAll(".delete-comment")

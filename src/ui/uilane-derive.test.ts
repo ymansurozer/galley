@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import type { UiAnnotationRecord } from "./types";
 import {
   annotationSource,
+  answered,
   draftAnchor,
   firstLine,
+  isWaiting,
   keepPlacements,
   marksFor,
   mergeAgentReplies,
@@ -15,12 +17,14 @@ import {
   pageMarks,
   pageName,
   placeComposer,
+  requestsChange,
   rowTitle,
   sendSummary,
   sourcePlace,
   stepFrom,
   stepOrder,
   targetLabel,
+  turnAnnotationInto,
   waitingCount,
 } from "./uilane-derive.js";
 
@@ -519,6 +523,46 @@ test("a question whose thread requests a change counts as an open change request
     },
   );
   assert.deepEqual(sendSummary([]), { ui: "No change requests", uiNotSent: "" });
+});
+
+test("turning an annotation into a question turns its pin and what's sent together, asked as of the latest turn", () => {
+  const T2 = "2026-10-13T10:02:00.000Z";
+  const T3 = "2026-10-13T10:03:00.000Z";
+  const a = ann("a", 1, "/", {
+    comments: [msg("a1", "user", T0, "action"), msg("a2", "agent", T1)],
+  });
+  const pin = () => marksFor([a], "/", null)[0]!.question;
+  assert.equal(requestsChange(a), true);
+
+  turnAnnotationInto(a, "question", T2);
+  assert.equal(a.intent, "question");
+  assert.equal(a.comments[0]!.intent, "question");
+  assert.equal(pin(), true);
+  assert.equal(requestsChange(a), false, "no longer sent as a change request");
+  assert.equal(rowTitle(a), "#1 · Question · Waiting", "the reply from before doesn't answer it");
+
+  turnAnnotationInto(a, "action", T3);
+  assert.equal(a.intent, "change");
+  assert.equal(a.comments[0]!.intent, "action");
+  assert.equal(a.comments[0]!.askedAt, undefined);
+  assert.equal(pin(), false);
+  assert.equal(requestsChange(a), true);
+
+  // Turned again after a fresh reply: only a reply after the latest turn answers it.
+  a.comments.push(msg("a3", "agent", T3));
+  turnAnnotationInto(a, "question", "2026-10-13T10:04:00.000Z");
+  assert.equal(isWaiting(a), true);
+  a.comments.push(msg("a4", "agent", "2026-10-13T10:05:00.000Z"));
+  assert.equal(isWaiting(a), false);
+  assert.equal(rowTitle(a), "#1 · Question · Answered");
+});
+
+test("a code thread's question is answered by an agent reply after it was asked", () => {
+  const q = { ...msg("q", "user", T0, "question"), askedAt: T1 };
+  const before = msg("r", "agent", "2026-10-13T10:00:30.000Z");
+  assert.equal(answered(q, [q, before]), false);
+  assert.equal(answered(q, [q, before, msg("s", "agent", "2026-10-13T10:01:30.000Z")]), true);
+  assert.equal(answered({ ...q, askedAt: undefined }, [q, before]), true, "asked at creation");
 });
 
 test("the poll's agent replies join the tab's threads once, and nothing else from it does", () => {

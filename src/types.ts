@@ -514,6 +514,7 @@ export type UiAnnotationRecord = {
   // What the opening message asked for, and so what the annotation is: a change request (sent in
   // uiAnnotations) or a question (asked live; in openQuestions while unanswered). Replies never
   // change it, but a question whose thread has a Request change reply is sent in uiAnnotations too.
+  // Turning the opening message into the other kind turns this with it, so the two always agree.
   intent: "change" | "question";
   status: "open" | "resolved";
   // Whether its target was found on its page the last time that page loaded, as the bridge reported.

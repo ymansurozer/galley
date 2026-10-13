@@ -62,6 +62,7 @@ import {
   uiOnly,
 } from "./appview";
 import { installCaptureDebug } from "./capturedebug";
+import { askComment } from "./comments";
 import { composerInUi } from "./composer";
 import {
   annotatePage,
@@ -463,7 +464,7 @@ S.openInEditor = async () => {
 };
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
-// body and keeps the existing intent.
+// body and keeps the existing intent; the thread's Turn into action changes it (turnComment).
 const submitComment = (intent: "question" | "action") => {
   // The UI lane's composers (a new annotation, a reply or edit in its thread) submit there.
   if (composerInUi()) {
@@ -518,10 +519,7 @@ const submitComment = (intent: "question" | "action") => {
   render();
   persist();
   if (intent === "question") {
-    api("/api/ask", {
-      method: "POST",
-      body: JSON.stringify({ path: c.path, lineNumber: c.lineNumber, side: c.side, body }),
-    });
+    void askComment(c.id);
     toast("Asked — waiting for answer");
   } else toast("Comment saved");
 };
