@@ -5,6 +5,7 @@ import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
 import { closeComposer, composerInUi } from "./composer";
 import { hasUi, toggleView, uiOnly } from "./appview";
 import {
+  closeShot,
   selectAnnotation,
   setAppMode,
   stepAnnotation,
@@ -46,7 +47,7 @@ type Hotkey = {
 
 // Scopes
 const inComposer = () => S.composerOpen;
-const inModal = () => S.settingsOpen || !!S.confirmMsg || S.sendOpen;
+const inModal = () => S.settingsOpen || !!S.confirmMsg || S.sendOpen || !!S.shotView;
 const inOverview = () => !!S.overviewOpen && hasGuide();
 // The UI view (the proxied app) takes over the centre: diff and file bindings stand down there.
 const inUiView = () => S.view === "ui";
@@ -84,6 +85,10 @@ function escape() {
   }
   if (S.settingsOpen) {
     S.settingsOpen = false;
+    return;
+  }
+  if (S.shotView) {
+    closeShot();
     return;
   }
   if (S.composerOpen || S.editingCommentId) {

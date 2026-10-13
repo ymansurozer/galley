@@ -4,7 +4,7 @@ import { Window } from "happy-dom";
 import { esc } from "./html";
 import type { UiAnnotationRecord, UiElement } from "./types";
 import { sourcePlace } from "./uilane-derive";
-import { composerHead, pageHead, rowLine, sourceLink } from "./uilane-dom";
+import { composerHead, pageHead, rowLine, shotLink, sourceLink } from "./uilane-dom";
 
 // What a hostile app page might send as a selector, a route or a title: a quote that would end an
 // attribute in string-built HTML, then a handler that fires in the desk's origin.
@@ -107,4 +107,26 @@ test("a row shows the body's first line as text", () => {
   assert.equal(row.querySelector("img"), null);
   assert.equal(row.querySelector(".ann-body")!.textContent, "<img src=x onerror=alert(1)>");
   assert.equal(row.className, "ann-row k-change sel");
+});
+
+test("a row's screenshot reads capturing…, then opens the stored pair, or says the capture failed", () => {
+  const d = doc();
+  const none = () => assert.fail("only a stored pair opens");
+  const capturing = shotLink(d, "capturing", undefined, none);
+  assert.equal(capturing.localName, "span");
+  assert.equal(capturing.textContent, "capturing…");
+
+  let opened = 0;
+  const stored = shotLink(d, "stored", undefined, () => opened++);
+  assert.equal(stored.localName, "button");
+  assert.equal(stored.textContent, "Screenshot");
+  stored.click();
+  assert.equal(opened, 1);
+
+  // The reason can be the bridge's error, which the app page wrote.
+  const failed = shotLink(d, "failed", HOSTILE, none);
+  assert.equal(failed.localName, "span");
+  assert.equal(failed.textContent, "capture failed");
+  assert.deepEqual(attributeNames(failed).sort(), ["class", "title"]);
+  assert.equal(failed.title, `No screenshot: ${HOSTILE}`);
 });

@@ -66,6 +66,7 @@ export const S: Store = Alpine.reactive<Store>({
   annotationDraft: null,
   composerAnnotation: null,
   sendLanes: null,
+  shotView: null,
 });
 
 // Imperative-island objects kept OUT of the reactive store: the @pierre/diffs

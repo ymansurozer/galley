@@ -1374,6 +1374,76 @@ test("buildReviewResult on a UI-only desk sends empty code fields alongside the 
   assert.equal(r.uiAnnotations.length, 1);
 });
 
+test("buildReviewResult gives an annotation's stored screenshots as absolute paths that exist", async () => {
+  const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "galley-shots-"));
+  try {
+    const dir = path.join(sessionDir, "ui-shots");
+    await fs.mkdir(dir);
+    for (const kind of ["crop", "viewport"])
+      await fs.writeFile(path.join(dir, `a1-${kind}.png`), "png");
+    const s = state({
+      ui: UI,
+      annotations: [annotation({ id: "a1", screenshots: true }), annotation({ id: "a2" })],
+    });
+    const r = buildReviewResult(s, { resultJson: path.join(sessionDir, "r.json"), sessionDir });
+    const shots = r.uiAnnotations[0]!.screenshots!;
+    assert.deepEqual(shots, {
+      crop: path.join(sessionDir, "ui-shots", "a1-crop.png"),
+      viewport: path.join(sessionDir, "ui-shots", "a1-viewport.png"),
+      exact: false,
+    });
+    for (const file of [shots.crop, shots.viewport]) {
+      assert.ok(path.isAbsolute(file), file);
+      await fs.access(file);
+    }
+    assert.ok(!("screenshots" in r.uiAnnotations[1]!), "no screenshots without a stored pair");
+  } finally {
+    await fs.rm(sessionDir, { recursive: true, force: true });
+  }
+});
+
+test("buildReviewResult leaves out screenshots whose files are gone from disk", async () => {
+  const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "galley-shots-"));
+  try {
+    const dir = path.join(sessionDir, "ui-shots");
+    await fs.mkdir(dir);
+    // a1 lost its viewport image; a2 lost both (ui-shots/ emptied by hand). Both are still marked.
+    await fs.writeFile(path.join(dir, "a1-crop.png"), "png");
+    const s = state({
+      ui: UI,
+      annotations: [
+        annotation({ id: "a1", screenshots: true }),
+        annotation({ id: "a2", screenshots: true }),
+      ],
+    });
+    const r = buildReviewResult(s, { resultJson: path.join(sessionDir, "r.json"), sessionDir });
+    assert.deepEqual(
+      r.uiAnnotations.map((a) => "screenshots" in a),
+      [false, false],
+    );
+  } finally {
+    await fs.rm(sessionDir, { recursive: true, force: true });
+  }
+});
+
+test("mergeReviewerSave keeps the server's screenshot mark by id and never takes the tab's", () => {
+  const live = state({
+    ui: UI,
+    annotations: [annotation({ id: "a1", screenshots: true }), annotation({ id: "a2" })],
+  });
+  // The tab's copies: a1 without the mark (a tab that never saw it), a2 claiming one.
+  mergeReviewerSave(live, {
+    annotations: [annotation({ id: "a1" }), annotation({ id: "a2", screenshots: true })],
+  });
+  assert.deepEqual(
+    live.annotations!.map((a) => [a.id, a.screenshots]),
+    [
+      ["a1", true],
+      ["a2", undefined],
+    ],
+  );
+});
+
 test("buildReviewResult without a UI lane sends no uiTarget and an empty uiAnnotations", () => {
   const r = buildReviewResult(state({}), { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(r.uiAnnotations, []);

@@ -34,11 +34,15 @@ export type Saver = {
   // The poll's reload branch checks this so it never adopts server state over local
   // mutations that haven't been persisted yet (see poll.ts).
   isBusy: () => boolean;
+  // Resolves once the wire is quiet: everything triggered so far has been sent (or failed).
+  // A screenshot upload waits on it, since the server takes one only for a saved annotation.
+  settled: () => Promise<void>;
 };
 
 export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promise<unknown>): Saver {
   let inFlight = false;
   let pending = false;
+  let waiters: Array<() => void> = [];
 
   const run = () => {
     inFlight = true;
@@ -52,7 +56,11 @@ export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promis
         if (pending) {
           pending = false;
           run();
+          return;
         }
+        const quiet = waiters;
+        waiters = [];
+        for (const resolve of quiet) resolve();
       });
   };
 
@@ -63,6 +71,9 @@ export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promis
     },
     isBusy() {
       return inFlight || pending;
+    },
+    settled() {
+      return inFlight ? new Promise((resolve) => waiters.push(resolve)) : Promise.resolve();
     },
   };
 }

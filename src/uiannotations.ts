@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+
 import type {
   Rect,
   ThreadMessage,
@@ -8,6 +10,7 @@ import type {
   UiPage,
   UiSource,
 } from "./types.js";
+import { shotFile } from "./uishots.js";
 
 // The UI lane's annotations at the trust boundary. An annotation's page and target came from the
 // app page (bridge → tab → reviewer save), so the desk re-validates every save before storing it:
@@ -207,14 +210,30 @@ function repoRelative(file: string, root: string) {
 const withRepoSource = (el: UiElement, root: string): UiElement =>
   el.source ? { ...el, source: { ...el.source, file: repoRelative(el.source.file, root) } } : el;
 
+// An annotation's screenshots as the agent gets them: both paths, only when the annotation is
+// marked as having them and both files are still on disk (the mark can outlive files deleted by
+// hand), so the agent is never handed a path to nothing.
+function screenshotsOf(a: UiAnnotationRecord, shots: string): UiAnnotation["screenshots"] {
+  if (!a.screenshots) return undefined;
+  const crop = shotFile(shots, a.id, "crop");
+  const viewport = shotFile(shots, a.id, "viewport");
+  return existsSync(crop) && existsSync(viewport) ? { crop, viewport, exact: false } : undefined;
+}
+
 // What the agent receives: every open change request, its opening message as the body and the
-// rest as the thread, source files repo-relative. Resolved annotations are the reviewer's "done"
-// and are not sent.
-export function uiAnnotationsForAgent(records: UiAnnotationRecord[], root: string): UiAnnotation[] {
+// rest as the thread, source files repo-relative, and its screenshots' paths in `shots` (the
+// session's ui-shots/) when both are stored. Resolved annotations are the reviewer's "done" and
+// are not sent.
+export function uiAnnotationsForAgent(
+  records: UiAnnotationRecord[],
+  root: string,
+  shots: string,
+): UiAnnotation[] {
   return records
     .filter((a) => a.status === "open" && a.intent === "change")
     .map((a) => {
       const [opener, ...replies] = a.comments;
+      const screenshots = screenshotsOf(a, shots);
       return {
         id: a.id,
         number: a.number,
@@ -223,6 +242,7 @@ export function uiAnnotationsForAgent(records: UiAnnotationRecord[], root: strin
         placement: a.placement,
         page: a.page,
         target: { ...a.target, elements: a.target.elements.map((el) => withRepoSource(el, root)) },
+        ...(screenshots && { screenshots }),
         thread: replies.map((m) => ({
           role: m.role === "agent" ? ("agent" as const) : ("user" as const),
           body: m.body,

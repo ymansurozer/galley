@@ -90,9 +90,17 @@ The \`result\` field of a review event:
 - uiTarget? — the app URL the desk serves (absent without a UI target); each annotation's own page
   is in its page.url
 - uiAnnotations[] — the human's open change requests on the running app (resolved ones are not
-  sent; empty without a UI target): {id, number, body, status, placement, page, target, thread}
+  sent; empty without a UI target): {id, number, body, status, placement, page, target,
+  screenshots?, thread}
   - number is the pin the human saw on the page; body is the request; thread[] {role, body, at}
     holds any later messages.
+  - screenshots? — {crop, viewport, exact:false}: absolute paths to two PNGs of the page as the
+    human saw it when annotating (open dialogs, typed input, scroll position). crop is the target
+    with some context around it, viewport the whole visible page; both have the annotation's mark
+    drawn on (its numbered pin and a box around the target). Read the PNGs: they show what the
+    human means. exact:false — they are a re-render of the page's DOM, not the screen's pixels, so
+    canvas, video and some CSS can differ. Absent when the capture failed; when present, both
+    files exist.
   - page: {url (on the dev server), route (path+query), title?, viewport: {width, height, dpr}}
   - target: {kind:"element", elements:[{selector, tag, text?, role?, name?, attrs?, landmark?,
     heading?, outline?, rect, source?}]} — selector matched exactly that element when captured;
@@ -127,9 +135,9 @@ new Send). Live questions arrive only via await, so a file-poller sees Sends but
 ## How to act on a review — one path per item, don't mix
 - rejected → revert that change; the reviewer doesn't want it.
 - codeChangeRequests (a comment) → make the edit at path:lineNumber.
-- uiAnnotations → find the code that renders each target and make the change there: start at the
-  element's source when it has one; otherwise route → the page's component, and selector, text,
-  name, attrs and landmark/heading narrow it to the element.
+- uiAnnotations → look at each one's screenshots first, then find the code that renders the target
+  and make the change there: start at the element's source when it has one; otherwise route → the
+  page's component, and selector, text, name, attrs and landmark/heading narrow it to the element.
 - accepted → leave it; don't re-touch.
 - approvedFiles → signed off as-is; leave the whole file unless a requested change forces a touch
   (which re-opens it for re-review).

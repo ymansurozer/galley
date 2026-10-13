@@ -129,8 +129,11 @@ const captures = captureWaits(30_000);
 let captureSeq = 0;
 
 // Screenshot the app page as the reviewer sees it: the viewport, plus a crop around `selector`'s
-// element (or `rect`) when one is given. The bridge renders both in the page.
-export function captureApp(target: { selector?: string; rect?: Rect } = {}): Promise<BridgeShot> {
+// element (or `rect`) when one is given, with an annotation's `mark` drawn on when one is given.
+// The bridge renders both in the page.
+export function captureApp(
+  target: { selector?: string; rect?: Rect; mark?: { number: number } } = {},
+): Promise<BridgeShot> {
   if (!S.uiProxy || !S.app.connected)
     return Promise.reject(new Error("No bridge is listening on the app page"));
   const id = ++captureSeq;

@@ -28,7 +28,9 @@ import {
   readGlobalSettings,
   resolveMovedFrom,
   resolveSkim,
+  reviewDir,
   syncGitState,
+  writeFileAtomic,
   writeGlobalSettings,
 } from "./state.js";
 import type {
@@ -39,6 +41,15 @@ import type {
   QuestionPayload,
   ReviewState,
 } from "./types.js";
+import {
+  SHOT_CAP,
+  SHOT_KINDS,
+  isPng,
+  pruneShots,
+  readShotName,
+  shotDir,
+  shotFile,
+} from "./uishots.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -83,11 +94,7 @@ export type ServerHandle = {
   lockUrl: string;
 };
 
-// 50 MB: pre-0.6.2 tabs post the entire multi-MB ReviewState on /api/send, and a big PR desk
-// crosses 5 MB — the old cap made Send fail on exactly the largest reviews (readBody threw
-// before the result was built, so no artifact and no event, while slice-only auto-saves kept
-// succeeding). The server is localhost-only, so a generous cap is safe.
-async function readBody(req: http.IncomingMessage, limit = 50_000_000) {
+async function readBytes(req: http.IncomingMessage, limit: number) {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -96,7 +103,15 @@ async function readBody(req: http.IncomingMessage, limit = 50_000_000) {
     if (size > limit) throw new Error("Request body too large");
     chunks.push(buf);
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
+}
+
+// 50 MB: pre-0.6.2 tabs post the entire multi-MB ReviewState on /api/send, and a big PR desk
+// crosses 5 MB — the old cap made Send fail on exactly the largest reviews (readBody threw
+// before the result was built, so no artifact and no event, while slice-only auto-saves kept
+// succeeding). The server is localhost-only, so a generous cap is safe.
+async function readBody(req: http.IncomingMessage, limit = 50_000_000) {
+  return (await readBytes(req, limit)).toString("utf8");
 }
 
 function json(res: http.ServerResponse, status: number, body: unknown) {
@@ -392,6 +407,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // is unit-tested in mutex.test.ts; the ordering/non-poisoning guarantees live there.)
   const serialize = createSerializer();
 
+  // Screenshots belong to their annotation: once a save or Send has dropped it, its files go too.
+  const pruneScreenshots = (sessionDir: string) =>
+    pruneShots(shotDir(sessionDir), new Set((state.annotations ?? []).map((a) => a.id)));
+
   // server.address() is populated once listening — always true by the time requests arrive.
   const boundPort = () => {
     const bound = server.address();
@@ -600,6 +619,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return await serialize(async () => {
           mergeReviewerSave(state, JSON.parse(await readBody(req)));
           const file = await persistReview(state);
+          await pruneScreenshots(path.dirname(file));
           return json(res, 200, { ok: true, file });
         });
       }
@@ -616,6 +636,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           await syncGitState(state);
           const file = await persistReview(state);
           const sessionDir = path.dirname(file);
+          await pruneScreenshots(sessionDir);
           const resultJson = path.join(sessionDir, `${state.id}-result.json`);
           const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
           await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
@@ -828,6 +849,114 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           return json(res, 200, { ok: true, target: parsed.url, proxyPort: proxy.port });
         });
       }
+      if (req.method === "POST" && url.pathname === "/api/ui-shot") {
+        // One of a UI annotation's screenshots (?kind=crop|viewport), as the PNG the bridge
+        // rendered: the tab uploads it once the annotation's save has landed. It's stored as a file
+        // beside the review, never in the state, and the upload that completes the pair marks the
+        // annotation (UiAnnotationRecord.screenshots).
+        const name = readShotName(url.searchParams.get("annotation"), url.searchParams.get("kind"));
+        if (!name)
+          return fail(
+            res,
+            400,
+            "BAD_SCREENSHOT",
+            "A screenshot needs an annotation id and a kind (crop or viewport).",
+            "POST /api/ui-shot?annotation=<id>&kind=crop|viewport with the PNG as the body.",
+          );
+        const tooLarge = () =>
+          fail(
+            res,
+            413,
+            "SCREENSHOT_TOO_LARGE",
+            `A screenshot is capped at ${SHOT_CAP / 1024 / 1024} MB.`,
+            "Capture a smaller viewport.",
+          );
+        // A declared length over the cap is refused before a byte is read.
+        if (Number(req.headers["content-length"]) > SHOT_CAP) return tooLarge();
+        let bytes: Buffer;
+        try {
+          bytes = await readBytes(req, SHOT_CAP);
+        } catch {
+          return tooLarge();
+        }
+        if (!isPng(bytes))
+          return fail(
+            res,
+            415,
+            "NOT_PNG",
+            "A screenshot must be a PNG.",
+            "Upload the PNG the bridge rendered.",
+          );
+        return await serialize(async () => {
+          const a = state.annotations?.find((x) => x.id === name.id);
+          if (!a)
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `No annotation "${name.id}" in this review.`,
+              "Save the annotation before uploading its screenshots.",
+            );
+          const dir = shotDir(await reviewDir(state.root, state.session));
+          await fs.mkdir(dir, { recursive: true });
+          await writeFileAtomic(shotFile(dir, name.id, name.kind), bytes);
+          const stored = await Promise.all(
+            SHOT_KINDS.map((kind) =>
+              fs.stat(shotFile(dir, name.id, kind)).then(
+                () => true,
+                () => false,
+              ),
+            ),
+          );
+          if (!a.screenshots && stored.every(Boolean)) {
+            a.screenshots = true;
+            await persistReview(state);
+          }
+          return json(res, 200, { ok: true, screenshots: !!a.screenshots });
+        });
+      }
+      if (req.method === "GET" && url.pathname === "/api/ui-shot") {
+        // A stored screenshot, for the desk's enlarged view: only a file inside the session's
+        // ui-shots/ once symlinks are followed.
+        const name = readShotName(url.searchParams.get("annotation"), url.searchParams.get("kind"));
+        if (!name)
+          return fail(
+            res,
+            400,
+            "BAD_SCREENSHOT",
+            "A screenshot needs an annotation id and a kind (crop or viewport).",
+            "GET /api/ui-shot?annotation=<id>&kind=crop|viewport.",
+          );
+        const dir = shotDir(await reviewDir(state.root, state.session));
+        const resolved = await resolveContained(
+          dir,
+          path.basename(shotFile(dir, name.id, name.kind)),
+        );
+        if ("error" in resolved && resolved.error === "escape")
+          return fail(
+            res,
+            400,
+            "BAD_PATH",
+            "That screenshot is outside the review's screenshots.",
+            "Request a screenshot by annotation id and kind.",
+          );
+        const png = "abs" in resolved ? await fs.readFile(resolved.abs).catch(() => null) : null;
+        if (!png)
+          return fail(
+            res,
+            404,
+            "NOT_FOUND",
+            `No ${name.kind} screenshot for annotation "${name.id}".`,
+            "Its capture may have failed; the annotation stands without screenshots.",
+          );
+        res.writeHead(200, {
+          "content-type": "image/png",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        });
+        res.end(png);
+        return;
+      }
       if (req.method === "POST" && url.pathname === "/api/comment") {
         return await serialize(async () => {
           const body = JSON.parse(await readBody(req)) as {
@@ -917,7 +1046,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             status: "pending",
             reviewedHash: undefined,
           }));
-          await persistReview(state);
+          const file = await persistReview(state);
+          await fs.rm(shotDir(path.dirname(file)), { recursive: true, force: true });
           return json(res, 200, { ok: true, state });
         });
       }

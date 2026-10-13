@@ -313,6 +313,8 @@ export interface Store {
   // The Send dialog's receipt split by lane, when the desk has a UI lane (code is null on a
   // UI-only desk). Null without a UI lane: the dialog shows sendMsg alone, as it always has.
   sendLanes: { code: string | null; ui: string; uiNotSent: string } | null;
+  // The enlarged screenshot: whose, and which of its two images. Null when closed.
+  shotView: { id: string; kind: "crop" | "viewport" } | null;
 
   treeRows?: () => TreeRow[];
   selectFile?: (i: number) => void;
@@ -378,6 +380,9 @@ export interface Store {
   setAppMode?: (mode: AppMode) => void;
   toggleAnnotations?: () => void;
   openChanges?: () => number;
+  closeShot?: () => void;
+  shotSrc?: () => string;
+  shotTitle?: () => string;
 }
 
 // A picked element awaiting its first message: the page and target the annotation will record,

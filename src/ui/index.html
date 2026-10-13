@@ -3163,7 +3163,8 @@
       outline: none
     }
 
-    .chrome .seg {
+    .chrome .seg,
+    .modal.shot .seg {
       display: flex;
       gap: 2px;
       padding: 2px;
@@ -3172,7 +3173,8 @@
       background: var(--bg)
     }
 
-    .chrome .seg button {
+    .chrome .seg button,
+    .modal.shot .seg button {
       display: inline-flex;
       align-items: center;
       height: 20px;
@@ -3184,11 +3186,13 @@
       cursor: pointer
     }
 
-    .chrome .seg button:hover {
+    .chrome .seg button:hover,
+    .modal.shot .seg button:hover {
       color: var(--ink)
     }
 
-    .chrome .seg button.active {
+    .chrome .seg button.active,
+    .modal.shot .seg button.active {
       background: var(--panel3);
       color: var(--ink)
     }
@@ -3740,6 +3744,70 @@
       color: var(--ink);
       text-decoration: underline;
       text-decoration-color: var(--line-strong)
+    }
+
+    /* The screenshot's part of the line: "capturing…" and "capture failed" stay ghost text; the
+       stored pair is a link like the source's. */
+    .ann-shot {
+      flex: 0 0 auto;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--ghost);
+      font-size: var(--text-xs);
+      white-space: nowrap;
+      text-underline-offset: 2px
+    }
+
+    button.ann-shot {
+      color: var(--muted);
+      cursor: pointer
+    }
+
+    button.ann-shot:hover {
+      color: var(--ink);
+      text-decoration: underline;
+      text-decoration-color: var(--line-strong)
+    }
+
+    /* The enlarged screenshot: a viewport fills the dialog's width, a small crop grows to about
+       half of it, and either shrinks to fit the window's height. The frame hugs the image. */
+    .modal.shot {
+      display: flex;
+      flex-direction: column;
+      width: 880px;
+      max-width: 94vw;
+      max-height: 92vh
+    }
+
+    .modal.shot h3 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: var(--text-sm)
+    }
+
+    .modal.shot .seg {
+      font-size: var(--text-xs);
+      font-weight: 400
+    }
+
+    .shot-frame {
+      align-self: center;
+      max-width: 100%;
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius)
+    }
+
+    .shot-frame img {
+      display: block;
+      min-width: min(440px, 80vw);
+      max-width: 100%;
+      max-height: calc(92vh - 120px);
+      object-fit: contain
     }
 
     /* The floating composer: beside the picked element, its card the code lane's composer. */
@@ -4356,6 +4424,17 @@
             placeholder="Overall note (optional) — an overall remark, or what to do after applying"></textarea>
           <div class="modal-actions"><button class="btn" @click="$store.g.sendCancel()">Cancel <kbd>Esc</kbd></button><button
               class="btn primary" @click="$store.g.sendConfirm()">Send <kbd>⌘↵</kbd></button></div>
+        </div>
+      </div>
+      <!-- An annotation's screenshot, enlarged from its row's context line (uilane.ts): the crop or
+           the whole viewport, as the bridge rendered them with the mark drawn on. -->
+      <div class="modal-backdrop" id="shotModal" :class="{show: $store.g.shotView}" @click.self="$store.g.closeShot()">
+        <div class="modal shot" role="dialog" :aria-label="$store.g.shotTitle()">
+          <h3><span x-text="$store.g.shotTitle()"></span><span class="seg" role="group" aria-label="Image"><button
+                :class="{active: $store.g.shotView?.kind==='crop'}" @click="$store.g.shotView.kind='crop'">Crop</button><button
+                :class="{active: $store.g.shotView?.kind==='viewport'}" @click="$store.g.shotView.kind='viewport'">Viewport</button></span></h3>
+          <div class="shot-frame"><template x-if="$store.g.shotView"><img :src="$store.g.shotSrc()" :alt="$store.g.shotTitle()"></template></div>
+          <div class="modal-actions"><button class="btn" @click="$store.g.closeShot()">Close <kbd>Esc</kbd></button></div>
         </div>
       </div>
       <div class="toast" id="toast" :class="{show: $store.g.toastMsg}" x-text="$store.g.toastMsg">saved</div>
