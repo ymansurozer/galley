@@ -38,6 +38,9 @@ export function annotations(): AnnotationInput[] {
     groups.get(key)!.push(c);
   }
   const file = currentFile();
+  // With per-change verdicts off no change gets a decision bar: neither its own row nor the
+  // copy on a thread over its line.
+  const verdicts = S.settings.perChangeVerdicts;
   for (const comments of groups.values()) {
     comments.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
     const first = comments[0];
@@ -49,10 +52,12 @@ export function annotations(): AnnotationInput[] {
       comments.some((c) => isUnanchored(c, file))
     )
       continue;
-    const change = currentChanges().find(
-      (ch) =>
-        ch.status === "pending" && ch.side === first.side && ch.lineNumber === first.lineNumber,
-    );
+    const change = verdicts
+      ? currentChanges().find(
+          (ch) =>
+            ch.status === "pending" && ch.side === first.side && ch.lineNumber === first.lineNumber,
+        )
+      : undefined;
     if (change) seen.add(change.id);
     // The annotation goes to @pierre in DISPLAY coordinates (it matches rendered gutter
     // numbers); the metadata keeps the raw line so thread actions filter comments correctly.
@@ -93,6 +98,7 @@ export function annotations(): AnnotationInput[] {
       });
       if (collapsed) continue;
     }
+    if (!verdicts) continue;
     changes.push({
       side: ch.side,
       lineNumber: anchor,
