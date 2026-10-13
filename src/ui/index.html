@@ -3626,11 +3626,14 @@
       display: none
     }
 
-    /* The gutter is kept so a scrollbar that appears when a row expands doesn't narrow the rows. */
+    /* The gutter is kept so a scrollbar that appears when a row expands doesn't narrow the rows.
+       uilane.ts keeps rows in place itself (its gaps), so the browser's scroll anchoring stays out
+       of it rather than correcting the same move twice. */
     .ann-list {
       flex: 1 1 auto;
       min-height: 0;
       overflow: auto;
+      overflow-anchor: none;
       scrollbar-gutter: stable;
       padding: 2px 0 72px
     }

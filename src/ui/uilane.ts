@@ -117,10 +117,77 @@ export function toggleAnnotations() {
 // it isn't, the reviewer is told why nothing is outlined.
 let revealing: string | null = null;
 
+// Space left where a thread closed above the row being selected, so that row and every row above
+// it stay where they were, keyed by the row it follows. A gap goes once it's out of sight above
+// (the list scrolls up by as much, so nothing in sight moves), and when the pointer leaves the list.
+const gaps = new Map<string, number>();
+
+const rowIn = (list: HTMLElement, id: string) =>
+  list.querySelector<HTMLElement>(`[data-annotation="${CSS.escape(id)}"]`);
+
+// Draw the gaps after their rows. A gap whose row has gone goes with it.
+function placeGaps(list: HTMLElement) {
+  for (const el of list.querySelectorAll(".ann-gap")) el.remove();
+  for (const [id, height] of gaps) {
+    const row = rowIn(list, id);
+    if (!row) {
+      gaps.delete(id);
+      continue;
+    }
+    const gap = document.createElement("div");
+    gap.className = "ann-gap";
+    gap.dataset.gap = id;
+    gap.style.height = `${height}px`;
+    (row.closest(".ann-item") ?? row).after(gap);
+  }
+}
+
+// Take out the part of each gap that's scrolled out of sight above, scrolling up by as much.
+function trimGaps(list: HTMLElement) {
+  for (const el of list.querySelectorAll<HTMLElement>(".ann-gap")) {
+    const id = el.dataset.gap;
+    const r = el.getBoundingClientRect();
+    const hidden = Math.min(r.height, list.getBoundingClientRect().top - r.top);
+    if (!id || hidden <= 0) continue;
+    const before = list.scrollTop;
+    list.scrollTop = before - hidden;
+    const left = r.height - (before - list.scrollTop);
+    if (left > 0.5) {
+      gaps.set(id, left);
+      el.style.height = `${left}px`;
+    } else {
+      gaps.delete(id);
+      el.remove();
+    }
+  }
+}
+
+function dropGaps(list: HTMLElement) {
+  if (!gaps.size) return;
+  gaps.clear();
+  placeGaps(list);
+}
+
 // Expand an annotation's row and outline its target, taking the app to its page first. Null
 // collapses the row. A reply or edit open in another thread is set aside with its text.
 export function selectAnnotation(id: string | null) {
   const a = find(id);
+  const list = $("annotationList");
+  const open = S.selectedAnnotation;
+  // A row in sight stays where it is. Gaps under it may close: only what's below a row moves.
+  const row = a && rowIn(list, a.id);
+  const was = row?.getBoundingClientRect().top;
+  const sight = list.getBoundingClientRect();
+  const keep = was !== undefined && was >= sight.top && was < sight.bottom;
+  if (row)
+    for (const gid of gaps.keys()) {
+      const after = rowIn(list, gid);
+      if (
+        after &&
+        (after === row || row.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING)
+      )
+        gaps.delete(gid);
+    }
   if (S.composerAnnotation && S.composerAnnotation !== a?.id) setUiComposerAside();
   S.selectedAnnotation = a?.id ?? null;
   revealing = null;
@@ -133,12 +200,17 @@ export function selectAnnotation(id: string | null) {
     }
   }
   if (!a || S.composerOpen || !resumeThreadDraft(a.id)) renderUiLane();
-  if (a)
-    requestAnimationFrame(() =>
-      $("annotationList")
-        .querySelector(`[data-annotation="${CSS.escape(a.id)}"]`)
-        ?.scrollIntoView({ block: "nearest" }),
-    );
+  if (!a) return;
+  // A thread that closed above the row pulled it up: leave its space where it was.
+  if (keep && open && open !== a.id) {
+    const now = rowIn(list, a.id)?.getBoundingClientRect().top;
+    if (now !== undefined && was - now > 0.5) {
+      gaps.set(open, (gaps.get(open) ?? 0) + was - now);
+      placeGaps(list);
+      trimGaps(list);
+    }
+  }
+  requestAnimationFrame(() => rowIn(list, a.id)?.scrollIntoView({ block: "nearest" }));
 }
 
 export function stepAnnotation(dir: 1 | -1) {
@@ -477,6 +549,7 @@ function renderList() {
   const host = $("annotationList");
   const groups = pageGroups(annotationsOf());
   if (!groups.length) {
+    gaps.clear();
     host.innerHTML = `<p class="ann-empty">No annotations yet. Annotate (⌥A), then click, drag across or select anything in the app, or press ⌥P for the whole page.</p>`;
     return;
   }
@@ -498,6 +571,7 @@ function renderList() {
       return section;
     }),
   );
+  placeGaps(host);
 }
 
 // One row: the number (tinted by kind) and the body's first line. Selected, it expands to the
@@ -592,20 +666,23 @@ export function placeFloatingComposer() {
 export const uiSendSummary = () => sendSummary(annotationsOf());
 
 export function installUiLane() {
-  $("annotationList").addEventListener("click", (e) => {
+  const list = $("annotationList");
+  // Gaps go once the list has settled: what's scrolled out of sight above when a scroll ends (not
+  // during one, which would fight its momentum), and the rest when the pointer leaves.
+  let settling = 0;
+  list.addEventListener("scroll", () => {
+    clearTimeout(settling);
+    if (gaps.size) settling = window.setTimeout(() => trimGaps(list), 150);
+  });
+  list.addEventListener("mouseleave", () => dropGaps(list));
+  list.addEventListener("click", (e) => {
     const t = e.target instanceof Element ? e.target : null;
     // The thread's own buttons are wired by the thread component.
     if (!t || t.closest(".comment-box")) return;
     const rowEl = t.closest<HTMLElement>("[data-annotation]");
     if (rowEl) {
       const id = rowEl.dataset.annotation ?? null;
-      const top = rowEl.getBoundingClientRect().top;
       selectAnnotation(id === S.selectedAnnotation ? null : id);
-      // A thread closing above the clicked row would pull it up; scroll it back under the pointer,
-      // as far as the list can scroll.
-      const list = $("annotationList");
-      const now = id && list.querySelector(`[data-annotation="${CSS.escape(id)}"]`);
-      if (now) list.scrollTop += now.getBoundingClientRect().top - top;
       return;
     }
     const head = t.closest<HTMLElement>("[data-route]");
