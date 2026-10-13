@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { getBranch, getGitRoot, gh, git } from "./git.js";
 import { validateGuide } from "./guide.js";
 import { parseUiTarget } from "./proxy.js";
-import { startServer } from "./server.js";
+import { AGENT_HEADER, startServer } from "./server.js";
 import { SPEC } from "./spec.js";
 import {
   appendAnnotationReply,
@@ -87,9 +87,12 @@ async function resolveActionSession(
 
 // GET with no client-side timeout, so a long-poll holds until the server
 // responds. Avoids undici's ~5min headersTimeout that fetch() imposes.
-function httpGetJson(urlStr: string): Promise<{ status: number; body: any }> {
+function httpGetJson(
+  urlStr: string,
+  headers: http.OutgoingHttpHeaders,
+): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
-    const req = http.get(urlStr, (res) => {
+    const req = http.get(urlStr, { headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c) => chunks.push(Buffer.from(c)));
       res.on("end", () => {
@@ -315,7 +318,7 @@ async function runAwait(args: Record<string, string | boolean>) {
   let urlStr = `${lock.url}api/await-send`;
   if (typeof args.timeout === "string" && Number(args.timeout) > 0)
     urlStr += `?timeout=${Number(args.timeout)}`;
-  const res = await httpGetJson(urlStr).catch(() => null);
+  const res = await httpGetJson(urlStr, { [AGENT_HEADER]: "1" }).catch(() => null);
   if (!res || res.status === 204 || !res.body) return; // timed out, no event; caller re-runs
   if (res.body.kind) process.stdout.write(JSON.stringify(res.body) + "\n");
 }

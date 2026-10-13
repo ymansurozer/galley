@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import { resolveBinding, startServer } from "./server.js";
+import { AGENT_HEADER, resolveBinding, startServer } from "./server.js";
 import { buildReviewState, hash, reviewDir, writeGlobalSettings } from "./state.js";
 import type { ReviewState } from "./types.js";
 import { SHOT_CAP } from "./uishots.js";
@@ -184,6 +184,10 @@ const post = (url: string, pathname: string, body: unknown) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+
+// The long-poll as `galley await` makes it, with the header only the CLI sends.
+const awaitEvent = (url: string, query = "") =>
+  fetch(`${url}api/await-send${query}`, { headers: { [AGENT_HEADER]: "1" } });
 
 test("status posts ephemeral agent activity into the state payload", async () => {
   await withServer(async (handle) => {
@@ -516,7 +520,7 @@ test("multiple questions asked before an await batch into one event, oldest firs
   await withServer(async (handle) => {
     await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "first?" });
     await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 2, body: "second?" });
-    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
       kind: string;
       question: { body: string };
       questions: { body: string }[];
@@ -583,7 +587,7 @@ test("Send flushes queued questions and folds the unanswered ones into openQuest
     assert.equal(status.queuedQuestions, 0); // superseded questions flushed
 
     // Next await is the review (not a stale question), carrying both unanswered questions.
-    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
       kind: string;
       result: { openQuestions: { body: string }[] };
     };
@@ -591,7 +595,7 @@ test("Send flushes queued questions and folds the unanswered ones into openQuest
     assert.deepEqual(ev.result.openQuestions.map((q) => q.body).sort(), ["why q1?", "why q2?"]);
 
     // Nothing dribbles in after the round: a bounded await times out (204).
-    const after = await fetch(`${handle.url}api/await-send?timeout=1`);
+    const after = await awaitEvent(handle.url, "?timeout=1");
     assert.equal(after.status, 204);
   });
 });
@@ -622,7 +626,7 @@ test("a UI ask reaches await as a lane-tagged question built from the saved anno
     const asked = await post(handle.url, "api/ask", { annotationId: "q1", messageId: "q1-m1" });
     assert.equal(asked.status, 200);
     await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
-    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
       kind: string;
       questions: unknown[];
     };
@@ -672,7 +676,7 @@ test("a queued UI question whose annotation was deleted or resolved before the a
     await post(handle.url, "api/save", {
       annotations: [{ ...resolved, status: "resolved" }, kept],
     });
-    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
       question: { body: string };
       questions: Array<{ body: string }>;
     };
@@ -685,7 +689,7 @@ test("a queued UI question whose annotation was deleted or resolved before the a
     // When every queued question went away, the agent waits for the next event instead.
     await post(handle.url, "api/ask", { annotationId: "q3", messageId: "q3-m1" });
     await post(handle.url, "api/save", { annotations: [] });
-    const none = await fetch(`${handle.url}api/await-send?timeout=1`);
+    const none = await awaitEvent(handle.url, "?timeout=1");
     assert.equal(none.status, 204);
   });
 });
@@ -1109,7 +1113,7 @@ test("an in-flight await-send long-poll pins the desk past the idle timeout", as
     async (handle) => {
       // Holds the connection open well past idleTimeoutMs; activeRequests > 0 must
       // block the idle exit for as long as an agent is parked on await.
-      const poll = fetch(`${handle.url}api/await-send?timeout=1`);
+      const poll = awaitEvent(handle.url, "?timeout=1");
       await sleep(200);
       assert.deepEqual(reasons, [], "no idle shutdown while a long-poll is held");
       const res = await poll;
@@ -1215,7 +1219,7 @@ test("origin guard refuses another site's page even on a GET, so it never takes 
     }
     // The agent's await, which sends no fetch metadata, gets the next event.
     await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
-    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
       question: { body: string };
     };
     assert.equal(ev.question.body, "why?");
@@ -1231,6 +1235,29 @@ test("the desk forbids framing, so no page can overlay it", async () => {
       assert.equal(res.headers["content-security-policy"], "frame-ancestors 'none'", route);
     }
   });
+});
+
+test("the event long-poll answers only the CLI, so a page can't take the agent's event even off loopback", async () => {
+  await withServer(
+    async (handle) => {
+      // A plain-http devbox origin gets no fetch metadata from the browser: an <img> there is a
+      // bare GET, with the hostname in Host.
+      const port = new URL(handle.lockUrl).port;
+      const bare = await withHost(
+        `${handle.lockUrl}api/await-send?timeout=5`,
+        `${hostname()}:${port}`,
+      );
+      assert.equal(bare.status, 403);
+      assert.equal((JSON.parse(bare.body) as { code?: string }).code, "AGENT_ONLY");
+      assert.equal((await getState(handle.lockUrl)).agentListening, false, "it never waited");
+      await post(handle.lockUrl, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
+      const ev = (await awaitEvent(handle.lockUrl).then((r) => r.json())) as {
+        question: { body: string };
+      };
+      assert.equal(ev.question.body, "why?", "the agent still gets it");
+    },
+    { host: "0.0.0.0", idleTimeoutMs: 0 },
+  );
 });
 
 test("resolveBinding: the loopback default widens nothing and keeps both URLs on 127.0.0.1", () => {

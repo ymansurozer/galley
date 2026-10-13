@@ -59,6 +59,13 @@ const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = "Run `galley spec` for the full agent contract.";
 
+// Sent (as "1") by the CLI on /api/await-send, the one GET that changes something: whoever parks
+// on it takes the agent's next event. A page can't send it. An <img> or <script> sets no headers,
+// and a fetch from another origin that adds one needs a CORS preflight the desk never grants. This
+// holds where fetch metadata doesn't reach: browsers send it only to secure contexts, and a
+// plain-http `GALLEY_HOST` desk (the devbox) isn't one.
+export const AGENT_HEADER = "x-galley-agent";
+
 export type ServerOptions = {
   state: ReviewState;
   port?: number;
@@ -181,13 +188,13 @@ export function resolveBinding(host: string, hostname: string, allowedHostsEnv: 
 // hostname / bound address / GALLEY_ALLOWED_HOSTS when bound beyond loopback (see resolveBinding),
 // never widened otherwise. The Origin check blocks cross-site POSTs; header-less callers (curl and
 // the `galley await`/`comment`/`reload`/`status` CLI, which target 127.0.0.1 and send no Origin) stay
-// allowed. Fetch metadata closes what Origin leaves open: a GET carries no Origin, yet the
-// await-send long-poll hands whoever parks on it the agent's next event, and the proxied app knows
-// the desk's origin. The browser marks another page's requests `same-site` (the proxy is another
-// port on the same host) or `cross-site`, on every method; the desk tab's own are `same-origin`, a
-// typed or opened URL is `none`, and the CLI sends none at all. Browsers send it only to a secure
-// context (loopback counts), so over a plain-http `GALLEY_HOST` bind this check is absent. Returns
-// false once it has answered 403.
+// allowed. Fetch metadata closes what Origin leaves open, since a GET carries no Origin and the
+// proxied app knows the desk's origin. The browser marks another page's requests `same-site` (the
+// proxy is another port on the same host) or `cross-site`, on every method; the desk tab's own are
+// `same-origin`, a typed or opened URL is `none`, and the CLI sends none at all. Browsers send
+// fetch metadata only to a secure context (loopback counts), so over a plain-http `GALLEY_HOST`
+// bind this check is absent, and the GET that matters most is guarded on its own (AGENT_HEADER).
+// Returns false once it has answered 403.
 function originAllowed(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -728,6 +735,14 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ok: true });
       }
       if (req.method === "GET" && url.pathname === "/api/await-send") {
+        if (req.headers[AGENT_HEADER] !== "1")
+          return fail(
+            res,
+            403,
+            "AGENT_ONLY",
+            "Only the galley CLI can wait on the desk's events.",
+            "Run `galley await`.",
+          );
         // Long-poll the tagged event stream: resolves with the next queued event
         // ({kind:"question"|"review"}). Lets the agent learn of questions and Sends
         // without the desk process exiting.
