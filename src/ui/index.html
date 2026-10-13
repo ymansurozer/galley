@@ -1258,6 +1258,44 @@
       color: var(--amber)
     }
 
+    /* The status icon is the file's sign-off control in both tabs: a click approves (or marks
+       reviewed) a pending file and resets a finished one. The negative margin cancels the padding,
+       so the button keeps the bare icon's footprint. On hover: a quiet ring, and the icon takes the
+       color of the state a click leads to (data-act, set by statusHint). */
+    .st-btn {
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      margin: -3px;
+      padding: 3px;
+      border: 0;
+      border-radius: var(--radius-pill);
+      background: transparent;
+      color: inherit;
+      cursor: pointer
+    }
+
+    .st-btn:hover {
+      background: var(--panel3);
+      box-shadow: inset 0 0 0 1px var(--line-strong)
+    }
+
+    .st-btn:focus-visible {
+      outline: 1px solid var(--cyan)
+    }
+
+    :is(#files, #walk) .st-btn[data-act="approve"]:hover .ic {
+      color: var(--green)
+    }
+
+    :is(#files, #walk) .st-btn[data-act="mark"]:hover .ic {
+      color: var(--amber)
+    }
+
+    :is(#files, #walk) .st-btn[data-act="reset"]:hover .ic {
+      color: var(--muted)
+    }
+
     .card {
       border: 1px solid var(--line);
       background: var(--surface);
@@ -3035,6 +3073,23 @@
       display: block
     }
 
+    .toast-action {
+      margin-left: 10px;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: inherit;
+      font: inherit;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer
+    }
+
+    .toast-action:hover {
+      color: var(--ink-bright)
+    }
+
     /* Go-to-line pill: mode indicator for pending typed digits (neutral, unlike the green toast). */
     .goline {
       position: absolute;
@@ -4330,9 +4385,13 @@
               <span class="testcaret" x-show="r.testToggle" @click.stop="$store.g.toggleTestDir(r.testKey)">
                 <svg class="ic chev" :class="{open: r.testCaret==='▾'}"><use href="#gly-chevron"></use></svg></span>
               <span class="status-pack" x-show="r.state">
-                <svg class="ic badge pending" x-show="r.state==='pending'" title="Pending review"><use href="#gly-dot"></use></svg>
-                <svg class="ic badge approved" x-show="r.state==='approved'" title="Approved"><use href="#gly-check"></use></svg>
-                <svg class="ic badge changes" x-show="r.state==='changes-requested'" title="Changes requested"><use href="#gly-flag"></use></svg>
+                <!-- mousedown.prevent: a click doesn't leave focus here, where Space would click it again. -->
+                <button type="button" class="st-btn" @click.stop="$store.g.statusClick(r.path, $event)" @mousedown.prevent
+                  @mouseenter="$store.g.statusHint($el, r.path)" @focus="$store.g.statusHint($el, r.path)">
+                  <svg class="ic badge pending" x-show="r.state==='pending'"><use href="#gly-dot"></use></svg>
+                  <svg class="ic badge approved" x-show="r.state==='approved'"><use href="#gly-check"></use></svg>
+                  <svg class="ic badge changes" x-show="r.state==='changes-requested'"><use href="#gly-flag"></use></svg>
+                </button>
               </span>
             </div>
           </template></div>
@@ -4343,10 +4402,14 @@
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='cat' && r.skimmed"><use href="#gly-chevron"></use></svg>
               <span class="nm walk-cat-name" x-show="r.kind==='cat'" x-text="r.category" :title="r.category"></span>
               <span class="walk-skim-count" x-show="r.kind==='cat' && r.skimmed" x-text="r.total + (r.total===1 ? ' file' : ' files')"></span>
-              <!-- File status leads the row (empty circle = to do); ± stay flush right below. -->
-              <svg class="ic st pending" x-show="r.kind==='file' && r.state==='pending'" title="Pending review"><use href="#gly-circle"></use></svg>
-              <svg class="ic st approved" x-show="r.kind==='file' && r.state==='approved'" title="Approved"><use href="#gly-check"></use></svg>
-              <svg class="ic st changes" x-show="r.kind==='file' && r.state==='changes-requested'" title="Changes requested"><use href="#gly-circle-alert"></use></svg>
+              <!-- File status leads the row (empty circle = to do); ± stay flush right below. A click
+                   signs the file off or resets it, as in the Files tab. -->
+              <button type="button" class="st-btn" x-show="r.kind==='file' && r.state" @click.stop="$store.g.statusClick(r.path, $event)" @mousedown.prevent
+                @mouseenter="$store.g.statusHint($el, r.path)" @focus="$store.g.statusHint($el, r.path)">
+                <svg class="ic st pending" x-show="r.state==='pending'"><use href="#gly-circle"></use></svg>
+                <svg class="ic st approved" x-show="r.state==='approved'"><use href="#gly-check"></use></svg>
+                <svg class="ic st changes" x-show="r.state==='changes-requested'"><use href="#gly-circle-alert"></use></svg>
+              </button>
               <span class="nm" x-show="r.kind==='file'" x-text="r.name" :title="r.path"></span>
               <span class="moved-from" x-show="r.kind==='file' && r.movedFrom" x-text="'← '+r.movedFrom" :title="'moved from '+r.movedFrom"></span>
               <svg class="ic crit" x-show="r.kind==='file' && r.flag" :title="r.flag"><use href="#gly-flag"></use></svg>
@@ -4624,7 +4687,9 @@
           <div class="modal-actions"><button class="btn" @click="$store.g.closeShot()">Close <kbd>Esc</kbd></button></div>
         </div>
       </div>
-      <div class="toast" id="toast" :class="{show: $store.g.toastMsg}" x-text="$store.g.toastMsg">saved</div>
+      <div class="toast" id="toast" :class="{show: $store.g.toastMsg}"><span x-text="$store.g.toastMsg">saved</span><button
+          type="button" class="toast-action" x-show="$store.g.toastAction" x-text="$store.g.toastAction"
+          @click="$store.g.runToastAction()"></button></div>
       <div class="goline" :class="{show: $store.g.golineBuffer}">Go to line&nbsp;<b
           x-text="$store.g.golineBuffer"></b><span class="goline-hint"><kbd>↵</kbd> Jump · <kbd>esc</kbd>
           Cancel</span></div>
