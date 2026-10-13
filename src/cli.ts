@@ -743,7 +743,7 @@ Usage:
                                     sets it on the live desk, or starts one (UI-only if clean)
   galley comment --path <f> --line <n> --body "..."   Post an agent reply into the desk
   galley comment --ui <id> --body "..."   Post an agent reply into a UI annotation's thread
-  galley status --body "..."       Post an ephemeral "what I'm doing" line into the desk
+  galley status --body "..."        Post an ephemeral "what I'm doing" line into the desk
   galley await [--timeout <s>]      Block for the next desk event (question | review)
   galley reload [--guide <file>]    Re-diff the working tree into the open desk
                                     (--guide swaps the attached review guide too)
