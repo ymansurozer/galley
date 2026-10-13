@@ -222,7 +222,7 @@ export function fromAppViewport(r: Rect): Rect | null {
 // The desk's UI status off every poll; true when `galley reload` ran since the last one. A changed
 // token means a new desk process: its reload counter starts over, so adopt it as the baseline, and
 // the loaded page's bridge (still carrying the old token) is no longer trusted until the page
-// reloads. Within one process, a moved generation means `galley reload` ran, which raises the
+// reloads. Within one process, a generation that went up means `galley reload` ran, which raises the
 // refresh pill but never reloads the app. Either way, the desk has marked every annotation
 // unvisited, and so does the tab.
 export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): boolean {

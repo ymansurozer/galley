@@ -395,6 +395,9 @@ test("a moved reload counter is the agent's `galley reload`, diff or no diff; a 
   // token it sees: both are a baseline, not a reload.
   assert.equal(reloadRan(desk("t1", 5), desk("t2", 0)), false);
   assert.equal(reloadRan(desk(undefined, 0), desk("t1", 2)), false);
+  // Without a UI target there's no token to change, so a counter that went back is the restart.
+  assert.equal(reloadRan(desk(undefined, 3), desk(undefined, 0)), false);
+  assert.equal(reloadRan(desk(undefined, 3), desk(undefined, 1)), false);
 });
 
 test("readBridgeMessage reads pin clicks and anchor moves", () => {

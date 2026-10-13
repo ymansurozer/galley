@@ -122,14 +122,15 @@ function forwardedKey(d: Obj): ForwardedKey | null {
 }
 
 // Whether `galley reload` ran since the tab last adopted the desk's reload counter
-// (DeskStatus.reloadGeneration): it moved within one desk process. A different proxy token is a
-// new process, whose counter starts over, so that's only a new baseline. A reload is the agent
-// coming back from a Send whether or not the diff moved: on a UI-only desk the counter is the
-// only thing that does.
+// (DeskStatus.reloadGeneration): it went up within one desk process. A new process counts from 0
+// again, so it's only a new baseline: a different proxy token says so, and so does a counter that
+// went back, which is all a desk without a UI target (no token) shows. A reload is the agent coming
+// back from a Send whether or not the diff moved: on a UI-only desk the counter is the only thing
+// that does.
 export const reloadRan = (
   adopted: { token: string | undefined; generation: number },
   polled: { token: string | undefined; generation: number },
-) => adopted.token === polled.token && adopted.generation !== polled.generation;
+) => adopted.token === polled.token && polled.generation > adopted.generation;
 
 // Whether a key passed up from the app runs: ⌥A always; the rest only while annotating, since in
 // Interact mode the app's keys are its own (Esc included).
