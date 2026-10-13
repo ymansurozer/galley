@@ -26,6 +26,9 @@ const ANCHORS = [
   // a question is READ-ONLY: answer it, don't edit code in response (guards issue 04)
   "answering is READ-ONLY",
   "NEVER edit tracked",
+  // replies live in the desk only: no echo into the agent's own chat/harness output
+  "in your own chat or harness output",
+  "At most say\n  briefly that you replied in the desk",
   // question batching + immediate re-await (issue 05); the loop iterates the whole batch, not
   // the deprecated .question compat field (issue 04 cleanup)
   "batched into this delivery",
@@ -149,6 +152,8 @@ test("SPEC states the deduped invariants exactly once (issue 04)", () => {
   const count = (re: RegExp) => (SPEC.match(re) ?? []).length;
   // The READ-ONLY question rule has ONE full statement (Events); the loop comment is a pointer.
   assert.equal(count(/answering is READ-ONLY/g), 1, "READ-ONLY rule should be stated once");
+  // The no-echo reply rule is one bullet under the comment commands, not repeated per lane.
+  assert.equal(count(/harness output/g), 1, "no-echo reply rule should be stated once");
   // The reload-resets-edits invariant lives once, at the reload bullet.
   assert.equal(count(/resets to pending on reload/g), 1, "reload-resets invariant should be once");
 });
