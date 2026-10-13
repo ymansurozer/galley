@@ -70,6 +70,9 @@ const targetRoute = () => {
 };
 
 let frame: HTMLIFrameElement | null = null;
+// Whether the UI view has shown the page the desk last loaded into the frame. One loaded in the
+// code view (warmed, or a new target) has been seen by no one until the first switch.
+let shown = false;
 
 // Point the iframe at a route (the first load, a new target, or a fallback when no bridge is
 // listening). The bridge on the new page re-handshakes and takes over the route from there.
@@ -89,6 +92,7 @@ function loadApp(route: string) {
     canGoForward: null,
     stale: false,
   });
+  shown = S.view === "ui";
   frame.src = origin + route;
 }
 
@@ -171,6 +175,7 @@ export function setView(view: "code" | "ui") {
     return;
   }
   if (!S.app.loaded) loadApp(targetRoute());
+  shown = true;
   requestAnimationFrame(sizeFrame);
   resumeUiComposer();
 }
@@ -287,8 +292,9 @@ export function fromAppViewport(r: Rect): Rect | null {
 // token means a new desk process: its reload counter starts over, so adopt it as the baseline, and
 // the loaded page's bridge (still carrying the old token) is no longer trusted until the page
 // reloads. Within one process, a generation that went up means `galley reload` ran, which raises the
-// refresh pill but never reloads the app. Either way, the desk has marked every annotation
-// unvisited, and so does the tab.
+// refresh pill on a page the reviewer has seen, so their place on it isn't lost under them. A page
+// the UI view hasn't shown yet has no place to keep: it reloads as it warmed, in the background.
+// Either way, the desk has marked every annotation unvisited, and so does the tab.
 export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): boolean {
   const prev = S.uiProxy;
   const reloaded = reloadRan(
@@ -298,7 +304,11 @@ export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): bo
   S.uiProxy = proxy;
   S.reloadGeneration = generation;
   if (reloaded) {
-    if (S.app.loaded) S.app.stale = true;
+    if (S.app.loaded && shown) S.app.stale = true;
+    else if (S.app.loaded) {
+      S.app.loaded = false;
+      warmApp();
+    }
     annotationsUnvisited();
     return true;
   }
