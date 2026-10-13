@@ -12,12 +12,14 @@ import { findQuote, textRects } from "./targets";
 // nothing: a target that can't be told apart is unplaced, never pinned to a guess. Read from the
 // live DOM, never written to it, and pure over the document, so it runs under happy-dom in tests.
 
+// An element found on the page, and what the annotation recorded about it.
+export type Match = { el: Element; rec: UiMarkElement };
 // What a target was found as: its elements (the first is the one whose finding places it, and
 // carries the pin; the rest are those found too), a region's box and the element it moves with,
 // or a quote and the element holding it.
 export type Found =
-  | { kind: "element"; els: [Element, ...Element[]] }
-  | { kind: "region"; rect: Rect; anchor: { el: Element; rect: Rect } | null }
+  | { kind: "element"; matches: [Match, ...Match[]] }
+  | { kind: "region"; rect: Rect; anchor: Match | null }
   | { kind: "text"; holder: Element; quote: string };
 
 // A found target where it is now: its boxes (the elements' boxes, the region's box, or the quote's
@@ -144,17 +146,17 @@ export function refind(doc: Document, target: UiMarkTarget): Found | null {
     const [first, ...rest] = target.elements;
     const primary = first && findElement(doc, first);
     if (!primary) return null;
-    const els: [Element, ...Element[]] = [primary];
+    const matches: [Match, ...Match[]] = [{ el: primary, rec: first }];
     for (const rec of rest) {
       const el = findElement(doc, rec);
-      if (el && !els.includes(el)) els.push(el);
+      if (el && !matches.some((m) => m.el === el)) matches.push({ el, rec });
     }
-    return { kind: "element", els };
+    return { kind: "element", matches };
   }
   if (target.kind === "region") {
     for (const rec of target.elements) {
       const el = findElement(doc, rec);
-      if (el) return { kind: "region", rect: target.rect, anchor: { el, rect: rec.rect } };
+      if (el) return { kind: "region", rect: target.rect, anchor: { el, rec } };
     }
     return { kind: "region", rect: target.rect, anchor: null };
   }
@@ -162,11 +164,16 @@ export function refind(doc: Document, target: UiMarkTarget): Found | null {
   return holder ? { kind: "text", holder, quote: target.quote } : null;
 }
 
-// Whether a found target still stands as found: its elements still on the page, and a quote still
-// in its holder. One that doesn't is looked for again.
+// An element found earlier, still on the page and still showing what it showed. A framework that
+// patches the page in place (a hot update, a re-rendered list) can leave the same node showing
+// something else.
+const holds = ({ el, rec }: Match) => el.isConnected && (showing(rec)?.test(el) ?? true);
+
+// Whether a found target still stands as found: its elements as they were, and a quote still in
+// its holder. One that doesn't is looked for again.
 export function stands(found: Found): boolean {
-  if (found.kind === "element") return found.els.every((el) => el.isConnected);
-  if (found.kind === "region") return !found.anchor || found.anchor.el.isConnected;
+  if (found.kind === "element") return found.matches.every(holds);
+  if (found.kind === "region") return !found.anchor || holds(found.anchor);
   return found.holder.isConnected && findQuote(found.holder, found.quote) !== null;
 }
 
@@ -178,8 +185,8 @@ export function located(
 ): Located | null {
   const { kind } = found;
   if (found.kind === "element") {
-    const [first, ...rest] = found.els;
-    if (!first.isConnected) return null;
+    const [first, ...rest] = found.matches.map((m) => m.el);
+    if (!first?.isConnected) return null;
     const others = rest.filter((el) => el.isConnected).map(boxOf);
     return { kind, boxes: [boxOf(first), ...others], anchor: first };
   }
@@ -190,7 +197,8 @@ export function located(
     const now = boxOf(anchor.el);
     // Hidden for now (no box): the box stays where it was drawn.
     if (now.width + now.height === 0) return { kind, boxes: [rect], anchor: null };
-    const moved = { ...rect, x: rect.x + now.x - anchor.rect.x, y: rect.y + now.y - anchor.rect.y };
+    const then = anchor.rec.rect;
+    const moved = { ...rect, x: rect.x + now.x - then.x, y: rect.y + now.y - then.y };
     return { kind, boxes: [moved], anchor: anchor.el };
   }
   if (!found.holder.isConnected) return null;

@@ -51,7 +51,8 @@ const name = (el: Element | null | undefined) =>
   el ? el.id || `${el.localName}.${el.className}` : null;
 const shape = (found: Found | null) => {
   if (!found) return null;
-  if (found.kind === "element") return { kind: found.kind, els: found.els.map(name) };
+  if (found.kind === "element")
+    return { kind: found.kind, els: found.matches.map((m) => name(m.el)) };
   if (found.kind === "text") return { kind: found.kind, holder: name(found.holder) };
   return { kind: found.kind, anchor: found.anchor && name(found.anchor.el) };
 };
@@ -226,4 +227,18 @@ test("a found target stands while its elements are on the page and its quote in 
   assert.equal(located(button), null);
   $("#note").textContent = "Overdue";
   assert.ok(!stands(text));
+});
+
+test("an element patched in place to show something else no longer stands", () => {
+  // A hot update moved Upload out of the toolbar: Vue reused its node for the next button.
+  const { doc, $ } = page(`<div><button>Archive</button><button id="b2">Upload</button></div>`);
+  const upload = rec({ selector: "div > button:nth-of-type(2)", text: "Upload" });
+  const region = { x: 0, y: 0, width: 300, height: 40 };
+  const button = refind(doc, { kind: "element", elements: [upload] })!;
+  const box = refind(doc, { kind: "region", rect: region, elements: [upload] })!;
+  assert.ok(stands(button) && stands(box));
+  $("#b2").textContent = "Share";
+  assert.ok(!stands(button), "connected, but showing Share");
+  assert.ok(!stands(box));
+  assert.equal(refind(doc, { kind: "element", elements: [upload] }), null);
 });
