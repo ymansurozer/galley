@@ -595,6 +595,9 @@ installUiLane();
 installCaptureDebug();
 syncView(); // a UI-only desk opens straight on the app
 render();
+// Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,
+// so the lane chrome appears at once.
+requestAnimationFrame(() => (S.ready = true));
 // Reveal the floating Approve button once the diff scrolls past its (non-sticky) header. #diff
 // is the persistent scroll container (x-ignore), so this listener is attached once and survives
 // every re-render/file switch.

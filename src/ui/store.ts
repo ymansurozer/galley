@@ -47,6 +47,7 @@ export const S: Store = Alpine.reactive<Store>({
   skimExpanded: new Set<string>(),
   loadedOversized: new Set<string>(),
   view: "code",
+  ready: false,
   uiProxy: null,
   reloadGeneration: 0,
   app: {

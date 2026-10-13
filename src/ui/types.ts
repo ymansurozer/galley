@@ -294,6 +294,9 @@ export interface Store {
   // Which lane the centre shows: the diff ("code") or the proxied app ("ui"). Only "code" without
   // a UI target; only "ui" on a UI-only desk (a target and no diff).
   view: "code" | "ui";
+  // The first state is in and the view fits the desk's lanes. Until then the lane chrome stays
+  // hidden, so a UI-only desk doesn't flash the code lane on load (or the reverse).
+  ready: boolean;
   // DeskStatus.uiProxy / reloadGeneration — desk-process liveness, held outside S.state like the
   // agent fields above. reloadGeneration is the last one the tab adopted (see adoptUiStatus).
   uiProxy: UiProxyInfo | null;

@@ -559,6 +559,15 @@
       display: none !important
     }
 
+    /* Until the first state is in, the desk doesn't know which lanes it has: only the brand shows,
+       so neither lane's chrome flashes before the other's. */
+    .app.booting .nav-toggle,
+    .app.booting .toggles,
+    .app.booting .actions,
+    .app.booting .main {
+      visibility: hidden
+    }
+
     .guidebar {
       flex: 0 0 auto;
       display: flex;
@@ -4241,7 +4250,7 @@
 </head>
 
 <body>
-  <div class="app" x-data :class="{'view-ui': $store.g.view==='ui', 'ui-only': $store.g.uiOnly(), 'annotations-closed': !$store.g.annotationsOpen}">
+  <div class="app booting" x-data :class="{booting: !$store.g.ready, 'view-ui': $store.g.view==='ui', 'ui-only': $store.g.uiOnly(), 'annotations-closed': !$store.g.annotationsOpen}">
     <header class="top">
       <div class="brand"><button class="nav-toggle" data-tip="Files (⇧B)" aria-label="Toggle file tree"
           @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="brand-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#hb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#hb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#hb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="hb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span></div>
