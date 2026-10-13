@@ -329,8 +329,16 @@ export type BridgeMessage =
 export type DeskMessage =
   | { type: "navigate"; token: string; route: string }
   | { type: "back" | "forward" | "reload"; token: string }
-  // Screenshot the page. The crop target is the element `selector` matches, else `rect`.
-  | { type: "capture"; token: string; id: number; selector?: string; rect?: Rect }
+  // Screenshot the page. The crop target is the element `selector` matches, else `rect`. With
+  // `mark`, an annotation's pin (its number) and a box around the target are drawn onto both images.
+  | {
+      type: "capture";
+      token: string;
+      id: number;
+      selector?: string;
+      rect?: Rect;
+      mark?: { number: number };
+    }
   | { type: "mode"; token: string; mode: AppMode }
   // The pins for the current page, the selected annotation (outlined, scrolled into view), and
   // whether the composer is open on the last pick (its highlight stays until the composer closes).
@@ -415,6 +423,10 @@ export type UiAnnotationRecord = {
   page: UiPage;
   target: UiTarget;
   comments: ThreadMessage[];
+  // Both screenshots (crop and viewport) are stored, as PNGs in the session directory's ui-shots/
+  // (uishots.ts), never in the state. Server-owned: set by the upload that completes the pair,
+  // carried by id through every reviewer save, and never taken from the tab.
+  screenshots?: true;
 };
 // An annotation as the agent receives it in ReviewResult.uiAnnotations.
 export type UiAnnotation = {
@@ -425,6 +437,9 @@ export type UiAnnotation = {
   placement: UiAnnotationRecord["placement"];
   page: UiPage;
   target: UiTarget;
+  // Absolute paths to the PNGs, with the annotation's mark drawn on. `exact` is false: the bridge
+  // re-renders the DOM rather than reading the screen's pixels. Absent when capture failed.
+  screenshots?: { crop: string; viewport: string; exact: boolean };
   thread: Array<{ role: "user" | "agent"; body: string; at: string }>;
 };
 

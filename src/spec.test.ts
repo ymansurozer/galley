@@ -74,6 +74,14 @@ const ANCHORS = [
   "repo-relative when it lies",
   "vendor: true",
   "edit at `source`, not inside the library",
+  // annotation screenshots (issue 06): absolute PNG paths, a re-render, with the mark drawn on
+  "screenshots?",
+  "{crop, viewport, exact:false}",
+  "absolute paths to two PNGs",
+  "Read the PNGs",
+  "re-render of the page's DOM",
+  "the annotation's mark",
+  "Absent when the capture failed",
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",
   "auto-exits",

@@ -1,13 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { resolveBinding, startServer } from "./server.js";
-import { buildReviewState, hash, writeGlobalSettings } from "./state.js";
+import { buildReviewState, hash, reviewDir, writeGlobalSettings } from "./state.js";
 import type { ReviewState } from "./types.js";
+import { SHOT_CAP } from "./uishots.js";
 
 function state(root: string): ReviewState {
   return {
@@ -305,6 +315,163 @@ test("UI annotations ride the save slice into the poll and the Send result; rese
     await post(handle.url, "api/reset", {});
     assert.deepEqual(st.annotations, [], "reset clears annotations along with comments");
     assert.equal(st.lastAnnotationNumber, 0, "and starts the numbers over");
+  });
+});
+
+// ── Annotation screenshots ──────────────────────────────────────────────────────────────────────
+// A 1×1 PNG, the smallest real image.
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+function uiAnnotation(id: string) {
+  return {
+    id,
+    number: 1,
+    intent: "change",
+    status: "open",
+    placement: "placed",
+    page: { route: "/app", viewport: { width: 1280, height: 800, dpr: 1 } },
+    target: {
+      kind: "element",
+      elements: [{ selector: "#save", tag: "button", rect: { x: 1, y: 2, width: 3, height: 4 } }],
+    },
+    comments: [
+      {
+        id: `${id}-m1`,
+        role: "user",
+        intent: "action",
+        body: "Rename",
+        createdAt: "t",
+        updatedAt: "t",
+      },
+    ],
+  };
+}
+
+// A UI-only desk with annotations a1 and a2 saved, as the tab saves them before it uploads.
+async function withShotDesk(
+  run: (
+    handle: Awaited<ReturnType<typeof startServer>>,
+    st: ReviewState,
+    shots: string,
+  ) => Promise<void>,
+) {
+  await withServer(async (handle, root, st) => {
+    st.files = [];
+    st.ui = { target: "http://localhost:3000/" };
+    await post(handle.url, "api/save", { annotations: [uiAnnotation("a1"), uiAnnotation("a2")] });
+    await run(handle, st, path.join(await reviewDir(root, st.session), "ui-shots"));
+  });
+}
+
+const upload = (base: string, query: string, body: Uint8Array) =>
+  fetch(`${base}api/ui-shot?${query}`, {
+    method: "POST",
+    headers: { "content-type": "image/png" },
+    body,
+  });
+
+test("screenshot upload stores a PNG pair beside the review, never in the state, and the Send gives its paths", async () => {
+  await withShotDesk(async (handle, st, shots) => {
+    const crop = await upload(handle.url, "annotation=a1&kind=crop", PNG);
+    assert.equal(crop.status, 200);
+    assert.deepEqual(await crop.json(), { ok: true, screenshots: false });
+    assert.equal(st.annotations![0]!.screenshots, undefined, "half a pair isn't marked");
+    const viewport = await upload(handle.url, "annotation=a1&kind=viewport", PNG);
+    assert.deepEqual(await viewport.json(), { ok: true, screenshots: true });
+    assert.deepEqual(await readFile(path.join(shots, "a1-crop.png")), PNG);
+    assert.deepEqual(await readFile(path.join(shots, "a1-viewport.png")), PNG);
+
+    // The stored review and the poll carry the mark, never the bytes.
+    const stateFile = await readFile(path.join(path.dirname(shots), st.persistFile!), "utf8");
+    const poll = await fetch(`${handle.url}api/poll`).then((r) => r.text());
+    for (const text of [stateFile, poll]) {
+      assert.ok(text.includes('"screenshots":'));
+      assert.ok(!text.includes("PNG") && !text.includes(PNG.toString("base64").slice(0, 12)));
+    }
+
+    // A later save from the tab (which never sends the mark) keeps it.
+    await post(handle.url, "api/save", { annotations: [uiAnnotation("a1"), uiAnnotation("a2")] });
+    const sent = (await post(handle.url, "api/send", {}).then((r) => r.json())) as {
+      resultJson: string;
+    };
+    const result = JSON.parse(await readFile(sent.resultJson, "utf8")) as {
+      uiAnnotations: Array<{ id: string; screenshots?: Record<string, unknown> }>;
+    };
+    const [a1, a2] = result.uiAnnotations;
+    assert.deepEqual(a1!.screenshots, {
+      crop: path.join(shots, "a1-crop.png"),
+      viewport: path.join(shots, "a1-viewport.png"),
+      exact: false,
+    });
+    assert.equal(a2!.screenshots, undefined);
+
+    const served = await fetch(`${handle.url}api/ui-shot?annotation=a1&kind=viewport`);
+    assert.equal(served.status, 200);
+    assert.equal(served.headers.get("content-type"), "image/png");
+    assert.deepEqual(Buffer.from(await served.arrayBuffer()), PNG);
+  });
+});
+
+test("screenshot upload takes a PNG up to the cap and refuses a bigger, non-PNG, unknown or escaping one", async () => {
+  await withShotDesk(async (handle, _st, shots) => {
+    const atCap = Buffer.alloc(SHOT_CAP);
+    PNG.copy(atCap);
+    assert.equal((await upload(handle.url, "annotation=a1&kind=crop", atCap)).status, 200);
+    const over = Buffer.alloc(SHOT_CAP + 1);
+    PNG.copy(over);
+    const cases: Array<[string, Uint8Array, number]> = [
+      ["annotation=a2&kind=crop", over, 413],
+      ["annotation=a2&kind=crop", Buffer.from("<svg onload=alert(1)>"), 415],
+      ["annotation=nope&kind=crop", PNG, 404],
+      ["annotation=..%2F..%2Fx&kind=crop", PNG, 400],
+      ["annotation=a2&kind=..%2Fx", PNG, 400],
+      ["annotation=a2&kind=thumb", PNG, 400],
+      ["kind=crop", PNG, 400],
+    ];
+    for (const [query, body, status] of cases)
+      assert.equal((await upload(handle.url, query, body)).status, status, query);
+    assert.deepEqual(await readdir(shots), ["a1-crop.png"], "nothing else was written");
+  });
+});
+
+test("screenshots are served only from the session's screenshot directory", async () => {
+  const outside = await mkdtemp(path.join(tmpdir(), "galley-outside-"));
+  try {
+    await withShotDesk(async (handle, _st, shots) => {
+      await upload(handle.url, "annotation=a1&kind=crop", PNG);
+      await writeFile(path.join(outside, "secret.png"), PNG);
+      // A link planted in the directory still can't reach outside it.
+      await symlink(path.join(outside, "secret.png"), path.join(shots, "a2-crop.png"));
+      const get = (query: string) => fetch(`${handle.url}api/ui-shot?${query}`);
+      assert.equal((await get("annotation=a1&kind=crop")).status, 200);
+      assert.equal((await get("annotation=a2&kind=crop")).status, 400, "symlink out");
+      assert.equal((await get("annotation=a1&kind=viewport")).status, 404, "not uploaded");
+      assert.equal((await get("annotation=..%2Fdesk&kind=crop")).status, 400);
+      assert.equal((await get("annotation=a1&kind=..%2F..%2Fx")).status, 400);
+    });
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("deleting an annotation deletes its screenshots, and a reset deletes them all", async () => {
+  await withShotDesk(async (handle, _st, shots) => {
+    for (const id of ["a1", "a2"])
+      for (const kind of ["crop", "viewport"])
+        await upload(handle.url, `annotation=${id}&kind=${kind}`, PNG);
+    // The tab deletes a1 and saves; the save drops its files.
+    await post(handle.url, "api/save", { annotations: [uiAnnotation("a2")] });
+    assert.deepEqual((await readdir(shots)).sort(), ["a2-crop.png", "a2-viewport.png"]);
+    // A Send that drops one does the same.
+    await post(handle.url, "api/send", { annotations: [] });
+    assert.deepEqual(await readdir(shots), []);
+    await post(handle.url, "api/save", { annotations: [uiAnnotation("a1")] });
+    await upload(handle.url, "annotation=a1&kind=crop", PNG);
+    await post(handle.url, "api/reset", {});
+    await assert.rejects(readdir(shots), { code: "ENOENT" }, "reset removes the directory");
   });
 });
 

@@ -4,7 +4,7 @@
 // ReviewResult. Validates the event-stream contract that SKILL.md documents.
 // Run: pnpm build && pnpm smoke
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,6 +17,11 @@ const CLI = path.join(process.cwd(), "dist", "cli.js");
 // every fetch fail confusingly on a busy machine; we read the port it actually bound instead.
 let BASE;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A 1×1 PNG: an annotation's screenshots in miniature.
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 // The desk prints `Galley <session>: http://127.0.0.1:<port>/` to stderr once it's listening.
 // Read that line (accumulating chunks — it can arrive split) and return the origin without the
@@ -221,6 +226,18 @@ try {
   const pollAnn = await getJson("/api/poll");
   assert.equal(pollAnn.annotations?.[0]?.id, "ui-1", "the saved annotation rides the poll");
   console.log("✓ a UI annotation saves through the reviewer slice");
+
+  // Its screenshots (issue 06): the tab uploads the crop and viewport PNGs the bridge rendered once
+  // the save has landed; they're stored as files, and the Send below hands the agent their paths.
+  for (const kind of ["crop", "viewport"]) {
+    const shot = await fetch(`${BASE}/api/ui-shot?annotation=ui-1&kind=${kind}`, {
+      method: "POST",
+      headers: { "content-type": "image/png" },
+      body: TINY_PNG,
+    });
+    assert.equal(shot.status, 200, `the ${kind} screenshot uploads`);
+  }
+  console.log("✓ a UI annotation's screenshot pair uploads");
 
   // Oversized-file stamp (issue 05): the two 6000-line rewrites clear the threshold and are
   // stamped `oversized`; the ordinary one-line change to a.txt is not.
@@ -435,7 +452,14 @@ try {
     "the UI annotation arrives in uiAnnotations",
   );
   assert.equal(ev2.result.uiAnnotations[0].target.elements[0].selector, "#save");
+  const shots = ev2.result.uiAnnotations[0].screenshots;
+  assert.equal(shots?.exact, false, "screenshots are marked as a re-render");
+  for (const file of [shots.crop, shots.viewport]) {
+    assert.ok(path.isAbsolute(file), `${file} is absolute`);
+    assert.deepEqual(readFileSync(file), TINY_PNG, `${file} holds the uploaded PNG`);
+  }
   console.log("✓ await → review carries uiAnnotations + uiTarget beside codeChangeRequests");
+  console.log("✓ uiAnnotations[].screenshots → absolute paths to the uploaded PNGs");
   assert.ok(
     ev2.result.approvedFiles.includes("huge-approved.txt"),
     "card approve on an oversized file lands in approvedFiles",

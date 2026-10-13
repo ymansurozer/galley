@@ -29,6 +29,7 @@ import type {
   ReviewerSave,
 } from "./types.js";
 import { readUiAnnotations, uiAnnotationsForAgent } from "./uiannotations.js";
+import { shotDir } from "./uishots.js";
 
 export function nowIso() {
   return new Date().toISOString();
@@ -849,7 +850,13 @@ export function mergeReviewerSave(state: ReviewState, body: unknown) {
   // Annotations carry data the app page supplied, so they're validated and capped on the way in
   // (uiannotations.ts) rather than taken as sent.
   const annotations = readUiAnnotations(incoming.annotations, state.ui?.target);
-  if (annotations) state.annotations = annotations;
+  if (annotations) {
+    // Whether an annotation's screenshots are stored is the server's to say (the upload that
+    // completes the pair sets it), so it carries over by id, whatever the tab sent.
+    const shot = new Set(state.annotations?.filter((a) => a.screenshots).map((a) => a.id));
+    for (const a of annotations) if (shot.has(a.id)) a.screenshots = true;
+    state.annotations = annotations;
+  }
   // The number mark only goes up: past the stored mark, a stale tab's lower one, and every number
   // in use, so a deleted annotation's number is never handed out again.
   const sent = incoming.lastAnnotationNumber;
@@ -864,7 +871,7 @@ export function mergeReviewerSave(state: ReviewState, body: unknown) {
 // Write via a same-directory temp file + rename so a desk killed mid-write never leaves a truncated
 // review behind: the rename is atomic on one filesystem, so a reader sees either the whole old file
 // or the whole new one, never a half. Same dir keeps source and target on the same filesystem.
-export async function writeFileAtomic(file: string, data: string) {
+export async function writeFileAtomic(file: string, data: string | Uint8Array) {
   const tmp = `${file}.${crypto.randomUUID()}.tmp`;
   await fs.writeFile(tmp, data, "utf8");
   await fs.rename(tmp, file);
@@ -1287,7 +1294,11 @@ export function buildReviewResult(
     codeChangeRequests: state.comments
       .filter((c) => c.status === "open" && c.role !== "agent" && c.intent !== "question")
       .map((c) => ({ path: c.path, lineNumber: c.lineNumber, side: c.side, body: c.body })),
-    uiAnnotations: uiAnnotationsForAgent(state.annotations ?? [], state.root),
+    uiAnnotations: uiAnnotationsForAgent(
+      state.annotations ?? [],
+      state.root,
+      shotDir(artifacts.sessionDir),
+    ),
     uiTarget: state.ui?.target,
     overallNote: note || undefined,
     stagedFiles: state.stagedFiles,

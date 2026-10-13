@@ -8,6 +8,7 @@ import type {
   UiPage,
   UiSource,
 } from "./types.js";
+import { shotFile } from "./uishots.js";
 
 // The UI lane's annotations at the trust boundary. An annotation's page and target came from the
 // app page (bridge → tab → reviewer save), so the desk re-validates every save before storing it:
@@ -208,9 +209,14 @@ const withRepoSource = (el: UiElement, root: string): UiElement =>
   el.source ? { ...el, source: { ...el.source, file: repoRelative(el.source.file, root) } } : el;
 
 // What the agent receives: every open change request, its opening message as the body and the
-// rest as the thread, source files repo-relative. Resolved annotations are the reviewer's "done"
-// and are not sent.
-export function uiAnnotationsForAgent(records: UiAnnotationRecord[], root: string): UiAnnotation[] {
+// rest as the thread, source files repo-relative, and its screenshots' paths in `shots` (the
+// session's ui-shots/) when both are stored. Resolved annotations are the reviewer's "done" and
+// are not sent.
+export function uiAnnotationsForAgent(
+  records: UiAnnotationRecord[],
+  root: string,
+  shots: string,
+): UiAnnotation[] {
   return records
     .filter((a) => a.status === "open" && a.intent === "change")
     .map((a) => {
@@ -223,6 +229,13 @@ export function uiAnnotationsForAgent(records: UiAnnotationRecord[], root: strin
         placement: a.placement,
         page: a.page,
         target: { ...a.target, elements: a.target.elements.map((el) => withRepoSource(el, root)) },
+        ...(a.screenshots && {
+          screenshots: {
+            crop: shotFile(shots, a.id, "crop"),
+            viewport: shotFile(shots, a.id, "viewport"),
+            exact: false,
+          },
+        }),
         thread: replies.map((m) => ({
           role: m.role === "agent" ? ("agent" as const) : ("user" as const),
           body: m.body,
