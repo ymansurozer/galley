@@ -61,6 +61,11 @@ const ANCHORS = [
   "UI-only",
   "never starts, restarts or stops it",
   "App updated — refresh",
+  // UI annotations in the result (issue 04): the renamed code field and the two UI fields
+  "codeChangeRequests[]",
+  "uiAnnotations[]",
+  "uiTarget",
+  "code fields are present and empty",
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",
   "auto-exits",
@@ -91,6 +96,13 @@ test("SPEC states the deduped invariants exactly once (issue 04)", () => {
   assert.equal(count(/answering is READ-ONLY/g), 1, "READ-ONLY rule should be stated once");
   // The reload-resets-edits invariant lives once, at the reload bullet.
   assert.equal(count(/resets to pending on reload/g), 1, "reload-resets invariant should be once");
+});
+
+test("SPEC uses only the renamed codeChangeRequests field (issue 04)", () => {
+  assert.ok(
+    !SPEC.includes("requestedChanges"),
+    "requestedChanges was renamed to codeChangeRequests",
+  );
 });
 
 test("SPEC has no dangling references to the old skill/command", () => {

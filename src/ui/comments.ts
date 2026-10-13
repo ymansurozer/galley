@@ -13,6 +13,7 @@ export function editComment(id: string) {
   S.selected = { side: comment.side, lineNumber: toDisplayLine(comment.side, comment.lineNumber) };
   S.composerBody = comment.body;
   S.editingCommentId = id;
+  S.composerAnnotation = null;
   S.composerOpen = true;
   render();
 }

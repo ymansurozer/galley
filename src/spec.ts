@@ -57,7 +57,7 @@ done
 - \`galley comment --path <f> --line <n> [--side additions|deletions] --body "…"\` — agent reply.
   Live desk → posts over HTTP (~1.5s), threaded under the matching human comment; no desk →
   appended to the saved review. Match path/line/side. Agent comments are never echoed back as
-  requestedChanges.
+  codeChangeRequests.
 - \`galley status --body "…"\` — ephemeral one-line "doing X now" beside the reviewer's spinner.
   Cleared by your next comment; stale after ~90s (keep posting through long work); never
   persisted; exits 0 even with no desk.
@@ -86,7 +86,19 @@ await yields exactly one:
 The \`result\` field of a review event:
 - session, repoRoot, mode, staged, head (sha|null), baseDiffHash (hash of the reviewed diff)
 - accepted[], rejected[]: {path, lineNumber, side, title}
-- requestedChanges[]: {path, lineNumber, side, body}
+- codeChangeRequests[]: {path, lineNumber, side, body}
+- uiTarget? — the app URL the UI annotations were made against (absent without a UI target)
+- uiAnnotations[] — the human's open change requests on the running app (resolved ones are not
+  sent; empty without a UI target): {id, number, body, status, placement, page, target, thread}
+  - number is the pin the human saw on the page; body is the request; thread[] {role, body, at}
+    holds any later messages.
+  - page: {url (on the dev server), route (path+query), title?, viewport: {width, height, dpr}}
+  - target: {kind:"element", elements:[{selector, tag, text?, role?, name?, attrs?, landmark?,
+    heading?, outline?, rect}]} — selector matched exactly that element when captured; text is
+    its visible text, role/name its accessible role and name, landmark/heading where it sits,
+    outline a short HTML sketch, rect {x,y,width,height} its box in the viewport.
+  - placement: "placed" (the target was on the page when annotated).
+  On a UI-only desk the code fields are present and empty.
 - overallNote? — optional note about the WHOLE review (absent if blank): an overall remark, or an
   afterthought instruction for after applying (e.g. "run the formatter"). Not tied to any line.
 - stagedFiles[], approvedFiles[]
@@ -104,7 +116,9 @@ new Send). Live questions arrive only via await, so a file-poller sees Sends but
 
 ## How to act on a review — one path per item, don't mix
 - rejected → revert that change; the reviewer doesn't want it.
-- requestedChanges (a comment) → make the edit at path:lineNumber.
+- codeChangeRequests (a comment) → make the edit at path:lineNumber.
+- uiAnnotations → find the code that renders each target (route → the page's component; selector,
+  text, name, attrs and landmark/heading narrow it to the element) and make the change there.
 - accepted → leave it; don't re-touch.
 - approvedFiles → signed off as-is; leave the whole file unless a requested change forces a touch
   (which re-opens it for re-review).
@@ -123,7 +137,8 @@ Start the dev server yourself — Galley never starts, restarts or stops it — 
 <url> must be a loopback http:// URL (localhost, 127.0.0.0/8, ::1; a bare host:port gets http://);
 anything else exits non-zero and starts nothing. Its path+query is the first page loaded: hand over a
 dev sign-in URL (e.g. …/api/dev-auth/sign-in?as=<user>) and the human lands signed in. The desk
-serves the app through its own proxy on a second port, behind a Code / UI switch. The target
+serves the app through its own proxy on a second port, behind a Code / UI switch, where the human
+can point at elements and request changes — they reach you in ReviewResult.uiAnnotations. The target
 survives reload and restart. After editing app code, \`galley reload\` as usual — the human gets an
 "App updated — refresh" prompt; the app is never reloaded under them.
 

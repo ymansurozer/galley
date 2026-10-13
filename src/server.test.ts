@@ -204,6 +204,75 @@ test("/api/poll ships the lite slice plus desk status — never the heavy state"
   });
 });
 
+test("UI annotations ride the save slice into the poll and the Send result; reset clears them", async () => {
+  await withServer(async (handle, _root, st) => {
+    // A UI-only desk: an app and no diff.
+    st.files = [];
+    st.ui = { target: "http://localhost:3000/" };
+    const annotation = {
+      id: "a1",
+      number: 1,
+      intent: "change",
+      status: "open",
+      placement: "placed",
+      page: {
+        url: "http://localhost:3000/app",
+        route: "/app",
+        title: "App",
+        viewport: { width: 1280, height: 800, dpr: 1 },
+      },
+      target: {
+        kind: "element",
+        elements: [
+          {
+            selector: "#save",
+            tag: "button",
+            text: "y".repeat(5000),
+            rect: { x: 1, y: 2, width: 3, height: 4 },
+          },
+        ],
+      },
+      comments: [
+        {
+          id: "m1",
+          role: "user",
+          intent: "action",
+          body: "Rename to Save",
+          createdAt: "t",
+          updatedAt: "t",
+        },
+      ],
+    };
+    const malformed = { ...annotation, id: "a2", page: { ...annotation.page, route: "//evil" } };
+    await post(handle.url, "api/save", { annotations: [annotation, malformed] });
+    const poll = (await fetch(`${handle.url}api/poll`).then((r) => r.json())) as {
+      annotations?: Array<{ id: string; target: { elements: Array<{ text: string }> } }>;
+    };
+    assert.deepEqual(
+      poll.annotations?.map((a) => a.id),
+      ["a1"],
+      "the malformed entry was dropped on save",
+    );
+    assert.equal(poll.annotations![0]!.target.elements[0]!.text.length, 300, "text capped");
+    const sent = (await post(handle.url, "api/send", {}).then((r) => r.json())) as {
+      resultJson: string;
+    };
+    const result = JSON.parse(await readFile(sent.resultJson, "utf8")) as {
+      uiTarget?: string;
+      uiAnnotations: Array<{ id: string; body: string }>;
+      codeChangeRequests: unknown[];
+    };
+    assert.equal(result.uiTarget, "http://localhost:3000/");
+    assert.deepEqual(
+      result.uiAnnotations.map((a) => [a.id, a.body]),
+      [["a1", "Rename to Save"]],
+    );
+    assert.deepEqual(result.codeChangeRequests, []);
+    await post(handle.url, "api/reset", {});
+    assert.deepEqual(st.annotations, [], "reset clears annotations along with comments");
+  });
+});
+
 test("an unconsumed question surfaces as queuedQuestions", async () => {
   await withServer(async (handle) => {
     await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });

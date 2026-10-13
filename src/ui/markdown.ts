@@ -10,7 +10,7 @@ import DOMPurify from "dompurify";
 import { S, esc } from "./store";
 import { render } from "./render";
 import { loadSettings } from "./settings";
-import type { ReviewComment } from "./types";
+import type { ThreadMessage } from "./types";
 
 // The curated Shiki theme + language set is shared with the diff view (@pierre/diffs, via
 // shiki-shim.ts) so one language set styles both surfaces — see shiki-curated.ts. The JS regex
@@ -102,7 +102,7 @@ export function renderMarkdownInline(text: string): string {
 }
 
 // Comment body → sanitized HTML, cached by id+updatedAt (so an edit re-renders).
-export function renderCommentBody(c: ReviewComment): string {
+export function renderCommentBody(c: ThreadMessage): string {
   const key = `${c.id}:${c.updatedAt}`;
   const cached = cache.get(key);
   if (cached !== undefined) {

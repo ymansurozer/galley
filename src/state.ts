@@ -28,6 +28,7 @@ import type {
   ReviewState,
   ReviewerSave,
 } from "./types.js";
+import { readUiAnnotations, uiAnnotationsForAgent } from "./uiannotations.js";
 
 export function nowIso() {
   return new Date().toISOString();
@@ -702,6 +703,7 @@ export async function buildReviewState(
       reviewedFileHashes: {},
       stagedFiles: [],
       decisions: [],
+      annotations: [],
     };
     // Seed the parse memo with the DiffFile[] buildDiffSource already produced, so the reload path's
     // resolveSkim reuses it (parsedDiffOf(base)) rather than re-parsing rawDiff (issue 06).
@@ -844,6 +846,10 @@ export function mergeReviewerSave(state: ReviewState, body: unknown) {
   for (const key of REVIEWER_SAVE_KEYS) {
     if (incoming[key] !== undefined) (state as Record<string, unknown>)[key] = incoming[key];
   }
+  // Annotations carry data the app page supplied, so they're validated and capped on the way in
+  // (uiannotations.ts) rather than taken as sent.
+  const annotations = readUiAnnotations(incoming.annotations);
+  if (annotations) state.annotations = annotations;
 }
 
 // Write via a same-directory temp file + rename so a desk killed mid-write never leaves a truncated
@@ -1138,6 +1144,8 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
     guide: saved.guide ?? base.guide,
     // Same for the UI target; a `--ui` at restart replaces it after the merge (runDesk).
     ui: saved.ui ?? base.ui,
+    // Annotations are the reviewer's, on the app rather than the diff: a re-diff never touches them.
+    annotations: saved.annotations ?? base.annotations,
     persistFile: saved.persistFile,
   } satisfies ReviewState;
 }
@@ -1154,7 +1162,7 @@ export async function syncGitState(state: ReviewState) {
 
 // Files the reviewer signed off as-is: finished (in reviewedFiles, content hash still current)
 // AND with no objections — no rejected hunk and no open requested-change comment (questions and
-// agent replies don't count). Guarantees approvedFiles is disjoint from rejected/requestedChanges.
+// agent replies don't count). Guarantees approvedFiles is disjoint from rejected/codeChangeRequests.
 export function computeApprovedFiles(state: ReviewState): string[] {
   const hashes = state.reviewedFileHashes ?? {};
   const fileHash = new Map(state.files.map((f) => [f.path, f.contentHash]));
@@ -1266,9 +1274,11 @@ export function buildReviewResult(
     baseDiffHash: state.baseDiffHash,
     accepted: pick("accepted"),
     rejected: pick("rejected"),
-    requestedChanges: state.comments
+    codeChangeRequests: state.comments
       .filter((c) => c.status === "open" && c.role !== "agent" && c.intent !== "question")
       .map((c) => ({ path: c.path, lineNumber: c.lineNumber, side: c.side, body: c.body })),
+    uiAnnotations: uiAnnotationsForAgent(state.annotations ?? []),
+    uiTarget: state.ui?.target,
     overallNote: note || undefined,
     stagedFiles: state.stagedFiles,
     approvedFiles: computeApprovedFiles(state),

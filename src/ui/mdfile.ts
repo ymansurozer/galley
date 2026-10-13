@@ -2,9 +2,9 @@ import { S, $ } from "./store";
 import { cur } from "./contents";
 import { currentFile, currentComments } from "./changes";
 import { renderMarkdown } from "./markdown";
-import { buildCommentThread } from "./annotations";
-import { buildComposer, openComposer } from "./composer";
-import type { ReviewComment } from "./types";
+import { buildCommentThread, lineThread } from "./annotations";
+import { buildComposer, composerInUi, openComposer } from "./composer";
+import type { ReviewComment, ThreadMeta } from "./types";
 
 export function isMarkdownPath(path: string): boolean {
   return /\.(md|markdown|mdx)$/i.test(path);
@@ -75,16 +75,15 @@ export function renderMarkdownFile() {
     comments.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
     const thread = document.createElement("div");
     thread.className = "annotation md-thread";
-    thread.appendChild(
-      buildCommentThread({
-        type: "thread",
-        path: f.path,
-        side: "additions",
-        lineNumber: line,
-        status: comments.some((c) => c.status === "open") ? "open" : "resolved",
-        comments,
-      }),
-    );
+    const meta: ThreadMeta = {
+      type: "thread",
+      path: f.path,
+      side: "additions",
+      lineNumber: line,
+      status: comments.some((c) => c.status === "open") ? "open" : "resolved",
+      comments,
+    };
+    thread.appendChild(buildCommentThread(meta, lineThread(meta)));
     const el = anchorForLine(anchors, line);
     if (!el) container.appendChild(thread);
     else if (el.tagName === "LI") el.appendChild(thread);
@@ -93,7 +92,12 @@ export function renderMarkdownFile() {
 
   // A new line comment (no existing thread on that line) opens an inline composer under
   // its block; a reply/edit renders inside the thread above via buildCommentThread.
-  if (S.composerOpen && !S.editingCommentId && !byLine.has(S.selected.lineNumber)) {
+  if (
+    S.composerOpen &&
+    !S.editingCommentId &&
+    !composerInUi() &&
+    !byLine.has(S.selected.lineNumber)
+  ) {
     const card = document.createElement("div");
     card.className = "annotation md-thread composer-annotation";
     card.appendChild(buildComposer());

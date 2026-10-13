@@ -49,6 +49,7 @@ test("reviewerSlice carries only reviewer-owned fields — no rawDiff, no file c
 
   const slice = reviewerSlice(full);
   assert.deepEqual(Object.keys(slice).sort(), [
+    "annotations",
     "comments",
     "decisionFiles",
     "decisions",

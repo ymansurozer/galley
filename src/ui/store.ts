@@ -59,6 +59,13 @@ export const S: Store = Alpine.reactive<Store>({
   },
   viewport: "fit",
   frameLabel: "",
+  appMode: "interact",
+  annotationsOpen: !matchMedia("(max-width: 1100px)").matches,
+  selectedAnnotation: null,
+  shownResolved: new Set<string>(),
+  annotationDraft: null,
+  composerAnnotation: null,
+  sendLanes: null,
 });
 
 // Imperative-island objects kept OUT of the reactive store: the @pierre/diffs

@@ -1,6 +1,16 @@
 import { S, $, toast } from "./store";
 import { render } from "./render";
 import { captureWaits, readBridgeMessage, routeFromInput } from "./appnav";
+import { closeComposer } from "./composer";
+import { dispatchKey } from "./keys";
+import {
+  appPageChanged,
+  movedInApp,
+  pickedInApp,
+  placeFloatingComposer,
+  selectAnnotation,
+  syncBridge,
+} from "./uilane";
 import type { BridgeShot, DeskMessage, Rect, ReviewState, UiProxyInfo, Viewport } from "./types";
 
 // The UI lane: the agent's running app, served by the desk's UI proxy (a second port, so a
@@ -60,14 +70,17 @@ function loadApp(route: string) {
   frame.src = origin + route;
 }
 
-function post(msg: DeskMessage) {
+export function postToApp(msg: DeskMessage) {
   const origin = proxyOrigin();
   if (frame?.contentWindow && origin) frame.contentWindow.postMessage(msg, origin);
 }
 
 export function setView(view: "code" | "ui") {
   if (view === "ui" ? !hasUi() : uiOnly()) return;
+  // A composer on a picked element can't outlive the view it points into.
+  if (view === "code" && S.annotationDraft) closeComposer();
   S.view = view;
+  syncBridge();
   if (view === "code") {
     render(); // the diff pane was hidden while the app showed — repaint it
     return;
@@ -79,17 +92,17 @@ export function setView(view: "code" | "ui") {
 export const toggleView = () => setView(S.view === "ui" ? "code" : "ui");
 
 export function appBack() {
-  if (S.uiProxy && S.app.connected) post({ type: "back", token: S.uiProxy.token });
+  if (S.uiProxy && S.app.connected) postToApp({ type: "back", token: S.uiProxy.token });
 }
 
 export function appForward() {
-  if (S.uiProxy && S.app.connected) post({ type: "forward", token: S.uiProxy.token });
+  if (S.uiProxy && S.app.connected) postToApp({ type: "forward", token: S.uiProxy.token });
 }
 
 // Also how the reviewer takes the "App updated" pill: the app reloads only when they ask.
 export function appRefresh() {
   S.app.stale = false;
-  if (S.uiProxy && S.app.connected) post({ type: "reload", token: S.uiProxy.token });
+  if (S.uiProxy && S.app.connected) postToApp({ type: "reload", token: S.uiProxy.token });
   else loadApp(S.app.route);
 }
 
@@ -103,7 +116,7 @@ export function appGo(input: string) {
     toast("That address isn't part of the app");
     return;
   }
-  if (S.uiProxy && S.app.connected) post({ type: "navigate", token: S.uiProxy.token, route });
+  if (S.uiProxy && S.app.connected) postToApp({ type: "navigate", token: S.uiProxy.token, route });
   else loadApp(route);
   S.app.route = route;
 }
@@ -118,13 +131,14 @@ export function captureApp(target: { selector?: string; rect?: Rect } = {}): Pro
     return Promise.reject(new Error("No bridge is listening on the app page"));
   const id = ++captureSeq;
   const reply = captures.wait(id);
-  post({ type: "capture", token: S.uiProxy.token, id, ...target });
+  postToApp({ type: "capture", token: S.uiProxy.token, id, ...target });
   return reply;
 }
 
 export function setViewport(viewport: Viewport) {
   S.viewport = viewport;
   sizeFrame();
+  placeFloatingComposer();
 }
 
 // Fit fills the stage. A preset renders the app at its real CSS size, so the app's own media
@@ -156,6 +170,20 @@ export function sizeFrame() {
     top: "16px",
   });
   S.frameLabel = `${w} × ${h}${scale < 1 ? ` · ${Math.round(scale * 100)}%` : ""}`;
+}
+
+// A rect in the app's viewport, in desk coordinates: through the iframe's position and any
+// preset's scale-down. Null while no app is showing.
+export function fromAppViewport(r: Rect): Rect | null {
+  if (!frame?.offsetWidth) return null;
+  const box = frame.getBoundingClientRect();
+  const scale = box.width / frame.offsetWidth;
+  return {
+    x: box.x + r.x * scale,
+    y: box.y + r.y * scale,
+    width: r.width * scale,
+    height: r.height * scale,
+  };
 }
 
 // The desk's UI status off every poll. A changed token means a new desk process: its reload
@@ -216,6 +244,11 @@ export function installAppView() {
       captures.settle(msg.id, "shot" in msg ? msg.shot : new Error(msg.error));
       return;
     }
+    if (msg.type === "picked") return pickedInApp(msg.page, msg.target);
+    if (msg.type === "anchor") return movedInApp(msg.rect);
+    if (msg.type === "select") return selectAnnotation(msg.id);
+    if (msg.type === "key") return dispatchKey(msg);
+    const moved = msg.route !== S.app.route;
     Object.assign(S.app, {
       connected: true,
       route: msg.route,
@@ -223,6 +256,11 @@ export function installAppView() {
       canGoBack: msg.canGoBack,
       canGoForward: msg.canGoForward,
     });
+    // A new page has a new bridge with nothing drawn yet; an in-page route change has other pins.
+    if (msg.type === "ready" || moved) appPageChanged(msg.type === "ready");
   });
-  new ResizeObserver(sizeFrame).observe($("appStage"));
+  new ResizeObserver(() => {
+    sizeFrame();
+    placeFloatingComposer();
+  }).observe($("appStage"));
 }

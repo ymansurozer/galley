@@ -1,4 +1,5 @@
 import type { BridgeMessage, BridgeNav, DeskMessage, Rect } from "../types";
+import { installAnnotate } from "./annotate";
 import { capturePage } from "./capture";
 
 // The bridge: the desk's UI proxy injects it as the first script in every proxied HTML page. It is
@@ -7,7 +8,7 @@ import { capturePage } from "./capture";
 // desk origin and the per-desk token. Every message it posts carries the token and targets exactly
 // the desk origin. It obeys only messages from that origin, sent by the parent frame, that carry the
 // token. It does the handshake, reports navigation, runs the desk's back/forward/refresh/address
-// commands, and screenshots the page on request.
+// commands, screenshots the page on request, and runs Annotate mode and the pins (annotate.ts).
 (() => {
   const tag = document.currentScript;
   const deskOrigin = tag?.dataset.galleyDesk;
@@ -62,6 +63,7 @@ import { capturePage } from "./capture";
     characterData: true,
   });
   addEventListener("pagehide", () => post({ type: "leave", token }));
+  const annotate = installAnnotate(post, token);
 
   // The crop's target: the selector's element, else the rect the desk sent. A selector that matches
   // nothing (or doesn't parse) gives no crop rather than failing the capture.
@@ -94,6 +96,10 @@ import { capturePage } from "./capture";
       if (!nav) history.forward();
       else if (nav.canGoForward) settle(nav.forward());
     } else if (msg.type === "reload") location.reload();
+    else if (msg.type === "mode" && (msg.mode === "annotate" || msg.mode === "interact"))
+      annotate.setMode(msg.mode);
+    else if (msg.type === "marks" && Array.isArray(msg.marks))
+      annotate.setMarks(msg.marks, msg.selected ?? null, msg.picking === true);
     else if (msg.type === "capture" && typeof msg.id === "number") {
       const id = msg.id;
       capturePage(captureTarget(msg)).then(

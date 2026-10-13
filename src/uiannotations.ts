@@ -1,0 +1,175 @@
+import type {
+  Rect,
+  ThreadMessage,
+  UiAnnotation,
+  UiAnnotationRecord,
+  UiCaps,
+  UiElement,
+  UiPage,
+} from "./types.js";
+
+// The UI lane's annotations at the trust boundary. An annotation's page and target came from the
+// app page (bridge → tab → reviewer save), so the desk re-validates every save before storing it:
+// malformed entries are dropped, oversized strings are cut to the caps. The tab checks the same
+// caps on the bridge's messages; this copy is the one that guards the stored review.
+const CAPS: UiCaps = {
+  selector: 512,
+  text: 300,
+  name: 200,
+  outline: 2048,
+  attrs: 12,
+  attr: 200,
+  url: 2048,
+  route: 2048,
+  title: 300,
+  elements: 16,
+};
+
+type Obj = Record<string, unknown>;
+const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
+const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.length > 0;
+
+// Cut to `max` characters, ending in "…" so whoever reads it knows it was cut. Cutting a cut
+// string changes nothing.
+const cap = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+const capped = (v: unknown, max: number) => (nonEmpty(v) ? cap(v, max) : undefined);
+
+// Attribute names as HTML writes them; anything else (spaces, quotes, markup) is not an attribute.
+const ATTR_NAME = /^[a-z][\w.:-]{0,63}$/i;
+
+function readRect(v: unknown): Rect | null {
+  if (!isObj(v)) return null;
+  const { x, y, width, height } = v;
+  if (!finite(x) || !finite(y) || !finite(width) || !finite(height)) return null;
+  return { x, y, width, height };
+}
+
+function readElement(v: unknown): UiElement | null {
+  if (!isObj(v)) return null;
+  const { selector, tag } = v;
+  // A selector can't be cut short: a cut one matches something else, or nothing.
+  if (!nonEmpty(selector) || selector.length > CAPS.selector) return null;
+  if (typeof tag !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(tag)) return null;
+  const rect = readRect(v.rect);
+  if (!rect) return null;
+  const el: UiElement = { selector, tag, rect };
+  const text = capped(v.text, CAPS.text);
+  if (text) el.text = text;
+  for (const key of ["role", "name", "landmark", "heading"] as const) {
+    const s = capped(v[key], CAPS.name);
+    if (s) el[key] = s;
+  }
+  const outline = capped(v.outline, CAPS.outline);
+  if (outline) el.outline = outline;
+  if (isObj(v.attrs))
+    el.attrs = Object.fromEntries(
+      Object.entries(v.attrs)
+        .filter((e): e is [string, string] => ATTR_NAME.test(e[0]) && typeof e[1] === "string")
+        .slice(0, CAPS.attrs)
+        .map(([k, s]) => [k, cap(s, CAPS.attr)]),
+    );
+  return el;
+}
+
+function readPage(v: unknown): UiPage | null {
+  if (!isObj(v) || !isObj(v.viewport)) return null;
+  const { url, route } = v;
+  const { width, height, dpr } = v.viewport;
+  if (!nonEmpty(url) || !/^https?:\/\//.test(url)) return null;
+  // A path on the app, as the address bar shows it.
+  if (!nonEmpty(route) || !route.startsWith("/") || route.startsWith("//")) return null;
+  if (![width, height, dpr].every((n) => finite(n) && n > 0)) return null;
+  const page: UiPage = {
+    url: cap(url, CAPS.url),
+    route: cap(route, CAPS.route),
+    viewport: { width: width as number, height: height as number, dpr: dpr as number },
+  };
+  const title = capped(v.title, CAPS.title);
+  if (title) page.title = title;
+  return page;
+}
+
+// A thread message the reviewer wrote (or, later, the agent). Bodies are not page-sourced and keep
+// the code comments' rule: no cap.
+function readMessage(v: unknown): ThreadMessage | null {
+  if (!isObj(v)) return null;
+  const { id, body, createdAt, updatedAt, role, intent } = v;
+  if (!nonEmpty(id) || !nonEmpty(body) || !nonEmpty(createdAt) || !nonEmpty(updatedAt)) return null;
+  if (role !== "user" && role !== "agent") return null;
+  const m: ThreadMessage = { id, body, createdAt, updatedAt, role };
+  if (intent === "note" || intent === "action" || intent === "question") m.intent = intent;
+  return m;
+}
+
+function readAnnotation(v: unknown): UiAnnotationRecord | null {
+  if (!isObj(v)) return null;
+  const { id, number, intent, status, placement } = v;
+  if (!nonEmpty(id) || id.length > 64) return null;
+  if (!Number.isSafeInteger(number) || (number as number) < 1) return null;
+  if (intent !== "change" || placement !== "placed") return null;
+  if (status !== "open" && status !== "resolved") return null;
+  const page = readPage(v.page);
+  if (!page || !isObj(v.target) || v.target.kind !== "element") return null;
+  const elements = Array.isArray(v.target.elements)
+    ? v.target.elements
+        .map(readElement)
+        .filter((e) => e !== null)
+        .slice(0, CAPS.elements)
+    : [];
+  if (!elements.length) return null;
+  const comments = Array.isArray(v.comments)
+    ? v.comments.map(readMessage).filter((m) => m !== null)
+    : [];
+  // The opening message is the annotation's body: without one there is nothing to send.
+  if (!comments.length) return null;
+  return {
+    id,
+    number: number as number,
+    intent,
+    status,
+    placement,
+    page,
+    target: { kind: "element", elements },
+    comments,
+  };
+}
+
+// The `annotations` of a reviewer save, validated: the valid entries (first of each id), or
+// undefined when the field isn't an array at all, which leaves the stored annotations untouched.
+export function readUiAnnotations(value: unknown): UiAnnotationRecord[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const seen = new Set<string>();
+  const out: UiAnnotationRecord[] = [];
+  for (const entry of value) {
+    const a = readAnnotation(entry);
+    if (!a || seen.has(a.id)) continue;
+    seen.add(a.id);
+    out.push(a);
+  }
+  return out;
+}
+
+// What the agent receives: every open change request, its opening message as the body and the
+// rest as the thread. Resolved annotations are the reviewer's "done" and are not sent.
+export function uiAnnotationsForAgent(records: UiAnnotationRecord[]): UiAnnotation[] {
+  return records
+    .filter((a) => a.status === "open" && a.intent === "change")
+    .map((a) => {
+      const [opener, ...replies] = a.comments;
+      return {
+        id: a.id,
+        number: a.number,
+        body: opener?.body ?? "",
+        status: a.status,
+        placement: a.placement,
+        page: a.page,
+        target: a.target,
+        thread: replies.map((m) => ({
+          role: m.role === "agent" ? ("agent" as const) : ("user" as const),
+          body: m.body,
+          at: m.createdAt,
+        })),
+      };
+    });
+}

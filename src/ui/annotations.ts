@@ -10,10 +10,22 @@ import { isUnanchored } from "./unanchored";
 import { acceptChange } from "./decisions";
 import { editComment, deleteComment } from "./comments";
 import { renderCommentBody } from "./markdown";
-import { buildComposer, buildEditor, composerTargets, openComposer } from "./composer";
+import {
+  buildComposer,
+  buildEditor,
+  composerInUi,
+  composerTargets,
+  openComposer,
+} from "./composer";
 import { render } from "./render";
 import { isBlockSkimCollapsed, skimStripLabel, toggleSkimBlock } from "./skim";
-import type { AnnotationInput, AnnotationMeta, ThreadMeta, ReviewComment } from "./types";
+import type {
+  AnnotationInput,
+  AnnotationMeta,
+  ThreadMeta,
+  ThreadMessage,
+  ReviewComment,
+} from "./types";
 
 export function annotations(): AnnotationInput[] {
   const threads: AnnotationInput[] = [];
@@ -99,7 +111,7 @@ export function annotations(): AnnotationInput[] {
   // resolved thread renders as a collapsed summary and never hosts a composer, so the new
   // comment still needs its own row. S.selected is display space; groups are keyed raw.
   const composers: AnnotationInput[] = [];
-  if (file && S.composerOpen && !S.editingCommentId) {
+  if (file && S.composerOpen && !S.editingCommentId && !composerInUi()) {
     const rawSel = fromDisplayLine(S.selected.side, S.selected.lineNumber);
     const group = groups.get(`${S.selected.side}:${rawSel}`);
     const openThreadHere = !!group && group.some((c) => c.status === "open");
@@ -171,12 +183,52 @@ function relTime(iso?: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+// What a thread's buttons act on. A code thread is the comments on one path/side/line
+// (lineThread); a UI annotation's thread is keyed by the annotation's id (uilane.ts).
+export type ThreadControls = {
+  // Its reply composer is open.
+  replying: boolean;
+  // The reply composer offers Ask beside Request change.
+  ask: boolean;
+  reply: () => void;
+  setStatus: (status: "open" | "resolved") => void;
+  edit: (messageId: string) => void;
+  remove: (messageId: string) => void;
+};
+
+// A code thread's controls: its comments are the ones on the thread's path/side/line.
+export function lineThread(c: ThreadMeta): ThreadControls {
+  return {
+    replying: composerTargets(c.side, c.lineNumber),
+    ask: true,
+    reply: () => {
+      // S.selected is display space; the thread's anchor is raw.
+      S.selected = { side: c.side, lineNumber: toDisplayLine(c.side, c.lineNumber) };
+      openComposer();
+    },
+    setStatus: (status) => {
+      S.state.comments
+        .filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber)
+        .forEach((x) => (x.status = status));
+      render();
+      toast(status === "resolved" ? "Resolved" : "Reopened");
+      persist();
+    },
+    edit: editComment,
+    remove: deleteComment,
+  };
+}
+
 // The comment-box element for one thread (messages + reply/resolve/reopen + per-message
-// edit/delete). Shared by the diff annotations and the markdown-file view (mdfile.ts).
-export function buildCommentThread(c: ThreadMeta): HTMLElement {
+// edit/delete). The one thread component: the diff annotations, the markdown-file view
+// (mdfile.ts) and the UI lane's annotation sidebar (uilane.ts) all render through it.
+export function buildCommentThread(
+  c: { status: "open" | "resolved"; comments: ThreadMessage[] },
+  controls: ThreadControls,
+): HTMLElement {
   const box = document.createElement("div");
   box.className = "comment-box";
-  const replyOpen = composerTargets(c.side, c.lineNumber);
+  const replyOpen = controls.replying;
   const messages =
     c.status === "resolved"
       ? `<div class="thread-summary"><b>${c.comments.length}</b> comment${c.comments.length === 1 ? "" : "s"} <span>(Resolved)</span><button class="reopen-inline">Reopen</button></div>`
@@ -225,45 +277,25 @@ export function buildCommentThread(c: ThreadMeta): HTMLElement {
   }
   // Mount the reply composer above the action bar.
   if (replyOpen && c.status !== "resolved")
-    box.querySelector(".thread-actions")?.before(buildComposer());
+    box.querySelector(".thread-actions")?.before(buildComposer({ ask: controls.ask }));
   const reply = box.querySelector(".reply-thread") as HTMLButtonElement | null;
-  if (reply)
-    reply.onclick = () => {
-      // S.selected is display space; the thread's anchor is raw.
-      S.selected = { side: c.side, lineNumber: toDisplayLine(c.side, c.lineNumber) };
-      openComposer();
-    };
+  if (reply) reply.onclick = controls.reply;
   box
     .querySelectorAll(".edit-comment")
     .forEach(
-      (b) => ((b as HTMLButtonElement).onclick = () => editComment((b as HTMLElement).dataset.id!)),
+      (b) =>
+        ((b as HTMLButtonElement).onclick = () => controls.edit((b as HTMLElement).dataset.id!)),
     );
   box
     .querySelectorAll(".delete-comment")
     .forEach(
       (b) =>
-        ((b as HTMLButtonElement).onclick = () => deleteComment((b as HTMLElement).dataset.id!)),
+        ((b as HTMLButtonElement).onclick = () => controls.remove((b as HTMLElement).dataset.id!)),
     );
   const resolve = box.querySelector(".resolve-thread") as HTMLButtonElement | null;
-  if (resolve)
-    resolve.onclick = () => {
-      S.state.comments
-        .filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber)
-        .forEach((x) => (x.status = "resolved"));
-      render();
-      toast("Resolved");
-      persist();
-    };
+  if (resolve) resolve.onclick = () => controls.setStatus("resolved");
   const reopen = box.querySelector(".reopen-thread,.reopen-inline") as HTMLButtonElement | null;
-  if (reopen)
-    reopen.onclick = () => {
-      S.state.comments
-        .filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber)
-        .forEach((x) => (x.status = "open"));
-      render();
-      toast("Reopened");
-      persist();
-    };
+  if (reopen) reopen.onclick = () => controls.setStatus("open");
   return box;
 }
 
@@ -300,7 +332,7 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   if (c.type === "change") {
     el.innerHTML = `<div class="change-actions"><button class="reject">Undo <kbd>⇧N</kbd></button><button class="accept">Keep <kbd>⇧Y</kbd></button></div>`;
   } else {
-    el.appendChild(buildCommentThread(c));
+    el.appendChild(buildCommentThread(c, lineThread(c)));
     if (change) {
       const ca = document.createElement("div");
       ca.className = "change-actions";

@@ -1,6 +1,7 @@
 import { S } from "./store";
 import { fromDisplayLine } from "./changes";
 import { render } from "./render";
+import { renderUiLane } from "./uilane";
 import type { Side } from "./types";
 
 // ── Inline composers ─────────────────────────────────────────────────────────
@@ -10,6 +11,14 @@ import type { Side } from "./types";
 // Exactly one is open at a time. Its text lives in S.composerBody (synced on input) so it
 // survives render()'s rebuild of the diff DOM; caret + focus are restored after each render
 // (restoreComposerFocus). The active textarea always carries `.js-composer-focus`.
+//
+// The UI lane shares it: the floating composer for a new annotation (S.annotationDraft), and a
+// reply or edit in an annotation's thread (S.composerAnnotation). Those redraw the UI lane's
+// sidebar and composer instead of the diff.
+
+// The open composer belongs to the UI lane.
+export const composerInUi = () => S.annotationDraft !== null || S.composerAnnotation !== null;
+const redraw = (ui: boolean) => (ui ? renderUiLane() : render());
 
 // Caret offset in the open composer, kept alongside S.composerBody so a rebuild can restore
 // the insertion point, not just the text. Reset whenever a composer opens.
@@ -30,8 +39,8 @@ function trackInput(ta: HTMLTextAreaElement) {
 
 // The new-comment / reply composer card: textarea + the two intent buttons (Ask / Request
 // change), in the same card family as a message. Used both as its own annotation (new
-// comment) and appended to a thread (reply).
-export function buildComposer(): HTMLElement {
+// comment) and appended to a thread (reply). `ask: false` leaves Ask out (the UI lane).
+export function buildComposer({ ask = true } = {}): HTMLElement {
   const card = document.createElement("div");
   card.className = "composer-card";
   const ta = document.createElement("textarea");
@@ -42,8 +51,9 @@ export function buildComposer(): HTMLElement {
   card.appendChild(ta);
   const row = document.createElement("div");
   row.className = "crow";
-  row.innerHTML = `<span class="spacer"></span><button class="cbtn ask">Ask <kbd>⌘⇧↵</kbd></button><button class="cbtn req">Request change <kbd>⌘↵</kbd></button>`;
-  (row.querySelector(".ask") as HTMLButtonElement).onclick = () => S.ask?.();
+  row.innerHTML = `<span class="spacer"></span>${ask ? '<button class="cbtn ask">Ask <kbd>⌘⇧↵</kbd></button>' : ""}<button class="cbtn req">Request change <kbd>⌘↵</kbd></button>`;
+  const askButton = row.querySelector<HTMLButtonElement>(".ask");
+  if (askButton) askButton.onclick = () => S.ask?.();
   (row.querySelector(".req") as HTMLButtonElement).onclick = () => S.requestChange?.();
   card.appendChild(row);
   return card;
@@ -75,19 +85,27 @@ export function composerTargets(side: Side, rawLine: number): boolean {
   return (
     S.composerOpen &&
     !S.editingCommentId &&
+    !composerInUi() &&
     S.selected.side === side &&
     fromDisplayLine(S.selected.side, S.selected.lineNumber) === rawLine
   );
 }
 
-// Open a fresh new/reply composer at the current S.selected line (a reply first points
-// S.selected at the thread's anchor). The composer appears on the next render.
-export function openComposer() {
-  composerCaret = 0;
-  S.composerBody = "";
+// Is the open reply composer in this annotation's thread?
+export const composerTargetsAnnotation = (id: string) =>
+  S.composerOpen && !S.editingCommentId && S.composerAnnotation === id;
+
+// Open a fresh new/reply composer: on the code lane at the current S.selected line (a reply first
+// points S.selected at the thread's anchor), or as a reply in `annotation`'s thread. With
+// S.annotationDraft set it is the UI lane's floating composer for that draft; `body` carries text
+// over when the reviewer picks a different element mid-sentence. It appears on the next render.
+export function openComposer(annotation: string | null = null, body = "") {
+  composerCaret = body.length;
+  S.composerBody = body;
   S.editingCommentId = null;
+  S.composerAnnotation = annotation;
   S.composerOpen = true;
-  render();
+  redraw(composerInUi());
 }
 
 // Close whatever composer is open and rebuild the diff so its DOM goes away (the inline
@@ -101,17 +119,20 @@ export function openComposer() {
 // that never become clicks (drags). If that same click opened a fresh composer (clicking
 // another line), the render simply draws it — state is untouched here.
 export function closeComposer(deferRender = false) {
+  const ui = composerInUi();
   S.composerOpen = false;
   S.editingCommentId = null;
+  S.composerAnnotation = null;
+  S.annotationDraft = null;
   if (!deferRender) {
-    render();
+    redraw(ui);
     return;
   }
   let timer = 0;
   const settle = () => {
     clearTimeout(timer);
     document.removeEventListener("click", settle);
-    render();
+    redraw(ui);
   };
   timer = window.setTimeout(settle, 200);
   document.addEventListener("click", settle); // bubble: runs after the target's own handlers
@@ -121,7 +142,11 @@ export function closeComposer(deferRender = false) {
 // re-focus the open composer and restore its caret from the store. No-op when none is open.
 export function restoreComposerFocus() {
   if (!S.composerOpen) return;
-  const ta = document.querySelector<HTMLTextAreaElement>(".js-composer-focus");
+  const ta = document.querySelector<HTMLTextAreaElement>(
+    composerInUi()
+      ? "#uiComposer .js-composer-focus, #annotationList .js-composer-focus"
+      : ".js-composer-focus",
+  );
   if (!ta) return;
   if (ta.value !== S.composerBody) ta.value = S.composerBody;
   ta.focus();

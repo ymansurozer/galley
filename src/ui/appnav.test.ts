@@ -117,6 +117,85 @@ test("readBridgeMessage drops a capture reply that isn't PNGs within the size ca
   assert.equal(readBridgeMessage({ ...ok, token: "other", shot }, TOKEN), null);
 });
 
+const element = (over: Record<string, unknown> = {}) => ({
+  selector: 'button[data-testid="upload"]',
+  tag: "button",
+  text: "Upload",
+  role: "button",
+  name: "Upload",
+  attrs: { "data-testid": "upload" },
+  landmark: "main",
+  heading: "Files",
+  outline: '<button data-testid="upload">Upload</button>',
+  rect: { x: 10, y: 20, width: 90, height: 32 },
+  ...over,
+});
+const picked = (over: Record<string, unknown> = {}, el = element()) => ({
+  type: "picked",
+  token: TOKEN,
+  page: { route: "/app/files", title: "Files", viewport: { width: 1280, height: 800, dpr: 2 } },
+  target: { kind: "element", elements: [el] },
+  ...over,
+});
+
+test("readBridgeMessage accepts a picked element as the bridge describes it", () => {
+  assert.deepEqual(readBridgeMessage(picked(), TOKEN), picked());
+});
+
+test("readBridgeMessage caps a picked element's page-sourced strings", () => {
+  const attrs = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`data-a${i}`, "v"]));
+  const msg = readBridgeMessage(
+    picked(
+      { page: { route: "/x", title: "t".repeat(400), viewport: { width: 1, height: 1, dpr: 1 } } },
+      element({
+        text: "x".repeat(900),
+        name: "n".repeat(900),
+        heading: "h".repeat(900),
+        outline: "o".repeat(9000),
+        attrs: { ...attrs, href: "h".repeat(900) },
+      }),
+    ),
+    TOKEN,
+  );
+  assert.ok(msg && msg.type === "picked");
+  const el = msg.target.elements[0]!;
+  assert.equal(msg.page.title!.length, 300);
+  assert.equal(el.text!.length, 300);
+  assert.ok(el.text!.endsWith("…"));
+  assert.equal(el.name!.length, 200);
+  assert.equal(el.heading!.length, 200);
+  assert.equal(el.outline!.length, 2048);
+  assert.equal(Object.keys(el.attrs!).length, 12);
+  assert.ok(Object.values(el.attrs!).every((v) => v.length <= 200));
+});
+
+test("readBridgeMessage drops a malformed pick", () => {
+  const bad = [
+    picked({ page: { route: "//evil.example/", viewport: { width: 1, height: 1, dpr: 1 } } }),
+    picked({ page: { route: "/x", viewport: { width: 0, height: 1, dpr: 1 } } }),
+    picked({ target: { kind: "region", elements: [element()] } }),
+    picked({ target: { kind: "element", elements: [] } }),
+    picked({}, element({ selector: "x".repeat(513) })),
+    picked({}, element({ selector: 7 })),
+    picked({}, element({ tag: "<img onerror>" })),
+    picked({}, element({ rect: { x: 1, y: 2, width: "3", height: 4 } })),
+  ];
+  for (const msg of bad) assert.equal(readBridgeMessage(msg, TOKEN), null, JSON.stringify(msg));
+});
+
+test("readBridgeMessage reads forwarded keys, pin clicks and anchor moves", () => {
+  const key = { type: "key", token: TOKEN, key: "L", code: "KeyL", shiftKey: true, altKey: false };
+  assert.deepEqual(readBridgeMessage(key, TOKEN), key);
+  assert.equal(readBridgeMessage({ ...key, key: "x".repeat(40) }, TOKEN), null);
+  assert.equal(readBridgeMessage({ ...key, shiftKey: "yes" }, TOKEN), null);
+  const select = { type: "select", token: TOKEN, id: "a-1" };
+  assert.deepEqual(readBridgeMessage(select, TOKEN), select);
+  assert.equal(readBridgeMessage({ ...select, id: 3 }, TOKEN), null);
+  const anchor = { type: "anchor", token: TOKEN, rect: { x: 1, y: 2, width: 3, height: 4 } };
+  assert.deepEqual(readBridgeMessage(anchor, TOKEN), anchor);
+  assert.equal(readBridgeMessage({ ...anchor, rect: { x: 1 } }, TOKEN), null);
+});
+
 const shot = () => ({ viewport: png(), crop: null, ms: 5 });
 
 test("captureWaits settles a capture with its own reply, once", async () => {
