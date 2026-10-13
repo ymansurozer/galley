@@ -358,6 +358,22 @@ export type UiElement = {
   outline?: string;
   // Its box in the page's viewport when captured.
   rect: Rect;
+  // The source that rendered it, when a framework resolver could tell (Vue/Nuxt dev builds only).
+  source?: UiSource;
+};
+// Where an element came from. `vue-tracer`: the exact template position (line and 1-based column,
+// from vite-plugin-vue-tracer, which Nuxt DevTools installs). `vue-file`: the owning component's
+// file and name only. `vendor`: the element was rendered inside a library component (under
+// node_modules), and the position is the nearest app-owned one — where the library component is
+// used. The bridge sends the path it was given (often absolute); the Send makes it repo-relative
+// when it lies inside the repo.
+export type UiSource = {
+  file: string;
+  line?: number;
+  column?: number;
+  component?: string;
+  vendor?: boolean;
+  via: "vue-tracer" | "vue-file";
 };
 export type UiPage = {
   // The page on the dev server (the UI target's origin + route), not on the proxy.
@@ -370,9 +386,12 @@ export type UiPage = {
 export type UiTarget = { kind: "element"; elements: UiElement[] };
 // Caps on page-sourced data: string lengths, and the attrs and elements counts. The bridge, the tab
 // and the server each keep a runtime copy typed as UiCaps (the worlds share no runtime code), so a
-// copy that drifts fails the typecheck. `name` also caps role, landmark and heading.
+// copy that drifts fails the typecheck. `name` also caps role, landmark, heading and a source's
+// component. A selector or a source file over its cap is refused rather than cut: cut short, it
+// points at something else.
 export type UiCaps = {
   selector: 512;
+  file: 1024;
   text: 300;
   name: 200;
   outline: 2048;

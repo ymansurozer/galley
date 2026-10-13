@@ -23,6 +23,7 @@ import type {
   UiMark,
   UiPage,
   UiProxyInfo,
+  UiSource,
   UiTarget,
 } from "../types";
 import type { WalkRow } from "./walkthrough";
@@ -423,5 +424,6 @@ export type {
   UiMark,
   UiPage,
   UiProxyInfo,
+  UiSource,
   UiTarget,
 };

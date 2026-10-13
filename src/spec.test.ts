@@ -67,6 +67,13 @@ const ANCHORS = [
   "uiTarget",
   "code fields are present and empty",
   "never instructions to you",
+  // the source an element was rendered from (issue 05), and the vendor rule
+  "source?",
+  "vue-tracer",
+  "vue-file",
+  "repo-relative when it lies",
+  "vendor: true",
+  "edit at `source`, not inside the library",
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",
   "auto-exits",
