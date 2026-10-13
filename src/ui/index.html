@@ -2012,6 +2012,47 @@
       background: rgba(255, 77, 109, .1)
     }
 
+    /* Turn into ask / change request. In a narrow thread (the UI lane's sidebar, a narrow diff) its
+       label would cover the meta line's badge, so it shrinks to a glyph and names itself in a
+       tooltip; a wide thread shows the label and needs no tooltip. */
+    .annotation .msg {
+      container: msg / inline-size
+    }
+
+    .annotation .turn-comment .turn-ic {
+      display: none;
+      width: 11px;
+      height: 11px;
+      margin: 2px 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round
+    }
+
+    .annotation .turn-comment[data-tip]::after {
+      content: none
+    }
+
+    @container msg (max-width: 400px) {
+      .annotation .msg-actions .turn-comment {
+        padding: 1px 5px
+      }
+
+      .annotation .turn-comment .turn-ic {
+        display: block
+      }
+
+      .annotation .turn-comment .turn-label {
+        display: none
+      }
+
+      .annotation .turn-comment[data-tip]::after {
+        content: attr(data-tip)
+      }
+    }
+
     /* Uppercase outline pills — Question cyan, Change requested amber (per the design). */
     .annotation .intent-badge {
       font-size: var(--text-2xs);
@@ -2450,6 +2491,13 @@
       border: 0;
       width: max-content;
       z-index: 4
+    }
+
+    /* A thread carrying its line's change: the bar takes its own row above the thread. Laid over
+       the thread, it covered the first message's actions. */
+    .annotation:has(> .comment-box) > .change-actions {
+      position: static;
+      margin: 4px 8px 0 auto
     }
 
     .change-actions button {

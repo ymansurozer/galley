@@ -248,8 +248,10 @@ export function buildCommentThread(
             const awaiting = own && m.intent === "question" && !answered(m, c.comments);
             // Only the opening message carries the thread's kind, so only it turns.
             const into = i === 0 ? turnsInto(m) : null;
+            const label = into === "question" ? "Turn into ask" : "Turn into change request";
+            // The glyph stands in for the label in a narrow thread (index.html, .turn-comment).
             const turn = into
-              ? `<button class="turn-comment" data-id="${m.id}">${into === "question" ? "Turn into ask" : "Turn into change request"}</button>`
+              ? `<button class="turn-comment" data-id="${m.id}" aria-label="${label}" data-tip="${label}" data-tip-align="end"><svg class="turn-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5.5h9.5M10 3l2.5 2.5L10 8M13 10.5H3.5M6 8l-2.5 2.5L6 13"/></svg><span class="turn-label">${label}</span></button>`
               : "";
             const actions =
               own && !editing
@@ -339,11 +341,13 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     el.innerHTML = `<div class="change-actions"><button class="reject">Undo <kbd>⇧N</kbd></button><button class="accept">Keep <kbd>⇧Y</kbd></button></div>`;
   } else {
     el.appendChild(buildCommentThread(c, lineThread(c)));
+    // The change on the thread's line keeps its decision bar right under the hunk, above the
+    // thread, as when the two render as separate annotations.
     if (change) {
       const ca = document.createElement("div");
       ca.className = "change-actions";
       ca.innerHTML = `<button class="reject">Undo <kbd>⇧N</kbd></button><button class="accept">Keep <kbd>⇧Y</kbd></button>`;
-      el.appendChild(ca);
+      el.prepend(ca);
     }
   }
   const acceptButton = el.querySelector(".accept");
