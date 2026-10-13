@@ -161,9 +161,19 @@ const labelledBy = (el: Element) =>
 
 function fieldLabel(el: Element): string {
   const labels = (el as HTMLInputElement).labels;
-  const text = labels ? [...labels].map((l) => squash(l.textContent)).join(" ") : "";
+  const text = labels ? [...labels].map((l) => squash(wordsOf(l))).join(" ") : "";
   return text || squash(el.getAttribute("placeholder"));
 }
+
+// A label's words, skipping every field inside it, the one it names included. A field's content is
+// a select's options or a textarea's text; accname reads its value instead, and that is what
+// someone typed or picked, which stays theirs.
+const wordsOf = (node: Node): string =>
+  node.nodeType === 3
+    ? (node.textContent ?? "")
+    : node.nodeType === 1 && isField(node as Element)
+      ? ""
+      : [...node.childNodes].map(wordsOf).join("");
 
 // Visible text. A field's value is what someone typed, so fields have none.
 export function textOf(el: Element): string {

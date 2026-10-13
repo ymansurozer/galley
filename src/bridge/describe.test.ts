@@ -57,6 +57,23 @@ test("form fields are named by their label and never carry what was typed", () =
   assert.ok(!JSON.stringify(receipt).includes("IOE0912345678"), "typed values stay out");
 });
 
+test("a field named by a label around it takes the label's words, not its own or other fields' content", () => {
+  const $ = page(`
+    <label>Default matter owner
+      <select id="owner"><option>Dana Kim</option><option selected>Leyla Mutlu</option></select>
+    </label>
+    <label>Notes <textarea id="notes">Call the client back</textarea></label>
+    <label>Receipt <input id="receipt" value="IOE0912345678"> for this matter</label>
+    <label>Show <select id="rows"><option>10</option><option>50</option></select> rows
+      <input id="filter" placeholder="Filter" value="smith">
+    </label>`);
+  assert.equal(describeElement($("#owner")).name, "Default matter owner");
+  assert.equal(describeElement($("#notes")).name, "Notes");
+  assert.equal(describeElement($("#receipt")).name, "Receipt for this matter");
+  assert.equal(describeElement($("#filter")).name, "Show rows");
+  assert.equal(labelOf($("#owner")).name, "Default matter owner");
+});
+
 test("page text is capped: text 300, name 200, attributes 200, outline 2 KB", () => {
   const long = "word ".repeat(400);
   const $ = page(`
