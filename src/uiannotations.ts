@@ -37,6 +37,16 @@ const capped = (v: unknown, max: number) => (nonEmpty(v) ? cap(v, max) : undefin
 
 // Attribute names as HTML writes them; anything else (spaces, quotes, markup) is not an attribute.
 const ATTR_NAME = /^[a-z][\w.:-]{0,63}$/i;
+// Annotation and message ids (uuids from the tab) end up in the desk's markup: word characters only.
+const isId = (v: unknown): v is string => typeof v === "string" && /^[\w-]{1,64}$/.test(v);
+
+// A path on the app's own origin, as the address bar shows it. The URL parser reads a backslash in
+// the path as a slash (`/\evil.example` is `//evil.example`), and no route has control characters.
+function isRoute(v: unknown): v is string {
+  if (typeof v !== "string" || !v.startsWith("/") || v.startsWith("//")) return false;
+  const path = v.split(/[?#]/, 1)[0]!;
+  return !path.includes("\\") && ![...v].some((c) => c < " " || c === "\x7f");
+}
 
 function readRect(v: unknown): Rect | null {
   if (!isObj(v)) return null;
@@ -72,17 +82,19 @@ function readElement(v: unknown): UiElement | null {
   return el;
 }
 
-function readPage(v: unknown): UiPage | null {
+// The page's url isn't taken as sent: it's rebuilt from the route on the desk's app, so it can only
+// ever point at the app under review.
+function readPage(v: unknown, app: string): UiPage | null {
   if (!isObj(v) || !isObj(v.viewport)) return null;
-  const { url, route } = v;
   const { width, height, dpr } = v.viewport;
-  if (!nonEmpty(url) || !/^https?:\/\//.test(url)) return null;
-  // A path on the app, as the address bar shows it.
-  if (!nonEmpty(route) || !route.startsWith("/") || route.startsWith("//")) return null;
+  if (!isRoute(v.route)) return null;
   if (![width, height, dpr].every((n) => finite(n) && n > 0)) return null;
+  const route = cap(v.route, CAPS.route);
+  const url = new URL(route, app);
+  if (url.origin !== new URL(app).origin) return null;
   const page: UiPage = {
-    url: cap(url, CAPS.url),
-    route: cap(route, CAPS.route),
+    url: cap(url.href, CAPS.url),
+    route,
     viewport: { width: width as number, height: height as number, dpr: dpr as number },
   };
   const title = capped(v.title, CAPS.title);
@@ -95,21 +107,21 @@ function readPage(v: unknown): UiPage | null {
 function readMessage(v: unknown): ThreadMessage | null {
   if (!isObj(v)) return null;
   const { id, body, createdAt, updatedAt, role, intent } = v;
-  if (!nonEmpty(id) || !nonEmpty(body) || !nonEmpty(createdAt) || !nonEmpty(updatedAt)) return null;
+  if (!isId(id) || !nonEmpty(body) || !nonEmpty(createdAt) || !nonEmpty(updatedAt)) return null;
   if (role !== "user" && role !== "agent") return null;
   const m: ThreadMessage = { id, body, createdAt, updatedAt, role };
   if (intent === "note" || intent === "action" || intent === "question") m.intent = intent;
   return m;
 }
 
-function readAnnotation(v: unknown): UiAnnotationRecord | null {
+function readAnnotation(v: unknown, app: string): UiAnnotationRecord | null {
   if (!isObj(v)) return null;
   const { id, number, intent, status, placement } = v;
-  if (!nonEmpty(id) || id.length > 64) return null;
+  if (!isId(id)) return null;
   if (!Number.isSafeInteger(number) || (number as number) < 1) return null;
   if (intent !== "change" || placement !== "placed") return null;
   if (status !== "open" && status !== "resolved") return null;
-  const page = readPage(v.page);
+  const page = readPage(v.page, app);
   if (!page || !isObj(v.target) || v.target.kind !== "element") return null;
   const elements = Array.isArray(v.target.elements)
     ? v.target.elements
@@ -135,14 +147,19 @@ function readAnnotation(v: unknown): UiAnnotationRecord | null {
   };
 }
 
-// The `annotations` of a reviewer save, validated: the valid entries (first of each id), or
-// undefined when the field isn't an array at all, which leaves the stored annotations untouched.
-export function readUiAnnotations(value: unknown): UiAnnotationRecord[] | undefined {
+// The `annotations` of a reviewer save, validated against the desk's app (`app`, its UI target):
+// the valid entries (first of each id), none without an app, or undefined when the field isn't an
+// array at all, which leaves the stored annotations untouched.
+export function readUiAnnotations(
+  value: unknown,
+  app: string | undefined,
+): UiAnnotationRecord[] | undefined {
   if (!Array.isArray(value)) return undefined;
+  if (!app) return [];
   const seen = new Set<string>();
   const out: UiAnnotationRecord[] = [];
   for (const entry of value) {
-    const a = readAnnotation(entry);
+    const a = readAnnotation(entry, app);
     if (!a || seen.has(a.id)) continue;
     seen.add(a.id);
     out.push(a);

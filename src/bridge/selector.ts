@@ -46,9 +46,20 @@ export function isWordClass(cls: string): boolean {
   return !STATE_WORDS.has(words[words.length - 1]!);
 }
 
-// Ids a framework generated (`v-0-3`, `:r1:`, `headlessui-menu-3`) change between renders; a
-// hand-written one has no digits.
-const isStableId = (id: string) => id.length <= 64 && /^[a-z_][\w-]*$/i.test(id) && !/\d/.test(id);
+// Ids a framework generated change between renders: React's `:r1:`, Vue's `v-0-3`, a library
+// prefix and a counter (`headlessui-menu-button-3`, `radix-12`), long counters and hashes. A
+// hand-written id keeps its digits (`step2`, `row-12`).
+const GENERATED_ID_PREFIX =
+  /^(v|r|radix|reka|headlessui|mui|chakra|mantine|ember|react-aria|aria|downshift|rc|el|tippy|floating-ui|base-ui|ui|id)[-_]/i;
+export function isStableId(id: string): boolean {
+  // The character set alone rules out React's colons.
+  if (id.length > 64 || !/^[a-z_][\w-]*$/i.test(id)) return false;
+  if (GENERATED_ID_PREFIX.test(id) && /\d/.test(id)) return false;
+  // Counter pairs (`input-12-4`) and long digit runs (timestamps).
+  if (/\d+[-_]\d+/.test(id) || /\d{4,}/.test(id)) return false;
+  // A run of hex that mixes digits and letters is a hash.
+  return !(id.match(/[0-9a-f]{6,}/gi) ?? []).some((run) => /\d/.test(run) && /[a-f]/i.test(run));
+}
 
 // An attribute value in double quotes, escaped for CSS.
 const quoted = (v: string) => `"${v.replace(/["\\]/g, "\\$&").replace(/\n/g, "\\a ")}"`;

@@ -34,9 +34,10 @@ export function pageName(title: string | undefined, route: string): string {
 export const openChangeCount = (list: readonly UiAnnotationRecord[]) =>
   list.filter((a) => a.status === "open" && a.intent === "change").length;
 
-// Numbers are global and never reused, so a deleted #3 never comes back as a different #3.
-export const nextNumber = (list: readonly UiAnnotationRecord[]) =>
-  list.reduce((max, a) => Math.max(max, a.number), 0) + 1;
+// Numbers are global and never reused: past every annotation here and the highest number ever
+// given (`last`), so deleting the newest #3 doesn't free 3 for a different annotation.
+export const nextNumber = (list: readonly UiAnnotationRecord[], last: number) =>
+  list.reduce((max, a) => Math.max(max, a.number), last) + 1;
 
 // A row's line: the body's first non-empty line, without markdown's marks.
 export function firstLine(body: string): string {

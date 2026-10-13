@@ -9,7 +9,8 @@ import { describeElement, labelOf, targetOf } from "./describe";
 //
 // In Annotate mode a transparent veil in that root takes the pointer, so the app sees no hovers or
 // clicks; hit-testing looks under the veil. The app gets no keys either, except the ones that
-// scroll. ⌥A reaches the desk in both modes, and in Annotate mode so do Esc and ⇧ chords.
+// scroll. ⌥A reaches the desk in both modes, and in Annotate mode so do Esc and the UI view's ⇧
+// chords.
 
 const STYLE = `
   :host { all: initial }
@@ -43,6 +44,8 @@ const STYLE = `
 
 // Keys that scroll the page: they still reach it in Annotate mode.
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+// The UI view's ⇧ chords passed up while annotating: sidebar, next / previous, Code / UI.
+const FORWARDED_SHIFT = new Set(["L", "U", "ArrowDown", "ArrowUp"]);
 
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
@@ -252,7 +255,10 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     if (e.metaKey || e.ctrlKey) return;
     e.preventDefault();
     if (e.type !== "keydown") return;
-    if (chord || e.key === "Escape" || (e.shiftKey && e.key !== "Shift"))
+    // The desk accepts only these, and only in this form (appnav.ts); others aren't sent at all.
+    const escape = e.key === "Escape" && !e.shiftKey && !e.altKey;
+    const shiftChord = e.shiftKey && !e.altKey && FORWARDED_SHIFT.has(e.key);
+    if (chord || escape || shiftChord)
       post({
         type: "key",
         token,

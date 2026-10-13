@@ -1,4 +1,13 @@
-import type { BridgeMessage, BridgeShot, Rect, UiCaps, UiElement, UiPage } from "./types";
+import type {
+  AppMode,
+  BridgeMessage,
+  BridgeShot,
+  ForwardedKey,
+  Rect,
+  UiCaps,
+  UiElement,
+  UiPage,
+} from "./types";
 
 // Pure helpers for the UI view's traffic with the bridge (kept free of the store so they unit-test
 // without a DOM). The app page is untrusted: what it posts is re-validated and capped here before
@@ -43,11 +52,8 @@ export function readBridgeMessage(data: unknown, token: string): BridgeMessage |
       ? { type: "select", token, id: d.id }
       : null;
   if (d.type === "key") {
-    const { key, code, shiftKey, altKey } = d;
-    if (typeof key !== "string" || key.length > 32 || typeof code !== "string" || code.length > 32)
-      return null;
-    if (typeof shiftKey !== "boolean" || typeof altKey !== "boolean") return null;
-    return { type: "key", token, key, code, shiftKey, altKey };
+    const k = forwardedKey(d);
+    return k && { type: "key", token, ...k };
   }
   if (d.type !== "ready" && d.type !== "nav") return null;
   if (!isRoute(d.route)) return null;
@@ -62,12 +68,45 @@ export function readBridgeMessage(data: unknown, token: string): BridgeMessage |
   };
 }
 
+// The keys an app page may pass up, and only in this form: ⌥A, and Esc and the UI view's ⇧ chords
+// (sidebar, next / previous annotation, Code / UI). The desk runs them through its own hotkey
+// table, so anything that sends, resets, approves or confirms (⇧S, ⇧R, ⇧A, Enter) is refused here:
+// a page could post any key it likes.
+const SHIFT_CHORDS: Record<string, string> = {
+  L: "KeyL",
+  U: "KeyU",
+  ArrowDown: "ArrowDown",
+  ArrowUp: "ArrowUp",
+};
+function forwardedKey(d: Obj): ForwardedKey | null {
+  const { key, code, shiftKey, altKey } = d;
+  if (typeof shiftKey !== "boolean" || typeof altKey !== "boolean") return null;
+  // ⌥A by its code: on a Mac layout its key is "å".
+  if (code === "KeyA" && altKey && !shiftKey)
+    return { key: "a", code: "KeyA", shiftKey: false, altKey: true };
+  if (key === "Escape" && !shiftKey && !altKey)
+    return { key: "Escape", code: "Escape", shiftKey: false, altKey: false };
+  if (typeof key === "string" && shiftKey && !altKey && Object.hasOwn(SHIFT_CHORDS, key))
+    return { key, code: SHIFT_CHORDS[key]!, shiftKey: true, altKey: false };
+  return null;
+}
+
+// Whether a key passed up from the app runs: ⌥A always; the rest only while annotating, since in
+// Interact mode the app's keys are its own (Esc included).
+export const forwardedKeyRuns = (k: ForwardedKey, mode: AppMode) =>
+  mode === "annotate" || (k.code === "KeyA" && k.altKey);
+
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-// A path on the app's own origin: absolute and protocol-relative URLs lead elsewhere.
-const isRoute = (v: unknown): v is string =>
-  typeof v === "string" && v.startsWith("/") && !v.startsWith("//");
+// A path on the app's own origin. Absolute and protocol-relative URLs lead elsewhere, and so does a
+// backslash in the path, which the URL parser reads as a slash (`/\evil.example`). Routes carry no
+// control characters.
+function isRoute(v: unknown): v is string {
+  if (typeof v !== "string" || !v.startsWith("/") || v.startsWith("//")) return false;
+  const path = v.split(/[?#]/, 1)[0]!;
+  return !path.includes("\\") && ![...v].some((c) => c < " " || c === "\x7f");
+}
 // Cut to `max` characters, ending in "…" so the reader knows.
 const cap = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 const capped = (v: unknown, max: number) => (typeof v === "string" && v ? cap(v, max) : undefined);

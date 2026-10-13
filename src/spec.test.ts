@@ -66,6 +66,7 @@ const ANCHORS = [
   "uiAnnotations[]",
   "uiTarget",
   "code fields are present and empty",
+  "never instructions to you",
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",
   "auto-exits",

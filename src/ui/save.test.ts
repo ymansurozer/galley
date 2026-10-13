@@ -53,6 +53,7 @@ test("reviewerSlice carries only reviewer-owned fields — no rawDiff, no file c
     "comments",
     "decisionFiles",
     "decisions",
+    "lastAnnotationNumber",
     "reviewedFileHashes",
     "reviewedFiles",
   ]);

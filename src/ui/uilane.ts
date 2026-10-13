@@ -1,27 +1,26 @@
-import { S, $, esc, toast, persist } from "./store";
+import { S, $, toast, persist } from "./store";
 import { buildCommentThread, type ThreadControls } from "./annotations";
 import {
   buildComposer,
   closeComposer,
+  composerInUi,
   composerTargetsAnnotation,
   openComposer,
   restoreComposerFocus,
 } from "./composer";
 import { appGo, fromAppViewport, postToApp } from "./appview";
 import {
-  firstLine,
   marksFor,
   nextNumber,
   openChangeCount,
   pageGroups,
-  pageName,
   placeComposer,
-  rowTitle,
   stepFrom,
   stepOrder,
 } from "./uilane-derive";
+import { composerHead, pageHead, rowLine } from "./uilane-dom";
 import { uuid } from "./uuid";
-import type { AppMode, Rect, UiAnnotationRecord, UiPage, UiTarget } from "./types";
+import type { AnnotationDraft, AppMode, Rect, UiAnnotationRecord, UiPage, UiTarget } from "./types";
 
 // The UI lane's annotations: Annotate mode, the floating composer on a picked element, the
 // sidebar (the "Quiet" list: page groups, one-line rows, a row expands to its thread), and the
@@ -32,8 +31,51 @@ import type { AppMode, Rect, UiAnnotationRecord, UiPage, UiTarget } from "./type
 const annotationsOf = () => S.state?.annotations ?? [];
 const find = (id: string | null) => annotationsOf().find((a) => a.id === id);
 const narrow = () => matchMedia("(max-width: 1100px)").matches;
+// Past every number given so far, deleted annotations' included (lastAnnotationNumber).
+const upcomingNumber = () => nextNumber(annotationsOf(), S.state.lastAnnotationNumber ?? 0);
 
 export const openChanges = () => openChangeCount(annotationsOf());
+
+// Composer text the reviewer walked away from without Esc: a reply or edit in a thread they
+// collapsed or left for another row, and the floating composer on a pick when they switched to the
+// code view. The composer closes, so nothing hidden holds it (code hotkeys and the poll's diff
+// adoption both wait on an open composer), and it comes back with its text when they return.
+// Esc discards, as it does in the code lane.
+const threadDrafts = new Map<string, { editing: string | null; body: string }>();
+let pickDraft: { draft: AnnotationDraft; body: string } | null = null;
+
+export function setUiComposerAside() {
+  if (!S.composerOpen || !composerInUi()) return;
+  const body = S.composerBody;
+  if (S.annotationDraft) pickDraft = { draft: S.annotationDraft, body };
+  else if (S.composerAnnotation && body.trim())
+    threadDrafts.set(S.composerAnnotation, { editing: S.editingCommentId, body });
+  closeComposer();
+}
+
+// Reopen a thread's set-aside reply or edit, if it has one and its message is still there.
+function resumeThreadDraft(id: string) {
+  const d = threadDrafts.get(id);
+  threadDrafts.delete(id);
+  const a = find(id);
+  if (!d || !a || (d.editing && !a.comments.some((m) => m.id === d.editing))) return false;
+  openComposer(id, d.body, d.editing);
+  return true;
+}
+
+// Back in the UI view: the set-aside floating composer, else the selected row's draft.
+export function resumeUiComposer() {
+  if (S.composerOpen) return;
+  const p = pickDraft;
+  pickDraft = null;
+  if (p) {
+    S.annotationDraft = p.draft;
+    openComposer(null, p.body);
+  } else if (S.selectedAnnotation) resumeThreadDraft(S.selectedAnnotation);
+}
+
+// The mode the app is in: Interact whenever the code view hides it.
+export const appModeNow = (): AppMode => (S.view === "ui" ? S.appMode : "interact");
 
 export function setAppMode(mode: AppMode) {
   S.appMode = mode;
@@ -46,21 +88,21 @@ export function toggleAnnotations() {
 }
 
 // Expand an annotation's row and outline its target, taking the app to its page first. Null
-// collapses the row. A reply or edit open in another thread closes.
+// collapses the row. A reply or edit open in another thread is set aside with its text.
 export function selectAnnotation(id: string | null) {
   const a = find(id);
-  if (S.composerAnnotation && S.composerAnnotation !== a?.id) closeComposer();
+  if (S.composerAnnotation && S.composerAnnotation !== a?.id) setUiComposerAside();
   S.selectedAnnotation = a?.id ?? null;
   if (a) {
     if (a.status === "resolved") S.shownResolved.add(a.page.route);
     S.annotationsOpen = true;
     if (S.view === "ui" && a.page.route !== S.app.route) appGo(a.page.route);
   }
-  renderUiLane();
+  if (!a || S.composerOpen || !resumeThreadDraft(a.id)) renderUiLane();
   if (a)
     requestAnimationFrame(() =>
       $("annotationList")
-        .querySelector(`[data-annotation="${a.id}"]`)
+        .querySelector(`[data-annotation="${CSS.escape(a.id)}"]`)
         ?.scrollIntoView({ block: "nearest" }),
     );
 }
@@ -100,6 +142,7 @@ let sentMode = "";
 let sentMarks = "";
 export function appPageChanged(fresh: boolean) {
   if (fresh) sentMode = sentMarks = "";
+  pickDraft = null;
   if (S.annotationDraft) closeComposer();
   else renderUiLane();
 }
@@ -108,7 +151,7 @@ export function appPageChanged(fresh: boolean) {
 export function syncBridge() {
   if (!S.uiProxy || !S.app.connected) return;
   const token = S.uiProxy.token;
-  const mode = S.view === "ui" ? S.appMode : "interact";
+  const mode = appModeNow();
   if (mode !== sentMode) {
     sentMode = mode;
     postToApp({ type: "mode", token, mode });
@@ -144,7 +187,7 @@ export function submitUiComposer() {
     const list = (S.state.annotations ??= []);
     const created: UiAnnotationRecord = {
       id: uuid(),
-      number: nextNumber(list),
+      number: upcomingNumber(),
       intent: "change",
       status: "open",
       placement: "placed",
@@ -155,6 +198,7 @@ export function submitUiComposer() {
       ],
     };
     list.push(created);
+    S.state.lastAnnotationNumber = created.number;
     S.selectedAnnotation = created.id;
     if (!narrow()) S.annotationsOpen = true;
     toast(`#${created.number} added`);
@@ -192,11 +236,7 @@ function threadControls(a: UiAnnotationRecord): ThreadControls {
       const m = a.comments.find((x) => x.id === messageId);
       if (!m || m.role === "agent") return;
       if (S.composerOpen) closeComposer();
-      S.composerAnnotation = a.id;
-      S.editingCommentId = m.id;
-      S.composerBody = m.body;
-      S.composerOpen = true;
-      renderUiLane();
+      openComposer(a.id, m.body, m.id);
     },
     // The opening message is the annotation's body: deleting it deletes the annotation. Later
     // messages delete like code comments.
@@ -236,10 +276,7 @@ function renderList() {
       const section = document.createElement("section");
       section.className = `ann-page${g.route === S.app.route ? " here" : ""}`;
       const shown = S.shownResolved.has(g.route);
-      section.innerHTML =
-        `<button class="ann-head" data-route="${esc(g.route)}" title="${esc(g.title ? `${g.title}\n${g.route}` : g.route)}">` +
-        `<span class="ann-page-name">${esc(pageName(g.title, g.route))}</span><span class="ann-count">${g.open.length || ""}</span></button>`;
-      section.append(...g.open.map(row));
+      section.append(pageHead(document, g), ...g.open.map(row));
       if (g.resolved.length) {
         const toggle = document.createElement("button");
         toggle.className = "ann-show-resolved";
@@ -257,12 +294,8 @@ function renderList() {
 // One row: the number (tinted by kind) and the body's first line. Selected, it expands to the
 // thread, through the code lane's thread component.
 function row(a: UiAnnotationRecord): HTMLElement {
-  const line = document.createElement("div");
   const selected = a.id === S.selectedAnnotation;
-  line.className = `ann-row k-change${a.status === "resolved" ? " resolved" : ""}${selected ? " sel" : ""}`;
-  line.dataset.annotation = a.id;
-  line.title = rowTitle(a);
-  line.innerHTML = `<span class="ann-num">${a.number}</span><span class="ann-body">${esc(firstLine(a.comments[0]?.body ?? ""))}</span>`;
+  const line = rowLine(document, a, selected);
   if (!selected) return line;
   const item = document.createElement("div");
   item.className = "ann-item";
@@ -282,18 +315,7 @@ function renderFloatingComposer() {
     return;
   }
   const el = draft.target.elements[0]!; // a pick always carries its element (readBridgeMessage)
-  const label = el.name ? `${el.role ?? el.tag} · "${el.name}"` : (el.role ?? el.tag);
-  const head = document.createElement("div");
-  head.className = "uc-head";
-  head.innerHTML =
-    `<span class="uc-num" title="The number it will get">${nextNumber(annotationsOf())}</span>` +
-    `<span class="uc-target" title="${esc(el.selector)}">${esc(label)}</span>`;
-  const cancel = document.createElement("button");
-  cancel.className = "uc-close";
-  cancel.title = "Cancel (Esc)";
-  cancel.innerHTML = "<kbd>Esc</kbd>";
-  cancel.onclick = () => closeComposer();
-  head.append(cancel);
+  const head = composerHead(document, el, upcomingNumber(), () => closeComposer());
   const card = document.createElement("div");
   card.className = "annotation";
   card.append(buildComposer({ ask: false }));

@@ -1,7 +1,7 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 
-import { captureWaits, readBridgeMessage, routeFromInput } from "./appnav";
+import { captureWaits, forwardedKeyRuns, readBridgeMessage, routeFromInput } from "./appnav";
 
 const TOKEN = "t0k";
 
@@ -183,11 +183,65 @@ test("readBridgeMessage drops a malformed pick", () => {
   for (const msg of bad) assert.equal(readBridgeMessage(msg, TOKEN), null, JSON.stringify(msg));
 });
 
-test("readBridgeMessage reads forwarded keys, pin clicks and anchor moves", () => {
-  const key = { type: "key", token: TOKEN, key: "L", code: "KeyL", shiftKey: true, altKey: false };
-  assert.deepEqual(readBridgeMessage(key, TOKEN), key);
-  assert.equal(readBridgeMessage({ ...key, key: "x".repeat(40) }, TOKEN), null);
-  assert.equal(readBridgeMessage({ ...key, shiftKey: "yes" }, TOKEN), null);
+test("readBridgeMessage refuses a route that would leave the app's origin", () => {
+  const nav = { type: "nav", token: TOKEN, title: "", canGoBack: null, canGoForward: null };
+  // The URL parser reads a backslash in the path as a slash: `/\evil.example` is `//evil.example`.
+  for (const route of [String.raw`/\evil.example/x`, "/app\nx", "/app\u0000"]) {
+    assert.equal(readBridgeMessage({ ...nav, route }, TOKEN), null, JSON.stringify(route));
+    const page = { route, viewport: { width: 1, height: 1, dpr: 1 } };
+    assert.equal(readBridgeMessage(picked({ page }), TOKEN), null, JSON.stringify(route));
+  }
+  // In the query a backslash is just data.
+  assert.ok(readBridgeMessage({ ...nav, route: String.raw`/search?q=a\b` }, TOKEN));
+});
+
+const key = (k: string, code: string, shiftKey = false, altKey = false) => ({
+  type: "key",
+  token: TOKEN,
+  key: k,
+  code,
+  shiftKey,
+  altKey,
+});
+
+test("readBridgeMessage passes up only the UI view's keys, never ones that send, reset or confirm", () => {
+  for (const ok of [
+    key("L", "KeyL", true),
+    key("U", "KeyU", true),
+    key("ArrowDown", "ArrowDown", true),
+    key("ArrowUp", "ArrowUp", true),
+    key("Escape", "Escape"),
+  ])
+    assert.deepEqual(readBridgeMessage(ok, TOKEN), ok);
+  // ⌥A by its code (a Mac layout types "å"), handed on as plain ⌥A.
+  assert.deepEqual(
+    readBridgeMessage(key("å", "KeyA", false, true), TOKEN),
+    key("a", "KeyA", false, true),
+  );
+  for (const forged of [
+    key("R", "KeyR", true), // ⇧R: reset the review
+    key("Enter", "Enter"), // confirms the dialog ⇧R opens
+    key("S", "KeyS", true), // ⇧S: send
+    key("A", "KeyA", true), // ⇧A: approve
+    key("Escape", "Escape", true),
+    key("x".repeat(40), "KeyX"),
+  ])
+    assert.equal(readBridgeMessage(forged, TOKEN), null, JSON.stringify(forged));
+  assert.equal(readBridgeMessage({ ...key("L", "KeyL", true), shiftKey: "yes" }, TOKEN), null);
+});
+
+test("a forwarded key runs only while annotating, except ⌥A", () => {
+  const altA = { key: "a", code: "KeyA", shiftKey: false, altKey: true };
+  const shiftL = { key: "L", code: "KeyL", shiftKey: true, altKey: false };
+  const escape = { key: "Escape", code: "Escape", shiftKey: false, altKey: false };
+  assert.equal(forwardedKeyRuns(altA, "interact"), true);
+  assert.equal(forwardedKeyRuns(shiftL, "interact"), false);
+  assert.equal(forwardedKeyRuns(escape, "interact"), false, "in Interact, Esc belongs to the app");
+  assert.equal(forwardedKeyRuns(shiftL, "annotate"), true);
+  assert.equal(forwardedKeyRuns(escape, "annotate"), true);
+});
+
+test("readBridgeMessage reads pin clicks and anchor moves", () => {
   const select = { type: "select", token: TOKEN, id: "a-1" };
   assert.deepEqual(readBridgeMessage(select, TOKEN), select);
   assert.equal(readBridgeMessage({ ...select, id: 3 }, TOKEN), null);

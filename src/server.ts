@@ -892,6 +892,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           }
           state.comments = [];
           state.annotations = [];
+          state.lastAnnotationNumber = 0;
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
           state.stagedFiles = [];

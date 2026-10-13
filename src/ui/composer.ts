@@ -96,13 +96,18 @@ export const composerTargetsAnnotation = (id: string) =>
   S.composerOpen && !S.editingCommentId && S.composerAnnotation === id;
 
 // Open a fresh new/reply composer: on the code lane at the current S.selected line (a reply first
-// points S.selected at the thread's anchor), or as a reply in `annotation`'s thread. With
-// S.annotationDraft set it is the UI lane's floating composer for that draft; `body` carries text
-// over when the reviewer picks a different element mid-sentence. It appears on the next render.
-export function openComposer(annotation: string | null = null, body = "") {
+// points S.selected at the thread's anchor), or as a reply in `annotation`'s thread (an edit of
+// its message `editing`). With S.annotationDraft set it is the UI lane's floating composer for
+// that draft. `body` is text it opens with: a message being edited, or a draft coming back. It
+// appears on the next render.
+export function openComposer(
+  annotation: string | null = null,
+  body = "",
+  editing: string | null = null,
+) {
   composerCaret = body.length;
   S.composerBody = body;
-  S.editingCommentId = null;
+  S.editingCommentId = editing;
   S.composerAnnotation = annotation;
   S.composerOpen = true;
   redraw(composerInUi());

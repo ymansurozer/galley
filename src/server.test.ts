@@ -268,8 +268,10 @@ test("UI annotations ride the save slice into the poll and the Send result; rese
       [["a1", "Rename to Save"]],
     );
     assert.deepEqual(result.codeChangeRequests, []);
+    assert.equal(st.lastAnnotationNumber, 1, "the save raised the number mark");
     await post(handle.url, "api/reset", {});
     assert.deepEqual(st.annotations, [], "reset clears annotations along with comments");
+    assert.equal(st.lastAnnotationNumber, 0, "and starts the numbers over");
   });
 });
 

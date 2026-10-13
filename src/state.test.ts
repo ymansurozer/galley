@@ -1310,20 +1310,24 @@ test("buildReviewResult without a UI lane sends no uiTarget and an empty uiAnnot
   assert.equal(r.uiTarget, undefined);
 });
 
-test("mergeReviewState carries annotations across a reload and a restart", async () => {
-  const saved = state({ annotations: [annotation({ id: "a1" })] });
+test("mergeReviewState carries annotations and their number mark across a reload and a restart", async () => {
+  const saved = state({ annotations: [annotation({ id: "a1" })], lastAnnotationNumber: 4 });
   const merged = await mergeReviewState(state({ baseDiffHash: "new" }), saved);
   assert.deepEqual(merged.annotations, [annotation({ id: "a1" })]);
+  assert.equal(merged.lastAnnotationNumber, 4);
 });
 
+// The desk's app, which every saved page.url is rebuilt on.
+const UI = { target: "http://localhost:3000/sign-in?as=reviewer" };
+
 test("mergeReviewerSave stores well-formed annotations as sent", () => {
-  const live = state({});
+  const live = state({ ui: UI });
   mergeReviewerSave(live, { annotations: [annotation({ id: "a1" })] });
   assert.deepEqual(live.annotations, [annotation({ id: "a1" })]);
 });
 
 test("mergeReviewerSave truncates oversized page data to the caps", () => {
-  const live = state({});
+  const live = state({ ui: UI });
   const attrs = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`data-k${i}`, "v"]));
   mergeReviewerSave(live, {
     annotations: [
@@ -1369,7 +1373,7 @@ test("mergeReviewerSave truncates oversized page data to the caps", () => {
 });
 
 test("mergeReviewerSave drops malformed annotations and elements, keeping the rest", () => {
-  const live = state({});
+  const live = state({ ui: UI });
   const good = annotation({ id: "good" });
   const element = (over: Record<string, unknown>) => ({ kind: "element", elements: [over] });
   mergeReviewerSave(live, {
@@ -1390,6 +1394,11 @@ test("mergeReviewerSave drops malformed annotations and elements, keeping the re
       { ...annotation({ id: "bad-status" }), status: "deleted" },
       { ...annotation({ id: "no-body" }), comments: [] },
       { ...annotation({ id: "bad-vp" }), page: { ...good.page, viewport: { width: -1 } } },
+      annotation({ id: 'q"x' }), // ids end up in attributes: word characters only
+      {
+        ...annotation({ id: "odd-message-id" }),
+        comments: [{ ...good.comments[0]!, id: 'm" onclick="x' }],
+      },
       {
         ...annotation({ id: "odd-attrs" }),
         target: element(uiElement({ attrs: { "on click": "x" } })),
@@ -1413,4 +1422,48 @@ test("mergeReviewerSave ignores an annotations field that isn't an array", () =>
   const live = state({ annotations: [annotation({ id: "a1" })] });
   mergeReviewerSave(live, { annotations: "nope" });
   assert.equal(live.annotations!.length, 1);
+});
+
+test("mergeReviewerSave rebuilds page.url on the UI target's origin and drops a route that leaves it", () => {
+  const live = state({ ui: UI });
+  const page = (route: string, url = `http://localhost:3000${route}`) => ({
+    ...annotation({ id: "x" }).page,
+    route,
+    url,
+  });
+  mergeReviewerSave(live, {
+    annotations: [
+      { ...annotation({ id: "lying-url" }), page: page("/app", "http://evil.example/app") },
+      // The URL parser reads a backslash as a slash: this route is `//evil.example/x`.
+      { ...annotation({ id: "backslash" }), page: page(String.raw`/\evil.example/x`) },
+      { ...annotation({ id: "control" }), page: page("/app\nx") },
+      // A backslash after the path is query data, not a slash.
+      { ...annotation({ id: "query" }), page: page(String.raw`/search?q=a\b`) },
+    ],
+  });
+  assert.deepEqual(
+    live.annotations!.map((a) => [a.id, a.page.url]),
+    [
+      ["lying-url", "http://localhost:3000/app"],
+      ["query", String.raw`http://localhost:3000/search?q=a\b`],
+    ],
+  );
+  const noApp = state({});
+  mergeReviewerSave(noApp, { annotations: [annotation({ id: "a1" })] });
+  assert.deepEqual(noApp.annotations, [], "without a UI target there is no origin to check");
+});
+
+test("mergeReviewerSave never lowers the annotation number mark", () => {
+  const live = state({ ui: UI, lastAnnotationNumber: 5 });
+  // A stale tab posts an older mark: the mark stays.
+  mergeReviewerSave(live, {
+    annotations: [annotation({ id: "a1", number: 2 })],
+    lastAnnotationNumber: 3,
+  });
+  assert.equal(live.lastAnnotationNumber, 5);
+  // A number in use above the mark raises it, whatever the save says.
+  mergeReviewerSave(live, { annotations: [annotation({ id: "a7", number: 7 })] });
+  assert.equal(live.lastAnnotationNumber, 7);
+  mergeReviewerSave(live, { lastAnnotationNumber: "9" });
+  assert.equal(live.lastAnnotationNumber, 7, "a mark that isn't a whole number is ignored");
 });

@@ -848,8 +848,17 @@ export function mergeReviewerSave(state: ReviewState, body: unknown) {
   }
   // Annotations carry data the app page supplied, so they're validated and capped on the way in
   // (uiannotations.ts) rather than taken as sent.
-  const annotations = readUiAnnotations(incoming.annotations);
+  const annotations = readUiAnnotations(incoming.annotations, state.ui?.target);
   if (annotations) state.annotations = annotations;
+  // The number mark only goes up: past the stored mark, a stale tab's lower one, and every number
+  // in use, so a deleted annotation's number is never handed out again.
+  const sent = incoming.lastAnnotationNumber;
+  const last = Math.max(
+    state.lastAnnotationNumber ?? 0,
+    Number.isSafeInteger(sent) ? (sent as number) : 0,
+    ...(state.annotations ?? []).map((a) => a.number),
+  );
+  if (last) state.lastAnnotationNumber = last;
 }
 
 // Write via a same-directory temp file + rename so a desk killed mid-write never leaves a truncated
@@ -1146,6 +1155,7 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
     ui: saved.ui ?? base.ui,
     // Annotations are the reviewer's, on the app rather than the diff: a re-diff never touches them.
     annotations: saved.annotations ?? base.annotations,
+    lastAnnotationNumber: saved.lastAnnotationNumber,
     persistFile: saved.persistFile,
   } satisfies ReviewState;
 }

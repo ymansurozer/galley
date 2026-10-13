@@ -1,14 +1,16 @@
 import { S, $, toast } from "./store";
 import { render } from "./render";
-import { captureWaits, readBridgeMessage, routeFromInput } from "./appnav";
-import { closeComposer } from "./composer";
+import { captureWaits, forwardedKeyRuns, readBridgeMessage, routeFromInput } from "./appnav";
 import { dispatchKey } from "./keys";
 import {
+  appModeNow,
   appPageChanged,
   movedInApp,
   pickedInApp,
   placeFloatingComposer,
+  resumeUiComposer,
   selectAnnotation,
+  setUiComposerAside,
   syncBridge,
 } from "./uilane";
 import type { BridgeShot, DeskMessage, Rect, ReviewState, UiProxyInfo, Viewport } from "./types";
@@ -77,8 +79,9 @@ export function postToApp(msg: DeskMessage) {
 
 export function setView(view: "code" | "ui") {
   if (view === "ui" ? !hasUi() : uiOnly()) return;
-  // A composer on a picked element can't outlive the view it points into.
-  if (view === "code" && S.annotationDraft) closeComposer();
+  // A UI-lane composer can't stay open behind the code view (it would hold the code lane's keys
+  // and the poll's diff adoption): it's set aside with its text and comes back with the UI view.
+  if (view === "code") setUiComposerAside();
   S.view = view;
   syncBridge();
   if (view === "code") {
@@ -87,6 +90,7 @@ export function setView(view: "code" | "ui") {
   }
   if (!S.app.loaded) loadApp(targetRoute());
   requestAnimationFrame(sizeFrame);
+  resumeUiComposer();
 }
 
 export const toggleView = () => setView(S.view === "ui" ? "code" : "ui");
@@ -244,10 +248,17 @@ export function installAppView() {
       captures.settle(msg.id, "shot" in msg ? msg.shot : new Error(msg.error));
       return;
     }
-    if (msg.type === "picked") return pickedInApp(msg.page, msg.target);
+    // Picks and keys count only in the mode the desk put the app in, whatever the page claims.
+    if (msg.type === "picked") {
+      if (appModeNow() === "annotate") pickedInApp(msg.page, msg.target);
+      return;
+    }
     if (msg.type === "anchor") return movedInApp(msg.rect);
     if (msg.type === "select") return selectAnnotation(msg.id);
-    if (msg.type === "key") return dispatchKey(msg);
+    if (msg.type === "key") {
+      if (forwardedKeyRuns(msg, appModeNow())) dispatchKey(msg);
+      return;
+    }
     const moved = msg.route !== S.app.route;
     Object.assign(S.app, {
       connected: true,

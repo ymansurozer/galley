@@ -235,6 +235,9 @@ export type ReviewState = {
   // so the code-comment model (path/side/line, re-anchoring) never sees them. Absent on reviews
   // saved before the UI lane existed.
   annotations?: UiAnnotationRecord[];
+  // The highest number ever given to an annotation, deleted ones included, so a number is never
+  // reused: the agent never meets two different #3s. Only a review reset starts it over.
+  lastAnnotationNumber?: number;
   persistFile?: string;
 };
 
@@ -254,6 +257,7 @@ export type ReviewerSave = Pick<
   | "reviewedFileHashes"
   | "decisionFiles"
   | "annotations"
+  | "lastAnnotationNumber"
 >;
 
 // Transient desk-liveness fields injected into the /api/state response alongside

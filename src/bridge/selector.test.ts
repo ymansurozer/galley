@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { isWordClass, selectorFor } from "./selector";
+import { isStableId, isWordClass, selectorFor } from "./selector";
 
 function page(html: string) {
   const { document } = new Window();
@@ -52,6 +52,23 @@ test("the ladder prefers #id, then identity attributes, then classes, then posit
   assert.equal(selectorFor($("[aria-label]")), 'button[aria-label="Close dialog"]');
   assert.equal(selectorFor($(".share-button")), "button.share-button");
   assert.equal(selectorFor($("li + li")), "li:nth-of-type(2)");
+});
+
+test("hand-written ids are handles, digits and all; generated ones are not", () => {
+  for (const id of ["save", "receiptNumber", "files-table", "step2", "row-12", "__nuxt"])
+    assert.ok(isStableId(id), `${id} is stable`);
+  for (const id of [
+    ":r1:", // React useId
+    "v-0-3", // Vue
+    "headlessui-menu-button-3",
+    "radix-12",
+    "reka-dialog-content-v-0-3",
+    "input-12-4", // a counter pair
+    "toast-1697040000", // a timestamp
+    "a1b2c3d4e5", // a hash
+    "x".repeat(65),
+  ])
+    assert.ok(!isStableId(id), `${id} is generated`);
 });
 
 test("generated ids and shared identity values fall through to a rung that is unique", () => {

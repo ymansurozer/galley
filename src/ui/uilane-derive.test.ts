@@ -85,8 +85,10 @@ test("a page is named by its title's first part, else its route", () => {
 test("counts, numbering, the row's first line and its tooltip", () => {
   const list = [ann("a", 1, "/"), ann("b", 7, "/", { status: "resolved" }), ann("c", 2, "/")];
   assert.equal(openChangeCount(list), 2);
-  assert.equal(nextNumber(list), 8, "numbers are never reused");
-  assert.equal(nextNumber([]), 1);
+  assert.equal(nextNumber(list, 7), 8);
+  assert.equal(nextNumber([], 0), 1);
+  // #9 was the newest and was deleted: the next is #10, not a second #9.
+  assert.equal(nextNumber(list, 9), 10, "a deleted number is never reused");
   assert.equal(
     firstLine("\n\n**Make** `Upload` the _primary_ button\nsecond line"),
     "Make Upload the primary button",

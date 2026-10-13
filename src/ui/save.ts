@@ -13,6 +13,7 @@ export function reviewerSlice(state: ReviewState): ReviewerSave {
     reviewedFileHashes: state.reviewedFileHashes,
     decisionFiles: state.decisionFiles,
     annotations: state.annotations,
+    lastAnnotationNumber: state.lastAnnotationNumber,
   };
 }
 
