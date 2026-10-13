@@ -1,21 +1,22 @@
 // Pure file-seek logic for wrap-around navigation. These operate on an explicit `order`
-// (file indices in nav order — guide order when a guide is attached, else the file array)
-// and a `finished` predicate ("this file is signed off in the current state"), so they're
-// unit-testable without the Alpine store. guide.ts holds the thin store-reading wrappers.
+// (file indices in nav order — guide order when a guide is attached, else the Files tree's
+// top-to-bottom order) and a `finished` predicate ("this file is signed off in the current
+// state"), so they're unit-testable without the Alpine store. guide.ts holds the thin
+// store-reading wrappers.
 
-// The nav order the wrap/approve-advance seeks walk: guide order first (when guided), then any
-// diff file the guide didn't list, in file-array order. Fully-skimmed files (inFlow(i) === false)
-// are excluded HERE — the single choke point — so no seek ever lands on one (issue 07). Pure, so
-// seek.test can prove the exclusion; guide.ts's navOrder is the thin store-reading wrapper.
+// The nav order the wrap/approve-advance seeks walk: `listed` first — the guide order when
+// guided, else the Files tree's order (tree-derive.ts treeFileOrder) — then any diff file it
+// didn't list, in file-array order. Fully-skimmed files (inFlow(i) === false) are excluded HERE —
+// the single choke point — so no seek ever lands on one (issue 07). Pure, so seek.test can prove
+// the exclusion; guide.ts's navOrder is the thin store-reading wrapper.
 export function navFileOrder(
   fileCount: number,
-  guideOrder: number[] | null,
+  listed: number[],
   inFlow: (i: number) => boolean,
 ): number[] {
-  const all = Array.from({ length: fileCount }, (_, i) => i);
-  if (!guideOrder) return all.filter(inFlow);
-  const listed = new Set(guideOrder);
-  return guideOrder.concat(all.filter((i) => !listed.has(i))).filter(inFlow);
+  const seen = new Set(listed);
+  const rest = Array.from({ length: fileCount }, (_, i) => i).filter((i) => !seen.has(i));
+  return listed.concat(rest).filter(inFlow);
 }
 
 // The next unreviewed file after `cur`, scanning `order` forward and wrapping past the end

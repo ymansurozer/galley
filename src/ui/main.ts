@@ -144,7 +144,7 @@ S.selectFile = (i) => {
   // (the "active" class left the row models; see applyActiveRow in tree.ts).
   applyActiveRow();
   deferRender();
-  // Quietly warm the next file in review order (guide order when guided, else sequential — the
+  // Quietly warm the next file in review order (guide order when guided, else tree order — the
   // exact resolution keyboard nav uses) so the common next-file step never waits on the wire.
   const n = nextFileIndex(i);
   if (n !== null) prefetchContents(S.state.files[n]);
@@ -291,15 +291,15 @@ S.guidePrev = () => {
 // while unreviewed work remains, next/prev stay live because they now seek it.
 S.guideAtStart = () => !!S.overviewOpen && !anyUnreviewed();
 S.guideAtLast = () => !S.overviewOpen && nextFileIndex(S.fileIndex) === null && !anyUnreviewed();
-// Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else sequential.
+// Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else the
+// Files tree's top-to-bottom order (see nextFileIndex).
 S.nextFile = () => {
   if (hasGuide() || S.overviewOpen) {
     S.guideNext?.();
     return;
   }
-  const n = S.fileIndex + 1;
   // Off the last file, wrap to the first unreviewed file (else the first file).
-  const target = n < S.state.files.length ? n : nextWrapIndex();
+  const target = nextFileIndex(S.fileIndex) ?? nextWrapIndex();
   if (target !== null) S.selectFile?.(target);
 };
 S.prevFile = () => {
@@ -307,10 +307,9 @@ S.prevFile = () => {
     S.guidePrev?.();
     return;
   }
-  const p = S.fileIndex - 1;
   // Off the first file, wrap to the last unreviewed file (else the last file). Without a guide
   // there's no Overview to step back into, so the wrap applies straight from the first file.
-  const target = p >= 0 ? p : prevWrapIndex();
+  const target = prevFileIndex(S.fileIndex) ?? prevWrapIndex();
   if (target !== null) S.selectFile?.(target);
 };
 // Tree-order file stepping (⇧↑/⇧↓) — walk the file rows as shown in the tree (skip folders),
