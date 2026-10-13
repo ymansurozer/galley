@@ -58,7 +58,7 @@ export function unionRect([first, ...rest]: readonly [Rect, ...Rect[]]): Rect {
 }
 
 // Where an annotation's mark goes on a viewport image, in CSS px, from its target's boxes (as
-// targets.ts locates them), the way the page draws its marks (annotate.ts): an outline just outside
+// refind.ts locates them), the way the page draws its marks (annotate.ts): an outline just outside
 // each element's box, so the stroke doesn't cover the element's own edge; the region's dashed box;
 // or the quote's highlighted lines. The numbered pin sits on the first box's top-left corner, kept
 // on screen as the page's pins are.

@@ -1,7 +1,7 @@
 import { domToCanvas } from "modern-screenshot";
 import type { BridgeShot, Rect } from "../types";
 import { atRenderScroll, cropFrame, markShape, unionRect } from "./crop";
-import type { Located } from "./targets";
+import type { Located } from "./refind";
 
 // Marks the bridge's own overlay host (outline, markers, labels). A capture never includes it: an
 // annotation's mark is drawn onto the image, not rendered from the page.

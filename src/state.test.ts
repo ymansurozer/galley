@@ -1461,8 +1461,91 @@ test("buildReviewResult without a UI lane sends no uiTarget and an empty uiAnnot
 test("mergeReviewState carries annotations and their number mark across a reload and a restart", async () => {
   const saved = state({ annotations: [annotation({ id: "a1" })], lastAnnotationNumber: 4 });
   const merged = await mergeReviewState(state({ baseDiffHash: "new" }), saved);
-  assert.deepEqual(merged.annotations, [annotation({ id: "a1" })]);
+  assert.deepEqual(merged.annotations, [annotation({ id: "a1", placement: "unvisited" })]);
   assert.equal(merged.lastAnnotationNumber, 4);
+});
+
+test("a reload or a restart leaves every annotation unvisited until its page loads again", async () => {
+  const saved = state({
+    annotations: [
+      annotation({ id: "placed" }),
+      annotation({ id: "unplaced", placement: "unplaced" }),
+      annotation({ id: "resolved", status: "resolved" }),
+      annotation({ id: "page", target: { kind: "page" } }),
+    ],
+  });
+  const merged = await mergeReviewState(state({ baseDiffHash: "new" }), saved);
+  assert.deepEqual(
+    merged.annotations!.map((a) => [a.id, a.placement]),
+    [
+      ["placed", "unvisited"],
+      ["unplaced", "unvisited"],
+      ["resolved", "unvisited"],
+      ["page", "unvisited"],
+    ],
+  );
+  assert.equal(saved.annotations![0]!.placement, "placed", "the saved review isn't touched");
+});
+
+test("a reviewer save stamped before the desk's latest reload keeps the desk's placements", () => {
+  const desk = { token: "t2", reloadGeneration: 3 };
+  const live = () =>
+    state({ ui: UI, annotations: [annotation({ id: "a1", placement: "unvisited" })] });
+  const sent = [
+    annotation({ id: "a1", placement: "placed" }),
+    annotation({ id: "a2", number: 2, placement: "placed" }),
+  ];
+  const placements = (s: ReviewState) => s.annotations!.map((a) => [a.id, a.placement]);
+  for (const seen of [
+    { token: "t2", reloadGeneration: 2 },
+    { token: "t1", reloadGeneration: 3 },
+  ]) {
+    const s = live();
+    mergeReviewerSave(s, { annotations: sent, seen }, desk);
+    assert.deepEqual(
+      placements(s),
+      [
+        ["a1", "unvisited"],
+        ["a2", "placed"],
+      ],
+      "the stored one keeps the desk's; a new one takes the tab's",
+    );
+  }
+  const current = live();
+  mergeReviewerSave(current, { annotations: sent, seen: desk }, desk);
+  assert.deepEqual(placements(current), [
+    ["a1", "placed"],
+    ["a2", "placed"],
+  ]);
+});
+
+test("each annotation's placement persists through a reviewer save and the saved review", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "galley-placement-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const live = state({ root: home, ui: UI, annotations: [annotation({ id: "a1" })] });
+    mergeReviewerSave(live, {
+      annotations: [
+        annotation({ id: "a1", placement: "unplaced" }),
+        annotation({ id: "a2", number: 2 }),
+        annotation({ id: "a3", number: 3, placement: "unvisited" }),
+      ],
+    });
+    await persistReview(live);
+    const saved = await loadLatestReview(home, "s");
+    assert.deepEqual(
+      saved!.annotations!.map((a) => [a.id, a.placement]),
+      [
+        ["a1", "unplaced"],
+        ["a2", "placed"],
+        ["a3", "unvisited"],
+      ],
+    );
+  } finally {
+    process.env.HOME = oldHome;
+    await fs.rm(home, { recursive: true, force: true });
+  }
 });
 
 // The desk's app, which every saved page.url is rebuilt on.
@@ -1540,6 +1623,7 @@ test("mergeReviewerSave drops malformed annotations and elements, keeping the re
       { ...annotation({ id: "bad-rect" }), target: element({ ...uiElement(), rect: { x: "1" } }) },
       { ...annotation({ id: "bad-tag" }), target: element(uiElement({ tag: "<script>" })) },
       { ...annotation({ id: "bad-status" }), status: "deleted" },
+      { ...annotation({ id: "bad-placement" }), placement: "lost" },
       { ...annotation({ id: "no-body" }), comments: [] },
       { ...annotation({ id: "bad-vp" }), page: { ...good.page, viewport: { width: -1 } } },
       annotation({ id: 'q"x' }), // ids end up in attributes: word characters only

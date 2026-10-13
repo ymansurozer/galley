@@ -32,6 +32,7 @@ import {
   reviewDir,
   syncGitState,
   uiQuestionPayload,
+  unvisitedAnnotations,
   writeFileAtomic,
   writeGlobalSettings,
 } from "./state.js";
@@ -42,6 +43,7 @@ import type {
   PollPayload,
   QuestionPayload,
   ReviewState,
+  SaveStamp,
 } from "./types.js";
 import {
   SHOT_CAP,
@@ -360,6 +362,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     uiProxy: uiProxy ? { port: uiProxy.port, token: uiToken } : null,
     reloadGeneration,
   });
+  // The desk as a tab that has adopted its latest status stamps its saves (types.ts, SaveStamp).
+  const saveStamp = (): SaveStamp => ({ token: uiProxy ? uiToken : null, reloadGeneration });
 
   // Desk lifecycle: without this, an abandoned desk (tab closed, agent gone) serves
   // forever and desks accumulate across repos/sessions. Any request marks activity;
@@ -619,7 +623,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // metadata stay authoritative here. Pick from whatever body arrives so a stale open
         // tab still posting the old full-state body keeps working (extra fields ignored).
         return await serialize(async () => {
-          mergeReviewerSave(state, JSON.parse(await readBody(req)));
+          mergeReviewerSave(state, JSON.parse(await readBody(req)), saveStamp());
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
           return json(res, 200, { ok: true, file });
@@ -634,7 +638,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
           // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
           // full ReviewState keeps working because everything else in the body is ignored.
-          mergeReviewerSave(state, body);
+          mergeReviewerSave(state, body, saveStamp());
           await syncGitState(state);
           const file = await persistReview(state);
           const sessionDir = path.dirname(file);
@@ -802,6 +806,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             state.changes = [];
             state.rawDiff = "";
             state.baseDiffHash = hash("");
+            state.annotations = unvisitedAnnotations(state.annotations);
             await persistReview(state);
             reloadGeneration++;
             return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });

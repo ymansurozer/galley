@@ -3664,6 +3664,13 @@
       font-variant-numeric: tabular-nums
     }
 
+    /* Not checked since the last reload: one faint word on the head, never on the rows. */
+    .ann-unchecked {
+      flex: 0 0 auto;
+      color: var(--ann-faint);
+      font-size: var(--text-xs)
+    }
+
     .ann-head:focus-visible {
       outline: 1px solid var(--line-strong);
       outline-offset: -1px
@@ -3817,6 +3824,13 @@
       color: var(--ink);
       text-decoration: underline;
       text-decoration-color: var(--line-strong)
+    }
+
+    /* Its target wasn't found on the page: the line's last word, text like the rest. */
+    .ann-unplaced {
+      flex: 0 0 auto;
+      color: var(--muted);
+      white-space: nowrap
     }
 
     /* The enlarged screenshot: a viewport fills the dialog's width, a small crop grows to about

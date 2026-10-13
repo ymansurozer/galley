@@ -27,15 +27,19 @@ function node<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
-// One line per page: its name, the open count; title and route in the tooltip.
+// One line per page: its name, "not checked" while its annotations haven't been looked for since
+// the last reload, the open count; title and route in the tooltip.
 export function pageHead(doc: Document, g: PageGroup): HTMLButtonElement {
   const head = node(doc, "button", "ann-head");
   head.dataset.route = g.route;
   head.title = g.title ? `${g.title}\n${g.route}` : g.route;
-  head.append(
-    node(doc, "span", "ann-page-name", pageName(g.title, g.route)),
-    node(doc, "span", "ann-count", g.open.length ? String(g.open.length) : ""),
-  );
+  head.append(node(doc, "span", "ann-page-name", pageName(g.title, g.route)));
+  if (g.unchecked) {
+    const unchecked = node(doc, "span", "ann-unchecked", "not checked");
+    unchecked.title = "Not checked since the last reload — open the page to re-find them";
+    head.append(unchecked);
+  }
+  head.append(node(doc, "span", "ann-count", g.open.length ? String(g.open.length) : ""));
   return head;
 }
 

@@ -170,7 +170,8 @@ function readAnnotation(v: unknown, app: string): UiAnnotationRecord | null {
   const { id, number, intent, status, placement } = v;
   if (!isId(id)) return null;
   if (!Number.isSafeInteger(number) || (number as number) < 1) return null;
-  if ((intent !== "change" && intent !== "question") || placement !== "placed") return null;
+  if (intent !== "change" && intent !== "question") return null;
+  if (placement !== "placed" && placement !== "unplaced" && placement !== "unvisited") return null;
   if (status !== "open" && status !== "resolved") return null;
   const page = readPage(v.page, app);
   const target = readTarget(v.target);

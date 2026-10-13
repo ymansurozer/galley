@@ -165,7 +165,7 @@ function fieldLabel(el: Element): string {
 }
 
 // Visible text. A field's value is what someone typed, so fields have none.
-function textOf(el: Element): string {
+export function textOf(el: Element): string {
   if (isField(el)) return "";
   const html = el as HTMLElement;
   return squash(typeof html.innerText === "string" ? html.innerText : el.textContent);

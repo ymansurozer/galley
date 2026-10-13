@@ -9,11 +9,13 @@ import {
 } from "./appnav";
 import { dispatchKey } from "./keys";
 import {
+  annotationsUnvisited,
   appModeNow,
   appPageChanged,
   movedInApp,
   pendingInApp,
   pickedInApp,
+  placedInApp,
   placeFloatingComposer,
   resumeUiComposer,
   selectAnnotation,
@@ -221,7 +223,8 @@ export function fromAppViewport(r: Rect): Rect | null {
 // token means a new desk process: its reload counter starts over, so adopt it as the baseline, and
 // the loaded page's bridge (still carrying the old token) is no longer trusted until the page
 // reloads. Within one process, a moved generation means `galley reload` ran, which raises the
-// refresh pill but never reloads the app.
+// refresh pill but never reloads the app. Either way, the desk has marked every annotation
+// unvisited, and so does the tab.
 export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): boolean {
   const prev = S.uiProxy;
   const reloaded = reloadRan(
@@ -232,10 +235,12 @@ export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): bo
   S.reloadGeneration = generation;
   if (reloaded) {
     if (S.app.loaded) S.app.stale = true;
+    annotationsUnvisited();
     return true;
   }
   if (prev?.token !== proxy?.token) {
     S.app.connected = false;
+    if (prev) annotationsUnvisited();
     // A restarted desk normally gets its stable proxy port back; if not, follow it.
     if (prev && proxy && prev.port !== proxy.port && S.app.loaded) loadApp(S.app.route);
     // The UI view opened before the proxy was up: load now.
@@ -291,6 +296,7 @@ export function installAppView() {
     }
     if (msg.type === "anchor") return movedInApp(msg.rect);
     if (msg.type === "select") return selectAnnotation(msg.id);
+    if (msg.type === "placements") return placedInApp(msg.placements);
     if (msg.type === "key") {
       if (forwardedKeyRuns(msg, appModeNow())) dispatchKey(msg);
       return;

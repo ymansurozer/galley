@@ -1,4 +1,5 @@
 import { captureApp } from "./appview";
+import type { UiMarkTarget } from "./types";
 
 // Dev-only screenshot check, on only when the desk URL carries ?debug=capture: a Capture button in
 // the chrome bar and `galleyDebug.capture(selector?)` in the console screenshot the app page through
@@ -13,7 +14,7 @@ export function installCaptureDebug() {
     <div class="modal" style="width:min(1280px,94vw);max-height:92vh;overflow:auto">
       <h3>Capture (debug)</h3>
       <form style="display:flex;gap:6px;margin:8px 0">
-        <input name="sel" placeholder="Crop selector, e.g. main table" spellcheck="false"
+        <input name="sel" placeholder="Crop selector ending in a tag, e.g. main table" spellcheck="false"
           style="flex:1;font-family:var(--mono)">
         <button class="btn primary">Capture</button>
         <button class="btn" type="button" data-close>Close</button>
@@ -74,9 +75,7 @@ export function installCaptureDebug() {
     clear();
     const t0 = performance.now();
     try {
-      const shot = await captureApp(
-        selector ? { target: { kind: "element", selectors: [selector] } } : {},
-      );
+      const shot = await captureApp(selector ? { target: cropTarget(selector) } : {});
       const roundTrip = Math.round(performance.now() - t0);
       if (seq === latest) {
         status.textContent = `Rendered in the page in ${shot.ms} ms · ${roundTrip} ms round trip`;
@@ -115,6 +114,16 @@ export function installCaptureDebug() {
   document.querySelector(".uiview .chrome .vpsize")?.before(button);
 
   Object.assign(window, { galleyDebug: { capture } });
+}
+
+// The crop's element, found as a mark's would be: by the selector, which names its tag last
+// (`main table`, `button.primary`), with nothing to check it against.
+function cropTarget(selector: string): UiMarkTarget {
+  const tag = selector.match(/(?:^|[\s>+~])([a-z][\w-]*)[^\s>+~]*$/i)?.[1]?.toLowerCase() ?? "";
+  return {
+    kind: "element",
+    elements: [{ selector, tag, rect: { x: 0, y: 0, width: 0, height: 0 } }],
+  };
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string) {

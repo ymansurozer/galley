@@ -1,5 +1,5 @@
 import Alpine from "alpinejs";
-import { S, D, $, api, openEditorAt, persist, persistPrefs, toast } from "./store";
+import { S, D, $, api, openEditorAt, persist, persistPrefs, saveStamp, toast } from "./store";
 import { loadDiffLib } from "./difflib";
 import {
   currentFile,
@@ -494,7 +494,7 @@ S.send = async (overallNote = "") => {
   // whole review; the server reads it off the body and never persists it (see /api/send).
   const r = await api<{ sent?: boolean }>("/api/send", {
     method: "POST",
-    body: JSON.stringify({ ...reviewerSlice(S.state), overallNote }),
+    body: JSON.stringify({ ...reviewerSlice(S.state), seen: saveStamp(), overallNote }),
   });
   if (r && r.sent) {
     S.awaitingAgent = true;

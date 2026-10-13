@@ -93,6 +93,13 @@ const ANCHORS = [
   "the page as a whole",
   "A page annotation's crop is the viewport too, with no mark",
   '"region W×H"',
+  // re-finding annotations across rounds (issue 09): the three placements, and that unplaced and
+  // unvisited annotations are still sent
+  '"placed"',
+  '"unplaced"',
+  '"unvisited"',
+  "the last `galley reload`",
+  "Unplaced and unvisited annotations are still sent",
   // UI questions (issue 07): lane-tagged question events, the UI item's fields, the reply flag,
   // agent replies in uiAnnotations[].thread, and lane-tagged openQuestions
   'lane "code"',
