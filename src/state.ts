@@ -27,8 +27,10 @@ import type {
   ReviewResult,
   ReviewState,
   ReviewerSave,
+  ThreadMessage,
+  UiAnnotationRecord,
 } from "./types.js";
-import { readUiAnnotations, uiAnnotationsForAgent } from "./uiannotations.js";
+import { questionTarget, readUiAnnotations, uiAnnotationsForAgent } from "./uiannotations.js";
 import { shotDir } from "./uishots.js";
 
 export function nowIso() {
@@ -851,10 +853,19 @@ export function mergeReviewerSave(state: ReviewState, body: unknown) {
   // (uiannotations.ts) rather than taken as sent.
   const annotations = readUiAnnotations(incoming.annotations, state.ui?.target);
   if (annotations) {
-    // Whether an annotation's screenshots are stored is the server's to say (the upload that
-    // completes the pair sets it), so it carries over by id, whatever the tab sent.
-    const shot = new Set(state.annotations?.filter((a) => a.screenshots).map((a) => a.id));
-    for (const a of annotations) if (shot.has(a.id)) a.screenshots = true;
+    const stored = new Map(state.annotations?.map((a) => [a.id, a]));
+    for (const a of annotations) {
+      const prev = stored.get(a.id);
+      if (!prev) continue;
+      // Whether an annotation's screenshots are stored is the server's to say (the upload that
+      // completes the pair sets it), so it carries over by id, whatever the tab sent.
+      if (prev.screenshots) a.screenshots = true;
+      // An agent reply (`galley comment --ui`) lands here between the tab's polls, so a save from a
+      // tab that hasn't seen it yet lacks it. The tab can't delete an agent message, so every one
+      // the save lacks is kept, at the end of its thread.
+      const have = new Set(a.comments.map((m) => m.id));
+      a.comments.push(...prev.comments.filter((m) => m.role === "agent" && !have.has(m.id)));
+    }
     state.annotations = annotations;
   }
   // The number mark only goes up: past the stored mark, a stale tab's lower one, and every number
@@ -1230,13 +1241,51 @@ export async function appendComment(
   return comment;
 }
 
-// The single QuestionPayload constructor — shared by /api/ask (live question event) and
+// The agent's reply in a UI annotation's thread (`galley comment --ui`), added to `state`. Null when
+// the review has no annotation with that id.
+export function replyToAnnotation(
+  state: Pick<ReviewState, "annotations">,
+  id: string,
+  body: string,
+): ThreadMessage | null {
+  const a = state.annotations?.find((x) => x.id === id);
+  if (!a) return null;
+  const now = nowIso();
+  const reply: ThreadMessage = {
+    id: crypto.randomUUID(),
+    role: "agent",
+    intent: "note",
+    body,
+    createdAt: now,
+    updatedAt: now,
+  };
+  a.comments.push(reply);
+  return reply;
+}
+
+// replyToAnnotation on the saved review, for when no desk is live (as appendComment is).
+export async function appendAnnotationReply(
+  root: string,
+  session: string,
+  id: string,
+  body: string,
+): Promise<ThreadMessage | null> {
+  const saved = await loadLatestReview(root, session);
+  if (!saved)
+    throw new Error(`No saved review for session "${session}" in ${root}. Open the desk first.`);
+  const reply = replyToAnnotation(saved, id, body);
+  if (reply) await persistReview(saved);
+  return reply;
+}
+
+// The single QuestionPayload constructors — shared by /api/ask (live question event) and
 // computeOpenQuestions (questions folded into a Send) so the two payload shapes can't drift.
 export function questionPayload(
   state: Pick<ReviewState, "mode" | "session">,
   q: { path: string; lineNumber: number; side: "additions" | "deletions"; body: string },
 ): QuestionPayload {
   return {
+    lane: "code",
     path: q.path,
     lineNumber: q.lineNumber,
     side: q.side,
@@ -1246,27 +1295,56 @@ export function questionPayload(
   };
 }
 
+// `question` is a message in annotation `a`'s thread.
+export function uiQuestionPayload(
+  state: Pick<ReviewState, "mode" | "session" | "root">,
+  a: UiAnnotationRecord,
+  question: ThreadMessage,
+): QuestionPayload {
+  return {
+    lane: "ui",
+    annotationId: a.id,
+    number: a.number,
+    route: a.page.route,
+    body: question.body,
+    target: questionTarget(a.target, state.root),
+    mode: state.mode,
+    session: state.session,
+  };
+}
+
+// A question is answered once an agent reply lands after it in its thread.
+const answered = (question: ThreadMessage, thread: readonly ThreadMessage[]) =>
+  thread.some((r) => r.role === "agent" && +new Date(r.createdAt) > +new Date(question.createdAt));
+
 // Questions the reviewer asked but the agent hasn't answered yet. Mirrors the UI's "answered"
-// heuristic (src/ui/annotations.ts): an open question comment is unanswered until a later agent
-// reply lands in the same thread (same path/side/line). These ride out on the Send's ReviewResult
-// so an agent that never saw the live await still owes each an answer.
+// heuristic (src/ui/annotations.ts): an open question is unanswered until a later agent reply
+// lands in the same thread — the comments on its path/side/line, or its UI annotation's messages.
+// These ride out on the Send's ReviewResult so an agent that never saw the live await still owes
+// each an answer.
 export function computeOpenQuestions(state: ReviewState): QuestionPayload[] {
-  return state.comments
+  const asked = (m: ThreadMessage) => m.intent === "question" && m.role !== "agent";
+  const code = state.comments
     .filter(
       (c) =>
-        c.intent === "question" &&
+        asked(c) &&
         c.status === "open" &&
-        c.role !== "agent" &&
-        !state.comments.some(
-          (r) =>
-            r.role === "agent" &&
-            r.path === c.path &&
-            r.side === c.side &&
-            r.lineNumber === c.lineNumber &&
-            +new Date(r.createdAt) > +new Date(c.createdAt),
+        !answered(
+          c,
+          state.comments.filter(
+            (r) => r.path === c.path && r.side === c.side && r.lineNumber === c.lineNumber,
+          ),
         ),
     )
     .map((c) => questionPayload(state, c));
+  const ui = (state.annotations ?? [])
+    .filter((a) => a.status === "open")
+    .flatMap((a) =>
+      a.comments
+        .filter((m) => asked(m) && !answered(m, a.comments))
+        .map((m) => uiQuestionPayload(state, a, m)),
+    );
+  return [...code, ...ui];
 }
 
 export function buildReviewResult(

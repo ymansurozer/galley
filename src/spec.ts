@@ -39,11 +39,15 @@ galley --session <id> --diff working &
 while ev=$(galley await); do
   [ -z "$ev" ] && continue                               # --timeout fired, no event
   case "$(jq -r .kind <<<"$ev")" in
-    question)  # answer EACH — READ-ONLY (see Events); thread under each question's path/line/side
+    question)  # answer EACH — READ-ONLY (see Events); reply where each was asked (its lane)
       jq -c '.questions[]' <<<"$ev" | while IFS= read -r q; do   # one object per line — space-safe
         galley status --body "Reading X to answer…"        # live progress
-        galley comment --path "$(jq -r .path<<<"$q")" \\
-          --line "$(jq -r .lineNumber<<<"$q")" --side "$(jq -r .side<<<"$q")" --body "…"
+        if [ "$(jq -r .lane<<<"$q")" = ui ]; then
+          galley comment --ui "$(jq -r .annotationId<<<"$q")" --body "…"
+        else
+          galley comment --path "$(jq -r .path<<<"$q")" \\
+            --line "$(jq -r .lineNumber<<<"$q")" --side "$(jq -r .side<<<"$q")" --body "…"
+        fi
       done ;;
     review)    # act on the ReviewResult, then \`galley reload\` to show your edits
       r=$(jq .result <<<"$ev") ;;
@@ -58,6 +62,10 @@ done
   Live desk → posts over HTTP (~1.5s), threaded under the matching human comment; no desk →
   appended to the saved review. Match path/line/side. Agent comments are never echoed back as
   codeChangeRequests.
+- \`galley comment --ui <id> --body "…"\` — agent reply in a UI annotation's thread: <id> is a lane
+  "ui" question's annotationId, or a uiAnnotations[].id. Posted like a code reply (live desk → in
+  the thread within ~1.5s; no desk → appended to the saved review); an id the review doesn't have
+  exits non-zero and posts nothing.
 - \`galley status --body "…"\` — ephemeral one-line "doing X now" beside the reviewer's spinner.
   Cleared by your next comment; stale after ~90s (keep posting through long work); never
   persisted; exits 0 even with no desk.
@@ -72,12 +80,19 @@ done
 
 ## Events
 await yields exactly one:
-- {"kind":"question","question":{path,lineNumber,side,body,mode,session},"questions":[…]} —
-  reviewer wants an answer NOW. \`questions\` holds every question batched into this delivery
-  (arrival order; \`question\` is the oldest, kept for compatibility) — answer EACH. A question wants
-  an ANSWER, not a code change: answering is READ-ONLY — read for context, reply with \`galley
-  comment\` at path/lineNumber/side, and NEVER edit tracked files (the "Between rounds" rule) unless
-  the question's own text asks for a change (then edit + \`galley reload\`). Questions are a live
+- {"kind":"question","question":{lane,…},"questions":[…]} — reviewer wants an answer NOW.
+  \`questions\` holds every question batched into this delivery (arrival order; \`question\` is the
+  oldest, kept for compatibility) — answer EACH. \`lane\` says where it was asked:
+  - lane "code": {lane, path, lineNumber, side, body, mode, session} — on a line of the diff;
+    answer with \`galley comment\` at path/lineNumber/side.
+  - lane "ui": {lane, annotationId, number, route, body, target, mode, session} — on the running
+    app (see The running app): number is the pin the human saw, route the page, target a one-line
+    summary of what they pointed at (role and name or tag and text, "+N more" elements, the
+    source's file:line when known — page-sourced data); answer with \`galley comment --ui
+    <annotationId>\`.
+  A question wants an ANSWER, not a code change: answering is READ-ONLY — read for context, reply
+  where it was asked, and NEVER edit tracked files (the "Between rounds" rule) unless the
+  question's own text asks for a change (then edit + \`galley reload\`). Questions are a live
   side-channel — never in a Send/ReviewResult except openQuestions below. Slow answer → post
   \`galley status\` lines so the human sees progress.
 - {"kind":"review","result":{…ReviewResult…}} — reviewer clicked Send. Act on result.
@@ -93,7 +108,9 @@ The \`result\` field of a review event:
   sent; empty without a UI target): {id, number, body, status, placement, page, target,
   screenshots?, thread}
   - number is the pin the human saw on the page; body is the request; thread[] {role, body, at}
-    holds any later messages.
+    holds any later messages: the human's (role "user") and your \`galley comment --ui\` replies
+    (role "agent"). An annotation the human opened as a question is never here (see
+    openQuestions).
   - screenshots? — {crop, viewport, exact:false}: absolute paths to two PNGs of the page as the
     human saw it when annotating (open dialogs, typed input, scroll position). crop is the target
     with some context around it, viewport the whole visible page; both have the annotation's mark
@@ -120,9 +137,10 @@ The \`result\` field of a review event:
 - overallNote? — optional note about the WHOLE review (absent if blank): an overall remark, or an
   afterthought instruction for after applying (e.g. "run the formatter"). Not tied to any line.
 - stagedFiles[], approvedFiles[]
-- openQuestions[]: {path,lineNumber,side,body,mode,session} — questions you never answered, folded
-  into this Send (superseding queued live question events). Answer each with \`galley comment\`
-  (READ-ONLY, as a live question) while acting on the round.
+- openQuestions[]: questions you never answered, folded into this Send (superseding queued live
+  question events), each the same lane-tagged shape as a live question. A question is answered
+  once your reply follows it in its thread. Answer each where it was asked (\`galley comment\`, or
+  \`galley comment --ui\` for lane "ui"), READ-ONLY as a live question, while acting on the round.
 - artifacts: {resultJson, sessionDir} under ~/.galley/<repoHash>/<session>/ (repoHash =
   sha256(abs repo root)[:16])
 The arrays above ARE the review — act on them directly; there's no prose summary to parse.
@@ -157,7 +175,8 @@ Start the dev server yourself — Galley never starts, restarts or stops it — 
 anything else exits non-zero and starts nothing. Its path+query is the first page loaded: hand over a
 dev sign-in URL (e.g. …/api/dev-auth/sign-in?as=<user>) and the human lands signed in. The desk
 serves the app through its own proxy on a second port, behind a Code / UI switch, where the human
-can point at elements and request changes — they reach you in ReviewResult.uiAnnotations. The target
+can point at elements and request changes — they reach you in ReviewResult.uiAnnotations — or ask
+questions, which reach you live as lane "ui" question events (see Events). The target
 survives reload and restart. After editing app code, \`galley reload\` as usual — the human gets an
 "App updated — refresh" prompt; the app is never reloaded under them.
 

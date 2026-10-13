@@ -9,6 +9,7 @@ import type {
   UiElement,
   UiPage,
   UiSource,
+  UiTarget,
 } from "./types.js";
 import { shotFile } from "./uishots.js";
 
@@ -128,8 +129,8 @@ function readPage(v: unknown, app: string): UiPage | null {
   return page;
 }
 
-// A thread message the reviewer wrote (or, later, the agent). Bodies are not page-sourced and keep
-// the code comments' rule: no cap.
+// A thread message, the reviewer's or the agent's (`galley comment --ui`). Bodies are not
+// page-sourced and keep the code comments' rule: no cap.
 function readMessage(v: unknown): ThreadMessage | null {
   if (!isObj(v)) return null;
   const { id, body, createdAt, updatedAt, role, intent } = v;
@@ -145,7 +146,7 @@ function readAnnotation(v: unknown, app: string): UiAnnotationRecord | null {
   const { id, number, intent, status, placement } = v;
   if (!isId(id)) return null;
   if (!Number.isSafeInteger(number) || (number as number) < 1) return null;
-  if (intent !== "change" || placement !== "placed") return null;
+  if ((intent !== "change" && intent !== "question") || placement !== "placed") return null;
   if (status !== "open" && status !== "resolved") return null;
   const page = readPage(v.page, app);
   if (!page || !isObj(v.target) || v.target.kind !== "element") return null;
@@ -209,6 +210,24 @@ function repoRelative(file: string, root: string) {
 
 const withRepoSource = (el: UiElement, root: string): UiElement =>
   el.source ? { ...el, source: { ...el.source, file: repoRelative(el.source.file, root) } } : el;
+
+// What a UI question points at, in one line for the agent: the first element's role (else tag) and
+// its accessible name (else its text), how many more elements were picked, and the source's
+// file:line (the first element's that has one, repo-relative) when the page resolved it.
+export function questionTarget(target: UiTarget, root: string): string {
+  const [first, ...more] = target.elements;
+  if (!first) return "";
+  const label = first.name ?? first.text;
+  const source = target.elements.find((el) => el.source)?.source;
+  return [
+    first.role ?? first.tag,
+    label && `"${cap(label, 80)}"`,
+    more.length && `+${more.length} more`,
+    source && `${repoRelative(source.file, root)}${source.line ? `:${source.line}` : ""}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 // An annotation's screenshots as the agent gets them: both paths, only when the annotation is
 // marked as having them and both files are still on disk (the mark can outlive files deleted by

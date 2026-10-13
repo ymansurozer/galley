@@ -568,6 +568,118 @@ test("Send flushes queued questions and folds the unanswered ones into openQuest
   });
 });
 
+// ── UI questions ────────────────────────────────────────────────────────────────────────────────
+// Annotation q1 (#2), asked as a question, as the tab saves it before it asks.
+function uiQuestion() {
+  const a = uiAnnotation("q1");
+  return {
+    ...a,
+    number: 2,
+    intent: "question",
+    comments: [{ ...a.comments[0]!, intent: "question", body: "Why is this a draft?" }],
+  };
+}
+async function withQuestionDesk(
+  run: (handle: Awaited<ReturnType<typeof startServer>>, st: ReviewState) => Promise<void>,
+) {
+  await withServer(async (handle, _root, st) => {
+    st.ui = { target: "http://localhost:3000/" };
+    await post(handle.url, "api/save", { annotations: [uiQuestion(), uiAnnotation("a1")] });
+    await run(handle, st);
+  });
+}
+
+test("a UI ask reaches await as a lane-tagged question built from the saved annotation; a code ask is tagged code", async () => {
+  await withQuestionDesk(async (handle) => {
+    const asked = await post(handle.url, "api/ask", { annotationId: "q1", messageId: "q1-m1" });
+    assert.equal(asked.status, 200);
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
+    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+      kind: string;
+      questions: unknown[];
+    };
+    assert.equal(ev.kind, "question");
+    assert.deepEqual(ev.questions, [
+      {
+        lane: "ui",
+        annotationId: "q1",
+        number: 2,
+        route: "/app",
+        body: "Why is this a draft?",
+        target: "button",
+        mode: "repo",
+        session: "s",
+      },
+      {
+        lane: "code",
+        path: "a.ts",
+        lineNumber: 1,
+        side: "additions",
+        body: "why?",
+        mode: "repo",
+        session: "s",
+      },
+    ]);
+  });
+});
+
+test("a UI ask on an annotation, or a question, the review doesn't have is a 404", async () => {
+  await withQuestionDesk(async (handle) => {
+    for (const body of [
+      { annotationId: "nope", messageId: "q1-m1" },
+      { annotationId: "q1", messageId: "nope" },
+      // a1's opening message is a change request, not a question.
+      { annotationId: "a1", messageId: "a1-m1" },
+    ]) {
+      const res = await post(handle.url, "api/ask", body);
+      assert.equal(res.status, 404, JSON.stringify(body));
+    }
+    assert.equal((await getState(handle.url)).queuedQuestions, 0, "nothing was asked");
+  });
+});
+
+test("the agent's UI reply joins the annotation's thread, survives a save that lacks it, and clears the activity line", async () => {
+  await withQuestionDesk(async (handle, st) => {
+    await post(handle.url, "api/status", { body: "Reading the page…" });
+    const res = await post(handle.url, "api/ui-comment", {
+      annotationId: "q1",
+      body: "  It is saved as a draft until Publish.  ",
+    });
+    assert.equal(res.status, 200);
+    const { commentId } = (await res.json()) as { commentId: string };
+    type Poll = {
+      agentActivity: unknown;
+      annotations: Array<{
+        id: string;
+        comments: Array<{ id: string; role: string; body: string }>;
+      }>;
+    };
+    const thread = async () =>
+      ((await fetch(`${handle.url}api/poll`).then((r) => r.json())) as Poll).annotations
+        .find((a) => a.id === "q1")!
+        .comments.map((m) => [m.role, m.body]);
+    assert.deepEqual(await thread(), [
+      ["user", "Why is this a draft?"],
+      ["agent", "It is saved as a draft until Publish."],
+    ]);
+    assert.equal((await getState(handle.url)).agentActivity, null, "the reply cleared activity");
+    // The tab saves before its next poll has brought the reply in: the reply stays.
+    await post(handle.url, "api/save", { annotations: [uiQuestion(), uiAnnotation("a1")] });
+    assert.deepEqual((await thread()).at(-1), ["agent", "It is saved as a draft until Publish."]);
+    assert.equal(st.annotations![0]!.comments.at(-1)!.id, commentId);
+  });
+});
+
+test("a UI reply to an annotation the review doesn't have is a 404; an empty one is a 422", async () => {
+  await withQuestionDesk(async (handle) => {
+    const unknown = await post(handle.url, "api/ui-comment", { annotationId: "nope", body: "x" });
+    assert.equal(unknown.status, 404);
+    assert.match(((await unknown.json()) as { error: string }).error, /nope/);
+    const empty = await post(handle.url, "api/ui-comment", { annotationId: "q1", body: "  " });
+    assert.equal(empty.status, 422);
+  });
+});
+
 test("send survives bodies beyond the old 5 MB cap and merges only the reviewer slice", async () => {
   await withServer(async (handle, _root, st) => {
     // Regression: pre-0.6.2 tabs post the entire ReviewState on Send, and a big PR desk

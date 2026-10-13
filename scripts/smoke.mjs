@@ -343,9 +343,10 @@ try {
   console.log("✓ queuedQuestions reflects an undelivered question");
   const ev1 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
   assert.equal(ev1.kind, "question");
+  assert.equal(ev1.question.lane, "code");
   assert.equal(ev1.question.body, "why this change?");
   assert.equal(ev1.question.lineNumber, 2);
-  console.log("✓ await → question event");
+  console.log("✓ await → question event (lane code)");
 
   // Two more questions fired back-to-back with no await parked → they batch: a single await
   // hands over BOTH, oldest first, with the singular `question` kept for compatibility.
@@ -410,6 +411,61 @@ try {
   assert.equal(answeredState.agentActivity, null, "agent answer cleared the activity line");
   console.log("✓ comment posted (answer) — activity cleared");
 
+  // UI questions (issue 07): the tab saves two annotations asked as questions on the app, then asks
+  // the first; `galley await` hands it over tagged lane "ui", and `galley comment --ui` answers it.
+  const { annotations: saved } = await getJson("/api/poll");
+  const uiQuestion = (id, number, body) => ({
+    ...saved[0],
+    id,
+    number,
+    intent: "question",
+    comments: [{ ...saved[0].comments[0], id: `${id}-m1`, intent: "question", body }],
+  });
+  const asked = [
+    uiQuestion("ui-q1", 2, "Is this saved as a draft?"),
+    uiQuestion("ui-q2", 3, "Why is this grey?"),
+  ];
+  await post("/api/save", { annotations: [saved[0], ...asked] });
+  await post("/api/ask", { annotationId: "ui-q1", messageId: "ui-q1-m1" });
+  const evUi = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  assert.equal(evUi.kind, "question");
+  assert.deepEqual(evUi.questions, [
+    {
+      lane: "ui",
+      annotationId: "ui-q1",
+      number: 2,
+      route: "/app",
+      body: "Is this saved as a draft?",
+      target: 'button · "Save draft"',
+      mode: "repo",
+      session: ID,
+    },
+  ]);
+  console.log("✓ await → question event (lane ui) for a question asked on the app");
+  const uiReply = JSON.parse(
+    cli("comment", "--repo", tmp, "--session", ID, "--ui", "ui-q1", "--body", "No, it publishes."),
+  );
+  assert.ok(uiReply.ok && uiReply.live && uiReply.commentId, "comment --ui posted live");
+  const unknownUi = spawnSync(
+    "node",
+    [CLI, "comment", "--repo", tmp, "--session", ID, "--ui", "nope", "--body", "x"],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.notEqual(unknownUi.status, 0, "comment --ui with an unknown id fails");
+  assert.match(unknownUi.stderr, /No annotation "nope"/);
+  // A save from a tab that hasn't polled the reply in yet keeps it.
+  await post("/api/save", { annotations: [saved[0], ...asked] });
+  const repliedPoll = await getJson("/api/poll");
+  assert.deepEqual(
+    repliedPoll.annotations.find((a) => a.id === "ui-q1").comments.map((m) => [m.role, m.body]),
+    [
+      ["user", "Is this saved as a draft?"],
+      ["agent", "No, it publishes."],
+    ],
+    "the reply is in the thread and survives the reviewer's save",
+  );
+  console.log("✓ comment --ui answers in the thread; an unknown id fails; a save keeps the reply");
+
   // human clicks Send → `galley await` yields a review event with a ReviewResult.
   // Attach an overall note and confirm it round-trips as a field on the structured result.
   // Also drive both whole-file verdicts an oversized card offers, through the SAME reviewer slice
@@ -451,6 +507,12 @@ try {
     [[1, UI_NOTE, "/app"]],
     "the UI annotation arrives in uiAnnotations",
   );
+  assert.deepEqual(
+    ev2.result.openQuestions.map((q) => [q.lane, q.annotationId]),
+    [["ui", "ui-q2"]],
+    "the answered UI question is not sent; the unanswered one is, lane-tagged",
+  );
+  console.log("✓ openQuestions carries the unanswered UI question, not the answered one");
   assert.equal(ev2.result.uiAnnotations[0].target.elements[0].selector, "#save");
   const shots = ev2.result.uiAnnotations[0].screenshots;
   assert.equal(shots?.exact, false, "screenshots are marked as a re-render");

@@ -10,6 +10,7 @@ import { parseUiTarget } from "./proxy.js";
 import { startServer } from "./server.js";
 import { SPEC } from "./spec.js";
 import {
+  appendAnnotationReply,
   appendComment,
   buildReviewState,
   deskLockPath,
@@ -127,8 +128,9 @@ export async function deskAlive(url: string): Promise<boolean> {
 async function runComment(args: Record<string, string | boolean>) {
   const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
   const session = await resolveActionSession(root, args);
-  const filePath = typeof args.path === "string" ? args.path : "";
   const body = typeof args.body === "string" ? args.body.trim() : "";
+  if (args.ui !== undefined) return runUiComment(root, session, args.ui, body);
+  const filePath = typeof args.path === "string" ? args.path : "";
   if (!filePath || !body) {
     console.error(
       'Usage: galley comment --path <file> --line <n> [--side additions|deletions] --body "..." [--session <id>] [--repo <path>]',
@@ -166,6 +168,52 @@ async function runComment(args: Record<string, string | boolean>) {
   const comment = await appendComment(root, session, payload);
   process.stdout.write(
     JSON.stringify({ ok: true, live: false, session, commentId: comment.id }) + "\n",
+  );
+}
+
+// `galley comment --ui <id> --body "..."` — an agent reply in a UI annotation's thread, posted the
+// same way: live over HTTP, else appended to the saved review. An id the review doesn't have fails
+// rather than landing nowhere, whichever way it went.
+async function runUiComment(root: string, session: string, id: string | boolean, body: string) {
+  if (typeof id !== "string" || !body) {
+    console.error(
+      'Usage: galley comment --ui <annotation-id> --body "..." [--session <id>] [--repo <path>]',
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const lock = await readDeskLock(root, session);
+  const res = lock
+    ? await fetch(`${lock.url}api/ui-comment`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ annotationId: id, body }),
+      }).catch(() => null) // desk not reachable; fall through to the offline append
+    : null;
+  if (res) {
+    const json = (await res.json().catch(() => ({}))) as {
+      commentId?: string;
+      error?: string;
+      fix?: string;
+    };
+    if (!res.ok) {
+      console.error(json.error ? `${json.error} ${json.fix ?? ""}`.trim() : `HTTP ${res.status}`);
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(
+      JSON.stringify({ ok: true, live: true, session, commentId: json.commentId }) + "\n",
+    );
+    return;
+  }
+  const reply = await appendAnnotationReply(root, session, id, body);
+  if (!reply) {
+    console.error(`No annotation "${id}" in session "${session}".`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(
+    JSON.stringify({ ok: true, live: false, session, commentId: reply.id }) + "\n",
   );
 }
 
@@ -246,9 +294,10 @@ async function runStop(args: Record<string, string | boolean>) {
 
 // `galley await --session <id>` — block until the next desk event, then print it
 // to stdout as a tagged envelope and exit. The event is either
-//   {"kind":"question","question":{path,lineNumber,side,body,mode,session}}  — answer it now
-//   {"kind":"review","result":{…ReviewResult…}}                              — the reviewer hit Send
-// Call in a loop and branch on `kind`. Answer a question with `galley comment`.
+//   {"kind":"question","question":{lane,…},"questions":[…]}  — answer it now
+//   {"kind":"review","result":{…ReviewResult…}}              — the reviewer hit Send
+// Call in a loop and branch on `kind`. Answer a question with `galley comment` (`--ui <id>` for a
+// question with lane "ui").
 async function runAwait(args: Record<string, string | boolean>) {
   const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
   const session = await resolveActionSession(root, args);
@@ -693,7 +742,8 @@ Usage:
   galley ui <url>                   Show the running app (a loopback dev server) in the desk;
                                     sets it on the live desk, or starts one (UI-only if clean)
   galley comment --path <f> --line <n> --body "..."   Post an agent reply into the desk
-  galley status --body "..."        Post an ephemeral "what I'm doing" line into the desk
+  galley comment --ui <id> --body "..."   Post an agent reply into a UI annotation's thread
+  galley status --body "..."       Post an ephemeral "what I'm doing" line into the desk
   galley await [--timeout <s>]      Block for the next desk event (question | review)
   galley reload [--guide <file>]    Re-diff the working tree into the open desk
                                     (--guide swaps the attached review guide too)

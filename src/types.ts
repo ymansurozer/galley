@@ -416,7 +416,10 @@ export type UiAnnotationRecord = {
   id: string;
   // Global and never reused; the number on its pin.
   number: number;
-  intent: "change";
+  // What the opening message asked for, and so what the annotation is: a change request (sent in
+  // uiAnnotations) or a question (asked live; in openQuestions while unanswered). Replies never
+  // change it.
+  intent: "change" | "question";
   status: "open" | "resolved";
   // Whether the target was found on the page. An annotation is placed when it's made.
   placement: "placed";
@@ -495,20 +498,36 @@ export type ReviewResult = {
   // comments, approval still current): the agent should leave these unchanged.
   approvedFiles: string[];
   // Questions still unanswered when the reviewer hit Send — folded into the round so an
-  // agent that missed the live await still owes an answer. Every open question comment
-  // (intent "question", no later agent reply in its thread), same shape as an await
-  // question. Answer each via `galley comment`; answering stays read-only — edits come
-  // only from the round's requested changes.
+  // agent that missed the live await still owes an answer. Every open question message
+  // (intent "question", no later agent reply in its thread), code comments and UI annotation
+  // threads alike, same shape as an await question. Answer each via `galley comment`;
+  // answering stays read-only — edits come only from the round's requested changes.
   openQuestions: QuestionPayload[];
   artifacts: { resultJson: string; sessionDir: string };
 };
 
-// A question the reviewer asked (intent "question") that the agent should answer now.
-export type QuestionPayload = {
+// A question the reviewer asked (intent "question") that the agent should answer now: on a line
+// of the diff (lane "code"), or in a UI annotation's thread (lane "ui").
+export type QuestionPayload = CodeQuestion | UiQuestion;
+export type CodeQuestion = {
+  lane: "code";
   path: string;
   lineNumber: number;
   side: "additions" | "deletions";
   body: string;
+  mode: ReviewMode;
+  session: string;
+};
+// Answered with `galley comment --ui <annotationId>`. `number` is the annotation's pin, `route` its
+// page, and `target` a one-line summary of what it points at (role and name, how many more elements,
+// the source's file:line), built from page-sourced data.
+export type UiQuestion = {
+  lane: "ui";
+  annotationId: string;
+  number: number;
+  route: string;
+  body: string;
+  target: string;
   mode: ReviewMode;
   session: string;
 };

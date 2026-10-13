@@ -6,6 +6,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   anchorTextFor,
+  appendAnnotationReply,
   buildDiffSource,
   buildReviewResult,
   buildReviewState,
@@ -13,6 +14,7 @@ import {
   deskLockPath,
   findLiveDesks,
   globalSettingsPath,
+  loadLatestReview,
   mergeReviewerSave,
   mergeReviewState,
   parsedDiffOf,
@@ -652,12 +654,18 @@ test("buildReviewResult.openQuestions lists unanswered questions and drops answe
     ],
   });
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
-  assert.equal(r.openQuestions.length, 1);
-  assert.equal(r.openQuestions[0]!.body, "why here?");
-  assert.equal(r.openQuestions[0]!.lineNumber, 4);
-  // Same shape as an await question — mode/session threaded through.
-  assert.equal(r.openQuestions[0]!.mode, "repo");
-  assert.equal(r.openQuestions[0]!.session, "sess");
+  // Same shape as an await question — lane-tagged, mode/session threaded through.
+  assert.deepEqual(r.openQuestions, [
+    {
+      lane: "code",
+      path: "a.ts",
+      lineNumber: 4,
+      side: "additions",
+      body: "why here?",
+      mode: "repo",
+      session: "sess",
+    },
+  ]);
 });
 
 test("buildReviewResult carries mode/target/base", () => {
@@ -1638,4 +1646,171 @@ test("mergeReviewerSave never lowers the annotation number mark", () => {
   assert.equal(live.lastAnnotationNumber, 7);
   mergeReviewerSave(live, { lastAnnotationNumber: "9" });
   assert.equal(live.lastAnnotationNumber, 7, "a mark that isn't a whole number is ignored");
+});
+
+// A UI question: an annotation whose opening message asks rather than requests.
+function question(over: Partial<UiAnnotationRecord> & { id: string }): UiAnnotationRecord {
+  return annotation({
+    intent: "question",
+    comments: [
+      {
+        id: `${over.id}-m1`,
+        role: "user",
+        intent: "question",
+        body: "Why is Upload grey?",
+        createdAt: "2026-10-13T10:00:00.000Z",
+        updatedAt: "2026-10-13T10:00:00.000Z",
+      },
+    ],
+    ...over,
+  });
+}
+const agentReply = (id: string, at: string) => ({
+  id,
+  role: "agent" as const,
+  intent: "note" as const,
+  body: "Because it's disabled until a file is picked.",
+  createdAt: at,
+  updatedAt: at,
+});
+
+test("buildReviewResult.openQuestions carries unanswered UI questions, lane-tagged; answered and resolved ones stay out", () => {
+  const answered = question({ id: "q2", number: 2 });
+  answered.comments.push(agentReply("q2-r", "2026-10-13T10:01:00.000Z"));
+  // A question asked in a change request's thread is a question too.
+  const change = annotation({ id: "c3", number: 3 });
+  change.comments.push({
+    id: "c3-m2",
+    role: "user",
+    intent: "question",
+    body: "Or should it be a link?",
+    createdAt: "2026-10-13T10:02:00.000Z",
+    updatedAt: "2026-10-13T10:02:00.000Z",
+  });
+  const s = state({
+    session: "sess",
+    ui: UI,
+    annotations: [
+      question({ id: "q1", number: 1 }),
+      answered,
+      change,
+      question({ id: "q4", number: 4, status: "resolved" }),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(r.openQuestions, [
+    {
+      lane: "ui",
+      annotationId: "q1",
+      number: 1,
+      route: "/app/files?tab=all",
+      body: "Why is Upload grey?",
+      target: 'button · "Upload"',
+      mode: "repo",
+      session: "sess",
+    },
+    {
+      lane: "ui",
+      annotationId: "c3",
+      number: 3,
+      route: "/app/files?tab=all",
+      body: "Or should it be a link?",
+      target: 'button · "Upload"',
+      mode: "repo",
+      session: "sess",
+    },
+  ]);
+  assert.deepEqual(
+    r.uiAnnotations.map((a) => a.id),
+    ["c3"],
+    "questions are never sent as change requests",
+  );
+});
+
+test("a UI question's target names the element, how many more were picked, and its source", () => {
+  const s = state({
+    root: "/home/dev/shop",
+    ui: UI,
+    annotations: [
+      question({
+        id: "q1",
+        target: {
+          kind: "element",
+          elements: [
+            uiElement({ role: undefined, name: undefined, tag: "td", text: "x".repeat(120) }),
+            uiElement({
+              source: {
+                file: "/home/dev/shop/apps/web/app/pages/files.vue",
+                line: 20,
+                via: "vue-tracer",
+              },
+            }),
+          ],
+        },
+      }),
+    ],
+  });
+  const [q] = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" }).openQuestions;
+  assert.equal(
+    q!.lane === "ui" && q!.target,
+    `td · "${"x".repeat(79)}…" · +1 more · apps/web/app/pages/files.vue:20`,
+  );
+});
+
+test("mergeReviewerSave keeps agent replies a save from a tab that hasn't seen them leaves out", () => {
+  const replied = question({ id: "q1" });
+  replied.comments.push(agentReply("r1", "2026-10-13T10:01:00.000Z"));
+  const gone = question({ id: "q2", number: 2 });
+  gone.comments.push(agentReply("r2", "2026-10-13T10:01:00.000Z"));
+  const live = state({ ui: UI, annotations: [replied, gone] });
+  // The tab's copy: q1 without the agent's reply but with a new message of the reviewer's, and q2
+  // deleted.
+  const tabCopy = question({ id: "q1" });
+  tabCopy.comments.push({
+    id: "m2",
+    role: "user",
+    intent: "action",
+    body: "Make it blue as well",
+    createdAt: "2026-10-13T10:02:00.000Z",
+    updatedAt: "2026-10-13T10:02:00.000Z",
+  });
+  mergeReviewerSave(live, { annotations: [tabCopy] });
+  assert.deepEqual(
+    live.annotations!.map((a) => [a.id, a.intent, a.comments.map((m) => m.id)]),
+    [["q1", "question", ["q1-m1", "m2", "r1"]]],
+  );
+  // A tab that has the reply saves it once.
+  mergeReviewerSave(live, { annotations: structuredClone(live.annotations) });
+  assert.deepEqual(
+    live.annotations![0]!.comments.map((m) => m.id),
+    ["q1-m1", "m2", "r1"],
+  );
+});
+
+test("appendAnnotationReply adds the agent's reply to the saved review's annotation, and refuses an unknown id", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "galley-reply-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    await persistReview(state({ root: home, ui: UI, annotations: [question({ id: "q1" })] }));
+    const reply = await appendAnnotationReply(
+      home,
+      "s",
+      "q1",
+      "It's disabled until a file is picked.",
+    );
+    assert.equal(reply?.role, "agent");
+    const saved = await loadLatestReview(home, "s");
+    assert.deepEqual(
+      saved!.annotations![0]!.comments.map((m) => [m.role, m.body]),
+      [
+        ["user", "Why is Upload grey?"],
+        ["agent", "It's disabled until a file is picked."],
+      ],
+    );
+    assert.equal(await appendAnnotationReply(home, "s", "nope", "hello"), null);
+  } finally {
+    process.env.HOME = oldHome;
+    await fs.rm(home, { recursive: true, force: true });
+  }
 });
