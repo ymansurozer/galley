@@ -92,6 +92,21 @@ function loadApp(route: string) {
   frame.src = origin + route;
 }
 
+// The target went, and the app goes with it: no page of it runs on, hidden, with its bridge still
+// talking to the desk. Its farewell can't land with the frame gone, so its captures fail here.
+function unloadApp() {
+  frame?.remove();
+  frame = null;
+  Object.assign(S.app, {
+    loaded: false,
+    connected: false,
+    canGoBack: null,
+    canGoForward: null,
+    stale: false,
+  });
+  captures.abandon("The app was detached from the desk");
+}
+
 let diffRendered = false;
 let warming = false;
 
@@ -112,7 +127,12 @@ function warmApp() {
   warming = true;
   const run = () => {
     warming = false;
-    if (ready()) loadApp(targetRoute());
+    if (!ready()) return;
+    // Only into a tab the reviewer is in. A page that focuses itself as it loads takes the tab's
+    // focus, and a tab in the background can't count on hearing of it (reclaimFocus): back in the
+    // tab, the reviewer's keys would go to the app.
+    if (document.hasFocus()) loadApp(targetRoute());
+    else addEventListener("focus", warmApp, { once: true });
   };
   if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 2000 });
   else setTimeout(run, 200);
@@ -301,7 +321,10 @@ export function adoptUiTarget(ui: ReviewState["ui"]) {
   if (ui?.target === before) return;
   S.state.ui = ui;
   syncView();
-  if (!ui) return;
+  if (!ui) {
+    unloadApp();
+    return;
+  }
   if (S.app.loaded) loadApp(targetRoute());
   else warmApp();
   toast(before ? "App target changed" : "App attached — ⇧U shows it");
