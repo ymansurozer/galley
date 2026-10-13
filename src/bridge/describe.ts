@@ -9,7 +9,7 @@ import { resolveSource } from "./source";
 // document, so it runs under happy-dom in tests.
 
 // The bridge's copy of the caps. The desk checks them again; UiCaps keeps the copies equal.
-const CAPS: UiCaps = {
+export const CAPS: UiCaps = {
   selector: 512,
   file: 1024,
   text: 300,
@@ -20,6 +20,7 @@ const CAPS: UiCaps = {
   url: 2048,
   route: 2048,
   title: 300,
+  quote: 500,
   elements: 16,
 };
 
@@ -41,14 +42,14 @@ const ATTRS = [
   "for",
 ];
 
-const LANDMARKS =
+export const LANDMARKS =
   "main, nav, aside, header, footer, form, dialog, section[aria-label], section[aria-labelledby], [role=main], [role=navigation], [role=complementary], [role=banner], [role=contentinfo], [role=search], [role=form], [role=region], [role=dialog], [role=alertdialog]";
-const HEADINGS = "h1, h2, h3, h4, h5, h6, [role=heading]";
+export const HEADINGS = "h1, h2, h3, h4, h5, h6, [role=heading]";
 // What a click on a part of a control means: the control. An icon in a button picks the button.
-const CONTROLS =
+export const CONTROLS =
   "button, a[href], input, select, textarea, label, summary, [role=button], [role=link], [role=tab], [role=menuitem], [role=option], [role=checkbox], [role=switch]";
 
-const squash = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
+export const squash = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
 // Cut to `max` characters, ending in "…" so the reader knows.
 export const cap = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 

@@ -1,7 +1,13 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 
-import { captureWaits, forwardedKeyRuns, readBridgeMessage, routeFromInput } from "./appnav";
+import {
+  captureWaits,
+  forwardedKeyRuns,
+  readBridgeMessage,
+  reloadRan,
+  routeFromInput,
+} from "./appnav";
 
 const TOKEN = "t0k";
 
@@ -157,7 +163,7 @@ test("readBridgeMessage caps a picked element's page-sourced strings", () => {
     ),
     TOKEN,
   );
-  assert.ok(msg && msg.type === "picked");
+  assert.ok(msg && msg.type === "picked" && msg.target.kind === "element");
   const el = msg.target.elements[0]!;
   assert.equal(msg.page.title!.length, 300);
   assert.equal(el.text!.length, 300);
@@ -183,6 +189,63 @@ test("readBridgeMessage drops a malformed pick", () => {
   for (const msg of bad) assert.equal(readBridgeMessage(msg, TOKEN), null, JSON.stringify(msg));
 });
 
+test("readBridgeMessage accepts several elements, a region and a text selection as picked", () => {
+  const second = element({ selector: "#cancel", text: "Cancel", name: "Cancel" });
+  const rect = { x: 5, y: 10, width: 300, height: 120 };
+  for (const target of [
+    { kind: "element", elements: [element(), second] },
+    { kind: "region", rect, elements: [element(), second] },
+    { kind: "region", rect, elements: [] },
+    {
+      kind: "text",
+      quote: "Date recieved",
+      element: element({ tag: "th", selector: "#received" }),
+    },
+  ]) {
+    const msg = picked({ target });
+    assert.deepEqual(readBridgeMessage(msg, TOKEN), msg, target.kind);
+  }
+});
+
+test("readBridgeMessage caps a picked quote at 500 characters", () => {
+  const msg = readBridgeMessage(
+    picked({ target: { kind: "text", quote: "q".repeat(900), element: element() } }),
+    TOKEN,
+  );
+  assert.ok(msg?.type === "picked" && msg.target.kind === "text");
+  assert.equal(msg.target.quote.length, 500);
+  assert.ok(msg.target.quote.endsWith("…"));
+});
+
+test("readBridgeMessage drops a malformed region or text pick, and a page the page claims", () => {
+  const rect = { x: 5, y: 10, width: 300, height: 120 };
+  const bad = [
+    { kind: "region", elements: [element()] },
+    { kind: "region", rect: { ...rect, width: 0 }, elements: [] },
+    { kind: "region", rect: { ...rect, x: Number.NaN }, elements: [] },
+    { kind: "region", rect },
+    { kind: "region", rect, elements: [element(), element({ selector: "" })] },
+    { kind: "text", element: element() },
+    { kind: "text", quote: "", element: element() },
+    { kind: "text", quote: "   ", element: element() },
+    { kind: "text", quote: 42, element: element() },
+    { kind: "text", quote: "Due" },
+    { kind: "text", quote: "Due", element: element({ tag: "<b>" }) },
+    { kind: "page" },
+    { kind: "canvas", rect },
+  ];
+  for (const target of bad)
+    assert.equal(readBridgeMessage(picked({ target }), TOKEN), null, JSON.stringify(target));
+});
+
+test("readBridgeMessage reads how many ⇧-picks are waiting", () => {
+  const pending = (count: unknown) => ({ type: "pending", token: TOKEN, count });
+  for (const count of [0, 3, 16])
+    assert.deepEqual(readBridgeMessage(pending(count), TOKEN), pending(count));
+  for (const count of [-1, 17, 1.5, "2", null])
+    assert.equal(readBridgeMessage(pending(count), TOKEN), null, JSON.stringify(count));
+});
+
 test("readBridgeMessage keeps a picked element's source, capped, and drops a malformed one", () => {
   const source = (over: Record<string, unknown> = {}) => ({
     file: "/home/dev/shop/apps/web/app/pages/files.vue",
@@ -195,7 +258,10 @@ test("readBridgeMessage keeps a picked element's source, capped, and drops a mal
   });
   const read = (s: unknown) => {
     const msg = readBridgeMessage(picked({}, element({ source: s })), TOKEN);
-    assert.ok(msg && msg.type === "picked", "the element stands either way");
+    assert.ok(
+      msg && msg.type === "picked" && msg.target.kind === "element",
+      "the element stands either way",
+    );
     return msg.target.elements[0]!.source;
   };
   assert.deepEqual(read(source()), source());
@@ -249,16 +315,21 @@ test("readBridgeMessage passes up only the UI view's keys, never ones that send,
     key("Escape", "Escape"),
   ])
     assert.deepEqual(readBridgeMessage(ok, TOKEN), ok);
-  // ⌥A by its code (a Mac layout types "å"), handed on as plain ⌥A.
+  // ⌥A and ⌥P by their codes (a Mac layout types "å" and "π"), handed on as plain ⌥A and ⌥P.
   assert.deepEqual(
     readBridgeMessage(key("å", "KeyA", false, true), TOKEN),
     key("a", "KeyA", false, true),
+  );
+  assert.deepEqual(
+    readBridgeMessage(key("π", "KeyP", false, true), TOKEN),
+    key("p", "KeyP", false, true),
   );
   for (const forged of [
     key("R", "KeyR", true), // ⇧R: reset the review
     key("Enter", "Enter"), // confirms the dialog ⇧R opens
     key("S", "KeyS", true), // ⇧S: send
     key("A", "KeyA", true), // ⇧A: approve
+    key("P", "KeyP", true, true),
     key("Escape", "Escape", true),
     key("x".repeat(40), "KeyX"),
   ])
@@ -268,13 +339,29 @@ test("readBridgeMessage passes up only the UI view's keys, never ones that send,
 
 test("a forwarded key runs only while annotating, except ⌥A", () => {
   const altA = { key: "a", code: "KeyA", shiftKey: false, altKey: true };
+  const altP = { key: "p", code: "KeyP", shiftKey: false, altKey: true };
   const shiftL = { key: "L", code: "KeyL", shiftKey: true, altKey: false };
   const escape = { key: "Escape", code: "Escape", shiftKey: false, altKey: false };
   assert.equal(forwardedKeyRuns(altA, "interact"), true);
+  assert.equal(forwardedKeyRuns(altP, "interact"), false);
   assert.equal(forwardedKeyRuns(shiftL, "interact"), false);
   assert.equal(forwardedKeyRuns(escape, "interact"), false, "in Interact, Esc belongs to the app");
+  assert.equal(forwardedKeyRuns(altP, "annotate"), true);
   assert.equal(forwardedKeyRuns(shiftL, "annotate"), true);
   assert.equal(forwardedKeyRuns(escape, "annotate"), true);
+});
+
+test("a moved reload counter is the agent's `galley reload`, diff or no diff; a new desk process isn't", () => {
+  const desk = (token: string | undefined, generation: number) => ({ token, generation });
+  // A UI-only desk: the diff stays empty, so the counter is all that says the agent is back.
+  assert.equal(reloadRan(desk("t1", 3), desk("t1", 4)), true);
+  assert.equal(reloadRan(desk("t1", 4), desk("t1", 4)), false, "no reload since the last poll");
+  // A desk without a UI target has no proxy token; its counter moves the same way.
+  assert.equal(reloadRan(desk(undefined, 0), desk(undefined, 1)), true);
+  // A restarted desk (new token) counts from 0 again, and the tab's first poll meets the first
+  // token it sees: both are a baseline, not a reload.
+  assert.equal(reloadRan(desk("t1", 5), desk("t2", 0)), false);
+  assert.equal(reloadRan(desk(undefined, 0), desk("t1", 2)), false);
 });
 
 test("readBridgeMessage reads pin clicks and anchor moves", () => {

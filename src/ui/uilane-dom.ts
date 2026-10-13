@@ -1,11 +1,19 @@
-import type { UiAnnotationRecord, UiElement } from "./types";
-import { firstLine, pageName, rowTitle, type PageGroup, type SourcePlace } from "./uilane-derive";
+import type { UiAnnotationRecord, UiTarget } from "./types";
+import {
+  firstLine,
+  pageName,
+  rowTitle,
+  targetElements,
+  targetLabel,
+  type PageGroup,
+  type SourcePlace,
+} from "./uilane-derive";
 
 // The UI lane's nodes that carry page-sourced text: a page group's head (route, title), a row,
-// the floating composer's head (the picked element's selector and label), and source links (the
-// file and component the page named). Built with textContent and properties, never innerHTML, so
-// nothing the app page sent can become markup or a handler in the desk. Store-free, so a DOM-only
-// test can build them.
+// the floating composer's head (the picked target's selectors and label) and its quote, and source
+// links (the file and component the page named). Built with textContent and properties, never
+// innerHTML, so nothing the app page sent can become markup or a handler in the desk. Store-free,
+// so a DOM-only test can build them.
 
 function node<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
@@ -47,26 +55,39 @@ export function rowLine(doc: Document, a: UiAnnotationRecord, selected: boolean)
   return line;
 }
 
-// The floating composer's head: the number the annotation will get, and what was picked.
+// The floating composer's head: the number the annotation will get, what was picked (its tooltip
+// the elements' selectors, the page's route for a page), and how many more elements there are.
 export function composerHead(
   doc: Document,
-  el: UiElement,
+  picked: UiTarget,
+  route: string,
   number: number,
   cancel: () => void,
 ): HTMLDivElement {
   const head = node(doc, "div", "uc-head");
   const num = node(doc, "span", "uc-num", String(number));
   num.title = "The number it will get";
-  const what = el.role ?? el.tag;
-  const target = node(doc, "span", "uc-target", el.name ? `${what} · "${el.name}"` : what);
-  target.title = el.selector;
+  const target = node(doc, "span", "uc-target", targetLabel(picked));
+  target.title =
+    picked.kind === "page"
+      ? route
+      : targetElements(picked)
+          .map((el) => el.selector)
+          .join("\n");
   const close = node(doc, "button", "uc-close");
   close.title = "Cancel (Esc)";
   close.append(node(doc, "kbd", "", "Esc"));
   close.onclick = cancel;
-  head.append(num, target, close);
+  head.append(num, target);
+  if (picked.kind === "element" && picked.elements.length > 1)
+    head.append(node(doc, "span", "uc-more", `+${picked.elements.length - 1} more`));
+  head.append(close);
   return head;
 }
+
+// The text a text annotation quotes, under the composer's head.
+export const quoteLine = (doc: Document, quote: string) =>
+  node(doc, "div", "uc-quote", `“${quote}”`);
 
 // Where an annotation's screenshots stand: being captured and uploaded, stored, or not stored
 // (its capture failed, in this tab or in one since closed or reloaded).

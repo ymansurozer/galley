@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import type { UiAnnotationRecord } from "./types";
 import {
   annotationSource,
+  draftAnchor,
   firstLine,
   marksFor,
   mergeAgentReplies,
   nextNumber,
   openChangeCount,
   pageGroups,
+  pageMarks,
   pageName,
   placeComposer,
   rowTitle,
@@ -16,6 +18,7 @@ import {
   sourcePlace,
   stepFrom,
   stepOrder,
+  targetLabel,
   waitingCount,
 } from "./uilane-derive.js";
 
@@ -125,7 +128,13 @@ test("⇧↓/⇧↑ step through the visible rows in list order and wrap", () =>
 test("the page gets pins for its open annotations, and for a resolved one only while selected", () => {
   const list = [ann("a", 1, "/p"), ann("b", 2, "/q"), ann("c", 3, "/p", { status: "resolved" })];
   assert.deepEqual(marksFor(list, "/p", null), [
-    { id: "a", number: 1, selector: "#el-a", resolved: false, question: false },
+    {
+      id: "a",
+      number: 1,
+      target: { kind: "element", selectors: ["#el-a"] },
+      resolved: false,
+      question: false,
+    },
   ]);
   assert.equal(
     marksFor([ann("q", 4, "/p", { intent: "question" })], "/p", null)[0]!.question,
@@ -140,6 +149,110 @@ test("the page gets pins for its open annotations, and for a resolved one only w
     ],
   );
   assert.deepEqual(marksFor(list, "/elsewhere", "a"), []);
+});
+
+const uiEl = (selector: string, rect = { x: 0, y: 0, width: 1, height: 1 }) => ({
+  selector,
+  tag: "button",
+  rect,
+});
+
+test("each kind's pin finds its target its own way, and a page annotation's pin is the desk's", () => {
+  const rect = { x: 10, y: 20, width: 300, height: 100 };
+  const list = [
+    ann("e", 1, "/p", { target: { kind: "element", elements: [uiEl("#a"), uiEl("#b")] } }),
+    ann("r", 2, "/p", {
+      target: {
+        kind: "region",
+        rect,
+        elements: [uiEl("#a", { x: 12, y: 30, width: 80, height: 20 })],
+      },
+    }),
+    ann("bare", 3, "/p", { target: { kind: "region", rect, elements: [] } }),
+    ann("t", 4, "/p", { target: { kind: "text", quote: "Date recieved", element: uiEl("#th") } }),
+    ann("pg", 5, "/p", { target: { kind: "page" } }),
+  ];
+  assert.deepEqual(
+    marksFor(list, "/p", null).map((m) => [m.id, m.target]),
+    [
+      ["e", { kind: "element", selectors: ["#a", "#b"] }],
+      [
+        "r",
+        {
+          kind: "region",
+          rect,
+          anchor: { selector: "#a", rect: { x: 12, y: 30, width: 80, height: 20 } },
+        },
+      ],
+      ["bare", { kind: "region", rect }],
+      ["t", { kind: "text", selector: "#th", quote: "Date recieved" }],
+    ],
+  );
+  assert.deepEqual(pageMarks(list, "/p", null), [
+    { id: "pg", number: 5, question: false, selected: false },
+  ]);
+  assert.deepEqual(pageMarks(list, "/q", null), []);
+  const resolved = ann("pr", 6, "/p", { target: { kind: "page" }, status: "resolved" });
+  assert.deepEqual(pageMarks([resolved], "/p", null), [], "a resolved page pin leaves the bar");
+  assert.deepEqual(
+    pageMarks([resolved], "/p", "pr").map((m) => [m.id, m.selected]),
+    [["pr", true]],
+    "until its revealed row is selected",
+  );
+});
+
+test("a pin's target can be posted to the page while the store holds the annotation as a proxy", () => {
+  // Alpine's store wraps every object in a reactive Proxy, which postMessage (structured clone)
+  // refuses.
+  const proxied = <T extends object>(o: T): T => new Proxy(o, {});
+  const rect = proxied({ x: 10, y: 20, width: 300, height: 100 });
+  const el = { ...uiEl("#a"), rect: proxied({ x: 12, y: 30, width: 80, height: 20 }) };
+  const region = ann("r", 1, "/p", { target: { kind: "region", rect, elements: [proxied(el)] } });
+  assert.doesNotThrow(() => structuredClone(marksFor([region], "/p", null)));
+});
+
+test("the composer's head names each kind of target", () => {
+  const save = { ...uiEl("#save"), role: "button", name: "Save" };
+  assert.equal(targetLabel({ kind: "element", elements: [save] }), 'button · "Save"');
+  assert.equal(
+    targetLabel({ kind: "element", elements: [save, uiEl("#a"), uiEl("#b")] }),
+    'button · "Save"',
+    "the head counts the rest on its own, where a long name can't cut it off",
+  );
+  assert.equal(
+    targetLabel({ kind: "element", elements: [{ selector: "p", tag: "p", rect: save.rect }] }),
+    "p",
+  );
+  const rect = { x: 10.4, y: 20, width: 300.6, height: 99.5 };
+  assert.equal(
+    targetLabel({ kind: "region", rect, elements: [save] }),
+    "Region 301 × 100 · 1 element",
+  );
+  assert.equal(targetLabel({ kind: "region", rect, elements: [] }), "Region 301 × 100");
+  assert.equal(
+    targetLabel({
+      kind: "text",
+      quote: "Date recieved",
+      element: { ...uiEl("#th"), role: "columnheader" },
+    }),
+    "Text in columnheader",
+  );
+  assert.equal(targetLabel({ kind: "page" }), "Whole page");
+});
+
+test("a new pick's composer starts beside all of it; a page's has no anchor", () => {
+  const a = { x: 100, y: 50, width: 80, height: 20 };
+  const b = { x: 300, y: 200, width: 40, height: 40 };
+  assert.deepEqual(draftAnchor({ kind: "element", elements: [uiEl("#a", a), uiEl("#b", b)] }), {
+    x: 100,
+    y: 50,
+    width: 240,
+    height: 190,
+  });
+  const rect = { x: 10, y: 20, width: 300, height: 100 };
+  assert.deepEqual(draftAnchor({ kind: "region", rect, elements: [uiEl("#a", a)] }), rect);
+  assert.deepEqual(draftAnchor({ kind: "text", quote: "q", element: uiEl("#a", a) }), a);
+  assert.equal(draftAnchor({ kind: "page" }), null);
 });
 
 test("the composer sits right of its target, else left, else below or above, inside the stage", () => {
@@ -170,6 +283,8 @@ test("the composer sits right of its target, else left, else below or above, ins
     left: 162,
     top: 532,
   });
+  // No target (the whole page): the stage's top right.
+  assert.deepEqual(placeComposer(null, card, stage), { left: 692, top: 48 });
 });
 
 test("a source shows its last two path segments and line, and opens repo-relative", () => {
@@ -225,6 +340,10 @@ test("an annotation's source is its first element's that has one", () => {
   });
   assert.equal(annotationSource({ kind: "element", elements: [el()] }), undefined);
   assert.deepEqual(annotationSource({ kind: "element", elements: [el(), el(src)] }), src);
+  const rect = { x: 0, y: 0, width: 9, height: 9 };
+  assert.deepEqual(annotationSource({ kind: "region", rect, elements: [el(), el(src)] }), src);
+  assert.deepEqual(annotationSource({ kind: "text", quote: "q", element: el(src) }), src);
+  assert.equal(annotationSource({ kind: "page" }), undefined);
 });
 
 // ── Questions ───────────────────────────────────────────────────────────────────────────────────

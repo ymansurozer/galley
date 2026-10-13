@@ -12,6 +12,7 @@ import type {
   DeskStatus,
   FileContentsPayload,
   GuideFile,
+  PickedTarget,
   PollPayload,
   Rect,
   ReviewFile,
@@ -21,6 +22,7 @@ import type {
   UiCaps,
   UiElement,
   UiMark,
+  UiMarkTarget,
   UiPage,
   UiProxyInfo,
   UiSource,
@@ -299,13 +301,17 @@ export interface Store {
   // Interact (the app gets the pointer and keys) or Annotate (a click picks an element). Only the
   // UI view sends it to the app; the code view leaves the app in Interact.
   appMode: AppMode;
+  // How many elements the reviewer has ⇧-clicked in the app, waiting for ⇧'s release (the bridge
+  // reports it). While there are some, Esc drops them before it leaves Annotate.
+  pendingPicks: number;
   // The annotation sidebar is open; closed, it's a 40px rail. Below 1100px it opens as a drawer.
   annotationsOpen: boolean;
   // The annotation whose row is expanded and whose target is outlined on the page.
   selectedAnnotation: string | null;
   // Pages (routes) whose resolved annotations the sidebar reveals.
   shownResolved: Set<string>;
-  // The element just picked in Annotate mode: while set, the floating composer is open on it.
+  // The target just picked in Annotate mode, or the page: while set, the floating composer is open
+  // on it.
   annotationDraft: AnnotationDraft | null;
   // The annotation whose thread holds the open composer (a reply, or an edit of one of its
   // messages). Null for the code lane's composers and the floating one.
@@ -378,6 +384,9 @@ export interface Store {
   appGo?: (input: string) => void;
   setViewport?: (viewport: Viewport) => void;
   setAppMode?: (mode: AppMode) => void;
+  annotatePage?: () => void;
+  pagePins?: () => { id: string; number: number; question: boolean; selected: boolean }[];
+  selectAnnotation?: (id: string | null) => void;
   toggleAnnotations?: () => void;
   openChanges?: () => number;
   waitingQuestions?: () => number;
@@ -386,9 +395,10 @@ export interface Store {
   shotTitle?: () => string;
 }
 
-// A picked element awaiting its first message: the page and target the annotation will record,
+// A picked target awaiting its first message: the page and target the annotation will record,
 // and where the target sits now in the app's viewport (the floating composer stays beside it).
-export type AnnotationDraft = { page: UiPage; target: UiTarget; anchor: Rect };
+// A page target has no anchor: the composer sits at the stage's top right.
+export type AnnotationDraft = { page: UiPage; target: UiTarget; anchor: Rect | null };
 
 export type Viewport = "desktop" | "tablet" | "mobile" | "fit";
 
@@ -420,6 +430,7 @@ export type {
   DeskStatus,
   FileContentsPayload,
   GuideFile,
+  PickedTarget,
   PollPayload,
   Rect,
   ReviewerSave,
@@ -428,6 +439,7 @@ export type {
   UiCaps,
   UiElement,
   UiMark,
+  UiMarkTarget,
   UiPage,
   UiProxyInfo,
   UiSource,

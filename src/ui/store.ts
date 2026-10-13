@@ -60,6 +60,7 @@ export const S: Store = Alpine.reactive<Store>({
   viewport: "fit",
   frameLabel: "",
   appMode: "interact",
+  pendingPicks: 0,
   annotationsOpen: !matchMedia("(max-width: 1100px)").matches,
   selectedAnnotation: null,
   shownResolved: new Set<string>(),

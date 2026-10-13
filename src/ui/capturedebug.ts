@@ -74,7 +74,9 @@ export function installCaptureDebug() {
     clear();
     const t0 = performance.now();
     try {
-      const shot = await captureApp(selector ? { selector } : {});
+      const shot = await captureApp(
+        selector ? { target: { kind: "element", selectors: [selector] } } : {},
+      );
       const roundTrip = Math.round(performance.now() - t0);
       if (seq === latest) {
         status.textContent = `Rendered in the page in ${shot.ms} ms · ${roundTrip} ms round trip`;

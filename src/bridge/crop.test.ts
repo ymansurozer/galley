@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { atRenderScroll, cropFrame, markShape } from "./crop";
+import { atRenderScroll, cropFrame, markShape, unionRect } from "./crop";
 
 const VIEW = { width: 1440, height: 900 };
 
@@ -92,18 +92,60 @@ test("atRenderScroll moves a rect measured at one window scroll into a render ta
   );
 });
 
-test("markShape outlines the box 2 px outside it and pins its top-left corner", () => {
+test("unionRect is the smallest box holding them all", () => {
+  assert.deepEqual(
+    unionRect([
+      { x: 100, y: 50, width: 200, height: 40 },
+      { x: 20, y: 300, width: 50, height: 10 },
+    ]),
+    { x: 20, y: 50, width: 280, height: 260 },
+  );
+});
+
+test("markShape outlines each element 2 px outside its box and pins the first one's corner", () => {
   // The stroke runs 1 px either side of the outline, so it covers 1–3 px outside the box.
-  assert.deepEqual(markShape({ x: 100, y: 50, width: 200, height: 40 }, VIEW), {
-    outline: { x: 98, y: 48, width: 204, height: 44 },
+  assert.deepEqual(
+    markShape(
+      "element",
+      [
+        { x: 100, y: 50, width: 200, height: 40 },
+        { x: 400, y: 50, width: 60, height: 20 },
+      ],
+      VIEW,
+    ),
+    {
+      shapes: [
+        { style: "outline", rect: { x: 98, y: 48, width: 204, height: 44 } },
+        { style: "outline", rect: { x: 398, y: 48, width: 64, height: 24 } },
+      ],
+      pin: { x: 100, y: 50 },
+    },
+  );
+});
+
+test("markShape draws a region as its dashed box and text as its highlighted lines", () => {
+  const box = { x: 100, y: 50, width: 200, height: 40 };
+  assert.deepEqual(markShape("region", [box], VIEW), {
+    shapes: [{ style: "dashed", rect: box }],
     pin: { x: 100, y: 50 },
+  });
+  const lines = [
+    { x: 300, y: 50, width: 120, height: 18 },
+    { x: 100, y: 68, width: 80, height: 18 },
+  ] as const;
+  assert.deepEqual(markShape("text", [...lines], VIEW), {
+    shapes: lines.map((rect) => ({ style: "highlight", rect })),
+    pin: { x: 300, y: 50 },
   });
 });
 
 test("markShape keeps the pin on screen at the viewport's edges, as the page's pins are", () => {
   // A 20 px pin centred on a corner needs 11 px (its radius and a pixel) to stay whole.
-  assert.deepEqual(markShape({ x: 0, y: 4, width: 50, height: 20 }, VIEW).pin, { x: 11, y: 11 });
-  assert.deepEqual(markShape({ x: 1438, y: 300, width: 50, height: 20 }, VIEW).pin, {
+  assert.deepEqual(markShape("element", [{ x: 0, y: 4, width: 50, height: 20 }], VIEW).pin, {
+    x: 11,
+    y: 11,
+  });
+  assert.deepEqual(markShape("region", [{ x: 1438, y: 300, width: 50, height: 20 }], VIEW).pin, {
     x: 1429,
     y: 300,
   });

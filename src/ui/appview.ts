@@ -1,11 +1,18 @@
 import { S, $, toast } from "./store";
 import { render } from "./render";
-import { captureWaits, forwardedKeyRuns, readBridgeMessage, routeFromInput } from "./appnav";
+import {
+  captureWaits,
+  forwardedKeyRuns,
+  readBridgeMessage,
+  reloadRan,
+  routeFromInput,
+} from "./appnav";
 import { dispatchKey } from "./keys";
 import {
   appModeNow,
   appPageChanged,
   movedInApp,
+  pendingInApp,
   pickedInApp,
   placeFloatingComposer,
   resumeUiComposer,
@@ -13,7 +20,16 @@ import {
   setUiComposerAside,
   syncBridge,
 } from "./uilane";
-import type { BridgeShot, DeskMessage, Rect, ReviewState, UiProxyInfo, Viewport } from "./types";
+import type {
+  BridgeShot,
+  DeskMessage,
+  Rect,
+  ReviewState,
+  UiMarkTarget,
+  UiPage,
+  UiProxyInfo,
+  Viewport,
+} from "./types";
 
 // The UI lane: the agent's running app, served by the desk's UI proxy (a second port, so a
 // different origin from the desk) and shown in an iframe in the centre pane. The iframe is
@@ -128,11 +144,11 @@ export function appGo(input: string) {
 const captures = captureWaits(30_000);
 let captureSeq = 0;
 
-// Screenshot the app page as the reviewer sees it: the viewport, plus a crop around `selector`'s
-// element (or `rect`) when one is given, with an annotation's `mark` drawn on when one is given.
-// The bridge renders both in the page.
+// Screenshot the app page as the reviewer sees it: the viewport, plus a crop around `target` when
+// one is given, with an annotation's `mark` drawn on when one is given. The bridge renders both in
+// the page.
 export function captureApp(
-  target: { selector?: string; rect?: Rect; mark?: { number: number; question: boolean } } = {},
+  target: { target?: UiMarkTarget; mark?: { number: number; question: boolean } } = {},
 ): Promise<BridgeShot> {
   if (!S.uiProxy || !S.app.connected)
     return Promise.reject(new Error("No bridge is listening on the app page"));
@@ -179,6 +195,14 @@ export function sizeFrame() {
   S.frameLabel = `${w} × ${h}${scale < 1 ? ` · ${Math.round(scale * 100)}%` : ""}`;
 }
 
+// The app page's viewport as its own window measures it: the iframe's unscaled size (a preset is
+// scaled down by a transform, which the page doesn't see) and the screen's pixel ratio. Null while
+// no app is showing.
+export function appViewport(): UiPage["viewport"] | null {
+  if (!frame?.clientWidth || !frame.clientHeight) return null;
+  return { width: frame.clientWidth, height: frame.clientHeight, dpr: devicePixelRatio || 1 };
+}
+
 // A rect in the app's viewport, in desk coordinates: through the iframe's position and any
 // preset's scale-down. Null while no app is showing.
 export function fromAppViewport(r: Rect): Rect | null {
@@ -193,26 +217,31 @@ export function fromAppViewport(r: Rect): Rect | null {
   };
 }
 
-// The desk's UI status off every poll. A changed token means a new desk process: its reload
-// counter starts over, so adopt it as the baseline, and the loaded page's bridge (still carrying
-// the old token) is no longer trusted until the page reloads. Within one process, a moved
-// generation means `galley reload` ran, which raises the refresh pill but never reloads the app.
-export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number) {
+// The desk's UI status off every poll; true when `galley reload` ran since the last one. A changed
+// token means a new desk process: its reload counter starts over, so adopt it as the baseline, and
+// the loaded page's bridge (still carrying the old token) is no longer trusted until the page
+// reloads. Within one process, a moved generation means `galley reload` ran, which raises the
+// refresh pill but never reloads the app.
+export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): boolean {
   const prev = S.uiProxy;
+  const reloaded = reloadRan(
+    { token: prev?.token, generation: S.reloadGeneration },
+    { token: proxy?.token, generation },
+  );
   S.uiProxy = proxy;
+  S.reloadGeneration = generation;
+  if (reloaded) {
+    if (S.app.loaded) S.app.stale = true;
+    return true;
+  }
   if (prev?.token !== proxy?.token) {
-    S.reloadGeneration = generation;
     S.app.connected = false;
     // A restarted desk normally gets its stable proxy port back; if not, follow it.
     if (prev && proxy && prev.port !== proxy.port && S.app.loaded) loadApp(S.app.route);
     // The UI view opened before the proxy was up: load now.
     else if (proxy && S.view === "ui" && !S.app.loaded) loadApp(targetRoute());
-    return;
   }
-  if (generation !== S.reloadGeneration) {
-    S.reloadGeneration = generation;
-    if (S.app.loaded) S.app.stale = true;
-  }
+  return false;
 }
 
 // The UI target off the poll: `galley ui <url>` on the live desk. A loaded view switches to it.
@@ -254,6 +283,10 @@ export function installAppView() {
     // Picks and keys count only in the mode the desk put the app in, whatever the page claims.
     if (msg.type === "picked") {
       if (appModeNow() === "annotate") pickedInApp(msg.page, msg.target);
+      return;
+    }
+    if (msg.type === "pending") {
+      if (appModeNow() === "annotate") pendingInApp(msg.count);
       return;
     }
     if (msg.type === "anchor") return movedInApp(msg.rect);

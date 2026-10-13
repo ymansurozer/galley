@@ -82,6 +82,17 @@ const ANCHORS = [
   "re-render of the page's DOM",
   "the annotation's mark",
   "Absent when the capture failed",
+  // the four target kinds (issue 08), their fields, and how their screenshots are framed
+  '{kind:"element", elements:[element…]}',
+  "1–16 elements they clicked",
+  '{kind:"region", rect, elements:[element…]}',
+  "canvas and\n      empty space included",
+  '{kind:"text", quote, element}',
+  "at most 500 chars",
+  '{kind:"page"}',
+  "the page as a whole",
+  "A page annotation's crop is the viewport too, with no mark",
+  '"region W×H"',
   // UI questions (issue 07): lane-tagged question events, the UI item's fields, the reply flag,
   // agent replies in uiAnnotations[].thread, and lane-tagged openQuestions
   'lane "code"',

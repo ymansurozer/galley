@@ -3,6 +3,7 @@ import type {
   BridgeMessage,
   BridgeShot,
   ForwardedKey,
+  PickedTarget,
   Rect,
   UiCaps,
   UiElement,
@@ -10,9 +11,10 @@ import type {
   UiSource,
 } from "./types";
 
-// Pure helpers for the UI view's traffic with the bridge (kept free of the store so they unit-test
-// without a DOM). The app page is untrusted: what it posts is re-validated and capped here before
-// it touches the store. The server checks a saved annotation against the same caps again.
+// Pure helpers for the UI view's traffic with the bridge and the desk's UI status (kept free of the
+// store so they unit-test without a DOM). The app page is untrusted: what it posts is re-validated
+// and capped here before it touches the store. The server checks a saved annotation against the
+// same caps again.
 
 const CAPS: UiCaps = {
   selector: 512,
@@ -25,6 +27,7 @@ const CAPS: UiCaps = {
   url: 2048,
   route: 2048,
   title: 300,
+  quote: 500,
   elements: 16,
 };
 const ERROR_CAP = 300;
@@ -45,6 +48,14 @@ export function readBridgeMessage(data: unknown, token: string): BridgeMessage |
   if (d.type === "leave") return { type: "leave", token };
   if (d.type === "captured") return readCaptured(d, token);
   if (d.type === "picked") return readPicked(d, token);
+  if (d.type === "pending") {
+    const { count } = d;
+    return Number.isSafeInteger(count) &&
+      (count as number) >= 0 &&
+      (count as number) <= CAPS.elements
+      ? { type: "pending", token, count: count as number }
+      : null;
+  }
   if (d.type === "anchor") {
     const rect = readRect(d.rect);
     return rect && { type: "anchor", token, rect };
@@ -70,10 +81,10 @@ export function readBridgeMessage(data: unknown, token: string): BridgeMessage |
   };
 }
 
-// The keys an app page may pass up, and only in this form: ⌥A, and Esc and the UI view's ⇧ chords
-// (sidebar, next / previous annotation, Code / UI). The desk runs them through its own hotkey
-// table, so anything that sends, resets, approves or confirms (⇧S, ⇧R, ⇧A, Enter) is refused here:
-// a page could post any key it likes.
+// The keys an app page may pass up, and only in this form: ⌥A, ⌥P (annotate the page), and Esc and
+// the UI view's ⇧ chords (sidebar, next / previous annotation, Code / UI). The desk runs them
+// through its own hotkey table, so anything that sends, resets, approves or confirms (⇧S, ⇧R, ⇧A,
+// Enter) is refused here: a page could post any key it likes.
 const SHIFT_CHORDS: Record<string, string> = {
   L: "KeyL",
   U: "KeyU",
@@ -83,15 +94,27 @@ const SHIFT_CHORDS: Record<string, string> = {
 function forwardedKey(d: Obj): ForwardedKey | null {
   const { key, code, shiftKey, altKey } = d;
   if (typeof shiftKey !== "boolean" || typeof altKey !== "boolean") return null;
-  // ⌥A by its code: on a Mac layout its key is "å".
+  // ⌥A and ⌥P by their codes: on a Mac layout their keys are "å" and "π".
   if (code === "KeyA" && altKey && !shiftKey)
     return { key: "a", code: "KeyA", shiftKey: false, altKey: true };
+  if (code === "KeyP" && altKey && !shiftKey)
+    return { key: "p", code: "KeyP", shiftKey: false, altKey: true };
   if (key === "Escape" && !shiftKey && !altKey)
     return { key: "Escape", code: "Escape", shiftKey: false, altKey: false };
   if (typeof key === "string" && shiftKey && !altKey && Object.hasOwn(SHIFT_CHORDS, key))
     return { key, code: SHIFT_CHORDS[key]!, shiftKey: true, altKey: false };
   return null;
 }
+
+// Whether `galley reload` ran since the tab last adopted the desk's reload counter
+// (DeskStatus.reloadGeneration): it moved within one desk process. A different proxy token is a
+// new process, whose counter starts over, so that's only a new baseline. A reload is the agent
+// coming back from a Send whether or not the diff moved: on a UI-only desk the counter is the
+// only thing that does.
+export const reloadRan = (
+  adopted: { token: string | undefined; generation: number },
+  polled: { token: string | undefined; generation: number },
+) => adopted.token === polled.token && adopted.generation !== polled.generation;
 
 // Whether a key passed up from the app runs: ⌥A always; the rest only while annotating, since in
 // Interact mode the app's keys are its own (Esc included).
@@ -169,29 +192,52 @@ function readElement(v: unknown): UiElement | null {
   return el;
 }
 
+// A target's elements, at most CAPS.elements of them. One bad element spoils them all (null): the
+// reviewer pointed at every one.
+function readElements(v: unknown): UiElement[] | null {
+  if (!Array.isArray(v)) return null;
+  const sent = v.slice(0, CAPS.elements);
+  const elements = sent.map(readElement).filter((e) => e !== null);
+  return elements.length === sent.length ? elements : null;
+}
+
+// What the bridge picked: elements (at least one), a box with a size (its elements may be none),
+// or a quote and the element holding it. Never a page: that's the desk's own target.
+function readPickedTarget(v: unknown): PickedTarget | null {
+  if (!isObj(v)) return null;
+  if (v.kind === "element") {
+    const elements = readElements(v.elements);
+    return elements?.length ? { kind: "element", elements } : null;
+  }
+  if (v.kind === "region") {
+    const rect = readRect(v.rect);
+    const elements = readElements(v.elements);
+    return rect && rect.width > 0 && rect.height > 0 && elements
+      ? { kind: "region", rect, elements }
+      : null;
+  }
+  if (v.kind === "text") {
+    const element = readElement(v.element);
+    const quote = typeof v.quote === "string" ? v.quote.trim() : "";
+    return element && quote ? { kind: "text", quote: cap(quote, CAPS.quote), element } : null;
+  }
+  return null;
+}
+
 function readPicked(d: Obj, token: string): BridgeMessage | null {
   const page = d.page;
-  const target = d.target;
   if (!isObj(page) || !isRoute(page.route) || !isObj(page.viewport)) return null;
   const { width, height, dpr } = page.viewport;
   if (![width, height, dpr].every((n) => finite(n) && n > 0)) return null;
-  if (!isObj(target) || target.kind !== "element" || !Array.isArray(target.elements)) return null;
-  const sent = target.elements.slice(0, CAPS.elements);
-  const elements = sent.map(readElement).filter((e) => e !== null);
-  // One bad element spoils the pick: the reviewer pointed at all of them.
-  if (!elements.length || elements.length !== sent.length) return null;
+  const target = readPickedTarget(d.target);
+  if (!target) return null;
   const view: Omit<UiPage, "url"> = {
     route: cap(page.route, CAPS.route),
     viewport: { width: width as number, height: height as number, dpr: dpr as number },
   };
   const title = capped(page.title, CAPS.title);
   if (title) view.title = title;
-  return {
-    type: "picked",
-    token,
-    page: view,
-    target: { kind: "element", elements },
-  };
+  return { type: "picked", token, page: view, target };
 }
 
 function readCaptured(d: Record<string, unknown>, token: string): BridgeMessage | null {
