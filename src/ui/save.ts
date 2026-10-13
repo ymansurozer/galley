@@ -30,6 +30,11 @@ export function reviewerSlice(state: ReviewState): ReviewerSave {
 export type Saver = {
   // Request a save. Sends immediately if idle; otherwise schedules exactly one trailing save.
   trigger: () => void;
+  // Request a save that can wait (what the app page reports, not what the reviewer did): one
+  // trigger `soonMs` later however many arrive meanwhile, or none if a trigger() saves first, since
+  // its snapshot carries them. Not busy while it waits, so a page reporting in a loop can neither
+  // flood the desk with full saves nor hold off the poll's diff adoption.
+  triggerSoon: () => void;
   // In-flight OR a trailing save pending — a save is "busy" until the wire is quiet again.
   // The poll's reload branch checks this so it never adopts server state over local
   // mutations that haven't been persisted yet (see poll.ts).
@@ -39,9 +44,14 @@ export type Saver = {
   settled: () => Promise<void>;
 };
 
-export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promise<unknown>): Saver {
+export function createSaver<T>(
+  getPayload: () => T,
+  send: (payload: T) => Promise<unknown>,
+  soonMs = 1000,
+): Saver {
   let inFlight = false;
   let pending = false;
+  let soon: ReturnType<typeof setTimeout> | undefined;
   let waiters: Array<() => void> = [];
 
   const run = () => {
@@ -64,10 +74,17 @@ export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promis
       });
   };
 
+  const trigger = () => {
+    clearTimeout(soon);
+    soon = undefined;
+    if (inFlight) pending = true;
+    else run();
+  };
+
   return {
-    trigger() {
-      if (inFlight) pending = true;
-      else run();
+    trigger,
+    triggerSoon() {
+      soon ??= setTimeout(trigger, soonMs);
     },
     isBusy() {
       return inFlight || pending;

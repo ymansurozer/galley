@@ -133,6 +133,9 @@ export const saver = createSaver(
 // review to ~/.galley/<repoHash>/<session>/. Saves coalesce (see save.ts): at most one
 // in flight, rapid triggers collapse into a single trailing save.
 export const persist = () => saver.trigger();
+// What the app page reports (where it found the annotations) saves at most once a second, or with
+// the reviewer's next save if that comes first (save.ts, triggerSoon).
+export const persistSoon = () => saver.triggerSoon();
 // Display preferences (settings panel + the Split/Stacked toggle) save to the global
 // ~/.galley/settings.json so they survive port/session changes. Last write wins.
 export const persistPrefs = () =>

@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { createSaver, reviewerSlice } from "./save";
 import type { ReviewState } from "./types";
@@ -171,4 +171,39 @@ test("createSaver: settled resolves once the in-flight and trailing saves are do
   calls[1]!.reject(); // a failed save still settles: the wire is quiet
   await flush();
   assert.equal(settled, true);
+});
+
+test("createSaver: triggerSoon coalesces a burst into one save a second later, and isn't busy meanwhile", (t) => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  t.after(() => mock.timers.reset());
+  const { send, calls } = fakeSend<number>();
+  let payload = 0;
+  const saver = createSaver(() => payload, send);
+
+  // A page flipping placements as fast as it can.
+  for (payload = 1; payload <= 50; payload++) saver.triggerSoon();
+  assert.equal(calls.length, 0, "nothing goes at once");
+  assert.equal(saver.isBusy(), false, "a waiting save never holds off the poll");
+  mock.timers.tick(999);
+  assert.equal(calls.length, 0);
+  mock.timers.tick(1);
+  assert.equal(calls.length, 1, "one save for the whole burst");
+  assert.equal(calls[0]!.payload, 51, "snapshotting the latest state");
+
+  // The next burst waits its own second: at most one such save a second.
+  saver.triggerSoon();
+  mock.timers.tick(999);
+  assert.equal(calls.length, 1);
+});
+
+test("createSaver: a reviewer's trigger saves at once and takes a waiting triggerSoon with it", (t) => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  t.after(() => mock.timers.reset());
+  const { send, calls } = fakeSend<number>();
+  const saver = createSaver(() => 1, send);
+  saver.triggerSoon();
+  saver.trigger();
+  assert.equal(calls.length, 1, "the reviewer's save went at once");
+  mock.timers.tick(1000);
+  assert.equal(calls.length, 1, "the waiting save went with it");
 });

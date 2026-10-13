@@ -1,4 +1,4 @@
-import { S, $, openEditorAt, toast, persist, saver } from "./store";
+import { S, $, openEditorAt, toast, persist, persistSoon, saver } from "./store";
 import { buildCommentThread, type ThreadControls } from "./annotations";
 import {
   buildComposer,
@@ -223,7 +223,7 @@ export function appPageChanged(fresh: boolean) {
   const placed = placePageAnnotations();
   if (S.annotationDraft) closeComposer();
   else renderUiLane();
-  if (placed) persist();
+  if (placed) persistSoon();
 }
 
 // Where the bridge found this page's marks: each one's first answer once the page settled, then
@@ -245,7 +245,7 @@ export function placedInApp(placements: ReadonlyArray<{ id: string; placement: U
   }
   if (!changed) return;
   renderUiLane();
-  persist();
+  persistSoon();
 }
 
 // `galley reload` ran or the desk restarted: no annotation has been looked for since. The desk
