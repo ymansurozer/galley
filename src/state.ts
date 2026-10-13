@@ -1332,12 +1332,16 @@ export function uiQuestionPayload(
   };
 }
 
-// A question is answered once an agent reply lands after it in its thread.
+// A question is answered once an agent reply lands after it was asked, in its thread.
 const answered = (question: ThreadMessage, thread: readonly ThreadMessage[]) =>
-  thread.some((r) => r.role === "agent" && +new Date(r.createdAt) > +new Date(question.createdAt));
+  thread.some(
+    (r) =>
+      r.role === "agent" &&
+      +new Date(r.createdAt) > +new Date(question.askedAt ?? question.createdAt),
+  );
 
 // Questions the reviewer asked but the agent hasn't answered yet. Mirrors the UI's "answered"
-// heuristic (src/ui/annotations.ts): an open question is unanswered until a later agent reply
+// heuristic (src/ui/uilane-derive.ts): an open question is unanswered until a later agent reply
 // lands in the same thread — the comments on its path/side/line, or its UI annotation's messages.
 // These ride out on the Send's ReviewResult so an agent that never saw the live await still owes
 // each an answer.

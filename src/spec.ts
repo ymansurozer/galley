@@ -189,6 +189,9 @@ new Send). Live questions arrive only via await, so a file-poller sees Sends but
 - approvedFiles → signed off as-is; leave the whole file unless a requested change forces a touch
   (which re-opens it for re-review).
 - stagedFiles → already staged by the reviewer; don't touch unless a requested change requires it.
+An item can change kind between rounds: the human can turn a change request into a question (it
+then reaches you as a question, live or in openQuestions) and a question into a change request.
+A change request missing from a later Send was resolved or turned into a question — drop it.
 In pr mode the diff is committed changes: amend the branch/commits to apply the review, leaving
 approved hunks as-is (rather than editing the working tree).
 Then \`galley reload\` to surface your edits, and \`galley await\` for the next round.

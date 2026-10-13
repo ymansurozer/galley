@@ -41,6 +41,9 @@ const ANCHORS = [
   // unanswered questions fold into the Send (issue 05)
   "openQuestions",
   "How to act on a review",
+  // the human can turn a change request into a question and back between rounds
+  "change kind between rounds",
+  "missing from a later Send",
   // guided review schema (folded in from the old guide-spec)
   "Guide JSON schema",
   "one-paragraph changeset overview",
