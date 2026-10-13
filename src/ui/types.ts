@@ -68,6 +68,10 @@ export type Settings = {
   // diff shows first), or force "rendered"/"source". The toolbar toggle still overrides per file.
   markdownView: "auto" | "rendered" | "source";
   stageOnAccept: boolean;
+  // Per-change Keep/Undo: the decision bar on each pending hunk and ⇧Y/⇧N. Off, the reviewer
+  // reads the diff and signs off file by file — Approve still accepts every pending hunk, and a
+  // hunk already decided keeps its verdict (and its look) either way.
+  perChangeVerdicts: boolean;
   // Command template for "Open in editor" ({repo}/{file}/{line} placeholders). A machine
   // preference like the rest — empty falls back to the OS opener (see src/editor.ts).
   editorCommand: string;

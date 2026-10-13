@@ -4682,6 +4682,10 @@
                 <option value="auto">Auto</option>
                 <option value="rendered">Rendered</option>
                 <option value="source">Source</option>
+              </select></label><label>Per-change verdicts<select
+                @change="$store.g.settings.perChangeVerdicts = $event.target.value === 'on'; $store.g.applySettings()">
+                <option value="on" :selected="$store.g.settings.perChangeVerdicts">On</option>
+                <option value="off" :selected="!$store.g.settings.perChangeVerdicts">Off</option>
               </select></label><label>Approve<select
                 @change="$store.g.settings.stageOnAccept = $event.target.value === 'stage'; $store.g.applySettings()">
                 <option value="stage" :selected="$store.g.settings.stageOnAccept">Stages file</option>

@@ -23,6 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarDefault: "tree",
   markdownView: "auto",
   stageOnAccept: false,
+  perChangeVerdicts: true,
   editorCommand: "",
 };
 
