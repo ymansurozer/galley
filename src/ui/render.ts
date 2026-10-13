@@ -126,6 +126,9 @@ function ensureSprite() {
   const holder = document.createElement("div");
   holder.innerHTML = SVGSpriteSheet;
   const svg = holder.firstElementChild;
+  // Out of the flow, like icons.ts's sprite: an inline svg after .app adds a line box below the
+  // full-height layout, and a jump scrolling a row into view would scroll the page by that much.
+  svg?.setAttribute("style", "position:absolute");
   if (svg) document.body.appendChild(svg);
   spriteInjected = true;
 }
