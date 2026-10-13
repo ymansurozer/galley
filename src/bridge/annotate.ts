@@ -79,9 +79,10 @@ const FORWARDED_SHIFT = new Set(["L", "U", "ArrowDown", "ArrowUp"]);
 // How far the pointer moves before a press becomes a drag, and the smallest box a drag picks.
 const DRAG_START = 5;
 const MIN_REGION = 8;
-// Text a drag doesn't select from: a control's label. A drag that starts there draws a box.
-const LABELLED =
-  "button, a[href], summary, [role=button], [role=link], [role=tab], [role=menuitem], [role=option]";
+// Text a drag doesn't select from: a native control's label. A drag that starts there draws a box.
+// An element that only carries a button or link role (a clickable table row or card) keeps its
+// text quotable.
+const LABELLED = "button, a[href], summary, [role=tab], [role=menuitem], [role=option]";
 
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
@@ -509,6 +510,17 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     const altA = e.altKey && plain && e.code === "KeyA";
     if (!altA && mode !== "annotate") return;
     if (e.type === "keyup" && e.key === "Shift" && pending.length) commitPending();
+    // Esc while ⇧-picks wait drops them here. ⇧ is still down (releasing it would pick them), and
+    // the desk takes no ⇧Esc from the page.
+    if (e.key === "Escape" && pending.length) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      if (e.type === "keydown") {
+        pending = [];
+        pendingChanged();
+      }
+      return;
+    }
     if (!altA && SCROLL_KEYS.has(e.key) && !e.shiftKey && !e.altKey) return;
     e.stopImmediatePropagation();
     // ⌘/Ctrl combinations keep their browser meaning (copy, reload); only the app misses them.
