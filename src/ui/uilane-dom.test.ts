@@ -1,0 +1,83 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { Window } from "happy-dom";
+import { esc } from "./html";
+import type { UiAnnotationRecord, UiElement } from "./types";
+import { composerHead, pageHead, rowLine } from "./uilane-dom";
+
+// What a hostile app page might send as a selector, a route or a title: a quote that would end an
+// attribute in string-built HTML, then a handler that fires in the desk's origin.
+const HOSTILE = `x" onmouseover="fetch('/api/reset',{method:'POST'})" data-x="`;
+
+const doc = () => new Window().document as unknown as Document;
+
+// Every attribute on the subtree, by name: an injected handler would show up here.
+const attributeNames = (root: Element) =>
+  [root, ...root.querySelectorAll("*")].flatMap((el) => el.getAttributeNames());
+
+test("esc escapes both quotes, so string-built attributes can't be broken out of", () => {
+  assert.equal(
+    esc(`<a href="x">it's</a> & co`),
+    "&lt;a href=&quot;x&quot;&gt;it&#39;s&lt;/a&gt; &amp; co",
+  );
+  const d = doc();
+  const div = d.createElement("div");
+  div.innerHTML = `<span title="${esc(HOSTILE)}">${esc(HOSTILE)}</span>`;
+  const span = div.querySelector("span")!;
+  assert.deepEqual(span.getAttributeNames(), ["title"]);
+  assert.equal(span.getAttribute("title"), HOSTILE);
+  assert.equal(span.textContent, HOSTILE);
+});
+
+test("a page head with a hostile route and title renders them as text", () => {
+  const d = doc();
+  const head = pageHead(d, { route: `/x?${HOSTILE}`, title: HOSTILE, open: [], resolved: [] });
+  assert.deepEqual(attributeNames(head).sort(), ["class", "class", "class", "data-route", "title"]);
+  assert.equal(head.dataset.route, `/x?${HOSTILE}`);
+  assert.equal(head.title, `${HOSTILE}\n/x?${HOSTILE}`);
+  assert.ok(head.textContent!.includes(`x" onmouseover=`), "the name shows the text as typed");
+});
+
+test("the composer head shows a hostile selector and name as text", () => {
+  const d = doc();
+  const el: UiElement = {
+    selector: HOSTILE,
+    tag: "button",
+    role: "button",
+    name: HOSTILE,
+    rect: { x: 0, y: 0, width: 1, height: 1 },
+  };
+  let cancelled = false;
+  const head = composerHead(d, el, 3, () => (cancelled = true));
+  assert.ok(!attributeNames(head).some((n) => n.startsWith("on") || n === "data-x"));
+  assert.equal(head.querySelector(".uc-target")!.getAttribute("title"), HOSTILE);
+  assert.equal(head.querySelector(".uc-target")!.textContent, `button · "${HOSTILE}"`);
+  head.querySelector<HTMLButtonElement>(".uc-close")!.click();
+  assert.ok(cancelled);
+});
+
+test("a row shows the body's first line as text", () => {
+  const d = doc();
+  const a: UiAnnotationRecord = {
+    id: "a1",
+    number: 4,
+    intent: "change",
+    status: "open",
+    placement: "placed",
+    page: { url: "http://localhost:3000/", route: "/", viewport: { width: 1, height: 1, dpr: 1 } },
+    target: { kind: "element", elements: [] },
+    comments: [
+      {
+        id: "m1",
+        role: "user",
+        body: `<img src=x onerror=alert(1)>`,
+        createdAt: "t",
+        updatedAt: "t",
+      },
+    ],
+  };
+  const row = rowLine(d, a, true);
+  assert.equal(row.querySelector("img"), null);
+  assert.equal(row.querySelector(".ann-body")!.textContent, "<img src=x onerror=alert(1)>");
+  assert.equal(row.className, "ann-row k-change sel");
+});

@@ -175,6 +175,53 @@ try {
   assert.match(remote.stderr, /not a loopback host/);
   console.log("✓ --ui → proxied app with the bridge injected; galley ui switches it live");
 
+  // UI annotations (issue 04): the tab saves an annotation on the app through the reviewer slice,
+  // as it does after a Request change in the UI view; the Send below must carry it.
+  const UI_NOTE = "Rename to Save — nothing on this page is a draft.";
+  await post("/api/save", {
+    annotations: [
+      {
+        id: "ui-1",
+        number: 1,
+        intent: "change",
+        status: "open",
+        placement: "placed",
+        page: {
+          url: `${FIXTURE}/app`,
+          route: "/app",
+          title: "Fixture",
+          viewport: { width: 1280, height: 800, dpr: 1 },
+        },
+        target: {
+          kind: "element",
+          elements: [
+            {
+              selector: "#save",
+              tag: "button",
+              text: "Save draft",
+              role: "button",
+              name: "Save draft",
+              rect: { x: 40, y: 60, width: 90, height: 32 },
+            },
+          ],
+        },
+        comments: [
+          {
+            id: "ui-1-m1",
+            role: "user",
+            intent: "action",
+            body: UI_NOTE,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+      },
+    ],
+  });
+  const pollAnn = await getJson("/api/poll");
+  assert.equal(pollAnn.annotations?.[0]?.id, "ui-1", "the saved annotation rides the poll");
+  console.log("✓ a UI annotation saves through the reviewer slice");
+
   // Oversized-file stamp (issue 05): the two 6000-line rewrites clear the threshold and are
   // stamped `oversized`; the ordinary one-line change to a.txt is not.
   const oversizedOf = (p) => state.files.find((f) => f.path === p)?.oversized;
@@ -378,8 +425,17 @@ try {
   const ev2 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
   assert.equal(ev2.kind, "review");
   assert.equal(ev2.result.mode, "repo");
-  for (const k of ["requestedChanges", "accepted", "rejected", "stagedFiles"])
+  for (const k of ["codeChangeRequests", "uiAnnotations", "accepted", "rejected", "stagedFiles"])
     assert.ok(Array.isArray(ev2.result[k]), `result.${k} is an array`);
+  assert.equal(ev2.result.requestedChanges, undefined, "the old field name is gone");
+  assert.equal(ev2.result.uiTarget, `${FIXTURE}/app?round=2`, "uiTarget is the current app URL");
+  assert.deepEqual(
+    ev2.result.uiAnnotations.map((a) => [a.number, a.body, a.page.route]),
+    [[1, UI_NOTE, "/app"]],
+    "the UI annotation arrives in uiAnnotations",
+  );
+  assert.equal(ev2.result.uiAnnotations[0].target.elements[0].selector, "#save");
+  console.log("✓ await → review carries uiAnnotations + uiTarget beside codeChangeRequests");
   assert.ok(
     ev2.result.approvedFiles.includes("huge-approved.txt"),
     "card approve on an oversized file lands in approvedFiles",

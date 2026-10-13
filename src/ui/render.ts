@@ -13,8 +13,9 @@ import {
 } from "./changes";
 import type { AnnotationMeta } from "./types";
 import { applyActiveRow, applyLayoutClasses } from "./tree";
-import { annotations, renderAnnotation, buildCommentThread } from "./annotations";
+import { annotations, renderAnnotation, buildCommentThread, lineThread } from "./annotations";
 import { restoreComposerFocus } from "./composer";
+import { renderUiLane } from "./uilane";
 import { unanchoredThreads } from "./unanchored";
 import { revealThreadLines } from "./expand";
 import {
@@ -268,6 +269,8 @@ export async function render() {
     // re-focus the open composer and restore its caret from the store, so typing survives
     // a render triggered mid-compose (e.g. accepting a change while replying).
     restoreComposerFocus();
+    // The UI lane draws from the same state (a reload or reset swaps it wholesale).
+    renderUiLane();
     // Re-apply the sidebar highlight an rAF later — after Alpine's microtask flush, so rows
     // that were just re-keyed by a reactive change carry it again (see applyActiveRow).
     requestAnimationFrame(applyActiveRow);
@@ -536,7 +539,7 @@ async function renderCenter() {
         const box = document.createElement("div");
         box.className = "annotation";
         box.dataset.thread = `${t.side}:${t.lineNumber}`; // blockers jump target
-        box.appendChild(buildCommentThread(t));
+        box.appendChild(buildCommentThread(t, lineThread(t)));
         strip.appendChild(box);
       }
       wrap.appendChild(strip);

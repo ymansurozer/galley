@@ -59,6 +59,13 @@ export const S: Store = Alpine.reactive<Store>({
   },
   viewport: "fit",
   frameLabel: "",
+  appMode: "interact",
+  annotationsOpen: !matchMedia("(max-width: 1100px)").matches,
+  selectedAnnotation: null,
+  shownResolved: new Set<string>(),
+  annotationDraft: null,
+  composerAnnotation: null,
+  sendLanes: null,
 });
 
 // Imperative-island objects kept OUT of the reactive store: the @pierre/diffs
@@ -89,12 +96,7 @@ export function toast(t: string) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (S.toastMsg = ""), 2800);
 }
-export function esc(s: unknown) {
-  return String(s ?? "").replace(
-    /[&<>]/g,
-    (c: string) => (({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }) as Record<string, string>)[c] ?? c,
-  );
-}
+export { esc } from "./html";
 export const api = <T = unknown>(path: string, opts: RequestInit = {}): Promise<T> =>
   fetch(path, { headers: { "content-type": "application/json" }, ...opts }).then(
     (r) => r.json() as Promise<T>,

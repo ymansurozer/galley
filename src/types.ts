@@ -46,6 +46,13 @@ export type ReviewComment = {
   unanchored?: boolean;
 };
 
+// One message in a review thread. A code comment is one, and so is each entry of a UI annotation's
+// thread, so a single thread component renders both lanes.
+export type ThreadMessage = Pick<
+  ReviewComment,
+  "id" | "body" | "createdAt" | "updatedAt" | "intent" | "role"
+>;
+
 export type ChangeState = {
   id: string;
   path: string;
@@ -224,6 +231,13 @@ export type ReviewState = {
   // desk reverse-proxies into its UI view. Agent-owned like `target` — set by the CLI, carried
   // across reload/restart by mergeReviewState, never posted back by the tab. Absent → no UI lane.
   ui?: { target: string };
+  // The reviewer's annotations on the running app (the UI lane). A separate array from `comments`,
+  // so the code-comment model (path/side/line, re-anchoring) never sees them. Absent on reviews
+  // saved before the UI lane existed.
+  annotations?: UiAnnotationRecord[];
+  // The highest number ever given to an annotation, deleted ones included, so a number is never
+  // reused: the agent never meets two different #3s. Only a review reset starts it over.
+  lastAnnotationNumber?: number;
   persistFile?: string;
 };
 
@@ -237,7 +251,13 @@ export type ReviewState = {
 // server-side by /api/stage, /api/unstage, and syncGitState.
 export type ReviewerSave = Pick<
   ReviewState,
-  "decisions" | "comments" | "reviewedFiles" | "reviewedFileHashes" | "decisionFiles"
+  | "decisions"
+  | "comments"
+  | "reviewedFiles"
+  | "reviewedFileHashes"
+  | "decisionFiles"
+  | "annotations"
+  | "lastAnnotationNumber"
 >;
 
 // Transient desk-liveness fields injected into the /api/state response alongside
@@ -284,18 +304,110 @@ export type Rect = { x: number; y: number; width: number; height: number };
 // devicePixelRatio. `crop` frames the requested target plus context padding, and is null when no
 // target was asked for or it lies off-screen. `ms` is the in-page cost of rendering and encoding.
 export type BridgeShot = { viewport: Blob; crop: Blob | null; ms: number };
+// A key the bridge passed up from the app page: ⌥A always, and Esc and ⇧ chords while annotating.
+// The desk runs it through its own hotkey table, as if it had been pressed in the desk.
+export type ForwardedKey = { key: string; code: string; shiftKey: boolean; altKey: boolean };
+// Interact: the app gets every click and key. Annotate: the bridge takes the pointer, and a click
+// picks the element under it.
+export type AppMode = "interact" | "annotate";
+// A numbered pin the bridge draws on the current page, at the element `selector` matches.
+export type UiMark = { id: string; number: number; selector: string; resolved: boolean };
 export type BridgeMessage =
   // `ready` on every page load (the handshake), `nav` on in-page route/title changes.
   | ({ type: "ready" | "nav"; token: string } & BridgeNav)
   // The page is unloading — until the next `ready`, no bridge is listening.
   | { type: "leave"; token: string }
   // The answer to the desk's `capture` with the same id.
-  | ({ type: "captured"; token: string; id: number } & ({ shot: BridgeShot } | { error: string }));
+  | ({ type: "captured"; token: string; id: number } & ({ shot: BridgeShot } | { error: string }))
+  // The reviewer clicked an element in Annotate mode. The desk adds the page's url.
+  | { type: "picked"; token: string; page: Omit<UiPage, "url">; target: UiTarget }
+  // The picked target moved on screen (scroll, layout), so the composer follows it.
+  | { type: "anchor"; token: string; rect: Rect }
+  // The reviewer clicked an annotation's pin.
+  | { type: "select"; token: string; id: string }
+  | ({ type: "key"; token: string } & ForwardedKey);
 export type DeskMessage =
   | { type: "navigate"; token: string; route: string }
   | { type: "back" | "forward" | "reload"; token: string }
   // Screenshot the page. The crop target is the element `selector` matches, else `rect`.
-  | { type: "capture"; token: string; id: number; selector?: string; rect?: Rect };
+  | { type: "capture"; token: string; id: number; selector?: string; rect?: Rect }
+  | { type: "mode"; token: string; mode: AppMode }
+  // The pins for the current page, the selected annotation (outlined, scrolled into view), and
+  // whether the composer is open on the last pick (its highlight stays until the composer closes).
+  | { type: "marks"; token: string; marks: UiMark[]; selected: string | null; picking: boolean };
+
+// ── UI annotations ──────────────────────────────────────────────────────────────────────────────
+// An element the reviewer pointed at in the app, as the bridge captured it. Everything in it is
+// page-sourced: the bridge caps it, and the tab and the server validate it again before storing it.
+export type UiElement = {
+  // Matched exactly this element when captured: #id, else identity attributes (data-testid,
+  // aria-label, …), else word-like classes, else an nth-of-type path. Each rung is proven unique.
+  selector: string;
+  tag: string;
+  // Visible text, whitespace collapsed.
+  text?: string;
+  // Explicit or implicit ARIA role, and the accessible name.
+  role?: string;
+  name?: string;
+  // Allowlisted attributes (data-testid, href, type, …).
+  attrs?: Record<string, string>;
+  // The nearest landmark (e.g. `navigation "Main"`) and the nearest heading above the element.
+  landmark?: string;
+  heading?: string;
+  // A short HTML outline of the element and its first children.
+  outline?: string;
+  // Its box in the page's viewport when captured.
+  rect: Rect;
+};
+export type UiPage = {
+  // The page on the dev server (the UI target's origin + route), not on the proxy.
+  url: string;
+  // Path + query, as in the address bar. The sidebar groups annotations by it.
+  route: string;
+  title?: string;
+  viewport: { width: number; height: number; dpr: number };
+};
+export type UiTarget = { kind: "element"; elements: UiElement[] };
+// Caps on page-sourced data: string lengths, and the attrs and elements counts. The bridge, the tab
+// and the server each keep a runtime copy typed as UiCaps (the worlds share no runtime code), so a
+// copy that drifts fails the typecheck. `name` also caps role, landmark and heading.
+export type UiCaps = {
+  selector: 512;
+  text: 300;
+  name: 200;
+  outline: 2048;
+  attrs: 12;
+  attr: 200;
+  url: 2048;
+  route: 2048;
+  title: 300;
+  elements: 16;
+};
+// An annotation as the desk keeps it. Its body is the opening message of `comments`, which the
+// code lane's thread component renders; later messages are replies.
+export type UiAnnotationRecord = {
+  id: string;
+  // Global and never reused; the number on its pin.
+  number: number;
+  intent: "change";
+  status: "open" | "resolved";
+  // Whether the target was found on the page. An annotation is placed when it's made.
+  placement: "placed";
+  page: UiPage;
+  target: UiTarget;
+  comments: ThreadMessage[];
+};
+// An annotation as the agent receives it in ReviewResult.uiAnnotations.
+export type UiAnnotation = {
+  id: string;
+  number: number;
+  body: string;
+  status: UiAnnotationRecord["status"];
+  placement: UiAnnotationRecord["placement"];
+  page: UiPage;
+  target: UiTarget;
+  thread: Array<{ role: "user" | "agent"; body: string; at: string }>;
+};
 
 // One file's old/new contents, fetched on demand by the tab (GET /api/file-contents) so the full
 // contents never ride /api/state — the state itself is lean (issue 04 removed the embedded copies).
@@ -316,7 +428,10 @@ export type FileContentsPayload = {
 // never ride the poll; the tab fetches /api/state exactly once per baseDiffHash change and diffs
 // guide/comments off this slice in between. DeskStatus is merged into the response alongside these.
 // `ui` rides along so `galley ui` on a live desk reaches the open tab without a diff change.
-export type PollPayload = Pick<ReviewState, "baseDiffHash" | "guide" | "comments" | "ui">;
+export type PollPayload = Pick<
+  ReviewState,
+  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations"
+>;
 
 // The structured payload printed to stdout (and written to result.json) when
 // the reviewer clicks "Send to agent". This is the handoff contract.
@@ -331,7 +446,11 @@ export type ReviewResult = {
   baseDiffHash: string;
   accepted: Array<{ path: string; lineNumber: number; side: string; title: string }>;
   rejected: Array<{ path: string; lineNumber: number; side: string; title: string }>;
-  requestedChanges: Array<{ path: string; lineNumber: number; side: string; body: string }>;
+  codeChangeRequests: Array<{ path: string; lineNumber: number; side: string; body: string }>;
+  // The open change requests on the running app (resolved ones are not sent), and the app URL the
+  // desk serves (each annotation records its own page.url). Without a UI target: empty, no uiTarget.
+  uiAnnotations: UiAnnotation[];
+  uiTarget?: string;
   // An optional note the reviewer attached at Send time about the whole review — an overall
   // remark, or an afterthought instruction for what to do after applying it. Ephemeral: captured
   // per Send, never persisted into ReviewState, so a one-off instruction can't silently re-send.

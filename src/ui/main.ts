@@ -50,9 +50,18 @@ import {
   uiOnly,
 } from "./appview";
 import { installCaptureDebug } from "./capturedebug";
+import { composerInUi } from "./composer";
+import {
+  installUiLane,
+  openChanges,
+  setAppMode,
+  submitUiComposer,
+  toggleAnnotations,
+  uiSendSummary,
+} from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { uuid } from "./uuid";
-import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
+import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
 // Close the inline composer when clicking outside it (unless it has unsaved text). The
 // composer/editor live inside the diff DOM now, so match their containers directly.
@@ -317,12 +326,27 @@ const plural = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
 // Open the Send modal: a receipt of what's about to go, plus an empty (always fresh) note box.
 // An attached agent picks the review up the instant it's sent, so there's no taking it back —
 // this is the moment to look, and to leave an overall instruction for the whole review.
-const openSendModal = (msg: string) => {
+const openSendModal = (msg: string, lanes: Store["sendLanes"] = null) => {
   S.sendMsg = msg;
+  S.sendLanes = lanes;
   S.sendNote = "";
   S.sendOpen = true;
   setTimeout(() => $("sendNote")?.focus(), 0); // after Alpine shows it (mirrors the composer)
 };
+// With a UI lane the receipt splits by lane: the code line (none on a UI-only desk) and the UI one.
+const codeReceipt = () => {
+  const { files, lines, comments, rejections } = reviewStats();
+  return [
+    plural(files, "file"),
+    plural(lines, "changed line"),
+    comments ? plural(comments, "comment") : "",
+    rejections ? plural(rejections, "rejected hunk") : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+};
+const sendLanes = (): Store["sendLanes"] =>
+  hasUi() ? { code: uiOnly() ? null : codeReceipt(), ...uiSendSummary() } : null;
 // Fired after the last file is approved — a small receipt of the work done (files, lines,
 // comments, rejections) plus the offer to send the finished review back to the agent.
 S.promptFinish = () => {
@@ -335,6 +359,7 @@ S.promptFinish = () => {
   const tail = extras.length ? extras.join(", ") : "all clean";
   openSendModal(
     `You've reviewed ${what} — ${plural(lines, "changed line")}, ${tail}. Send the review back to the agent?`,
+    sendLanes(),
   );
 };
 // Every manual send — the Send button and ⇧S — routes through this receipt-style modal: a
@@ -342,18 +367,11 @@ S.promptFinish = () => {
 // (The button used to call send() directly with no confirm at all, which made accidental sends
 // too easy.)
 S.confirmSend = () => {
-  if (uiOnly()) {
-    openSendModal("You're about to send your review of the app. Send to the agent?");
+  if (hasUi()) {
+    openSendModal("You're about to send your review. Send to the agent?", sendLanes());
     return;
   }
-  const { files, lines, comments, rejections } = reviewStats();
-  const parts = [
-    plural(files, "file"),
-    plural(lines, "changed line"),
-    comments ? plural(comments, "comment") : "",
-    rejections ? plural(rejections, "rejected hunk") : "",
-  ].filter(Boolean);
-  openSendModal(`You're about to send your review: ${parts.join(", ")}. Send to the agent?`);
+  openSendModal(`You're about to send your review: ${codeReceipt()}. Send to the agent?`);
 };
 // Confirm the Send modal: the typed note (trimmed; empty → omitted) rides along as the one-time
 // overall instruction. Cancel leaves the review untouched.
@@ -398,6 +416,11 @@ S.openInEditor = async () => {
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
 // body and keeps the existing intent.
 const submitComment = (intent: "question" | "action") => {
+  // The UI lane's composers (a new annotation, a reply or edit in its thread) submit there.
+  if (composerInUi()) {
+    submitUiComposer();
+    return;
+  }
   const body = (S.composerBody || "").trim();
   if (!body) return;
   if (S.editingCommentId) {
@@ -491,6 +514,10 @@ S.appForward = appForward;
 S.appRefresh = appRefresh;
 S.appGo = appGo;
 S.setViewport = setViewport;
+// Its annotations (uilane.ts): the mode toggle, the sidebar, and the header's open count.
+S.setAppMode = setAppMode;
+S.toggleAnnotations = toggleAnnotations;
+S.openChanges = openChanges;
 
 // Alpine: register the reactive store, then start.
 (window as any).Alpine = Alpine;
@@ -542,6 +569,7 @@ if (hasGuide()) {
   S.sidebarTab = S.settings.sidebarDefault === "walkthrough" ? "walkthrough" : "tree";
 }
 installAppView();
+installUiLane();
 installCaptureDebug();
 syncView(); // a UI-only desk opens straight on the app
 render();

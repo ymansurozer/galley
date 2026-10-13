@@ -29,7 +29,15 @@ import {
   writeGlobalSettings,
 } from "./state.js";
 import { changeBlocks, changeStableKeyFromBlock, gitStats, parseUnifiedDiff } from "./git.js";
-import type { ChangeState, Decision, Guide, ReviewComment, ReviewState } from "./types.js";
+import type {
+  ChangeState,
+  Decision,
+  Guide,
+  ReviewComment,
+  ReviewState,
+  UiAnnotationRecord,
+  UiElement,
+} from "./types.js";
 
 function file(path: string, contentHash = "FH") {
   return { path, hunks: [], contentHash, changeKind: "modified" as const };
@@ -590,7 +598,7 @@ test("buildReviewResult reads decisions, so a staged-out accepted hunk still app
   assert.equal(r.accepted[0]!.lineNumber, 4);
 });
 
-test("buildReviewResult excludes questions from requestedChanges, keeps an action on the same line", () => {
+test("buildReviewResult excludes questions from codeChangeRequests, keeps an action on the same line", () => {
   const s = state({
     comments: [
       comment({
@@ -604,8 +612,8 @@ test("buildReviewResult excludes questions from requestedChanges, keeps an actio
     ],
   });
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
-  assert.equal(r.requestedChanges.length, 1);
-  assert.equal(r.requestedChanges[0]!.body, "rename this");
+  assert.equal(r.codeChangeRequests.length, 1);
+  assert.equal(r.codeChangeRequests[0]!.body, "rename this");
 });
 
 test("buildReviewResult.openQuestions lists unanswered questions and drops answered ones", () => {
@@ -1198,4 +1206,264 @@ test("buildReviewState on a clean tree: null by default, an empty state with all
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+// ── UI annotations ──────────────────────────────────────────────────────────────────────────────
+function uiElement(over: Partial<UiElement> = {}): UiElement {
+  return {
+    selector: 'button[data-testid="upload"]',
+    tag: "button",
+    text: "Upload",
+    role: "button",
+    name: "Upload",
+    rect: { x: 10, y: 20, width: 90, height: 32 },
+    ...over,
+  };
+}
+function annotation(over: Partial<UiAnnotationRecord> & { id: string }): UiAnnotationRecord {
+  return {
+    number: 1,
+    intent: "change",
+    status: "open",
+    placement: "placed",
+    page: {
+      url: "http://localhost:3000/app/files?tab=all",
+      route: "/app/files?tab=all",
+      title: "Files",
+      viewport: { width: 1440, height: 900, dpr: 2 },
+    },
+    target: { kind: "element", elements: [uiElement()] },
+    comments: [
+      {
+        id: `${over.id}-m1`,
+        role: "user",
+        intent: "action",
+        body: "Make Upload the primary button",
+        createdAt: "2026-10-13T10:00:00.000Z",
+        updatedAt: "2026-10-13T10:00:00.000Z",
+      },
+    ],
+    ...over,
+  };
+}
+
+test("buildReviewResult sends open UI change requests as uiAnnotations, with the UI target", () => {
+  const replied = annotation({ id: "a2", number: 2 });
+  replied.comments.push({
+    id: "a2-m2",
+    role: "user",
+    intent: "action",
+    body: "and make it blue",
+    createdAt: "2026-10-13T10:05:00.000Z",
+    updatedAt: "2026-10-13T10:05:00.000Z",
+  });
+  const s = state({
+    ui: { target: "http://localhost:3000/sign-in" },
+    annotations: [annotation({ id: "a1" }), replied, annotation({ id: "a3", status: "resolved" })],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.equal(r.uiTarget, "http://localhost:3000/sign-in");
+  assert.deepEqual(
+    r.uiAnnotations.map((a) => a.id),
+    ["a1", "a2"],
+    "the resolved annotation is not sent",
+  );
+  assert.deepEqual(r.uiAnnotations[0], {
+    id: "a1",
+    number: 1,
+    body: "Make Upload the primary button",
+    status: "open",
+    placement: "placed",
+    page: {
+      url: "http://localhost:3000/app/files?tab=all",
+      route: "/app/files?tab=all",
+      title: "Files",
+      viewport: { width: 1440, height: 900, dpr: 2 },
+    },
+    target: { kind: "element", elements: [uiElement()] },
+    thread: [],
+  });
+  assert.deepEqual(r.uiAnnotations[1]!.thread, [
+    { role: "user", body: "and make it blue", at: "2026-10-13T10:05:00.000Z" },
+  ]);
+  assert.ok(!("requestedChanges" in r), "the old field name is gone");
+});
+
+test("buildReviewResult on a UI-only desk sends empty code fields alongside the annotations", () => {
+  const s = state({
+    ui: { target: "http://localhost:3000/" },
+    annotations: [annotation({ id: "a1" })],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(r.codeChangeRequests, []);
+  assert.deepEqual(r.accepted, []);
+  assert.deepEqual(r.rejected, []);
+  assert.deepEqual(r.approvedFiles, []);
+  assert.deepEqual(r.stagedFiles, []);
+  assert.deepEqual(r.openQuestions, []);
+  assert.equal(r.uiAnnotations.length, 1);
+});
+
+test("buildReviewResult without a UI lane sends no uiTarget and an empty uiAnnotations", () => {
+  const r = buildReviewResult(state({}), { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(r.uiAnnotations, []);
+  assert.equal(r.uiTarget, undefined);
+});
+
+test("mergeReviewState carries annotations and their number mark across a reload and a restart", async () => {
+  const saved = state({ annotations: [annotation({ id: "a1" })], lastAnnotationNumber: 4 });
+  const merged = await mergeReviewState(state({ baseDiffHash: "new" }), saved);
+  assert.deepEqual(merged.annotations, [annotation({ id: "a1" })]);
+  assert.equal(merged.lastAnnotationNumber, 4);
+});
+
+// The desk's app, which every saved page.url is rebuilt on.
+const UI = { target: "http://localhost:3000/sign-in?as=reviewer" };
+
+test("mergeReviewerSave stores well-formed annotations as sent", () => {
+  const live = state({ ui: UI });
+  mergeReviewerSave(live, { annotations: [annotation({ id: "a1" })] });
+  assert.deepEqual(live.annotations, [annotation({ id: "a1" })]);
+});
+
+test("mergeReviewerSave truncates oversized page data to the caps", () => {
+  const live = state({ ui: UI });
+  const attrs = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`data-k${i}`, "v"]));
+  mergeReviewerSave(live, {
+    annotations: [
+      annotation({
+        id: "a1",
+        page: {
+          url: `http://localhost:3000/${"u".repeat(3000)}`,
+          route: `/${"r".repeat(3000)}`,
+          title: "T".repeat(400),
+          viewport: { width: 1440, height: 900, dpr: 2 },
+        },
+        target: {
+          kind: "element",
+          elements: [
+            uiElement({
+              text: "x".repeat(1000),
+              name: "n".repeat(500),
+              role: "r".repeat(500),
+              landmark: "l".repeat(500),
+              heading: "h".repeat(500),
+              outline: "<div>".repeat(1000),
+              attrs: { ...attrs, href: "h".repeat(900) },
+            }),
+          ],
+        },
+      }),
+    ],
+  });
+  const a = live.annotations![0]!;
+  const el = a.target.elements[0]!;
+  assert.equal(a.page.url.length, 2048);
+  assert.equal(a.page.route.length, 2048);
+  assert.equal(a.page.title!.length, 300);
+  assert.equal(el.text!.length, 300);
+  assert.ok(el.text!.endsWith("…"), "a cut string says so");
+  assert.equal(el.name!.length, 200);
+  assert.equal(el.role!.length, 200);
+  assert.equal(el.landmark!.length, 200);
+  assert.equal(el.heading!.length, 200);
+  assert.equal(el.outline!.length, 2048);
+  assert.equal(Object.keys(el.attrs!).length, 12);
+  assert.ok(Object.values(el.attrs!).every((v) => v.length <= 200));
+});
+
+test("mergeReviewerSave drops malformed annotations and elements, keeping the rest", () => {
+  const live = state({ ui: UI });
+  const good = annotation({ id: "good" });
+  const element = (over: Record<string, unknown>) => ({ kind: "element", elements: [over] });
+  mergeReviewerSave(live, {
+    annotations: [
+      good,
+      "not an object",
+      { ...annotation({ id: "no-target" }), target: undefined },
+      {
+        ...annotation({ id: "abs-route" }),
+        page: { ...good.page, route: "https://evil.example/" },
+      },
+      {
+        ...annotation({ id: "long-sel" }),
+        target: element(uiElement({ selector: "x".repeat(600) })),
+      },
+      { ...annotation({ id: "bad-rect" }), target: element({ ...uiElement(), rect: { x: "1" } }) },
+      { ...annotation({ id: "bad-tag" }), target: element(uiElement({ tag: "<script>" })) },
+      { ...annotation({ id: "bad-status" }), status: "deleted" },
+      { ...annotation({ id: "no-body" }), comments: [] },
+      { ...annotation({ id: "bad-vp" }), page: { ...good.page, viewport: { width: -1 } } },
+      annotation({ id: 'q"x' }), // ids end up in attributes: word characters only
+      {
+        ...annotation({ id: "odd-message-id" }),
+        comments: [{ ...good.comments[0]!, id: 'm" onclick="x' }],
+      },
+      {
+        ...annotation({ id: "odd-attrs" }),
+        target: element(uiElement({ attrs: { "on click": "x" } })),
+      },
+      annotation({ id: "good" }), // a duplicate id
+      annotation({
+        id: "many",
+        target: { kind: "element", elements: Array.from({ length: 17 }, () => uiElement()) },
+      }),
+    ],
+  });
+  assert.deepEqual(
+    live.annotations!.map((a) => a.id),
+    ["good", "odd-attrs", "many"],
+  );
+  assert.deepEqual(live.annotations![1]!.target.elements[0]!.attrs, {}, "odd attr names dropped");
+  assert.equal(live.annotations![2]!.target.elements.length, 16, "elements capped at 16");
+});
+
+test("mergeReviewerSave ignores an annotations field that isn't an array", () => {
+  const live = state({ annotations: [annotation({ id: "a1" })] });
+  mergeReviewerSave(live, { annotations: "nope" });
+  assert.equal(live.annotations!.length, 1);
+});
+
+test("mergeReviewerSave rebuilds page.url on the UI target's origin and drops a route that leaves it", () => {
+  const live = state({ ui: UI });
+  const page = (route: string, url = `http://localhost:3000${route}`) => ({
+    ...annotation({ id: "x" }).page,
+    route,
+    url,
+  });
+  mergeReviewerSave(live, {
+    annotations: [
+      { ...annotation({ id: "lying-url" }), page: page("/app", "http://evil.example/app") },
+      // The URL parser reads a backslash as a slash: this route is `//evil.example/x`.
+      { ...annotation({ id: "backslash" }), page: page(String.raw`/\evil.example/x`) },
+      { ...annotation({ id: "control" }), page: page("/app\nx") },
+      // A backslash after the path is query data, not a slash.
+      { ...annotation({ id: "query" }), page: page(String.raw`/search?q=a\b`) },
+    ],
+  });
+  assert.deepEqual(
+    live.annotations!.map((a) => [a.id, a.page.url]),
+    [
+      ["lying-url", "http://localhost:3000/app"],
+      ["query", String.raw`http://localhost:3000/search?q=a\b`],
+    ],
+  );
+  const noApp = state({});
+  mergeReviewerSave(noApp, { annotations: [annotation({ id: "a1" })] });
+  assert.deepEqual(noApp.annotations, [], "without a UI target there is no origin to check");
+});
+
+test("mergeReviewerSave never lowers the annotation number mark", () => {
+  const live = state({ ui: UI, lastAnnotationNumber: 5 });
+  // A stale tab posts an older mark: the mark stays.
+  mergeReviewerSave(live, {
+    annotations: [annotation({ id: "a1", number: 2 })],
+    lastAnnotationNumber: 3,
+  });
+  assert.equal(live.lastAnnotationNumber, 5);
+  // A number in use above the mark raises it, whatever the save says.
+  mergeReviewerSave(live, { annotations: [annotation({ id: "a7", number: 7 })] });
+  assert.equal(live.lastAnnotationNumber, 7);
+  mergeReviewerSave(live, { lastAnnotationNumber: "9" });
+  assert.equal(live.lastAnnotationNumber, 7, "a mark that isn't a whole number is ignored");
 });

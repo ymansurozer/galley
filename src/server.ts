@@ -458,6 +458,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           guide: state.guide,
           comments: state.comments,
           ui: state.ui,
+          annotations: state.annotations,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
       }
@@ -890,6 +891,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             );
           }
           state.comments = [];
+          state.annotations = [];
+          state.lastAnnotationNumber = 0;
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
           state.stagedFiles = [];
