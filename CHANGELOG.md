@@ -1,6 +1,28 @@
 # Changelog
 
 
+## v0.7.5
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.7.4...v0.7.5)
+
+### 🚀 Enhancements
+
+- Make the diff tab size configurable ([65b8636](https://github.com/ymansurozer/galley/commit/65b8636))
+- UI review — annotate the running app alongside the diff ([#73](https://github.com/ymansurozer/galley/pull/73))
+
+### 🩹 Fixes
+
+- Drop the open change-request count from the header's Code / UI switch ([#81](https://github.com/ymansurozer/galley/pull/81))
+
+### ✅ Tests
+
+- Make smoke hermetic to GALLEY_HOST in the caller's shell ([#65](https://github.com/ymansurozer/galley/pull/65))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+- Walid Mostefaoui
+
 ## v0.7.4
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.7.3...v0.7.4)
