@@ -167,7 +167,8 @@ The \`result\` field of a review event:
 - stagedFiles[], approvedFiles[]
 - openQuestions[]: questions you never answered, folded into this Send (superseding queued live
   question events), each the same lane-tagged shape as a live question. A question is answered
-  once your reply follows it in its thread. Answer each where it was asked (\`galley comment\`, or
+  once you reply in its thread after it was asked: a reply from before a change request was turned
+  into it doesn't count. Answer each where it was asked (\`galley comment\`, or
   \`galley comment --ui\` for lane "ui"), READ-ONLY as a live question, while acting on the round.
 - artifacts: {resultJson, sessionDir} under ~/.galley/<repoHash>/<session>/ (repoHash =
   sha256(abs repo root)[:16])
