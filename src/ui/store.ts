@@ -101,6 +101,19 @@ export const api = <T = unknown>(path: string, opts: RequestInit = {}): Promise<
   fetch(path, { headers: { "content-type": "application/json" }, ...opts }).then(
     (r) => r.json() as Promise<T>,
   );
+// Open a repo-relative file at a line in the reviewer's editor (the command is a Settings
+// preference). The code lane's open-in-editor and the UI lane's source links both come here.
+export async function openEditorAt(path: string, lineNumber: number) {
+  try {
+    const res = await api<{ ok?: boolean; error?: string }>("/api/open-editor", {
+      method: "POST",
+      body: JSON.stringify({ path, lineNumber }),
+    });
+    toast(res.ok ? "Opened in editor" : res.error || "Could not open editor");
+  } catch {
+    toast("Could not open editor");
+  }
+}
 // Post only the reviewer-owned slice (see reviewerSlice in save.ts) — never the whole
 // (multi-MB) ReviewState. Saves coalesce so rapid approvals don't saturate connections.
 export const saver = createSaver(

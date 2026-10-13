@@ -1,10 +1,11 @@
 import type { UiAnnotationRecord, UiElement } from "./types";
-import { firstLine, pageName, rowTitle, type PageGroup } from "./uilane-derive";
+import { firstLine, pageName, rowTitle, type PageGroup, type SourcePlace } from "./uilane-derive";
 
 // The UI lane's nodes that carry page-sourced text: a page group's head (route, title), a row,
-// and the floating composer's head (the picked element's selector and label). Built with
-// textContent and properties, never innerHTML, so nothing the app page sent can become markup or
-// a handler in the desk. Store-free, so a DOM-only test can build them.
+// the floating composer's head (the picked element's selector and label), and source links (the
+// file and component the page named). Built with textContent and properties, never innerHTML, so
+// nothing the app page sent can become markup or a handler in the desk. Store-free, so a DOM-only
+// test can build them.
 
 function node<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
@@ -65,4 +66,19 @@ export function composerHead(
   close.onclick = cancel;
   head.append(num, target, close);
   return head;
+}
+
+// A source's `file:line`, opening the editor there; plain text when the file isn't in the repo.
+// The tooltip names the component and the full place.
+export function sourceLink(
+  doc: Document,
+  place: SourcePlace,
+  className: string,
+  open: (path: string, line: number) => void,
+): HTMLElement {
+  const { path, line } = place;
+  const el = node(doc, path ? "button" : "span", className, place.label);
+  el.title = place.title;
+  if (path) el.onclick = () => open(path, line);
+  return el;
 }

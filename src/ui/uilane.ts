@@ -1,4 +1,4 @@
-import { S, $, toast, persist } from "./store";
+import { S, $, openEditorAt, toast, persist } from "./store";
 import { buildCommentThread, type ThreadControls } from "./annotations";
 import {
   buildComposer,
@@ -10,15 +10,17 @@ import {
 } from "./composer";
 import { appGo, fromAppViewport, postToApp } from "./appview";
 import {
+  annotationSource,
   marksFor,
   nextNumber,
   openChangeCount,
   pageGroups,
   placeComposer,
+  sourcePlace,
   stepFrom,
   stepOrder,
 } from "./uilane-derive";
-import { composerHead, pageHead, rowLine } from "./uilane-dom";
+import { composerHead, pageHead, rowLine, sourceLink } from "./uilane-dom";
 import { uuid } from "./uuid";
 import type { AnnotationDraft, AppMode, Rect, UiAnnotationRecord, UiPage, UiTarget } from "./types";
 
@@ -299,10 +301,19 @@ function row(a: UiAnnotationRecord): HTMLElement {
   if (!selected) return line;
   const item = document.createElement("div");
   item.className = "ann-item";
+  item.append(line);
+  // One muted line of context: where the element came from.
+  const source = annotationSource(a.target);
+  if (source) {
+    const ctx = document.createElement("div");
+    ctx.className = "ann-ctx";
+    ctx.append(sourceLink(document, sourcePlace(source, S.state.root), "ann-src", openEditorAt));
+    item.append(ctx);
+  }
   const thread = document.createElement("div");
   thread.className = `annotation md-thread${a.status === "resolved" ? " resolved" : ""}`;
   thread.append(buildCommentThread(a, threadControls(a)));
-  item.append(line, thread);
+  item.append(thread);
   return item;
 }
 
@@ -316,10 +327,21 @@ function renderFloatingComposer() {
   }
   const el = draft.target.elements[0]!; // a pick always carries its element (readBridgeMessage)
   const head = composerHead(document, el, upcomingNumber(), () => closeComposer());
+  const parts: HTMLElement[] = [head];
+  // The source chip, when the bridge resolved one.
+  const source = annotationSource(draft.target);
+  if (source) {
+    const chips = document.createElement("div");
+    chips.className = "uc-src";
+    const chip = sourceLink(document, sourcePlace(source, S.state.root), "src-chip", openEditorAt);
+    chip.insertAdjacentHTML("afterbegin", '<svg class="ic"><use href="#gly-code"></use></svg>');
+    chips.append(chip);
+    parts.push(chips);
+  }
   const card = document.createElement("div");
   card.className = "annotation";
   card.append(buildComposer({ ask: false }));
-  host.replaceChildren(head, card);
+  host.replaceChildren(...parts, card);
   host.classList.add("show");
   placeFloatingComposer();
 }
