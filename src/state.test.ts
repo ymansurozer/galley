@@ -1402,6 +1402,30 @@ test("buildReviewResult gives an annotation's stored screenshots as absolute pat
   }
 });
 
+test("buildReviewResult leaves out screenshots whose files are gone from disk", async () => {
+  const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "galley-shots-"));
+  try {
+    const dir = path.join(sessionDir, "ui-shots");
+    await fs.mkdir(dir);
+    // a1 lost its viewport image; a2 lost both (ui-shots/ emptied by hand). Both are still marked.
+    await fs.writeFile(path.join(dir, "a1-crop.png"), "png");
+    const s = state({
+      ui: UI,
+      annotations: [
+        annotation({ id: "a1", screenshots: true }),
+        annotation({ id: "a2", screenshots: true }),
+      ],
+    });
+    const r = buildReviewResult(s, { resultJson: path.join(sessionDir, "r.json"), sessionDir });
+    assert.deepEqual(
+      r.uiAnnotations.map((a) => "screenshots" in a),
+      [false, false],
+    );
+  } finally {
+    await fs.rm(sessionDir, { recursive: true, force: true });
+  }
+});
+
 test("mergeReviewerSave keeps the server's screenshot mark by id and never takes the tab's", () => {
   const live = state({
     ui: UI,

@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+
 import type {
   Rect,
   ThreadMessage,
@@ -208,6 +210,16 @@ function repoRelative(file: string, root: string) {
 const withRepoSource = (el: UiElement, root: string): UiElement =>
   el.source ? { ...el, source: { ...el.source, file: repoRelative(el.source.file, root) } } : el;
 
+// An annotation's screenshots as the agent gets them: both paths, only when the annotation is
+// marked as having them and both files are still on disk (the mark can outlive files deleted by
+// hand), so the agent is never handed a path to nothing.
+function screenshotsOf(a: UiAnnotationRecord, shots: string): UiAnnotation["screenshots"] {
+  if (!a.screenshots) return undefined;
+  const crop = shotFile(shots, a.id, "crop");
+  const viewport = shotFile(shots, a.id, "viewport");
+  return existsSync(crop) && existsSync(viewport) ? { crop, viewport, exact: false } : undefined;
+}
+
 // What the agent receives: every open change request, its opening message as the body and the
 // rest as the thread, source files repo-relative, and its screenshots' paths in `shots` (the
 // session's ui-shots/) when both are stored. Resolved annotations are the reviewer's "done" and
@@ -221,6 +233,7 @@ export function uiAnnotationsForAgent(
     .filter((a) => a.status === "open" && a.intent === "change")
     .map((a) => {
       const [opener, ...replies] = a.comments;
+      const screenshots = screenshotsOf(a, shots);
       return {
         id: a.id,
         number: a.number,
@@ -229,13 +242,7 @@ export function uiAnnotationsForAgent(
         placement: a.placement,
         page: a.page,
         target: { ...a.target, elements: a.target.elements.map((el) => withRepoSource(el, root)) },
-        ...(a.screenshots && {
-          screenshots: {
-            crop: shotFile(shots, a.id, "crop"),
-            viewport: shotFile(shots, a.id, "viewport"),
-            exact: false,
-          },
-        }),
+        ...(screenshots && { screenshots }),
         thread: replies.map((m) => ({
           role: m.role === "agent" ? ("agent" as const) : ("user" as const),
           body: m.body,

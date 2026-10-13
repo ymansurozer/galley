@@ -438,7 +438,8 @@ export type UiAnnotation = {
   page: UiPage;
   target: UiTarget;
   // Absolute paths to the PNGs, with the annotation's mark drawn on. `exact` is false: the bridge
-  // re-renders the DOM rather than reading the screen's pixels. Absent when capture failed.
+  // re-renders the DOM rather than reading the screen's pixels. Absent when capture failed, or when
+  // either file is no longer on disk at Send.
   screenshots?: { crop: string; viewport: string; exact: boolean };
   thread: Array<{ role: "user" | "agent"; body: string; at: string }>;
 };

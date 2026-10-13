@@ -99,7 +99,8 @@ The \`result\` field of a review event:
     with some context around it, viewport the whole visible page; both have the annotation's mark
     drawn on (its numbered pin and a box around the target). Read the PNGs: they show what the
     human means. exact:false — they are a re-render of the page's DOM, not the screen's pixels, so
-    canvas, video and some CSS can differ. Absent when the capture failed.
+    canvas, video and some CSS can differ. Absent when the capture failed; when present, both
+    files exist.
   - page: {url (on the dev server), route (path+query), title?, viewport: {width, height, dpr}}
   - target: {kind:"element", elements:[{selector, tag, text?, role?, name?, attrs?, landmark?,
     heading?, outline?, rect, source?}]} — selector matched exactly that element when captured;
