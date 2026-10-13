@@ -69,11 +69,31 @@ function sidebarTree(ix: FlowIndex) {
 }
 
 // state.files indices in the Files tab's top-to-bottom order with every folder open — the
-// folders, then the Skimmed group — which review order follows when there's no guide.
-export function treeOrder(ix: FlowIndex): number[] {
+// folders, then the Skimmed group — which review order follows when there's no guide. It is the
+// order of what the tree SHOWS: with unchanged files shown, a changed test whose unchanged source
+// file is listed folds beneath it, and "next" follows it there — that is the row below.
+//
+// Memoized: the nav buttons' bindings, the seeks, and the next-file prefetch all read it, and a
+// rebuild sorts every listed path (the whole project listing with unchanged files shown). The
+// key reads each input the order depends on, so an Alpine effect that hits the memo still tracks
+// them and re-runs when one changes. state.files and projectFiles are replaced wholesale (never
+// mutated in place), so identity stands in for their contents; stagedFiles is left out — it only
+// flags a test's parent changed, which never reorders the reviewed files.
+let orderMemo: { key: unknown[]; order: readonly number[] } | null = null;
+export function treeOrder(ix: FlowIndex): readonly number[] {
   if (!S.state) return []; // the nav-button bindings evaluate before the initial fetch
+  const key = [
+    S.state.files,
+    S.settings.showUnchanged,
+    S.projectFiles,
+    [...ix.outOfFlow].join("\n"),
+  ];
+  const memo = orderMemo;
+  if (memo && key.every((k, i) => k === memo.key[i])) return memo.order;
   const { root, changed, skimmed } = sidebarTree(ix);
-  return treeFileOrder(root).concat(skimmed.flatMap((p) => changed.get(p) ?? []));
+  const order = treeFileOrder(root).concat(skimmed.flatMap((p) => changed.get(p) ?? []));
+  orderMemo = { key, order };
+  return order;
 }
 
 // Pure data: the flat, ordered list of tree rows the template renders with x-for.
@@ -217,7 +237,8 @@ export function applyLayoutClasses() {
 
 // The file the sidebar last followed. Following runs only when the active file changes, not on
 // every render()'s re-apply — so a decision or a reload never re-opens a folder the reviewer
-// collapsed, or scrolls back a sidebar they scrolled away.
+// collapsed, or scrolls back a sidebar they scrolled away. (A tab switch re-scrolls without
+// re-revealing — see showActiveRow.)
 let followed: string | null = null;
 
 // The sidebar's "active" highlight, patched in place instead of derived in the row models.
@@ -245,18 +266,24 @@ export function applyActiveRow() {
   if (path) followActiveRow(path);
 }
 
-// Bring the active row into view: open the collapsed folders above it, then — once Alpine's flush
-// has rendered the rows that opened — scroll the visible list (Files or Walkthrough; the other is
-// display:none) just enough to show it, "nearest"-style, so a row already in view never moves.
-// Only a reviewed in-flow file can be hidden: all its folders are changed ones (open unless in
+// Bring the active row into view: open the collapsed folders above it, then scroll to it. Only a
+// reviewed in-flow file can be hidden: all its folders are changed ones (open unless in
 // collapsedDirs) and, as a changed test, it holds its parent's test fold open. A preview only
 // ever opens from its visible row, and an out-of-flow file sits in the Skimmed group instead.
-// The list's own scrollTop, not scrollIntoView, which would also scroll the off-canvas drawer.
 function followActiveRow(path: string) {
   if (!S.preview && !flowIndex().outOfFlow.has(path)) {
     const parts = path.split("/").filter(Boolean);
     for (let i = 1; i < parts.length; i++) S.collapsedDirs.delete(parts.slice(0, i).join("/"));
   }
+  showActiveRow();
+}
+
+// Scroll the visible sidebar list (Files or Walkthrough; the other is display:none) just enough
+// to show the active row, "nearest"-style, so a row already in view never moves. An rAF later,
+// once Alpine's flush has rendered the rows a reveal just opened. main.ts setSidebarTab calls it
+// too: a follow made while that list was hidden couldn't scroll it.
+// The list's own scrollTop, not scrollIntoView, which would also scroll the off-canvas drawer.
+export function showActiveRow() {
   requestAnimationFrame(() => {
     applyActiveRow(); // rows the reveal just rendered carry the class too
     const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;

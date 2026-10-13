@@ -338,6 +338,7 @@ export interface Store {
   treeAnyOpen?: () => boolean;
   toggleTestDir?: (key: string) => void;
   toggleSkimGroup?: () => void;
+  setSidebarTab?: (tab: Store["sidebarTab"]) => void;
   rowClick?: (r: TreeRow) => void;
   setStyle?: (style: DiffStyle) => void;
   setFileView?: (view: "rendered" | "source") => void;

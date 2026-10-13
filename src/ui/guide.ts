@@ -52,7 +52,7 @@ function outOfBand(cur: number, ix: FlowIndex): (i: number) => boolean {
 // The order plain stepping walks from `cur`: guide order when guided and `cur` is in it, the file
 // array for a file the guide didn't list, and without a guide the Files tree's top-to-bottom
 // order — so "next" is the row below.
-function stepOrder(cur: number, ix: FlowIndex): number[] {
+function stepOrder(cur: number, ix: FlowIndex): readonly number[] {
   if (!hasGuide()) return treeOrder(ix);
   const order = guideOrder();
   return order.includes(cur) ? order : Array.from(S.state.files, (_, i) => i);

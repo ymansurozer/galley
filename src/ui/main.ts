@@ -10,7 +10,7 @@ import {
 } from "./changes";
 import { approveCurrentFile } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
-import { applyActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
+import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
 import { render, deferRender } from "./render";
 import { cur, prefetchContents } from "./contents";
@@ -32,6 +32,7 @@ import {
   nextWrapIndex,
   prevWrapIndex,
   anyUnreviewed,
+  navOrder,
   walkthroughRows,
 } from "./guide";
 import { setBaseTitle, reviewStats } from "./progress";
@@ -204,6 +205,14 @@ S.toggleTestDir = (key) => {
   else S.expandedDirs.add(key);
 };
 S.toggleSkimGroup = toggleSkimGroup;
+// Tree / Walkthrough tab (the tab buttons and `w`): the list it shows may not have been visible
+// when the active file last changed, so scroll it to the active row. A frame late: x-show reveals
+// on a timer queued in Alpine's flush, which the next frame can beat — the list must be laid out
+// before showActiveRow measures it.
+S.setSidebarTab = (tab) => {
+  S.sidebarTab = tab;
+  requestAnimationFrame(showActiveRow);
+};
 S.rowClick = (r) => {
   if (r.kind === "skimgrp") S.toggleSkimGroup?.();
   else if (r.kind === "dir") S.toggleDir?.(r.full, r.changed);
@@ -582,6 +591,10 @@ S.selected = {
   side: S.state.changes[0]?.side || "additions",
   lineNumber: S.state.changes[0]?.lineNumber || 1,
 };
+// Without a guide, open on the first file in review order — the Files tree's top row — not the
+// first in the diff's own order, which can sit near the tree's bottom and make the first approve
+// wrap to the top. (A guided desk opens on the Overview; a reload keeps the reviewer's file.)
+if (!hasGuide()) S.fileIndex = navOrder()[0] ?? 0;
 if (S.state.files[S.fileIndex]) S.fileView = defaultFileView(S.state.files[S.fileIndex]);
 // With a guide attached, land on the Overview page (the guided entry point) and open the
 // sidebar on the user's preferred pane (`w` toggles it per-session from there).

@@ -11,7 +11,7 @@
 // the exclusion; guide.ts's navOrder is the thin store-reading wrapper.
 export function navFileOrder(
   fileCount: number,
-  listed: number[],
+  listed: readonly number[],
   inFlow: (i: number) => boolean,
 ): number[] {
   const seen = new Set(listed);

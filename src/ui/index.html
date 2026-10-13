@@ -4281,8 +4281,8 @@
       <aside class="tree" :class="{'drawer-open': $store.g.treeDrawerOpen}">
         <div class="tree-tabs" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak>
           <!-- The w hint sits on the INACTIVE tab — the one pressing w switches to. -->
-          <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.sidebarTab='tree'">Tree <kbd x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
-          <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.sidebarTab='walkthrough'">Walkthrough <kbd x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
+          <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.setSidebarTab('tree')">Tree <kbd x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
+          <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.setSidebarTab('walkthrough')">Walkthrough <kbd x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
         </div>
         <div class="label tree-title" x-show="!($store.g.hasGuide && $store.g.hasGuide()) || $store.g.sidebarTab==='tree'"><span>Files</span>
           <button class="tree-toggle" @click="$store.g.toggleAllDirs()"
