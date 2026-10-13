@@ -1,4 +1,4 @@
-import type { Rect, UiAnnotationRecord, UiMark } from "./types";
+import type { Rect, UiAnnotationRecord, UiMark, UiSource, UiTarget } from "./types";
 
 // Pure derivations for the UI lane's sidebar, pins and composer (store-free, so they unit-test —
 // see skim-derive.ts for the pattern). uilane.ts is the store-reading side.
@@ -55,6 +55,42 @@ export function rowTitle(a: UiAnnotationRecord): string {
     .filter(Boolean)
     .join(" · ");
 }
+
+// The source an annotation shows: its first element's that has one.
+export const annotationSource = (target: UiTarget): UiSource | undefined =>
+  target.elements.find((el) => el.source)?.source;
+
+// A source as the desk shows it: a label (the last two path segments and the line), what the editor
+// opens (the repo-relative path and line; no path when the file isn't in the repo `root`), and a
+// tooltip with the component, the full place, and whether a library rendered the element. Paths
+// are compared whichever OS wrote them: forward slashes, an upper-case drive letter, and a
+// drive-letter path counted as absolute.
+export function sourcePlace(source: UiSource, root: string) {
+  const slashed = (p: string) =>
+    p.replace(/\\/g, "/").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
+  const base = slashed(root).replace(/\/+$/, "");
+  const { line, column, component, vendor } = source;
+  const file = slashed(source.file);
+  const path = file.startsWith(`${base}/`)
+    ? file.slice(base.length + 1)
+    : /^([A-Z]:|\/|\.\.\/)/.test(file)
+      ? null
+      : file;
+  const at = line ? `:${line}` : "";
+  return {
+    label: file.split("/").slice(-2).join("/") + at,
+    path,
+    line: line ?? 1,
+    title: [
+      component,
+      `${path ?? file}${at}${line && column ? `:${column}` : ""}`,
+      vendor ? "A library component renders it; this is where the app uses it" : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+export type SourcePlace = ReturnType<typeof sourcePlace>;
 
 // The rows ⇧↓/⇧↑ walk: every page's open rows, plus the resolved rows of pages showing them, in
 // the order the sidebar lists them.

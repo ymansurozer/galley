@@ -263,16 +263,6 @@ async function openUrl(url: string) {
   await execFileAsync(command, args).catch(() => undefined);
 }
 
-// Repo-relative path → absolute, or null if it is absolute or escapes the repo.
-// /api/open-editor hands this to a local process, so the boundary must be strict.
-function repoPath(root: string, rel: string) {
-  if (path.isAbsolute(rel)) return null;
-  const resolvedRoot = path.resolve(root);
-  const abs = path.resolve(resolvedRoot, rel);
-  if (abs !== resolvedRoot && !abs.startsWith(resolvedRoot + path.sep)) return null;
-  return abs;
-}
-
 // Resolve a repo-relative path to an absolute one that provably stays inside the repo
 // AFTER symlinks are followed. The plain startsWith check runs on the UNRESOLVED path,
 // so an in-repo symlink pointing outside the repo passes it and readFile then follows
@@ -544,11 +534,32 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         }
       }
       if (req.method === "POST" && url.pathname === "/api/open-editor") {
-        const body = JSON.parse(await readBody(req)) as { path?: string; lineNumber?: number };
-        const rel = body.path ?? "";
-        const abs = repoPath(state.root, rel);
-        if (!rel || !abs)
+        const body = JSON.parse(await readBody(req)) as { path?: unknown; lineNumber?: number };
+        // The path can come from the app page (a UI annotation's source), and it is handed to a
+        // local process: it must be repo-relative and name a file that exists inside the repo
+        // once symlinks are followed.
+        const rel = typeof body.path === "string" ? body.path : "";
+        const resolved =
+          rel && !path.isAbsolute(rel)
+            ? await resolveContained(state.root, rel)
+            : { error: "escape" as const };
+        if ("error" in resolved && resolved.error === "escape")
           return fail(res, 400, "BAD_PATH", "Path escapes the repo.", "Use a repo-relative path.");
+        const abs = "abs" in resolved ? resolved.abs : null;
+        const isFile =
+          !!abs &&
+          (await fs.stat(abs).then(
+            (s) => s.isFile(),
+            () => false,
+          ));
+        if (!abs || !isFile)
+          return fail(
+            res,
+            404,
+            "NOT_FOUND",
+            `"${rel}" is not a file in the repo.`,
+            "Open a file that exists in the working tree.",
+          );
         // The editor command is a reviewer/machine preference, so it lives in the global
         // ~/.galley/settings.json with the rest of them (deliberately not per-repo).
         const prefs = (await readGlobalSettings()) as { settings?: { editorCommand?: unknown } };
@@ -561,6 +572,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          if (message.includes("File path"))
+            return fail(res, 400, "BAD_PATH", message, "Open the file from your editor instead.");
           const code = message.includes("not allowed")
             ? "EDITOR_NOT_ALLOWED"
             : "BAD_EDITOR_COMMAND";

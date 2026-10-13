@@ -3705,6 +3705,43 @@
       margin: 0 6px
     }
 
+    /* The expanded row's one muted line of context, its parts text links. */
+    .ann-ctx {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      min-width: 0;
+      margin-top: -3px;
+      padding: 0 14px 8px var(--ann-ax);
+      font-size: var(--text-xs);
+      line-height: 16px;
+      color: var(--ghost)
+    }
+
+    .ann-src {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: var(--text-2xs);
+      text-underline-offset: 2px
+    }
+
+    button.ann-src {
+      cursor: pointer
+    }
+
+    button.ann-src:hover {
+      color: var(--ink);
+      text-decoration: underline;
+      text-decoration-color: var(--line-strong)
+    }
+
     /* The floating composer: beside the picked element, its card the code lane's composer. */
     .ucomposer {
       position: fixed;
@@ -3773,6 +3810,46 @@
 
     .uc-close:hover {
       color: var(--ink)
+    }
+
+    .uc-src {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 0 2px 8px
+    }
+
+    .src-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 100%;
+      height: 20px;
+      padding: 0 7px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: var(--text-2xs);
+      white-space: nowrap;
+      overflow: hidden
+    }
+
+    button.src-chip {
+      cursor: pointer
+    }
+
+    button.src-chip:hover {
+      color: var(--ink);
+      border-color: var(--line-strong)
+    }
+
+    .src-chip .ic {
+      flex: 0 0 auto;
+      width: 12px;
+      height: 12px;
+      color: var(--cyan-fg)
     }
 
     /* The Send dialog's receipt, split by lane. */

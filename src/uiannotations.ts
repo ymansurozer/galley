@@ -6,6 +6,7 @@ import type {
   UiCaps,
   UiElement,
   UiPage,
+  UiSource,
 } from "./types.js";
 
 // The UI lane's annotations at the trust boundary. An annotation's page and target came from the
@@ -14,6 +15,7 @@ import type {
 // caps on the bridge's messages; this copy is the one that guards the stored review.
 const CAPS: UiCaps = {
   selector: 512,
+  file: 1024,
   text: 300,
   name: 200,
   outline: 2048,
@@ -55,6 +57,25 @@ function readRect(v: unknown): Rect | null {
   return { x, y, width, height };
 }
 
+// The source the page says rendered an element. Malformed, or a path over its cap (cut short, it
+// would name another file), and the element stands without one.
+function readSource(v: unknown): UiSource | undefined {
+  if (!isObj(v) || !nonEmpty(v.file) || v.file.length > CAPS.file) return undefined;
+  if ([...v.file].some((c) => c < " " || c === "\x7f")) return undefined;
+  if (v.via !== "vue-tracer" && v.via !== "vue-file") return undefined;
+  const source: UiSource = { file: v.file, via: v.via };
+  for (const key of ["line", "column"] as const) {
+    const n = v[key];
+    if (n === undefined) continue;
+    if (!Number.isSafeInteger(n) || (n as number) < 1) return undefined;
+    source[key] = n as number;
+  }
+  const component = capped(v.component, CAPS.name);
+  if (component) source.component = component;
+  if (v.vendor === true) source.vendor = true;
+  return source;
+}
+
 function readElement(v: unknown): UiElement | null {
   if (!isObj(v)) return null;
   const { selector, tag } = v;
@@ -79,6 +100,8 @@ function readElement(v: unknown): UiElement | null {
         .slice(0, CAPS.attrs)
         .map(([k, s]) => [k, cap(s, CAPS.attr)]),
     );
+  const source = readSource(v.source);
+  if (source) el.source = source;
   return el;
 }
 
@@ -167,9 +190,27 @@ export function readUiAnnotations(
   return out;
 }
 
+// Paths compared as strings, whichever OS wrote them (the dev server's or the desk's): forward
+// slashes, an upper-case drive letter, and a drive-letter path counted as absolute.
+const slashed = (p: string) =>
+  p.replace(/\\/g, "/").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
+const isAbsolutePath = (p: string) => p.startsWith("/") || /^[A-Za-z]:/.test(p);
+
+// A source file the agent can open from the repo: inside the repo `root`, repo-relative. A path
+// outside it, or one already relative, goes as it came.
+function repoRelative(file: string, root: string) {
+  const f = slashed(file);
+  const base = slashed(root).replace(/\/+$/, "");
+  return isAbsolutePath(f) && f.startsWith(`${base}/`) ? f.slice(base.length + 1) : file;
+}
+
+const withRepoSource = (el: UiElement, root: string): UiElement =>
+  el.source ? { ...el, source: { ...el.source, file: repoRelative(el.source.file, root) } } : el;
+
 // What the agent receives: every open change request, its opening message as the body and the
-// rest as the thread. Resolved annotations are the reviewer's "done" and are not sent.
-export function uiAnnotationsForAgent(records: UiAnnotationRecord[]): UiAnnotation[] {
+// rest as the thread, source files repo-relative. Resolved annotations are the reviewer's "done"
+// and are not sent.
+export function uiAnnotationsForAgent(records: UiAnnotationRecord[], root: string): UiAnnotation[] {
   return records
     .filter((a) => a.status === "open" && a.intent === "change")
     .map((a) => {
@@ -181,7 +222,7 @@ export function uiAnnotationsForAgent(records: UiAnnotationRecord[]): UiAnnotati
         status: a.status,
         placement: a.placement,
         page: a.page,
-        target: a.target,
+        target: { ...a.target, elements: a.target.elements.map((el) => withRepoSource(el, root)) },
         thread: replies.map((m) => ({
           role: m.role === "agent" ? ("agent" as const) : ("user" as const),
           body: m.body,

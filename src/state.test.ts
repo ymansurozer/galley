@@ -1289,6 +1289,76 @@ test("buildReviewResult sends open UI change requests as uiAnnotations, with the
   assert.ok(!("requestedChanges" in r), "the old field name is gone");
 });
 
+test("buildReviewResult makes source files inside the repo repo-relative and leaves others alone", () => {
+  const sourced = (file: string) =>
+    uiElement({ source: { file, line: 20, column: 7, component: "files", via: "vue-tracer" } });
+  const s = state({
+    root: "/home/dev/shop",
+    ui: { target: "http://localhost:3000/" },
+    annotations: [
+      annotation({
+        id: "a1",
+        target: {
+          kind: "element",
+          elements: [
+            sourced("/home/dev/shop/apps/web/app/pages/files.vue"),
+            sourced("/home/dev/other/Panel.vue"),
+            sourced("/home/dev/shop-old/Panel.vue"),
+            sourced("app/pages/files.vue"),
+            uiElement(),
+          ],
+        },
+      }),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.uiAnnotations[0]!.target.elements.map((el) => el.source?.file),
+    [
+      "apps/web/app/pages/files.vue",
+      "/home/dev/other/Panel.vue",
+      "/home/dev/shop-old/Panel.vue",
+      "app/pages/files.vue",
+      undefined,
+    ],
+  );
+  assert.deepEqual(r.uiAnnotations[0]!.target.elements[0]!.source, {
+    file: "apps/web/app/pages/files.vue",
+    line: 20,
+    column: 7,
+    component: "files",
+    via: "vue-tracer",
+  });
+  assert.equal(
+    s.annotations![0]!.target.elements[0]!.source!.file,
+    "/home/dev/shop/apps/web/app/pages/files.vue",
+    "the stored annotation keeps the path the page gave",
+  );
+});
+
+test("buildReviewResult makes Windows source paths repo-relative under a Windows root", () => {
+  const sourced = (file: string) => uiElement({ source: { file, via: "vue-file" } });
+  const files = [
+    "C:/proj/src/a.vue",
+    String.raw`C:\proj\src\a.vue`,
+    "c:/proj/src/a.vue",
+    "D:/proj/src/a.vue",
+    String.raw`C:\proj-old\a.vue`,
+  ];
+  const s = state({
+    root: String.raw`C:\proj`,
+    ui: { target: "http://localhost:3000/" },
+    annotations: [
+      annotation({ id: "a1", target: { kind: "element", elements: files.map(sourced) } }),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.uiAnnotations[0]!.target.elements.map((el) => el.source?.file),
+    ["src/a.vue", "src/a.vue", "src/a.vue", "D:/proj/src/a.vue", String.raw`C:\proj-old\a.vue`],
+  );
+});
+
 test("buildReviewResult on a UI-only desk sends empty code fields alongside the annotations", () => {
   const s = state({
     ui: { target: "http://localhost:3000/" },
@@ -1416,6 +1486,38 @@ test("mergeReviewerSave drops malformed annotations and elements, keeping the re
   );
   assert.deepEqual(live.annotations![1]!.target.elements[0]!.attrs, {}, "odd attr names dropped");
   assert.equal(live.annotations![2]!.target.elements.length, 16, "elements capped at 16");
+});
+
+test("mergeReviewerSave keeps an element's source within the caps and drops a malformed one", () => {
+  const live = state({ ui: UI });
+  const source = {
+    file: "/home/dev/shop/apps/web/app/pages/files.vue",
+    line: 20,
+    column: 7,
+    component: "files",
+    vendor: true,
+    via: "vue-tracer",
+  } as const;
+  const withSource = (id: string, s: unknown) =>
+    annotation({
+      id,
+      target: { kind: "element", elements: [{ ...uiElement(), source: s } as UiElement] },
+    });
+  mergeReviewerSave(live, {
+    annotations: [
+      withSource("ok", source),
+      withSource("long-name", { ...source, component: "c".repeat(500) }),
+      withSource("long-file", { ...source, file: "f".repeat(1025) }),
+      withSource("bad-via", { ...source, via: "guess" }),
+      withSource("bad-line", { ...source, line: -1 }),
+      withSource("control", { ...source, file: "a.vue\u0000" }),
+    ],
+  });
+  const sources = live.annotations!.map((a) => a.target.elements[0]!.source);
+  assert.deepEqual(sources[0], source);
+  assert.equal(sources[1]!.component!.length, 200);
+  assert.deepEqual(sources.slice(2), [undefined, undefined, undefined, undefined]);
+  assert.equal(live.annotations!.length, 6, "a bad source drops only the source");
 });
 
 test("mergeReviewerSave ignores an annotations field that isn't an array", () => {

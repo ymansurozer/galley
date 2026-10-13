@@ -1287,7 +1287,7 @@ export function buildReviewResult(
     codeChangeRequests: state.comments
       .filter((c) => c.status === "open" && c.role !== "agent" && c.intent !== "question")
       .map((c) => ({ path: c.path, lineNumber: c.lineNumber, side: c.side, body: c.body })),
-    uiAnnotations: uiAnnotationsForAgent(state.annotations ?? []),
+    uiAnnotations: uiAnnotationsForAgent(state.annotations ?? [], state.root),
     uiTarget: state.ui?.target,
     overallNote: note || undefined,
     stagedFiles: state.stagedFiles,

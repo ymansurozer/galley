@@ -1,14 +1,17 @@
-import type { UiCaps, UiElement } from "../types";
+import type { UiCaps, UiElement, UiSource } from "../types";
 import { selectorFor } from "./selector";
+import { resolveSource } from "./source";
 
 // What the agent gets to find the code behind a picked element: a proven selector plus a
 // describe-only context (tag, text, role and accessible name, allowlisted attributes, where it sits,
-// a short HTML outline, its box). Read from the live DOM and never written to it. Pure over the
-// element's document, so it runs under happy-dom in tests.
+// a short HTML outline, its box), and the source file that rendered it when the app's framework can
+// tell (source.ts). Read from the live DOM and never written to it. Pure over the element's
+// document, so it runs under happy-dom in tests.
 
 // The bridge's copy of the caps. The desk checks them again; UiCaps keeps the copies equal.
 const CAPS: UiCaps = {
   selector: 512,
+  file: 1024,
   text: 300,
   name: 200,
   outline: 2048,
@@ -243,6 +246,15 @@ function attrsOf(el: Element): Record<string, string> | undefined {
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
+// The source that rendered it, within the caps. A file over its cap is dropped rather than cut:
+// cut short, it names another file.
+function sourceOf(el: Element): UiSource | undefined {
+  const source = resolveSource(el);
+  if (!source || source.file.length > CAPS.file) return undefined;
+  if (source.component) source.component = cap(source.component, CAPS.name);
+  return source;
+}
+
 // Everything the agent gets about one element. Optional fields are left out when empty.
 export function describeElement(el: Element): UiElement {
   const r = el.getBoundingClientRect();
@@ -269,6 +281,8 @@ export function describeElement(el: Element): UiElement {
   const heading = headingOf(el);
   if (heading) out.heading = heading;
   out.outline = outlineOf(el);
+  const source = sourceOf(el);
+  if (source) out.source = source;
   return out;
 }
 

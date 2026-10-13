@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { UiAnnotationRecord } from "./types";
 import {
+  annotationSource,
   firstLine,
   marksFor,
   nextNumber,
@@ -10,6 +11,7 @@ import {
   pageName,
   placeComposer,
   rowTitle,
+  sourcePlace,
   stepFrom,
   stepOrder,
 } from "./uilane-derive.js";
@@ -160,4 +162,59 @@ test("the composer sits right of its target, else left, else below or above, ins
     left: 162,
     top: 532,
   });
+});
+
+test("a source shows its last two path segments and line, and opens repo-relative", () => {
+  const root = "/home/dev/shop";
+  const file = `${root}/apps/web/app/components/Files/Toolbar.vue`;
+  assert.deepEqual(
+    sourcePlace(
+      { file, line: 41, column: 7, component: "Toolbar", vendor: true, via: "vue-tracer" },
+      `${root}/`,
+    ),
+    {
+      label: "Files/Toolbar.vue:41",
+      path: "apps/web/app/components/Files/Toolbar.vue",
+      line: 41,
+      title:
+        "Toolbar\napps/web/app/components/Files/Toolbar.vue:41:7\nA library component renders it; this is where the app uses it",
+    },
+  );
+  assert.deepEqual(sourcePlace({ file, component: "Toolbar", via: "vue-file" }, root), {
+    label: "Files/Toolbar.vue",
+    path: "apps/web/app/components/Files/Toolbar.vue",
+    line: 1,
+    title: "Toolbar\napps/web/app/components/Files/Toolbar.vue",
+  });
+  // Outside the repo (or climbing out of it) there's nothing the editor route will open.
+  for (const outside of ["/home/dev/shop-old/X.vue", "/opt/X.vue", "../X.vue"])
+    assert.equal(sourcePlace({ file: outside, via: "vue-file" }, root).path, null, outside);
+  assert.equal(sourcePlace({ file: "app/X.vue", via: "vue-file" }, root).path, "app/X.vue");
+});
+
+test("a Windows source path opens repo-relative under a Windows root, and is never relative", () => {
+  for (const file of ["C:/proj/src/a.vue", String.raw`C:\proj\src\a.vue`, "c:/proj/src/a.vue"]) {
+    const place = sourcePlace({ file, line: 2, via: "vue-tracer" }, String.raw`C:\proj`);
+    assert.equal(place.path, "src/a.vue", file);
+    assert.equal(place.label, "src/a.vue:2", file);
+  }
+  for (const file of ["D:/proj/src/a.vue", String.raw`C:\other\a.vue`, "C:/proj-old/a.vue"])
+    assert.equal(sourcePlace({ file, via: "vue-file" }, "C:/proj").path, null, file);
+  assert.equal(
+    sourcePlace({ file: String.raw`src\a.vue`, via: "vue-file" }, "C:/proj").path,
+    "src/a.vue",
+  );
+  assert.equal(sourcePlace({ file: String.raw`..\a.vue`, via: "vue-file" }, "C:/proj").path, null);
+});
+
+test("an annotation's source is its first element's that has one", () => {
+  const src = { file: "/r/a.vue", line: 3, via: "vue-tracer" as const };
+  const el = (source?: typeof src) => ({
+    selector: "b",
+    tag: "b",
+    rect: { x: 0, y: 0, width: 1, height: 1 },
+    ...(source ? { source } : {}),
+  });
+  assert.equal(annotationSource({ kind: "element", elements: [el()] }), undefined);
+  assert.deepEqual(annotationSource({ kind: "element", elements: [el(), el(src)] }), src);
 });

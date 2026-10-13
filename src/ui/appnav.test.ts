@@ -183,6 +183,42 @@ test("readBridgeMessage drops a malformed pick", () => {
   for (const msg of bad) assert.equal(readBridgeMessage(msg, TOKEN), null, JSON.stringify(msg));
 });
 
+test("readBridgeMessage keeps a picked element's source, capped, and drops a malformed one", () => {
+  const source = (over: Record<string, unknown> = {}) => ({
+    file: "/home/dev/shop/apps/web/app/pages/files.vue",
+    line: 20,
+    column: 7,
+    component: "files",
+    vendor: true,
+    via: "vue-tracer",
+    ...over,
+  });
+  const read = (s: unknown) => {
+    const msg = readBridgeMessage(picked({}, element({ source: s })), TOKEN);
+    assert.ok(msg && msg.type === "picked", "the element stands either way");
+    return msg.target.elements[0]!.source;
+  };
+  assert.deepEqual(read(source()), source());
+  assert.deepEqual(read({ file: "app/pages/files.vue", via: "vue-file" }), {
+    file: "app/pages/files.vue",
+    via: "vue-file",
+  });
+  const long = read(source({ component: "c".repeat(500), vendor: "yes" }))!;
+  assert.equal(long.component!.length, 200);
+  assert.equal(long.vendor, undefined, "vendor is true or absent");
+  for (const bad of [
+    "app/pages/files.vue",
+    source({ file: "f".repeat(1025) }),
+    source({ file: "" }),
+    source({ file: "a.vue\n" }),
+    source({ via: "react" }),
+    source({ line: 0 }),
+    source({ line: 2.5 }),
+    source({ column: "7" }),
+  ])
+    assert.equal(read(bad), undefined, JSON.stringify(bad));
+});
+
 test("readBridgeMessage refuses a route that would leave the app's origin", () => {
   const nav = { type: "nav", token: TOKEN, title: "", canGoBack: null, canGoForward: null };
   // The URL parser reads a backslash in the path as a slash: `/\evil.example` is `//evil.example`.

@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import { esc } from "./html";
 import type { UiAnnotationRecord, UiElement } from "./types";
-import { composerHead, pageHead, rowLine } from "./uilane-dom";
+import { sourcePlace } from "./uilane-derive";
+import { composerHead, pageHead, rowLine, sourceLink } from "./uilane-dom";
 
 // What a hostile app page might send as a selector, a route or a title: a quote that would end an
 // attribute in string-built HTML, then a handler that fires in the desk's origin.
@@ -54,6 +55,32 @@ test("the composer head shows a hostile selector and name as text", () => {
   assert.equal(head.querySelector(".uc-target")!.textContent, `button · "${HOSTILE}"`);
   head.querySelector<HTMLButtonElement>(".uc-close")!.click();
   assert.ok(cancelled);
+});
+
+test("a source link shows a hostile path and component as text, and opens the editor", () => {
+  const d = doc();
+  // A file name can't hold a slash, so this one breaks out with a quote and a handler alone.
+  const evil = `x" onclick="alert(1)" data-x="`;
+  const place = sourcePlace(
+    { file: `/r/app/${evil}.vue`, line: 3, component: HOSTILE, via: "vue-tracer" },
+    "/r",
+  );
+  const opened: Array<[string, number]> = [];
+  const link = sourceLink(d, place, "ann-src", (path, line) => opened.push([path, line]));
+  assert.equal(link.localName, "button");
+  assert.deepEqual(attributeNames(link).sort(), ["class", "title"]);
+  assert.equal(link.textContent, `app/${evil}.vue:3`);
+  assert.equal(link.title, `${HOSTILE}\napp/${evil}.vue:3`);
+  link.click();
+  assert.deepEqual(opened, [[`app/${evil}.vue`, 3]]);
+  // A file outside the repo can't be opened: plain text.
+  const outside = sourceLink(
+    d,
+    sourcePlace({ file: "/opt/x.vue", via: "vue-file" }, "/r"),
+    "s",
+    () => assert.fail("not openable"),
+  );
+  assert.equal(outside.localName, "span");
 });
 
 test("a row shows the body's first line as text", () => {

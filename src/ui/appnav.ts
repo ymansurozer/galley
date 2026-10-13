@@ -7,6 +7,7 @@ import type {
   UiCaps,
   UiElement,
   UiPage,
+  UiSource,
 } from "./types";
 
 // Pure helpers for the UI view's traffic with the bridge (kept free of the store so they unit-test
@@ -15,6 +16,7 @@ import type {
 
 const CAPS: UiCaps = {
   selector: 512,
+  file: 1024,
   text: 300,
   name: 200,
   outline: 2048,
@@ -118,6 +120,26 @@ function readRect(v: unknown): Rect | null {
   return finite(x) && finite(y) && finite(width) && finite(height) ? { x, y, width, height } : null;
 }
 
+// The source the page says rendered an element. Malformed, or a path over its cap (cut short, it
+// would name another file), and the element stands without one.
+function readSource(v: unknown): UiSource | undefined {
+  if (!isObj(v) || typeof v.file !== "string" || !v.file || v.file.length > CAPS.file)
+    return undefined;
+  if ([...v.file].some((c) => c < " " || c === "\x7f")) return undefined;
+  if (v.via !== "vue-tracer" && v.via !== "vue-file") return undefined;
+  const source: UiSource = { file: v.file, via: v.via };
+  for (const key of ["line", "column"] as const) {
+    const n = v[key];
+    if (n === undefined) continue;
+    if (!Number.isSafeInteger(n) || (n as number) < 1) return undefined;
+    source[key] = n as number;
+  }
+  const component = capped(v.component, CAPS.name);
+  if (component) source.component = component;
+  if (v.vendor === true) source.vendor = true;
+  return source;
+}
+
 function readElement(v: unknown): UiElement | null {
   if (!isObj(v)) return null;
   const { selector, tag } = v;
@@ -142,6 +164,8 @@ function readElement(v: unknown): UiElement | null {
         .slice(0, CAPS.attrs)
         .map(([k, s]) => [k, cap(s, CAPS.attr)]),
     );
+  const source = readSource(v.source);
+  if (source) el.source = source;
   return el;
 }
 

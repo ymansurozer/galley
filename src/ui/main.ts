@@ -1,5 +1,5 @@
 import Alpine from "alpinejs";
-import { S, D, $, api, persist, persistPrefs, toast } from "./store";
+import { S, D, $, api, openEditorAt, persist, persistPrefs, toast } from "./store";
 import { loadDiffLib } from "./difflib";
 import {
   currentFile,
@@ -401,16 +401,7 @@ S.openInEditor = async () => {
     return;
   }
   const sel = cursorSelection() ?? S.selected;
-  const lineNumber = sel ? fromDisplayLine(sel.side, sel.lineNumber) : 1;
-  try {
-    const res = await api<{ ok?: boolean; error?: string }>("/api/open-editor", {
-      method: "POST",
-      body: JSON.stringify({ path: file.path, lineNumber }),
-    });
-    toast(res.ok ? "Opened in editor" : res.error || "Could not open editor");
-  } catch {
-    toast("Could not open editor");
-  }
+  await openEditorAt(file.path, sel ? fromDisplayLine(sel.side, sel.lineNumber) : 1);
 };
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
