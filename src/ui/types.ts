@@ -249,6 +249,8 @@ export interface Store {
   // text lives in composerBody so it survives the diff DOM rebuild (see composer.ts).
   composerOpen: boolean;
   toastMsg: string;
+  // The toast's action button label ("Undo"), "" for a plain toast (store.ts toast()).
+  toastAction: string;
   // Pending "go to line" digits typed in the diff ("" = inactive). Drives the goline pill;
   // ↵ / idle timeout commits the jump, Esc cancels (see cursor.ts goline section).
   golineBuffer: string;
@@ -345,6 +347,11 @@ export interface Store {
   isMarkdownFile?: () => boolean;
   // Sign off on the current file from the floating button (same action as the header ⇧A).
   approveFile?: () => void;
+  // A sidebar row's status icon: sign the file off in place, or reset a finished one. statusHint
+  // labels the icon with what a click will do, read on hover/focus rather than bound per row.
+  statusClick?: (path: string, e: MouseEvent) => void;
+  statusHint?: (el: HTMLElement, path: string) => void;
+  runToastAction?: () => void;
   // Drives the floating Approve button: null hides it (overview, preview, or finished file),
   // else the pending file's sign-off flavor — "clean" (Approve) or "changes" (Mark Reviewed).
   fabState?: () => "clean" | "changes" | null;

@@ -1,7 +1,8 @@
-import type { ChangeContent, FileDiffMetadata } from "@pierre/diffs";
+import type { FileDiffMetadata } from "@pierre/diffs";
 import { S, D } from "./store";
 import { cur } from "./contents";
 import { buildLineMap, type DecidedPosition } from "./linemap";
+import { changeStableKey } from "./decisions-derive";
 import { deriveFlowIndex, type FlowIndex } from "./flow-index";
 import type { ChangeState, ReviewComment, ReviewState, Side } from "./types";
 
@@ -72,12 +73,6 @@ export function fileFinished(path: string): boolean {
 export function fileReviewState(path: string): FileReviewState {
   if (!fileFinished(path)) return "pending";
   return fileObjections(path) ? "changes-requested" : "approved";
-}
-
-export function changeStableKey(part: ChangeContent) {
-  const side = part.additions > 0 ? "additions" : "deletions";
-  const lineNumber = (side === "additions" ? part.additionLineIndex : part.deletionLineIndex) + 1;
-  return `${side}:${lineNumber}:${part.deletions || 0}:${part.additions || 0}`;
 }
 
 export function deriveChanges(

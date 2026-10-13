@@ -1,5 +1,16 @@
 import Alpine from "alpinejs";
-import { S, D, $, api, openEditorAt, persist, persistPrefs, saveStamp, toast } from "./store";
+import {
+  S,
+  D,
+  $,
+  api,
+  openEditorAt,
+  persist,
+  persistPrefs,
+  runToastAction,
+  saveStamp,
+  toast,
+} from "./store";
 import { loadDiffLib } from "./difflib";
 import {
   currentFile,
@@ -8,7 +19,7 @@ import {
   fileFinished,
   fileObjections,
 } from "./changes";
-import { approveCurrentFile } from "./decisions";
+import { approveCurrentFile, toggleSignOff } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
@@ -239,6 +250,22 @@ S.fabState = () => {
   if (!path || fileFinished(path)) return null;
   return fileObjections(path) ? "changes" : "clean";
 };
+// A double-click's second click would undo the sign-off its first one made. The hint re-reads at
+// once: the pointer is still on the icon, which now does the opposite.
+S.statusClick = (path, e) => {
+  if (e.detail < 2) toggleSignOff(path);
+  if (e.currentTarget instanceof HTMLElement) S.statusHint?.(e.currentTarget, path);
+};
+// The label is read when the icon is hovered or focused: binding it per row would rescan every
+// decision and comment for every row (see flow-index.ts). data-act tints the icon on hover with the
+// state a click leads to.
+S.statusHint = (el, path) => {
+  const act = fileFinished(path) ? "reset" : fileObjections(path) ? "mark" : "approve";
+  el.dataset.act = act;
+  el.title = { approve: "Approve", mark: "Mark reviewed", reset: "Reset review" }[act];
+  el.setAttribute("aria-label", el.title);
+};
+S.runToastAction = runToastAction;
 // Apply + persist all settings: CSS vars (font/size), comment-code theme, and a re-render
 // (the diff reads S.settings.* in render()). Bound to every control's @change.
 S.applySettings = () => {

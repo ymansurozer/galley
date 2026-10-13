@@ -28,6 +28,7 @@ export const S: Store = Alpine.reactive<Store>({
   // chrome UI flags (templates bind to these)
   composerOpen: false,
   toastMsg: "",
+  toastAction: "",
   golineBuffer: "",
   composerBody: "",
   editingCommentId: null,
@@ -95,10 +96,25 @@ export function hide(e: Element) {
   e.classList.remove("show");
 }
 let toastTimer: ReturnType<typeof setTimeout>;
-export function toast(t: string) {
+let toastRun: (() => void) | null = null;
+// An action toast ("Reset review · Undo") stays up long enough to reach its button. The next toast
+// replaces it, action and all, so an action never outlives the moment it answers.
+export function toast(t: string, action?: { label: string; run: () => void }) {
   S.toastMsg = t;
+  S.toastAction = action?.label ?? "";
+  toastRun = action?.run ?? null;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (S.toastMsg = ""), 2800);
+  toastTimer = setTimeout(clearToast, action ? 6000 : 2800);
+}
+function clearToast() {
+  S.toastMsg = S.toastAction = "";
+  toastRun = null;
+}
+export function runToastAction() {
+  const run = toastRun;
+  clearTimeout(toastTimer);
+  clearToast();
+  run?.();
 }
 export { esc } from "./html";
 export const api = <T = unknown>(path: string, opts: RequestInit = {}): Promise<T> =>
