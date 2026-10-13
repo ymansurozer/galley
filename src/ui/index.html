@@ -3478,13 +3478,13 @@
 
     /* Narrow stages drop tips, least needed first: the page button is in the chrome bar, and
        adding to a pick is the rarest gesture. Clicking and the way out always stay. */
-    @container stage (max-width: 720px) {
+    @container stage (max-width: 760px) {
       .mode-hint .t-page {
         display: none
       }
     }
 
-    @container stage (max-width: 620px) {
+    @container stage (max-width: 680px) {
       .mode-hint .t-add {
         display: none
       }
@@ -4402,7 +4402,7 @@
             <div class="stage-note" x-show="!$store.g.uiProxy">Starting the app proxy…</div>
             <div class="mode-hint" x-cloak x-show="$store.g.appMode==='annotate'"><b>Annotate</b><span
                 class="tip"><kbd>Click</kbd>element</span><span
-                class="tip t-add"><kbd>⇧ Click</kbd>add</span><span
+                class="tip t-add"><kbd>⇧ Click</kbd>select several</span><span
                 class="tip t-region"><kbd>Drag</kbd>region</span><span
                 class="tip t-quote"><kbd>Drag text</kbd>quote</span><span
                 class="tip t-page"><kbd>⌥P</kbd>page</span><button
