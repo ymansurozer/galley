@@ -2078,3 +2078,101 @@ test("appendAnnotationReply adds the agent's reply to the saved review's annotat
     await fs.rm(home, { recursive: true, force: true });
   }
 });
+
+// ── The project the desk names (header + tab title) ──────────────────────────
+
+// A scratch repo at <tmp>/<name> on branch main with one committed file. The folder name is the
+// point: it's what the desk is expected to show.
+async function scratchRepo(name: string) {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "galley-project-"));
+  const dir = path.join(parent, name);
+  await fs.mkdir(dir);
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  gitq("init", "-q", "-b", "main");
+  gitq("config", "user.email", "t@t.dev");
+  gitq("config", "user.name", "t");
+  await fs.writeFile(path.join(dir, "a.txt"), "a\n");
+  gitq("add", "-A");
+  gitq("commit", "-q", "-m", "init");
+  return { parent, dir, gitq };
+}
+
+test("a desk in a linked worktree names the main worktree's folder, not the worktree's", async () => {
+  const { parent, dir, gitq } = await scratchRepo("acme");
+  try {
+    const wt = path.join(parent, "acme-wt");
+    gitq("worktree", "add", "-q", wt, "-b", "feature");
+    await fs.writeFile(path.join(wt, "a.txt"), "A\n");
+    const s = await buildReviewState(wt, { session: "s" });
+    assert.equal(path.basename(s!.root), "acme-wt");
+    assert.equal(s!.project, "acme");
+    assert.equal(s!.branch, "feature");
+    // File mode inside the worktree resolves the same project.
+    const f = await buildReviewState(wt, { mode: "file", path: "a.txt", session: "s" });
+    assert.equal(f!.project, "acme");
+    // The main worktree names itself.
+    await fs.writeFile(path.join(dir, "a.txt"), "B\n");
+    const main = await buildReviewState(dir, { session: "s" });
+    assert.equal(main!.project, "acme");
+    assert.equal(main!.branch, "main");
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("a detached HEAD carries no branch", async () => {
+  const { parent, dir, gitq } = await scratchRepo("acme");
+  try {
+    gitq("checkout", "-q", "--detach");
+    await fs.writeFile(path.join(dir, "a.txt"), "A\n");
+    const s = await buildReviewState(dir, { session: "s" });
+    assert.equal(s!.project, "acme");
+    assert.equal(s!.branch, undefined);
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("galley file on a file outside any repo names the file's folder", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "galley-project-"));
+  try {
+    const notes = path.join(parent, "notes");
+    await fs.mkdir(notes);
+    await fs.writeFile(path.join(notes, "todo.md"), "# todo\n");
+    const s = await buildReviewState(notes, { mode: "file", path: "todo.md", session: "s" });
+    assert.equal(s!.project, "notes");
+    assert.equal(s!.branch, undefined);
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("a review saved before the project name loads, and gains it on reload", async () => {
+  const { parent, dir } = await scratchRepo("acme");
+  const oldHome = process.env.HOME;
+  process.env.HOME = parent;
+  try {
+    await fs.writeFile(path.join(dir, "a.txt"), "A\n");
+    const built = await buildReviewState(dir, { session: "s" });
+    const { project: _project, branch: _branch, ...older } = built!;
+    await persistReview(older);
+    const saved = await loadLatestReview(built!.root, "s");
+    assert.ok(saved, "the older review loads");
+    assert.equal(saved!.project, undefined);
+    const merged = await mergeReviewState((await buildReviewState(dir, { session: "s" }))!, saved);
+    assert.equal(merged.project, "acme");
+    assert.equal(merged.branch, "main");
+  } finally {
+    process.env.HOME = oldHome;
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("mergeReviewState takes the project and branch from the rebuild, never the saved review", async () => {
+  const merged = await mergeReviewState(
+    state({ project: "acme" }),
+    state({ project: "acme-old", branch: "gone" }),
+  );
+  assert.equal(merged.project, "acme");
+  assert.equal(merged.branch, undefined);
+});
