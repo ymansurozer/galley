@@ -3695,7 +3695,8 @@
     }
 
     .ann-row.sel {
-      color: var(--ink-bright)
+      color: var(--ink-bright);
+      font-weight: 600
     }
 
     .ann-num {
@@ -3751,17 +3752,36 @@
       color: var(--ink)
     }
 
-    /* Expanded: the row and its thread share a faint ground. */
+    /* Expanded: one block set apart from its neighbours. A ground runs behind the row, its context
+       line and its thread, with an edge in the kind's colour down its left; the row heads it. */
     .ann-item {
-      padding-bottom: 10px;
-      background: var(--surface-raised)
+      margin: 8px 0;
+      padding-bottom: 12px;
+      background: color-mix(in oklab, var(--surface-raised) 55%, var(--panel3))
+    }
+
+    .ann-item.k-change {
+      box-shadow: inset 2px 0 0 var(--ann-change)
+    }
+
+    .ann-item.k-question {
+      box-shadow: inset 2px 0 0 var(--ann-question)
+    }
+
+    .ann-item.resolved {
+      box-shadow: inset 2px 0 0 var(--line-strong)
+    }
+
+    .ann-item .ann-row {
+      padding-top: 10px
     }
 
     .ann-item .ann-row:hover {
       background: none
     }
 
-    .ann-item .md-thread {
+    .ann-item .annotation {
+      width: auto;
       margin: 0 6px
     }
 

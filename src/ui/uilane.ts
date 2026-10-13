@@ -507,7 +507,7 @@ function row(a: UiAnnotationRecord): HTMLElement {
   const line = rowLine(document, a, selected);
   if (!selected) return line;
   const item = document.createElement("div");
-  item.className = "ann-item";
+  item.className = `ann-item k-${a.intent}${a.status === "resolved" ? " resolved" : ""}`;
   item.append(line);
   // One muted line of context: the screenshot, then where the element came from.
   const ctx = document.createElement("div");
@@ -533,7 +533,7 @@ function row(a: UiAnnotationRecord): HTMLElement {
   }
   item.append(ctx);
   const thread = document.createElement("div");
-  thread.className = `annotation md-thread${a.status === "resolved" ? " resolved" : ""}`;
+  thread.className = `annotation${a.status === "resolved" ? " resolved" : ""}`;
   thread.append(buildCommentThread(a, threadControls(a)));
   item.append(thread);
   return item;
