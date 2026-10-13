@@ -164,7 +164,12 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     }
   }
 
-  function wire(parts: { veil: HTMLElement; marks: HTMLElement }) {
+  function wire(parts: { layer: HTMLElement; veil: HTMLElement; marks: HTMLElement }) {
+    // A press on the veil or a pin would otherwise bubble out of the shadow root to the app's
+    // document listeners (as a press on the host), and a dialog that closes on a press outside
+    // it would close under the reviewer's pick. The bridge's own listeners sit below the layer.
+    for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "click"] as const)
+      parts.layer.addEventListener(type, (e) => e.stopPropagation());
     let frame = 0;
     parts.veil.addEventListener("pointermove", (e) => {
       cancelAnimationFrame(frame);

@@ -3770,13 +3770,12 @@
       text-decoration-color: var(--line-strong)
     }
 
-    /* The enlarged screenshot: the image at its own pixel size (twice the page's on a 2× screen),
-       shrunk to fit the window when it's bigger. */
+    /* The enlarged screenshot: a viewport fills the dialog's width, a small crop grows to about
+       half of it, and either shrinks to fit the window's height. The frame hugs the image. */
     .modal.shot {
       display: flex;
       flex-direction: column;
-      width: auto;
-      min-width: 360px;
+      width: 880px;
       max-width: 94vw;
       max-height: 92vh
     }
@@ -3795,18 +3794,20 @@
     }
 
     .shot-frame {
+      align-self: center;
+      max-width: 100%;
       min-height: 0;
-      overflow: auto;
+      overflow: hidden;
       border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: var(--bg)
+      border-radius: var(--radius)
     }
 
     .shot-frame img {
       display: block;
+      min-width: min(440px, 80vw);
       max-width: 100%;
       max-height: calc(92vh - 120px);
-      margin: 0 auto
+      object-fit: contain
     }
 
     /* The floating composer: beside the picked element, its card the code lane's composer. */
