@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { hostname, tmpdir } from "node:os";
@@ -88,8 +88,40 @@ test("open-editor rejects absolute paths", async () => {
   });
 });
 
+test("open-editor opens only a file that exists inside the repo, symlinks followed", async () => {
+  const calls: string[][] = [];
+  const outside = await mkdtemp(path.join(tmpdir(), "galley-outside-"));
+  try {
+    await withServer(
+      async (handle, root) => {
+        await writeFile(path.join(outside, "secret.ts"), "x\n", "utf8");
+        await symlink(path.join(outside, "secret.ts"), path.join(root, "link.ts"));
+        await mkdir(path.join(root, "src"));
+        // A UI annotation's source names whatever the app page said: here, a file that isn't there.
+        for (const [rel, status] of [
+          ["src/x&calc.vue", 404],
+          ["link.ts", 400],
+          ["src", 404],
+        ] as const) {
+          const res = await fetch(`${handle.url}api/open-editor`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ path: rel, lineNumber: 1 }),
+          });
+          assert.equal(res.status, status, rel);
+        }
+        assert.deepEqual(calls, [], "the editor never ran");
+      },
+      { runEditorCommand: async (command, args) => void calls.push([command, ...args]) },
+    );
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
 test("open-editor rejects a non-allowlisted editor command", async () => {
-  await withServer(async (handle) => {
+  await withServer(async (handle, root) => {
+    await writeFile(path.join(root, "a.ts"), "hello\n", "utf8");
     await writeGlobalSettings({ settings: { editorCommand: "node {file}" } });
     const res = await fetch(`${handle.url}api/open-editor`, {
       method: "POST",
@@ -115,7 +147,8 @@ test("open-editor runs the editor command from global settings", async () => {
       }).then((r) => r.json() as Promise<{ ok: boolean }>);
       assert.equal(body.ok, true);
       assert.equal(calls[0]!.command, "code");
-      assert.deepEqual(calls[0]!.args, ["-g", `${path.join(root, "a.ts")}:9`]);
+      // The file as resolved, symlinks followed (macOS's tmpdir is under one).
+      assert.deepEqual(calls[0]!.args, ["-g", `${await realpath(path.join(root, "a.ts"))}:9`]);
     },
     {
       runEditorCommand: async (command, args) => {
