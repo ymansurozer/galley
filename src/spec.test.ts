@@ -80,6 +80,9 @@ const ANCHORS = [
   "absolute paths to two PNGs",
   "Read the PNGs",
   "re-render of the page's DOM",
+  // best effort: the agent must not mistake a re-render artifact for the reported bug
+  "best-effort",
+  "trust the body and the target over the image",
   "the annotation's mark",
   "Absent when the capture failed",
   // the four target kinds (issue 08), their fields, and how their screenshots are framed

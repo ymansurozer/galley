@@ -117,9 +117,12 @@ The \`result\` field of a review event:
     with some context around it, viewport the whole visible page; both have the annotation's mark
     drawn on (its numbered pin, and a box around each element, the region's dashed box, or the
     quoted text highlighted). A page annotation's crop is the viewport too, with no mark.
-    Read the PNGs: they show what the human means. exact:false — they are a
+    Read the PNGs: they show what the human means. exact:false — they are a best-effort
     re-render of the page's DOM, not the screen's pixels, so canvas, video and some CSS can
-    differ. Absent when the capture failed; when present, both files exist.
+    differ. If something in them looks off (a missing or misplaced element, odd styling, a
+    layout that doesn't match the code), don't treat it as the bug the human reported:
+    trust the body and the target over the image, and check the real page yourself when it
+    matters. Absent when the capture failed; when present, both files exist.
   - page: {url (on the dev server), route (path+query), title?, viewport: {width, height, dpr}}
   - target — what the human pointed at, by kind:
     - {kind:"element", elements:[element…]} — 1–16 elements they clicked (several when they
