@@ -39,8 +39,8 @@ function trackInput(ta: HTMLTextAreaElement) {
 
 // The new-comment / reply composer card: textarea + the two intent buttons (Ask / Request
 // change), in the same card family as a message. Used both as its own annotation (new
-// comment) and appended to a thread (reply). `ask: false` leaves Ask out (the UI lane).
-export function buildComposer({ ask = true } = {}): HTMLElement {
+// comment) and appended to a thread (reply).
+export function buildComposer(): HTMLElement {
   const card = document.createElement("div");
   card.className = "composer-card";
   const ta = document.createElement("textarea");
@@ -51,9 +51,8 @@ export function buildComposer({ ask = true } = {}): HTMLElement {
   card.appendChild(ta);
   const row = document.createElement("div");
   row.className = "crow";
-  row.innerHTML = `<span class="spacer"></span>${ask ? '<button class="cbtn ask">Ask <kbd>⌘⇧↵</kbd></button>' : ""}<button class="cbtn req">Request change <kbd>⌘↵</kbd></button>`;
-  const askButton = row.querySelector<HTMLButtonElement>(".ask");
-  if (askButton) askButton.onclick = () => S.ask?.();
+  row.innerHTML = `<span class="spacer"></span><button class="cbtn ask">Ask <kbd>⌘⇧↵</kbd></button><button class="cbtn req">Request change <kbd>⌘↵</kbd></button>`;
+  (row.querySelector(".ask") as HTMLButtonElement).onclick = () => S.ask?.();
   (row.querySelector(".req") as HTMLButtonElement).onclick = () => S.requestChange?.();
   card.appendChild(row);
   return card;

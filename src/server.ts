@@ -26,10 +26,12 @@ import {
   questionPayload,
   readFileContents,
   readGlobalSettings,
+  replyToAnnotation,
   resolveMovedFrom,
   resolveSkim,
   reviewDir,
   syncGitState,
+  uiQuestionPayload,
   writeFileAtomic,
   writeGlobalSettings,
 } from "./state.js";
@@ -658,24 +660,45 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           lineNumber?: number;
           side?: string;
           body?: string;
+          annotationId?: string;
+          messageId?: string;
         };
-        const text = (b.body ?? "").trim();
-        if (!b.path || !text)
-          return fail(
-            res,
-            422,
-            "INVALID_QUESTION",
-            "ask requires path and body",
-            "Send { path, lineNumber, side, body } as JSON.",
+        let question: QuestionPayload;
+        if (b.annotationId !== undefined) {
+          // A UI question names its annotation and message, which the tab saved first: the event
+          // is built from the stored copy, as openQuestions is.
+          const a = state.annotations?.find((x) => x.id === b.annotationId);
+          const m = a?.comments.find(
+            (x) => x.id === b.messageId && x.role !== "agent" && x.intent === "question",
           );
+          if (!a || !m)
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `No question "${b.messageId}" on annotation "${b.annotationId}" in this review.`,
+              "Save the annotation before asking.",
+            );
+          question = uiQuestionPayload(state, a, m);
+        } else {
+          const text = (b.body ?? "").trim();
+          if (!b.path || !text)
+            return fail(
+              res,
+              422,
+              "INVALID_QUESTION",
+              "ask requires path and body",
+              "Send { path, lineNumber, side, body } as JSON.",
+            );
+          question = questionPayload(state, {
+            path: b.path,
+            lineNumber: Number(b.lineNumber ?? 1),
+            side: b.side === "deletions" ? "deletions" : "additions",
+            body: text,
+          });
+        }
         // Bake the singular into a one-element `questions` here so a question handed straight
         // to a parked waiter already carries the array — batching only has to merge on drain.
-        const question = questionPayload(state, {
-          path: b.path,
-          lineNumber: Number(b.lineNumber ?? 1),
-          side: b.side === "deletions" ? "deletions" : "additions",
-          body: text,
-        });
         emitEvent({ kind: "question", question, questions: [question] });
         return json(res, 200, { ok: true });
       }
@@ -688,6 +711,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // `questions` holds them in arrival order. Safe because a Send flushes every queued
         // question before enqueuing its review (see /api/send), so a review can never sit
         // between two queued questions; draining all questions can't skip past a review.
+        // A UI question whose annotation was deleted or resolved while it sat queued has no thread
+        // left to answer in, so it's dropped; if none are left, the agent waits for the next event.
         if (eventQueue[0]?.kind === "question") {
           const batched: QuestionPayload[] = [];
           for (let i = eventQueue.length - 1; i >= 0; i--) {
@@ -697,7 +722,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               eventQueue.splice(i, 1);
             }
           }
-          return json(res, 200, { kind: "question", question: batched[0], questions: batched });
+          const open = new Set(
+            state.annotations?.filter((a) => a.status === "open").map((a) => a.id),
+          );
+          const asked = batched.filter((q) => q.lane === "code" || open.has(q.annotationId));
+          if (asked.length)
+            return json(res, 200, { kind: "question", question: asked[0], questions: asked });
         }
         const queued = eventQueue.shift();
         if (queued) return json(res, 200, queued);
@@ -1003,6 +1033,40 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           if (comment.role === "agent") agentActivity = null;
           await persistReview(state);
           return json(res, 200, { ok: true, commentId: comment.id });
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/api/ui-comment") {
+        // `galley comment --ui <id>`: the agent's reply in a UI annotation's thread. The tab adds it
+        // to its copy on the next poll, and a save from a tab that hasn't yet keeps it
+        // (mergeReviewerSave).
+        return await serialize(async () => {
+          const body = JSON.parse(await readBody(req)) as {
+            annotationId?: unknown;
+            body?: unknown;
+          };
+          const id = typeof body.annotationId === "string" ? body.annotationId : "";
+          const text = typeof body.body === "string" ? body.body.trim() : "";
+          if (!text)
+            return fail(
+              res,
+              422,
+              "INVALID_COMMENT",
+              "comment --ui requires a body",
+              "Send { annotationId, body } as JSON.",
+            );
+          const reply = replyToAnnotation(state, id, text);
+          if (!reply)
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `No annotation "${id}" in this review.`,
+              "Reply with a question's annotationId, or an id from uiAnnotations[].",
+            );
+          // As with a code reply: the answer has landed, so the "doing X now" line is obsolete.
+          agentActivity = null;
+          await persistReview(state);
+          return json(res, 200, { ok: true, commentId: reply.id });
         });
       }
       if (req.method === "POST" && url.pathname === "/api/status") {

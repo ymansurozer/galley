@@ -16,7 +16,7 @@ const ASSET_TIMEOUT = 10_000;
 // annotation's mark is drawn around the target before the crop is cut, so both images carry it.
 export async function capturePage(
   target: Element | Rect | null,
-  mark?: { number: number },
+  mark?: { number: number; question: boolean },
 ): Promise<BridgeShot> {
   const start = performance.now();
   const dpr = window.devicePixelRatio || 1;
@@ -52,7 +52,7 @@ export async function capturePage(
     },
   });
   const frame = box && cropFrame(box, view, dpr);
-  if (mark && frame && box) drawMark(canvas, markShape(box, view), dpr, mark.number);
+  if (mark && frame && box) drawMark(canvas, markShape(box, view), dpr, mark);
   const [viewport, crop] = await Promise.all([
     toPng(canvas),
     frame ? toPng(cut(canvas, frame)) : null,
@@ -126,21 +126,23 @@ function formFields() {
   };
 }
 
-// The annotation's mark as the page's selected pin looks (annotate.ts): an amber outline around the
-// target, and the numbered amber pin in a white ring with a soft shadow.
-const MARK = "#e0af68";
+// The annotation's mark as the page's selected pin looks (annotate.ts): an outline around the
+// target, and the numbered pin in a white ring with a soft shadow, amber for a change request and
+// cyan for a question.
+const MARK = { change: "#e0af68", question: "#00a8ff" };
 
 function drawMark(
   canvas: HTMLCanvasElement,
   { outline, pin }: ReturnType<typeof markShape>,
   dpr: number,
-  number: number,
+  { number, question }: { number: number; question: boolean },
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("No 2D canvas context for the mark");
+  const color = question ? MARK.question : MARK.change;
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.strokeStyle = MARK;
+  ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.roundRect(outline.x, outline.y, outline.width, outline.height, 4);
@@ -165,7 +167,7 @@ function drawMark(
   ctx.fillStyle = "#fff";
   pill(2);
   ctx.shadowColor = "transparent";
-  ctx.fillStyle = MARK;
+  ctx.fillStyle = color;
   pill(0);
   ctx.fillStyle = "#050608";
   ctx.textAlign = "center";

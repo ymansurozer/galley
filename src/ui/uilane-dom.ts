@@ -36,7 +36,7 @@ export function rowLine(doc: Document, a: UiAnnotationRecord, selected: boolean)
   const line = node(
     doc,
     "div",
-    `ann-row k-change${a.status === "resolved" ? " resolved" : ""}${selected ? " sel" : ""}`,
+    `ann-row k-${a.intent}${a.status === "resolved" ? " resolved" : ""}${selected ? " sel" : ""}`,
   );
   line.dataset.annotation = a.id;
   line.title = rowTitle(a);

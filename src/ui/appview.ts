@@ -132,7 +132,7 @@ let captureSeq = 0;
 // element (or `rect`) when one is given, with an annotation's `mark` drawn on when one is given.
 // The bridge renders both in the page.
 export function captureApp(
-  target: { selector?: string; rect?: Rect; mark?: { number: number } } = {},
+  target: { selector?: string; rect?: Rect; mark?: { number: number; question: boolean } } = {},
 ): Promise<BridgeShot> {
   if (!S.uiProxy || !S.app.connected)
     return Promise.reject(new Error("No bridge is listening on the app page"));

@@ -61,6 +61,7 @@ import {
   submitUiComposer,
   toggleAnnotations,
   uiSendSummary,
+  waitingQuestions,
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { uuid } from "./uuid";
@@ -412,7 +413,7 @@ S.openInEditor = async () => {
 const submitComment = (intent: "question" | "action") => {
   // The UI lane's composers (a new annotation, a reply or edit in its thread) submit there.
   if (composerInUi()) {
-    submitUiComposer();
+    submitUiComposer(intent);
     return;
   }
   const body = (S.composerBody || "").trim();
@@ -508,11 +509,12 @@ S.appForward = appForward;
 S.appRefresh = appRefresh;
 S.appGo = appGo;
 S.setViewport = setViewport;
-// Its annotations (uilane.ts): the mode toggle, the sidebar, the header's open count, and the
-// enlarged screenshot.
+// Its annotations (uilane.ts): the mode toggle, the sidebar, the header's open and waiting counts,
+// and the enlarged screenshot.
 S.setAppMode = setAppMode;
 S.toggleAnnotations = toggleAnnotations;
 S.openChanges = openChanges;
+S.waitingQuestions = waitingQuestions;
 S.closeShot = closeShot;
 S.shotSrc = shotSrc;
 S.shotTitle = shotTitle;

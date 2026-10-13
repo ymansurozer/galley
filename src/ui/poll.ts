@@ -2,6 +2,8 @@ import { S, D, api, toast, saver } from "./store";
 import { render } from "./render";
 import { updateAwaitingDom } from "./annotations";
 import { adoptUiStatus, adoptUiTarget, syncView } from "./appview";
+import { renderUiLane } from "./uilane";
+import { mergeAgentReplies } from "./uilane-derive";
 import type { DeskStatus, PollPayload, ReviewState } from "./types";
 
 // Pull the transient DeskStatus fields off a server payload into the store and
@@ -97,11 +99,15 @@ export async function pollState() {
   }
   const localIds = new Set(S.state.comments.map((c) => c.id));
   const incoming = lite.comments.filter((c) => !localIds.has(c.id));
-  if (!incoming.length) return;
   S.state.comments.push(...incoming);
-  if (incoming.some((c) => c.role === "agent")) {
+  // The agent's replies in UI annotation threads (`galley comment --ui`) join the same way; a save
+  // from this tab before they arrive keeps them on the server (mergeReviewerSave).
+  const uiReplies = mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
+  if (uiReplies || incoming.some((c) => c.role === "agent")) {
     S.awaitingAgent = false;
     toast("Agent replied");
   }
-  render();
+  // render() redraws the UI lane too.
+  if (incoming.length) render();
+  else if (uiReplies) renderUiLane();
 }

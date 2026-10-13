@@ -5,15 +5,18 @@ import {
   annotationSource,
   firstLine,
   marksFor,
+  mergeAgentReplies,
   nextNumber,
   openChangeCount,
   pageGroups,
   pageName,
   placeComposer,
   rowTitle,
+  sendSummary,
   sourcePlace,
   stepFrom,
   stepOrder,
+  waitingCount,
 } from "./uilane-derive.js";
 
 function ann(
@@ -122,8 +125,13 @@ test("⇧↓/⇧↑ step through the visible rows in list order and wrap", () =>
 test("the page gets pins for its open annotations, and for a resolved one only while selected", () => {
   const list = [ann("a", 1, "/p"), ann("b", 2, "/q"), ann("c", 3, "/p", { status: "resolved" })];
   assert.deepEqual(marksFor(list, "/p", null), [
-    { id: "a", number: 1, selector: "#el-a", resolved: false },
+    { id: "a", number: 1, selector: "#el-a", resolved: false, question: false },
   ]);
+  assert.equal(
+    marksFor([ann("q", 4, "/p", { intent: "question" })], "/p", null)[0]!.question,
+    true,
+    "a question's pin is drawn as one",
+  );
   assert.deepEqual(
     marksFor(list, "/p", "c").map((m) => [m.id, m.resolved]),
     [
@@ -217,4 +225,107 @@ test("an annotation's source is its first element's that has one", () => {
   });
   assert.equal(annotationSource({ kind: "element", elements: [el()] }), undefined);
   assert.deepEqual(annotationSource({ kind: "element", elements: [el(), el(src)] }), src);
+});
+
+// ── Questions ───────────────────────────────────────────────────────────────────────────────────
+type Message = UiAnnotationRecord["comments"][number];
+const msg = (id: string, role: "user" | "agent", at: string, intent?: Message["intent"]) => ({
+  id,
+  role,
+  intent,
+  body: `${role} ${id}`,
+  createdAt: at,
+  updatedAt: at,
+});
+const T0 = "2026-10-13T10:00:00.000Z";
+const T1 = "2026-10-13T10:01:00.000Z";
+
+test("a question waits until an agent reply follows it; the head counts it and the tooltip says so", () => {
+  const waiting = ann("q", 2, "/", {
+    intent: "question",
+    comments: [msg("q1", "user", T0, "question")],
+  });
+  const answered = ann("r", 3, "/", {
+    intent: "question",
+    comments: [msg("r1", "user", T0, "question"), msg("r2", "agent", T1)],
+  });
+  const replied = ann("c", 1, "/", {
+    comments: [msg("c1", "user", T0, "action"), msg("c2", "agent", T1)],
+  });
+  // Asked in a change request's thread, after the agent's last reply.
+  const askedInChange = ann("d", 4, "/", {
+    comments: [
+      msg("d1", "user", T0, "action"),
+      msg("d2", "agent", T0),
+      msg("d3", "user", T1, "question"),
+    ],
+  });
+  const resolved = ann("e", 5, "/", {
+    intent: "question",
+    status: "resolved",
+    comments: [msg("e1", "user", T0, "question")],
+  });
+  const list = [waiting, answered, replied, askedInChange, resolved];
+  assert.equal(waitingCount(list), 2, "the open, unanswered ones");
+  assert.equal(openChangeCount(list), 2, "questions aren't change requests");
+  assert.deepEqual(list.map(rowTitle), [
+    "#2 · Question · Waiting",
+    "#3 · Question · Answered",
+    "#1 · Change request · Agent replied",
+    "#4 · Change request · Waiting",
+    "#5 · Question · Resolved",
+  ]);
+});
+
+test("a question whose thread requests a change counts as an open change request, as the Send sends it", () => {
+  const requested = ann("q", 1, "/", {
+    intent: "question",
+    comments: [
+      msg("q1", "user", T0, "question"),
+      msg("q2", "agent", T1),
+      msg("q3", "user", T1, "action"),
+    ],
+  });
+  const asked = ann("r", 2, "/", {
+    intent: "question",
+    comments: [msg("r1", "user", T0, "question")],
+  });
+  const answered = ann("s", 3, "/b", {
+    intent: "question",
+    comments: [msg("s1", "user", T0, "question"), msg("s2", "agent", T1)],
+  });
+  assert.equal(openChangeCount([requested, asked]), 1);
+  assert.equal(openChangeCount([{ ...requested, status: "resolved" }]), 0);
+  // The Send dialog agrees: the escalated question goes as a change request, not as answered.
+  assert.deepEqual(
+    sendSummary([requested, asked, answered, ann("t", 4, "/", { status: "resolved" })]),
+    {
+      ui: "1 change request on 1 page · 1 open question",
+      uiNotSent: "Not sent: 1 resolved · 1 answered question",
+    },
+  );
+  assert.deepEqual(sendSummary([]), { ui: "No change requests", uiNotSent: "" });
+});
+
+test("the poll's agent replies join the tab's threads once, and nothing else from it does", () => {
+  const local = [ann("a", 1, "/"), ann("b", 2, "/")];
+  const server = [
+    ann("a", 1, "/", {
+      comments: [
+        local[0]!.comments[0]!,
+        // A message of the reviewer's the tab no longer has (deleted, its save not landed yet).
+        msg("gone", "user", T0, "action"),
+        msg("r1", "agent", T1),
+      ],
+    }),
+    // An annotation the tab deleted.
+    ann("c", 3, "/", { comments: [msg("c1", "user", T0, "action"), msg("r2", "agent", T1)] }),
+  ];
+  assert.equal(mergeAgentReplies(local, server), 1);
+  assert.deepEqual(
+    local[0]!.comments.map((m) => m.id),
+    ["a-m", "r1"],
+  );
+  assert.equal(mergeAgentReplies(local, server), 0, "a reply the tab has isn't added again");
+  assert.equal(local[0]!.comments.length, 2);
 });

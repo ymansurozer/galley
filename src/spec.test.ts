@@ -82,6 +82,17 @@ const ANCHORS = [
   "re-render of the page's DOM",
   "the annotation's mark",
   "Absent when the capture failed",
+  // UI questions (issue 07): lane-tagged question events, the UI item's fields, the reply flag,
+  // agent replies in uiAnnotations[].thread, and lane-tagged openQuestions
+  'lane "code"',
+  'lane "ui"',
+  "{lane, annotationId, number, route, body, target, mode, session}",
+  'galley comment --ui <id> --body "…"',
+  'jq -r .lane<<<"$q"',
+  "your `galley comment --ui` replies",
+  "opened as a question is here only once they request a",
+  "the change to make is in",
+  "each the same lane-tagged shape as a live question",
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",
   "auto-exits",

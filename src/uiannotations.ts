@@ -9,6 +9,7 @@ import type {
   UiElement,
   UiPage,
   UiSource,
+  UiTarget,
 } from "./types.js";
 import { shotFile } from "./uishots.js";
 
@@ -128,8 +129,8 @@ function readPage(v: unknown, app: string): UiPage | null {
   return page;
 }
 
-// A thread message the reviewer wrote (or, later, the agent). Bodies are not page-sourced and keep
-// the code comments' rule: no cap.
+// A thread message, the reviewer's or the agent's (`galley comment --ui`). Bodies are not
+// page-sourced and keep the code comments' rule: no cap.
 function readMessage(v: unknown): ThreadMessage | null {
   if (!isObj(v)) return null;
   const { id, body, createdAt, updatedAt, role, intent } = v;
@@ -145,7 +146,7 @@ function readAnnotation(v: unknown, app: string): UiAnnotationRecord | null {
   const { id, number, intent, status, placement } = v;
   if (!isId(id)) return null;
   if (!Number.isSafeInteger(number) || (number as number) < 1) return null;
-  if (intent !== "change" || placement !== "placed") return null;
+  if ((intent !== "change" && intent !== "question") || placement !== "placed") return null;
   if (status !== "open" && status !== "resolved") return null;
   const page = readPage(v.page, app);
   if (!page || !isObj(v.target) || v.target.kind !== "element") return null;
@@ -210,6 +211,24 @@ function repoRelative(file: string, root: string) {
 const withRepoSource = (el: UiElement, root: string): UiElement =>
   el.source ? { ...el, source: { ...el.source, file: repoRelative(el.source.file, root) } } : el;
 
+// What a UI question points at, in one line for the agent: the first element's role (else tag) and
+// its accessible name (else its text), how many more elements were picked, and the source's
+// file:line (the first element's that has one, repo-relative) when the page resolved it.
+export function questionTarget(target: UiTarget, root: string): string {
+  const [first, ...more] = target.elements;
+  if (!first) return "";
+  const label = first.name ?? first.text;
+  const source = target.elements.find((el) => el.source)?.source;
+  return [
+    first.role ?? first.tag,
+    label && `"${cap(label, 80)}"`,
+    more.length && `+${more.length} more`,
+    source && `${repoRelative(source.file, root)}${source.line ? `:${source.line}` : ""}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 // An annotation's screenshots as the agent gets them: both paths, only when the annotation is
 // marked as having them and both files are still on disk (the mark can outlive files deleted by
 // hand), so the agent is never handed a path to nothing.
@@ -220,17 +239,24 @@ function screenshotsOf(a: UiAnnotationRecord, shots: string): UiAnnotation["scre
   return existsSync(crop) && existsSync(viewport) ? { crop, viewport, exact: false } : undefined;
 }
 
-// What the agent receives: every open change request, its opening message as the body and the
-// rest as the thread, source files repo-relative, and its screenshots' paths in `shots` (the
-// session's ui-shots/) when both are stored. Resolved annotations are the reviewer's "done" and
-// are not sent.
+// An annotation requests a change when it was opened as one, or when the reviewer requested one
+// later in its thread: a question whose thread has a Request change reply is sent for that
+// request, as a code thread's change-request reply is. The tab counts with its own copy
+// (uilane-derive.ts): the worlds share no runtime code, so each copy has its own test.
+const requestsChange = (a: UiAnnotationRecord) =>
+  a.intent === "change" || a.comments.some((m) => m.role !== "agent" && m.intent === "action");
+
+// What the agent receives: every open annotation that requests a change, its opening message as
+// the body and the rest as the thread, source files repo-relative, and its screenshots' paths in
+// `shots` (the session's ui-shots/) when both are stored. Resolved annotations are the reviewer's
+// "done" and are not sent.
 export function uiAnnotationsForAgent(
   records: UiAnnotationRecord[],
   root: string,
   shots: string,
 ): UiAnnotation[] {
   return records
-    .filter((a) => a.status === "open" && a.intent === "change")
+    .filter((a) => a.status === "open" && requestsChange(a))
     .map((a) => {
       const [opener, ...replies] = a.comments;
       const screenshots = screenshotsOf(a, shots);

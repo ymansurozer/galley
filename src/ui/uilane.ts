@@ -16,9 +16,11 @@ import {
   openChangeCount,
   pageGroups,
   placeComposer,
+  sendSummary,
   sourcePlace,
   stepFrom,
   stepOrder,
+  waitingCount,
 } from "./uilane-derive";
 import {
   composerHead,
@@ -44,6 +46,7 @@ const narrow = () => matchMedia("(max-width: 1100px)").matches;
 const upcomingNumber = () => nextNumber(annotationsOf(), S.state.lastAnnotationNumber ?? 0);
 
 export const openChanges = () => openChangeCount(annotationsOf());
+export const waitingQuestions = () => waitingCount(annotationsOf());
 
 // Composer text the reviewer walked away from without Esc: a reply or edit in a thread they
 // collapsed or left for another row, and the floating composer on a pick when they switched to the
@@ -198,7 +201,7 @@ async function captureScreenshots(a: UiAnnotationRecord) {
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const shot = await captureApp({
       selector: a.target.elements[0]!.selector, // an annotation always has an element (readPicked)
-      mark: { number: a.number },
+      mark: { number: a.number, question: a.intent === "question" },
     });
     if (!shot.crop) throw new Error("the annotated element wasn't on screen");
     await saver.settled();
@@ -240,15 +243,37 @@ export const shotTitle = () => {
   return a ? `#${a.number} · screenshot` : "Screenshot";
 };
 
-// Submit the UI lane's open composer (Request change): a new annotation from the floating
-// composer, a reply in a thread, or an edited message.
-export function submitUiComposer() {
+// Hand a question to the agent now, once the save carrying it has landed: the desk builds the
+// question event from its stored copy of the annotation.
+async function askAgent(annotationId: string, messageId: string) {
+  await saver.settled();
+  const res = await fetch("/api/ask", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ annotationId, messageId }),
+  }).catch(() => null);
+  if (!res?.ok) toast("Couldn't reach the agent — the question goes with the next Send");
+}
+
+// Submit the UI lane's open composer, as a change request ("action") or a question: a new
+// annotation from the floating composer, a reply in a thread, or an edited message (which keeps
+// its intent, as in the code lane).
+export function submitUiComposer(intent: "action" | "question") {
   const body = S.composerBody.trim();
   if (!body) return;
   const now = new Date().toISOString();
   const draft = S.annotationDraft;
   const a = find(S.composerAnnotation);
   let created: UiAnnotationRecord | null = null;
+  let asked: { annotation: string; message: string } | null = null;
+  const message = {
+    id: uuid(),
+    role: "user" as const,
+    intent,
+    body,
+    createdAt: now,
+    updatedAt: now,
+  };
   if (S.editingCommentId) {
     const m = a?.comments.find((x) => x.id === S.editingCommentId);
     if (m) {
@@ -261,42 +286,35 @@ export function submitUiComposer() {
     created = {
       id: uuid(),
       number: upcomingNumber(),
-      intent: "change",
+      intent: intent === "question" ? "question" : "change",
       status: "open",
       placement: "placed",
       page: draft.page,
       target: draft.target,
-      comments: [
-        { id: uuid(), role: "user", intent: "action", body, createdAt: now, updatedAt: now },
-      ],
+      comments: [message],
     };
     list.push(created);
     S.state.lastAnnotationNumber = created.number;
     S.selectedAnnotation = created.id;
     if (!narrow()) S.annotationsOpen = true;
-    toast(`#${created.number} added`);
+    if (intent === "question") asked = { annotation: created.id, message: message.id };
+    toast(`#${created.number} ${intent === "question" ? "asked — waiting for answer" : "added"}`);
   } else if (a) {
-    a.comments.push({
-      id: uuid(),
-      role: "user",
-      intent: "action",
-      body,
-      createdAt: now,
-      updatedAt: now,
-    });
-    toast("Comment saved");
+    a.comments.push(message);
+    if (intent === "question") asked = { annotation: a.id, message: message.id };
+    toast(intent === "question" ? "Asked — waiting for answer" : "Comment saved");
   }
   // Started before the composer closes, so the row it renders already reads "capturing…".
   if (created) void captureScreenshots(created);
   closeComposer();
   persist();
+  if (asked) void askAgent(asked.annotation, asked.message);
 }
 
 // An annotation's thread controls: the code lane's thread component, keyed by annotation id.
 function threadControls(a: UiAnnotationRecord): ThreadControls {
   return {
     replying: composerTargetsAnnotation(a.id),
-    ask: false,
     reply: () => openComposer(a.id),
     setStatus: (status) => {
       if (S.composerAnnotation === a.id) closeComposer();
@@ -419,7 +437,7 @@ function renderFloatingComposer() {
   }
   const card = document.createElement("div");
   card.className = "annotation";
-  card.append(buildComposer({ ask: false }));
+  card.append(buildComposer());
   host.replaceChildren(...parts, card);
   host.classList.add("show");
   placeFloatingComposer();
@@ -443,20 +461,7 @@ export function placeFloatingComposer() {
   host.style.top = `${top}px`;
 }
 
-// The Send dialog's UI line: what goes, and what doesn't.
-export function uiSendSummary() {
-  const list = annotationsOf();
-  const open = list.filter((a) => a.status === "open" && a.intent === "change");
-  const pages = new Set(open.map((a) => a.page.route)).size;
-  const resolved = list.filter((a) => a.status === "resolved").length;
-  const n = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
-  return {
-    ui: open.length
-      ? `${n(open.length, "change request")} on ${n(pages, "page")}`
-      : "No change requests",
-    uiNotSent: resolved ? `Not sent: ${resolved} resolved` : "",
-  };
-}
+export const uiSendSummary = () => sendSummary(annotationsOf());
 
 export function installUiLane() {
   $("annotationList").addEventListener("click", (e) => {

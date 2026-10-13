@@ -331,8 +331,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Submit as question (Ask)",
     group: "Comment",
     test: cmdShift("Enter"),
-    // The UI lane's composers have no Ask yet.
-    when: () => inComposer() && !S.editingCommentId && !composerInUi(),
+    when: () => inComposer() && !S.editingCommentId,
     typing: true,
     run: () => S.ask?.(),
   },

@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deskAlive } from "./cli.js";
+import { deskLockPath, loadLatestReview, persistReview, reviewDir } from "./state.js";
+import type { ReviewState } from "./types.js";
 
 // A desk lock can outlive its process (crash, SIGKILL) — deskAlive is the only thing standing
 // between "trust the lock" and "trust it only if the server answers" (see state.ts's stablePort
@@ -229,6 +231,123 @@ test("a bare galley restarts a stopped UI-only desk on its persisted target", as
     assert.ok(state.uiProxy, "the proxy is back up");
   } finally {
     for (const c of children) c.kill();
+    await cleanup();
+  }
+});
+
+// ── `galley comment --ui`: live over HTTP, else appended to the saved review ──────────────────
+
+// Async: the fake desk below answers in this process, which spawnSync would block.
+function runCliAsync(args: string[], home: string) {
+  const child = spawn(process.execPath, ["--import", "tsx", CLI, ...args], { env: cliEnv(home) });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (d) => (stdout += d));
+  child.stderr.on("data", (d) => (stderr += d));
+  return new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) =>
+    child.once("close", (status) => resolve({ status, stdout, stderr })),
+  );
+}
+
+// A saved review holding UI question q1, as a desk persisted it.
+async function savedQuestion(repo: string, home: string) {
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const at = "2026-10-13T10:00:00.000Z";
+    const review: ReviewState = {
+      id: "id",
+      session: "s",
+      root: repo,
+      repoHash: "h",
+      mode: "repo",
+      staged: false,
+      head: null,
+      baseDiffHash: "base",
+      createdAt: at,
+      rawDiff: "",
+      files: [],
+      comments: [],
+      changes: [],
+      reviewedFiles: [],
+      stagedFiles: [],
+      ui: { target: "http://localhost:3000/" },
+      annotations: [
+        {
+          id: "q1",
+          number: 1,
+          intent: "question",
+          status: "open",
+          placement: "placed",
+          page: {
+            url: "http://localhost:3000/app",
+            route: "/app",
+            viewport: { width: 1280, height: 800, dpr: 1 },
+          },
+          target: {
+            kind: "element",
+            elements: [
+              { selector: "#save", tag: "button", rect: { x: 0, y: 0, width: 1, height: 1 } },
+            ],
+          },
+          comments: [
+            {
+              id: "m1",
+              role: "user",
+              intent: "question",
+              body: "Why?",
+              createdAt: at,
+              updatedAt: at,
+            },
+          ],
+        },
+      ],
+    };
+    await persistReview(review);
+    const lock = deskLockPath(await reviewDir(repo, "s"));
+    const thread = async () =>
+      (await loadLatestReview(repo, "s"))!.annotations![0]!.comments.map((m) => m.role);
+    return { lock, thread };
+  } finally {
+    process.env.HOME = oldHome;
+  }
+}
+
+test("comment --ui fails, writing nothing, when the live desk takes the request but doesn't answer it", async () => {
+  const { repo, home, cleanup } = await tempRepo(false);
+  // A desk that is up (its state answers) but whose reply route drops the connection.
+  const desk = http.createServer((req, res) => {
+    if (req.url === "/api/state") res.end("{}");
+    else req.socket.destroy();
+  });
+  await new Promise<void>((resolve) => desk.listen(0, "127.0.0.1", resolve));
+  try {
+    const { lock, thread } = await savedQuestion(repo, home);
+    const address = desk.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    await writeFile(
+      lock,
+      JSON.stringify({ pid: process.pid, url: `http://127.0.0.1:${port}/`, session: "s" }),
+    );
+    const args = ["comment", "--repo", repo, "--session", "s", "--ui", "q1", "--body", "Because."];
+    const failed = await runCliAsync(args, home);
+    assert.equal(failed.status, 1);
+    assert.match(failed.stderr, /desk .* didn't take the reply/);
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      assert.deepEqual(await thread(), ["user"], "nothing written behind the live desk");
+      // The desk is gone: the reply goes into the saved review instead.
+      await new Promise((resolve) => desk.close(resolve));
+      const offline = await runCliAsync(args, home);
+      assert.equal(offline.status, 0, offline.stderr);
+      assert.equal((JSON.parse(offline.stdout) as { live: boolean }).live, false);
+      assert.deepEqual(await thread(), ["user", "agent"]);
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  } finally {
+    desk.close();
     await cleanup();
   }
 });
