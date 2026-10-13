@@ -70,8 +70,18 @@ test("a field named by a label around it takes the label's words, not its own or
   assert.equal(describeElement($("#owner")).name, "Default matter owner");
   assert.equal(describeElement($("#notes")).name, "Notes");
   assert.equal(describeElement($("#receipt")).name, "Receipt for this matter");
-  assert.equal(describeElement($("#filter")).name, "Show rows");
+  // A label without `for` names only its first field; the field after it still stays out of it.
+  assert.equal(describeElement($("#rows")).name, "Show rows");
   assert.equal(labelOf($("#owner")).name, "Default matter owner");
+});
+
+test("a field named through aria-labelledby skips the fields inside what it points at", () => {
+  const $ = page(`
+    <div id="l">Notes <textarea id="notes" aria-labelledby="l">Call the client back</textarea></div>
+    <span id="m">Owner <select><option>Dana Kim</option></select></span>
+    <input id="owner" aria-labelledby="m">`);
+  assert.equal(describeElement($("#notes")).name, "Notes");
+  assert.equal(describeElement($("#owner")).name, "Owner");
 });
 
 test("page text is capped: text 300, name 200, attributes 200, outline 2 KB", () => {

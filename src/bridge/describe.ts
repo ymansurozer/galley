@@ -150,12 +150,15 @@ export function nameOf(el: Element): string | undefined {
   return name ? cap(name, CAPS.name) : undefined;
 }
 
-// The text of the elements aria-labelledby points at.
+// The words of the elements aria-labelledby points at, fields inside them skipped as in a label.
 const labelledBy = (el: Element) =>
   squash(
     (el.getAttribute("aria-labelledby") ?? "")
       .split(/\s+/)
-      .map((id) => (id ? el.ownerDocument.getElementById(id)?.textContent : ""))
+      .map((id) => {
+        const ref = id ? el.ownerDocument.getElementById(id) : null;
+        return ref ? wordsOf(ref) : "";
+      })
       .join(" "),
   );
 
