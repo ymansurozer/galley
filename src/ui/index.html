@@ -3814,6 +3814,15 @@
       letter-spacing: .03em
     }
 
+    /* The rail runs the page's full height, so its tip can't open below it: there it would be out
+       of sight and make the page taller than the window. It opens to the left, by the icon. */
+    .ann-rail[data-tip]::after {
+      top: 6px;
+      left: auto;
+      right: calc(100% + 6px);
+      transform: none
+    }
+
     .annotations-closed .ann-rail {
       display: flex
     }
