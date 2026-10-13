@@ -17,15 +17,33 @@ type ReviewFile = ReviewState["files"][number];
 // Stage a whole file. A working-mode move pair (issue 02) stages BOTH paths — `git add`-ing the
 // old (deleted) path records the deletion, so the index ends with a rename. Only in working-repo
 // mode: pr approve is a pure verdict, and staged mode can't contain these pairs. stagedFiles
-// still records the new path once, as for any file.
-async function stageFile(file: ReviewFile) {
+// still records the new path once, as for any file — and only once the index took it. api()
+// resolves an error body too, so success is the body's `ok`; false means nothing was staged.
+async function stageFile(file: ReviewFile): Promise<boolean> {
   const path = file.path;
   const moved = file.oldPath && file.newPath && file.oldPath !== file.newPath;
   const pairMove = moved && S.state.mode === "repo" && !S.state.staged;
   const body = pairMove ? { paths: [file.oldPath, path] } : { path };
-  await api("/api/stage", { method: "POST", body: JSON.stringify(body) });
+  const res = await api<{ ok?: boolean }>("/api/stage", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }).catch(() => null);
+  if (!res?.ok) return false;
   S.state.stagedFiles = S.state.stagedFiles || [];
   if (!S.state.stagedFiles.includes(path)) S.state.stagedFiles.push(path);
+  return true;
+}
+
+// Re-stage one block a Reset unstaged, recording its key only once the index took it.
+async function stageChange(path: string, key: string): Promise<boolean> {
+  const res = await api<{ ok?: boolean }>("/api/stage-change", {
+    method: "POST",
+    body: JSON.stringify({ path, stableKey: key.slice(path.length + 1) }),
+  }).catch(() => null);
+  if (!res?.ok) return false;
+  S.state.stagedChangeKeys = S.state.stagedChangeKeys || [];
+  if (!S.state.stagedChangeKeys.includes(key)) S.state.stagedChangeKeys.push(key);
+  return true;
 }
 
 export function approveCurrentFile() {
@@ -42,11 +60,15 @@ export async function approveFile(path: string, { advance }: { advance: boolean 
   if (!file) return;
   signOff(S.state, file);
   // A file with objections (a rejected hunk or open requested-change comment) is "changes
-  // requested" — the agent still has work on it, so never stage it. Clean → stage if enabled.
+  // requested" — the agent still has work on it, so never stage it. Clean → stage if enabled,
+  // except in pr mode, which has no index to stage into.
   const clean = !fileObjections(path);
-  if (clean && S.settings.stageOnAccept) await stageFile(file);
+  const stage = clean && S.settings.stageOnAccept && S.state.mode !== "pr";
+  // The sign-off is the verdict and stands either way: a failed stage only leaves it unstaged.
+  const stageFailed = stage && !(await stageFile(file));
   persist();
   const label = clean ? "Approved" : "Marked reviewed";
+  const say = (t: string) => toast(stageFailed ? `${label} — couldn't stage ${path}` : t);
   // The review-complete gate is over in-flow files only (issue 01/07): fully-skimmed files and
   // pure renames left the flow, so they never block completion (and are never auto-approved).
   // One flow-index pass instead of per-file predicate rescans (see flow-index.ts).
@@ -54,7 +76,7 @@ export async function approveFile(path: string, { advance }: { advance: boolean 
   const scope = S.state.files.filter((f) => !ix.outOfFlow.has(f.path));
   // Every in-flow file signed off → the review is done: prompt to send it back to the agent.
   if (scope.every((f) => S.state.reviewedFiles!.includes(f.path))) {
-    toast(`${label} — review complete`);
+    say(`${label} — review complete`);
     render();
     S.promptFinish?.();
     return;
@@ -62,7 +84,7 @@ export async function approveFile(path: string, { advance }: { advance: boolean 
   // Each sign-off toasts the running score ("7 of 12 files · 58%") so progress is felt at the
   // moment it moves, not just visible in the bar. % matches the strip (LOC-weighted by default).
   const done = scope.filter((f) => ix.reviewState(f.path) !== "pending").length;
-  toast(`${label} — ${done} of ${scope.length} files · ${guideProgress().pct}%`);
+  say(`${label} — ${done} of ${scope.length} files · ${guideProgress().pct}%`);
   // Seek the next unreviewed file, wrapping past the end so a reviewer who jumped ahead is
   // carried back to the files they skipped instead of dead-ending here.
   const next = advance ? nextUnreviewedFileIndex(S.fileIndex) : null;
@@ -97,22 +119,16 @@ export function resetReview(path: string) {
 
 async function undoReset(state: ReviewState, prior: FileReview, unstaged: Promise<unknown>) {
   // A reload since the Reset swapped the state out; the capture describes the one it replaced.
-  if (S.state !== state) return;
+  if (S.state !== state) return toast("Can't undo — the diff changed");
   restoreFileReview(state, prior);
   deferRender(true);
-  toast("Reset undone");
   persist();
   // Re-stage once the Reset's unstage has landed, through the endpoints that staged it.
   await unstaged;
   const file = state.files.find((f) => f.path === prior.path);
-  if (prior.staged && file) await stageFile(file).catch(() => {});
-  for (const key of prior.stagedChangeKeys) {
-    const stableKey = key.slice(prior.path.length + 1);
-    await api("/api/stage-change", {
-      method: "POST",
-      body: JSON.stringify({ path: prior.path, stableKey }),
-    }).catch(() => {});
-  }
+  let staged = !prior.staged || (!!file && (await stageFile(file)));
+  for (const key of prior.stagedChangeKeys) staged = (await stageChange(prior.path, key)) && staged;
+  toast(staged ? "Reset undone" : `Restored — couldn't re-stage ${prior.path}`);
 }
 
 // Reject a whole file in one action, for the oversized-file card (issue 05): its blocks aren't

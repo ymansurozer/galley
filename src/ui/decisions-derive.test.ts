@@ -8,6 +8,7 @@ import { parseDiffFromFile } from "@pierre/diffs";
 import { buildReviewResult, buildReviewState, readFileContents } from "../state.js";
 import type { ReviewState } from "../types.js";
 import {
+  acceptSignedOffBlocks,
   captureFileReview,
   changeStableKey,
   clearFileReview,
@@ -117,7 +118,7 @@ test("signing off a file under an open change request marks it changes-requested
   });
 });
 
-test("a cleared file review restores exactly: blocks, decisions, sign-off, hash and staging", async () => {
+test("a cleared file review restores exactly, leaving re-staging to the caller", async () => {
   await withRepo(async (state) => {
     signOff(state, fileOf(state, "a.ts"));
     signOff(state, fileOf(state, "b.ts"));
@@ -130,8 +131,6 @@ test("a cleared file review restores exactly: blocks, decisions, sign-off, hash 
         decisionFiles: [...(state.decisionFiles ?? [])].sort(),
         reviewedFiles: [...state.reviewedFiles].sort(),
         reviewedFileHashes: state.reviewedFileHashes,
-        stagedFiles: [...state.stagedFiles].sort(),
-        stagedChangeKeys: [...(state.stagedChangeKeys ?? [])].sort(),
       });
     const before = slice();
 
@@ -148,5 +147,52 @@ test("a cleared file review restores exactly: blocks, decisions, sign-off, hash 
     restoreFileReview(state, prior);
     assert.deepEqual(slice(), before);
     assert.deepEqual(result(state).approvedFiles.sort(), ["a.ts", "b.ts"]);
+    // What to re-stage rides on the capture; the records wait for the index to take it.
+    assert.equal(prior.staged, true);
+    assert.deepEqual(prior.stagedChangeKeys, ["a.ts:additions:2:1:1"]);
+    assert.deepEqual(state.stagedFiles, ["b.ts"]);
+    assert.deepEqual(state.stagedChangeKeys, ["b.ts:additions:1:0:2"]);
+  });
+});
+
+test("an untracked file signed off unopened accepts its block once opening derives it", async () => {
+  await withRepo(async (state) => {
+    const b = fileOf(state, "b.ts");
+    signOff(state, b);
+    assert.deepEqual(result(state).accepted, [], "no server block to accept at sign-off");
+    // What opening it derives (changes.ts deriveChanges): one undecided block, with no server
+    // contentHash to carry over.
+    state.changes.push({
+      id: "b.ts:additions:1:0:2",
+      path: "b.ts",
+      hunkIndex: 0,
+      changeIndex: 0,
+      stableKey: "additions:1:0:2",
+      side: "additions",
+      lineNumber: 1,
+      endLine: 2,
+      title: "0 removed · 2 added",
+      status: "pending",
+    });
+    assert.equal(acceptSignedOffBlocks(state, b), true);
+    assert.equal(state.changes.find((c) => c.path === "b.ts")?.status, "accepted");
+    assert.deepEqual(result(state).accepted, [
+      { path: "b.ts", lineNumber: 1, side: "additions", title: "0 removed · 2 added" },
+    ]);
+    assert.deepEqual(result(state).approvedFiles, ["b.ts"]);
+    assert.equal(acceptSignedOffBlocks(state, b), false, "nothing left to accept");
+  });
+});
+
+test("blocks of a file not signed off, or signed off against older content, stay pending", async () => {
+  await withRepo(async (state) => {
+    assert.equal(acceptSignedOffBlocks(state, fileOf(state, "a.ts")), false, "never signed off");
+    const d = fileOf(state, "d.ts");
+    signOff(state, d);
+    state.reviewedFileHashes!["d.ts"] = "older-content";
+    state.changes.find((c) => c.path === "d.ts")!.status = "pending";
+    assert.equal(acceptSignedOffBlocks(state, d), false);
+    assert.equal(state.changes.find((c) => c.path === "d.ts")?.status, "pending");
+    assert.ok(state.changes.filter((c) => c.path === "a.ts").every((c) => c.status === "pending"));
   });
 });

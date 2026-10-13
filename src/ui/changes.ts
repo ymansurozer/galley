@@ -1,8 +1,8 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
-import { S, D } from "./store";
+import { S, D, persist } from "./store";
 import { cur } from "./contents";
 import { buildLineMap, type DecidedPosition } from "./linemap";
-import { changeStableKey } from "./decisions-derive";
+import { acceptSignedOffBlocks, changeStableKey } from "./decisions-derive";
 import { deriveFlowIndex, type FlowIndex } from "./flow-index";
 import type { ChangeState, ReviewComment, ReviewState, Side } from "./types";
 
@@ -126,6 +126,9 @@ export function ensureChangesFromFileDiff(diff = D.fileDiff) {
   const previous = new Map(S.state.changes.filter((c) => c.path === path).map((c) => [c.id, c]));
   const derived = deriveChanges(diff, path, previous);
   S.state.changes = S.state.changes.filter((c) => c.path !== path).concat(derived);
+  // Blocks a sign-off couldn't see (an untracked add signed off unopened) are accepted now.
+  const file = S.state.files.find((f) => f.path === path);
+  if (file && acceptSignedOffBlocks(S.state, file)) persist();
 }
 
 export function findChangePosition(diff: FileDiffMetadata, stableKey: string) {

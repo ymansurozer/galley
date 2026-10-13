@@ -4404,7 +4404,7 @@
               <span class="walk-skim-count" x-show="r.kind==='cat' && r.skimmed" x-text="r.total + (r.total===1 ? ' file' : ' files')"></span>
               <!-- File status leads the row (empty circle = to do); ± stay flush right below. A click
                    signs the file off or resets it, as in the Files tab. -->
-              <button type="button" class="st-btn" x-show="r.kind==='file'" @click.stop="$store.g.statusClick(r.path, $event)" @mousedown.prevent
+              <button type="button" class="st-btn" x-show="r.kind==='file' && r.state" @click.stop="$store.g.statusClick(r.path, $event)" @mousedown.prevent
                 @mouseenter="$store.g.statusHint($el, r.path)" @focus="$store.g.statusHint($el, r.path)">
                 <svg class="ic st pending" x-show="r.state==='pending'"><use href="#gly-circle"></use></svg>
                 <svg class="ic st approved" x-show="r.state==='approved'"><use href="#gly-check"></use></svg>

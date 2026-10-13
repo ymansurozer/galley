@@ -98,8 +98,9 @@ export function clearFileReview(state: ReviewState, path: string) {
   state.stagedFiles = (state.stagedFiles || []).filter((p) => p !== path);
 }
 
-// Undo a Reset: put the captured review back over whatever the file holds now. The staging
-// record is restored here; re-staging the index is the caller's.
+// Undo a Reset: put the captured review back over whatever the file holds now. Staging is the
+// caller's — it re-stages from `prior.staged`/`prior.stagedChangeKeys` and records each stage
+// only once the index took it.
 export function restoreFileReview(state: ReviewState, prior: FileReview) {
   const { path } = prior;
   for (const c of state.changes) {
@@ -116,10 +117,22 @@ export function restoreFileReview(state: ReviewState, prior: FileReview) {
   };
   state.decisionFiles = restore(state.decisionFiles, prior.decided);
   state.reviewedFiles = restore(state.reviewedFiles, prior.reviewed);
-  state.stagedFiles = restore(state.stagedFiles, prior.staged);
   state.reviewedFileHashes = state.reviewedFileHashes || {};
   if (prior.reviewedHash) state.reviewedFileHashes[path] = prior.reviewedHash;
   else delete state.reviewedFileHashes[path];
-  state.stagedChangeKeys = (state.stagedChangeKeys || []).filter((k) => !ownKey(path)(k));
-  state.stagedChangeKeys.push(...prior.stagedChangeKeys);
+}
+
+// A file signed off before its blocks were known accepts them once they're derived — exactly
+// what the sign-off would have recorded. An untracked add carries no server block, so signing it
+// off unopened (the sidebar, the oversized card) accepted nothing; opening it derives its block
+// client-side. Only while that sign-off is current: the hash it recorded still matches the file.
+// Returns whether any block was accepted (the caller saves).
+export function acceptSignedOffBlocks(state: ReviewState, file: ReviewFile): boolean {
+  const path = file.path;
+  const h = state.reviewedFileHashes?.[path];
+  const current = state.reviewedFiles.includes(path) && !!h && h === file.contentHash;
+  if (!current || !state.changes.some((c) => c.path === path && c.status === "pending"))
+    return false;
+  signOff(state, file);
+  return true;
 }
