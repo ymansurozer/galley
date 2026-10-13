@@ -48,7 +48,7 @@ I'm not saying this is *the* review surface. I built it in a week and I'm still 
    galley pr feature-branch     # review a branch's commits vs its merge-base
    ```
 
-   Galley prints the desk's URL and stays running; open it in your browser (or pass `--open` and Galley opens the tab for you). You review and click **Send to Agent**; the agent attaches, acts on each send, and replies in the same tab. The full agent contract — modes, the event loop, all flags (`--repo`, `--path`, `--port`, `--open`, `--guide`, …), `ReviewResult`, and the guided-review schema — is printed by **`galley spec`**.
+   Galley prints the desk's URL and stays running; open it in your browser (or pass `--open` and Galley opens the tab for you). You review and click **Send to Agent**; the agent attaches, acts on each send, and replies in the same tab. The full agent contract — modes, the event loop, all flags (`--path`, `--port`, `--open`, `--guide`, …), `ReviewResult`, and the guided-review schema — is printed by **`galley spec`**.
 
 ### Reviewing on a remote machine
 
