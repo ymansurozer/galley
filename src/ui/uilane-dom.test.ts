@@ -4,7 +4,7 @@ import { Window } from "happy-dom";
 import { esc } from "./html";
 import type { UiAnnotationRecord, UiElement } from "./types";
 import { sourcePlace } from "./uilane-derive";
-import { composerHead, pageHead, rowLine, shotLink, sourceLink } from "./uilane-dom";
+import { composerHead, pageHead, quoteLine, rowLine, shotLink, sourceLink } from "./uilane-dom";
 
 // What a hostile app page might send as a selector, a route or a title: a quote that would end an
 // attribute in string-built HTML, then a handler that fires in the desk's origin.
@@ -49,12 +49,51 @@ test("the composer head shows a hostile selector and name as text", () => {
     rect: { x: 0, y: 0, width: 1, height: 1 },
   };
   let cancelled = false;
-  const head = composerHead(d, el, 3, () => (cancelled = true));
+  const head = composerHead(
+    d,
+    { kind: "element", elements: [el] },
+    "/x",
+    3,
+    () => (cancelled = true),
+  );
   assert.ok(!attributeNames(head).some((n) => n.startsWith("on") || n === "data-x"));
   assert.equal(head.querySelector(".uc-target")!.getAttribute("title"), HOSTILE);
   assert.equal(head.querySelector(".uc-target")!.textContent, `button · "${HOSTILE}"`);
   head.querySelector<HTMLButtonElement>(".uc-close")!.click();
   assert.ok(cancelled);
+});
+
+test("the composer head names a region, a page and several elements, with their selectors or route", () => {
+  const d = doc();
+  const el = (selector: string): UiElement => ({
+    selector,
+    tag: "button",
+    rect: { x: 0, y: 0, width: 1, height: 1 },
+  });
+  const target = (head: HTMLElement) => head.querySelector(".uc-target")!;
+  const several = composerHead(
+    d,
+    { kind: "element", elements: [el("#a"), el(HOSTILE)] },
+    "/x",
+    1,
+    () => {},
+  );
+  assert.equal(target(several).textContent, "button +1 more");
+  assert.equal(target(several).getAttribute("title"), `#a\n${HOSTILE}`);
+  const rect = { x: 0, y: 0, width: 200, height: 80 };
+  const region = composerHead(d, { kind: "region", rect, elements: [el("#a")] }, "/x", 2, () => {});
+  assert.equal(target(region).textContent, "Region 200 × 80 · 1 element");
+  const page = composerHead(d, { kind: "page" }, `/x?${HOSTILE}`, 3, () => {});
+  assert.equal(target(page).textContent, "Whole page");
+  assert.equal(target(page).getAttribute("title"), `/x?${HOSTILE}`);
+  assert.ok(!attributeNames(page).some((n) => n.startsWith("on") || n === "data-x"));
+});
+
+test("the composer quotes a hostile text selection as text", () => {
+  const quote = quoteLine(doc(), `<img src=x onerror="alert(1)"> ${HOSTILE}`);
+  assert.equal(quote.textContent, `“<img src=x onerror="alert(1)"> ${HOSTILE}”`);
+  assert.equal(quote.querySelector("img"), null);
+  assert.deepEqual(attributeNames(quote), ["class"]);
 });
 
 test("a source link shows a hostile path and component as text, and opens the editor", () => {

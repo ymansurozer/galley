@@ -1,6 +1,7 @@
 import { domToCanvas } from "modern-screenshot";
 import type { BridgeShot, Rect } from "../types";
-import { atRenderScroll, cropFrame, markShape } from "./crop";
+import { atRenderScroll, cropFrame, markShape, unionRect } from "./crop";
+import type { Located } from "./targets";
 
 // Marks the bridge's own overlay host (outline, markers, labels). A capture never includes it: an
 // annotation's mark is drawn onto the image, not rendered from the page.
@@ -12,10 +13,11 @@ const ASSET_TIMEOUT = 10_000;
 // Screenshots by re-rendering the live DOM (modern-screenshot clones the page with its computed
 // styles, input values and embedded fonts/images into an SVG and draws that), not by reading the
 // screen's pixels: tab capture needs a secure origin, which the devbox desk isn't. One render makes
-// the viewport image, and the crop is cut from it so both show the same instant. With `mark`, the
-// annotation's mark is drawn around the target before the crop is cut, so both images carry it.
+// the viewport image, and the crop is cut from it so both show the same instant. The crop frames
+// all of the target's boxes. With `mark`, the target's mark is drawn on before the crop is cut, so
+// both images carry it.
 export async function capturePage(
-  target: Element | Rect | null,
+  target: Located | null,
   mark?: { number: number; question: boolean },
 ): Promise<BridgeShot> {
   const start = performance.now();
@@ -24,10 +26,13 @@ export async function capturePage(
   // The layout viewport (scrollbars excluded), the frame element rects are measured in.
   const view = { width: root.clientWidth, height: root.clientHeight };
   const scroll = { x: scrollX, y: scrollY };
-  // The crop's box. A target element is measured again when the renderer reaches it, the moment
-  // its clone samples it, so one that moves during a long render is cut where the image shows it.
-  // Measuring after the render would be later than what the image shows.
-  let box = target instanceof Element ? target.getBoundingClientRect() : target;
+  // How far the target moved while the page rendered. Its anchor element is measured again when
+  // the renderer reaches it, the moment its clone samples it, so a target that moves during a long
+  // render is cut where the image shows it. Measuring after the render would be later than what
+  // the image shows.
+  const anchor = target?.anchor ?? null;
+  const anchorAt = anchor?.getBoundingClientRect();
+  let moved = { x: 0, y: 0 };
   const fields = formFields();
   const canvas = await domToCanvas(root, {
     ...view,
@@ -35,8 +40,14 @@ export async function capturePage(
     timeout: ASSET_TIMEOUT,
     filter: (node) => {
       if (node instanceof Element && node.hasAttribute(OVERLAY_ATTR)) return false;
-      if (target instanceof Element && node === target)
-        box = atRenderScroll(target.getBoundingClientRect(), { x: scrollX, y: scrollY }, scroll);
+      if (anchor && anchorAt && node === anchor) {
+        const now = atRenderScroll(
+          anchor.getBoundingClientRect(),
+          { x: scrollX, y: scrollY },
+          scroll,
+        );
+        moved = { x: now.x - anchorAt.x, y: now.y - anchorAt.y };
+      }
       fields.seen(node);
       return true;
     },
@@ -51,8 +62,11 @@ export async function capturePage(
       fields.finish(clone);
     },
   });
-  const frame = box && cropFrame(box, view, dpr);
-  if (mark && frame && box) drawMark(canvas, markShape(box, view), dpr, mark);
+  const move = (b: Rect): Rect => ({ ...b, x: b.x + moved.x, y: b.y + moved.y });
+  const boxes = target && ([move(target.boxes[0]), ...target.boxes.slice(1).map(move)] as const);
+  const frame = boxes && cropFrame(unionRect(boxes), view, dpr);
+  if (mark && frame && target && boxes)
+    drawMark(canvas, markShape(target.kind, boxes, view), dpr, mark);
   const [viewport, crop] = await Promise.all([
     toPng(canvas),
     frame ? toPng(cut(canvas, frame)) : null,
@@ -126,14 +140,14 @@ function formFields() {
   };
 }
 
-// The annotation's mark as the page's selected pin looks (annotate.ts): an outline around the
-// target, and the numbered pin in a white ring with a soft shadow, amber for a change request and
-// cyan for a question.
+// The annotation's mark as the page draws a selected one (annotate.ts): outlines around the
+// elements, the region's dashed box or the quote's highlight, and the numbered pin in a white ring
+// with a soft shadow, amber for a change request and cyan for a question.
 const MARK = { change: "#e0af68", question: "#00a8ff" };
 
 function drawMark(
   canvas: HTMLCanvasElement,
-  { outline, pin }: ReturnType<typeof markShape>,
+  { shapes, pin }: ReturnType<typeof markShape>,
   dpr: number,
   { number, question }: { number: number; question: boolean },
 ) {
@@ -142,11 +156,28 @@ function drawMark(
   const color = question ? MARK.question : MARK.change;
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(outline.x, outline.y, outline.width, outline.height, 4);
-  ctx.stroke();
+  ctx.strokeStyle = ctx.fillStyle = color;
+  for (const { style, rect } of shapes) {
+    ctx.beginPath();
+    ctx.roundRect(rect.x, rect.y, rect.width, rect.height, style === "outline" ? 4 : 2);
+    if (style === "highlight") {
+      ctx.globalAlpha = 0.34;
+      ctx.fill();
+    } else if (style === "dashed") {
+      ctx.globalAlpha = 0.09;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+    } else {
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.setLineDash([]);
   const label = String(number);
   ctx.font = "700 11px Geist, ui-sans-serif, system-ui, sans-serif";
   const width = Math.max(20, ctx.measureText(label).width + 10);

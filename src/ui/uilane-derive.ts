@@ -1,4 +1,12 @@
-import type { Rect, UiAnnotationRecord, UiMark, UiSource, UiTarget } from "./types";
+import type {
+  Rect,
+  UiAnnotationRecord,
+  UiElement,
+  UiMark,
+  UiMarkTarget,
+  UiSource,
+  UiTarget,
+} from "./types";
 
 // Pure derivations for the UI lane's sidebar, pins and composer (store-free, so they unit-test —
 // see skim-derive.ts for the pattern). uilane.ts is the store-reading side.
@@ -137,9 +145,55 @@ export function rowTitle(a: UiAnnotationRecord): string {
     .join(" · ");
 }
 
+// The elements a target names: an element or region target's, a text target's holder, none for a
+// page.
+export const targetElements = (target: UiTarget): UiElement[] =>
+  target.kind === "page" ? [] : target.kind === "text" ? [target.element] : target.elements;
+
 // The source an annotation shows: its first element's that has one.
 export const annotationSource = (target: UiTarget): UiSource | undefined =>
-  target.elements.find((el) => el.source)?.source;
+  targetElements(target).find((el) => el.source)?.source;
+
+// An element as the composer names it: role (else tag) and accessible name.
+const elementLabel = (el: UiElement) => {
+  const what = el.role ?? el.tag;
+  return el.name ? `${what} · "${el.name}"` : what;
+};
+
+// What the floating composer says it's on.
+export function targetLabel(target: UiTarget): string {
+  if (target.kind === "page") return "Whole page";
+  if (target.kind === "text") return `Text in ${elementLabel(target.element)}`;
+  if (target.kind === "region") {
+    const { rect, elements } = target;
+    const n = elements.length;
+    const size = `Region ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
+    return n ? `${size} · ${n} element${n === 1 ? "" : "s"}` : size;
+  }
+  const [first, ...more] = target.elements;
+  if (!first) return "";
+  return more.length ? `${elementLabel(first)} +${more.length} more` : elementLabel(first);
+}
+
+// Where a new pick's composer starts, until the bridge reports where the pick is now: beside all of
+// its elements, its box, or its text's holder. A page has no anchor.
+export function draftAnchor(target: UiTarget): Rect | null {
+  if (target.kind === "page") return null;
+  if (target.kind === "region") return target.rect;
+  if (target.kind === "text") return target.element.rect;
+  const [first, ...rest] = target.elements;
+  if (!first) return null;
+  let { x, y } = first.rect;
+  let right = x + first.rect.width;
+  let bottom = y + first.rect.height;
+  for (const { rect: r } of rest) {
+    x = Math.min(x, r.x);
+    y = Math.min(y, r.y);
+    right = Math.max(right, r.x + r.width);
+    bottom = Math.max(bottom, r.y + r.height);
+  }
+  return { x, y, width: right - x, height: bottom - y };
+}
 
 // A source as the desk shows it: a label (the last two path segments and the line), what the editor
 // opens (the repo-relative path and line; no path when the file isn't in the repo `root`), and a
@@ -188,29 +242,68 @@ export function stepFrom(order: readonly string[], current: string | null, dir: 
   return order[(i + dir + order.length) % order.length]!;
 }
 
-// The pins for one page: its open annotations, plus a resolved one while it's selected (its row
-// revealed and expanded), drawn dimmed.
+// How the bridge finds a target's mark on the page (types.ts, UiMarkTarget): by its elements'
+// selectors, by its box moving with its first element, or by its quote in its holder. A page target
+// has no mark on the page.
+export function markTarget(target: UiTarget): UiMarkTarget | null {
+  if (target.kind === "page") return null;
+  if (target.kind === "text")
+    return { kind: "text", selector: target.element.selector, quote: target.quote };
+  if (target.kind === "element")
+    return { kind: "element", selectors: target.elements.map((el) => el.selector) };
+  const [first] = target.elements;
+  return first
+    ? { kind: "region", rect: target.rect, anchor: { selector: first.selector, rect: first.rect } }
+    : { kind: "region", rect: target.rect };
+}
+
+// Shown on the page: its open annotations, plus a resolved one while it's selected (its row revealed
+// and expanded), drawn dimmed.
+const shownOn = (a: UiAnnotationRecord, route: string, selected: string | null) =>
+  a.page.route === route && (a.status === "open" || a.id === selected);
+
+// The pins the bridge draws on one page.
 export function marksFor(
   list: readonly UiAnnotationRecord[],
   route: string,
   selected: string | null,
 ): UiMark[] {
-  return list
-    .filter((a) => a.page.route === route && (a.status === "open" || a.id === selected))
+  return list.flatMap((a) => {
+    const target = shownOn(a, route, selected) && markTarget(a.target);
+    return target
+      ? [
+          {
+            id: a.id,
+            number: a.number,
+            target,
+            resolved: a.status === "resolved",
+            question: a.intent === "question",
+          },
+        ]
+      : [];
+  });
+}
+
+// The pins of one page's page annotations, which the address bar shows.
+export const pageMarks = (
+  list: readonly UiAnnotationRecord[],
+  route: string,
+  selected: string | null,
+) =>
+  list
+    .filter((a) => a.target.kind === "page" && shownOn(a, route, selected))
     .map((a) => ({
       id: a.id,
       number: a.number,
-      // An element target has at least one element: the tab and the server both refuse one without.
-      selector: a.target.elements[0]!.selector,
-      resolved: a.status === "resolved",
       question: a.intent === "question",
+      selected: a.id === selected,
     }));
-}
 
 // Where the floating composer goes, in desk coordinates: right of its target, else left of it,
-// else below it (above when there's no room below), always inside the stage.
+// else below it (above when there's no room below), always inside the stage. Without a target (the
+// whole page) it sits at the stage's top right.
 export function placeComposer(
-  target: Rect,
+  target: Rect | null,
   card: { width: number; height: number },
   stage: Rect,
   gap = 12,
@@ -220,6 +313,7 @@ export function placeComposer(
   const maxLeft = Math.max(minLeft, stage.x + stage.width - card.width - margin);
   const minTop = stage.y + margin;
   const maxTop = Math.max(minTop, stage.y + stage.height - card.height - margin);
+  if (!target) return { left: maxLeft, top: minTop };
   const right = target.x + target.width;
   const bottom = target.y + target.height;
   let left: number;

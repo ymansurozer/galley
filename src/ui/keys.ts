@@ -5,6 +5,8 @@ import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
 import { closeComposer, composerInUi } from "./composer";
 import { hasUi, toggleView, uiOnly } from "./appview";
 import {
+  annotatePage,
+  clearPendingPicks,
   closeShot,
   selectAnnotation,
   setAppMode,
@@ -97,7 +99,12 @@ function escape() {
     closeComposer(); // rebuilds the lane so the inline composer's DOM goes away
     return;
   }
-  // The UI view unwinds Annotate first, then the expanded row, then the narrow-width drawer.
+  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate, then the expanded
+  // row, then the narrow-width drawer.
+  if (inUiView() && S.appMode === "annotate" && S.pendingPicks) {
+    clearPendingPicks();
+    return;
+  }
   if (inUiView() && S.appMode === "annotate") {
     setAppMode("interact");
     return;
@@ -398,6 +405,16 @@ const HOTKEYS: Hotkey[] = [
     test: (e) => e.code === "KeyA" && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey,
     when: () => inUiView() && !inModal(),
     run: () => toggleAppMode(),
+  },
+  {
+    combo: "⌥P",
+    desc: "Annotate the whole page",
+    group: "UI",
+    // By code, not key: ⌥P types "π" on a Mac keyboard. From inside the app it arrives only while
+    // annotating (dispatchKey).
+    test: (e) => e.code === "KeyP" && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey,
+    when: () => inUiView() && !inModal(),
+    run: () => annotatePage(),
   },
   {
     combo: "⇧L",

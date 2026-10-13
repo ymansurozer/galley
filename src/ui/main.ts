@@ -52,9 +52,12 @@ import {
 import { installCaptureDebug } from "./capturedebug";
 import { composerInUi } from "./composer";
 import {
+  annotatePage,
   closeShot,
   installUiLane,
   openChanges,
+  pagePins,
+  selectAnnotation,
   setAppMode,
   shotSrc,
   shotTitle,
@@ -509,9 +512,12 @@ S.appForward = appForward;
 S.appRefresh = appRefresh;
 S.appGo = appGo;
 S.setViewport = setViewport;
-// Its annotations (uilane.ts): the mode toggle, the sidebar, the header's open and waiting counts,
-// and the enlarged screenshot.
+// Its annotations (uilane.ts): the mode toggle, the page annotation button and the address bar's
+// page pins, the sidebar, the header's open and waiting counts, and the enlarged screenshot.
 S.setAppMode = setAppMode;
+S.annotatePage = annotatePage;
+S.pagePins = pagePins;
+S.selectAnnotation = selectAnnotation;
 S.toggleAnnotations = toggleAnnotations;
 S.openChanges = openChanges;
 S.waitingQuestions = waitingQuestions;

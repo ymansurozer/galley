@@ -1,6 +1,7 @@
-import type { BridgeMessage, BridgeNav, DeskMessage, Rect } from "../types";
+import type { BridgeMessage, BridgeNav, DeskMessage, UiMarkTarget } from "../types";
 import { installAnnotate } from "./annotate";
 import { capturePage } from "./capture";
+import { locate, type Located } from "./targets";
 
 // The bridge: the desk's UI proxy injects it as the first script in every proxied HTML page. It is
 // the app page's only line to the desk, and the line is postMessage to the parent desk frame, never
@@ -65,20 +66,14 @@ import { capturePage } from "./capture";
   addEventListener("pagehide", () => post({ type: "leave", token }));
   const annotate = installAnnotate(post, token);
 
-  // The crop's target: the selector's element, else the rect the desk sent. A selector that matches
-  // nothing (or doesn't parse) gives no crop rather than failing the capture.
-  const captureTarget = (
-    msg: Partial<Extract<DeskMessage, { type: "capture" }>>,
-  ): Element | Rect | null => {
-    if (typeof msg.selector === "string") {
-      try {
-        return document.querySelector(msg.selector);
-      } catch {
-        return null;
-      }
+  // The crop's target, found as its mark would be. A target that isn't on the page (or that this
+  // page can't read) gives no crop rather than failing the capture.
+  const captureTarget = (target: UiMarkTarget | undefined): Located | null => {
+    try {
+      return target ? locate(document, target) : null;
+    } catch {
+      return null;
     }
-    const r = msg.rect;
-    return r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? r : null;
   };
 
   addEventListener("message", (e: MessageEvent) => {
@@ -100,6 +95,7 @@ import { capturePage } from "./capture";
       annotate.setMode(msg.mode);
     else if (msg.type === "marks" && Array.isArray(msg.marks))
       annotate.setMarks(msg.marks, msg.selected ?? null, msg.picking === true);
+    else if (msg.type === "clearPicks") annotate.clearPicks();
     else if (msg.type === "capture" && typeof msg.id === "number") {
       const id = msg.id;
       const number = msg.mark?.number;
@@ -107,7 +103,7 @@ import { capturePage } from "./capture";
         typeof number === "number" && Number.isSafeInteger(number)
           ? { number, question: msg.mark?.question === true }
           : undefined;
-      capturePage(captureTarget(msg), mark).then(
+      capturePage(captureTarget(msg.target), mark).then(
         (shot) => post({ type: "captured", token, id, shot }),
         (err: unknown) =>
           post({

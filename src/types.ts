@@ -304,21 +304,33 @@ export type Rect = { x: number; y: number; width: number; height: number };
 // devicePixelRatio. `crop` frames the requested target plus context padding, and is null when no
 // target was asked for or it lies off-screen. `ms` is the in-page cost of rendering and encoding.
 export type BridgeShot = { viewport: Blob; crop: Blob | null; ms: number };
-// A key the bridge passed up from the app page: ⌥A always, and Esc and ⇧ chords while annotating.
-// The desk runs it through its own hotkey table, as if it had been pressed in the desk.
+// A key the bridge passed up from the app page: ⌥A always, and ⌥P, Esc and ⇧ chords while
+// annotating. The desk runs it through its own hotkey table, as if it had been pressed in the desk.
 export type ForwardedKey = { key: string; code: string; shiftKey: boolean; altKey: boolean };
 // Interact: the app gets every click and key. Annotate: the bridge takes the pointer, and a click
-// picks the element under it.
+// picks the element under it, a drag a box or the text it runs over.
 export type AppMode = "interact" | "annotate";
-// A numbered pin the bridge draws on the current page, at the element `selector` matches: amber for
-// a change request, cyan for a question.
+// A numbered pin the bridge draws on the current page, with its target's mark: amber for a change
+// request, cyan for a question.
 export type UiMark = {
   id: string;
   number: number;
-  selector: string;
+  target: UiMarkTarget;
   resolved: boolean;
   question: boolean;
 };
+// Where a mark goes on the page, found again from what the annotation recorded: on the elements
+// `selectors` match (the pin on the first, all outlined while selected); a dashed box, kept where it
+// sat relative to its `anchor` element as that element moves (where it was drawn, without one); or
+// `quote` highlighted inside the element `selector` matches. A page annotation has no mark on the
+// page: the desk shows its pin in the address bar.
+export type UiMarkTarget =
+  | { kind: "element"; selectors: string[] }
+  | { kind: "region"; rect: Rect; anchor?: { selector: string; rect: Rect } }
+  | { kind: "text"; selector: string; quote: string };
+// What the bridge can pick on the page. A page target is the desk's own: it needs nothing from the
+// page but its route.
+export type PickedTarget = Exclude<UiTarget, { kind: "page" }>;
 export type BridgeMessage =
   // `ready` on every page load (the handshake), `nav` on in-page route/title changes.
   | ({ type: "ready" | "nav"; token: string } & BridgeNav)
@@ -326,8 +338,11 @@ export type BridgeMessage =
   | { type: "leave"; token: string }
   // The answer to the desk's `capture` with the same id.
   | ({ type: "captured"; token: string; id: number } & ({ shot: BridgeShot } | { error: string }))
-  // The reviewer clicked an element in Annotate mode. The desk adds the page's url.
-  | { type: "picked"; token: string; page: Omit<UiPage, "url">; target: UiTarget }
+  // The reviewer picked a target in Annotate mode: clicked an element (or released ⇧ after
+  // ⇧-clicking several), dragged a box, or dragged over text. The desk adds the page's url.
+  | { type: "picked"; token: string; page: Omit<UiPage, "url">; target: PickedTarget }
+  // How many ⇧-clicked elements wait for ⇧'s release: 0 once they're picked or dropped.
+  | { type: "pending"; token: string; count: number }
   // The picked target moved on screen (scroll, layout), so the composer follows it.
   | { type: "anchor"; token: string; rect: Rect }
   // The reviewer clicked an annotation's pin.
@@ -336,18 +351,19 @@ export type BridgeMessage =
 export type DeskMessage =
   | { type: "navigate"; token: string; route: string }
   | { type: "back" | "forward" | "reload"; token: string }
-  // Screenshot the page. The crop target is the element `selector` matches, else `rect`. With
-  // `mark`, an annotation's pin (its number) and a box around the target are drawn onto both images,
-  // in its kind's colour.
+  // Screenshot the page. The crop frames `target`, found as its mark would be. With `mark`, the
+  // target's mark (outlines, the dashed box or the highlight) and the annotation's numbered pin are
+  // drawn onto both images, in its kind's colour.
   | {
       type: "capture";
       token: string;
       id: number;
-      selector?: string;
-      rect?: Rect;
+      target?: UiMarkTarget;
       mark?: { number: number; question: boolean };
     }
   | { type: "mode"; token: string; mode: AppMode }
+  // Drop the ⇧-clicked elements waiting for ⇧'s release (the Esc cascade's level for them).
+  | { type: "clearPicks"; token: string }
   // The pins for the current page, the selected annotation (outlined, scrolled into view), and
   // whether the composer is open on the last pick (its highlight stays until the composer closes).
   | { type: "marks"; token: string; marks: UiMark[]; selected: string | null; picking: boolean };
@@ -399,12 +415,24 @@ export type UiPage = {
   title?: string;
   viewport: { width: number; height: number; dpr: number };
 };
-export type UiTarget = { kind: "element"; elements: UiElement[] };
+// What an annotation points at.
+export type UiTarget =
+  // 1–16 elements: a click, or ⇧-clicks gathered until ⇧ is released.
+  | { kind: "element"; elements: UiElement[] }
+  // A dragged box (in the viewport, like an element's rect) over anything, canvas or empty space
+  // included, and the meaningful elements wholly inside it: controls, landmarks, headings, media
+  // and elements with text of their own, outermost first, 0–16. Best effort.
+  | { kind: "region"; rect: Rect; elements: UiElement[] }
+  // Text dragged over: the quote, whitespace collapsed, and the element holding all of it, as a
+  // click on it would pick it.
+  | { kind: "text"; quote: string; element: UiElement }
+  // The page itself (its route), with nothing on it singled out.
+  | { kind: "page" };
 // Caps on page-sourced data: string lengths, and the attrs and elements counts. The bridge, the tab
 // and the server each keep a runtime copy typed as UiCaps (the worlds share no runtime code), so a
 // copy that drifts fails the typecheck. `name` also caps role, landmark, heading and a source's
-// component. A selector or a source file over its cap is refused rather than cut: cut short, it
-// points at something else.
+// component, and `elements` a target's elements. A selector or a source file over its cap is
+// refused rather than cut: cut short, it points at something else.
 export type UiCaps = {
   selector: 512;
   file: 1024;
@@ -416,6 +444,7 @@ export type UiCaps = {
   url: 2048;
   route: 2048;
   title: 300;
+  quote: 500;
   elements: 16;
 };
 // An annotation as the desk keeps it. Its body is the opening message of `comments`, which the
@@ -527,8 +556,9 @@ export type CodeQuestion = {
   session: string;
 };
 // Answered with `galley comment --ui <annotationId>`. `number` is the annotation's pin, `route` its
-// page, and `target` a one-line summary of what it points at (role and name, how many more elements,
-// the source's file:line), built from page-sourced data.
+// page, and `target` a one-line summary of what it points at (a region's size, a quote, or the
+// whole page; role and name, how many more elements, the source's file:line), built from
+// page-sourced data.
 export type UiQuestion = {
   lane: "ui";
   annotationId: string;

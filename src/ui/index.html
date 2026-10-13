@@ -3205,6 +3205,38 @@
       font-variant-numeric: tabular-nums
     }
 
+    /* A page annotation's pin: in the address bar, since it has no spot on the page. Tinted by
+       kind like the page's pins (amber change request, cyan question). */
+    .chrome .pagepins {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 3px
+    }
+
+    .chrome .pagepin {
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border: 0;
+      border-radius: var(--radius-pill);
+      display: inline-grid;
+      place-items: center;
+      background: var(--amber);
+      color: var(--on-accent);
+      font-size: var(--text-2xs);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      cursor: pointer
+    }
+
+    .chrome .pagepin.q {
+      background: var(--cyan)
+    }
+
+    .chrome .pagepin.sel {
+      box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--cyan-line-strong)
+    }
+
     /* After `galley reload`: the app is never reloaded under the reviewer — this asks. */
     .pill-refresh {
       flex: 0 0 auto;
@@ -3904,6 +3936,23 @@
       margin: 0 2px 8px
     }
 
+    /* A text annotation's quote, under the composer's head: three lines at most. */
+    .uc-quote {
+      margin: 0 2px 8px;
+      padding: 4px 8px;
+      border-left: 2px solid var(--amber);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      background: color-mix(in oklab, var(--amber) 6%, transparent);
+      color: var(--ink);
+      font-size: var(--text-sm);
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
+      overflow: hidden
+    }
+
     .src-chip {
       display: inline-flex;
       align-items: center;
@@ -3986,7 +4035,8 @@
 
       .chrome .vpsize,
       .chrome .mode kbd,
-      .chrome .mode button span {
+      .chrome .mode button span,
+      .mode-hint .opt {
         display: none
       }
 
@@ -4250,6 +4300,10 @@
               <span class="host" x-text="$store.g.appHost()"></span>
               <input x-ref="addr" :value="$store.g.app.route" spellcheck="false" autocomplete="off" aria-label="App route"
                 @keydown.escape="$event.target.value = $store.g.app.route; $event.target.blur()">
+              <!-- The page's own annotations: their pins live here, not on the page. -->
+              <span class="pagepins"><template x-for="m in $store.g.pagePins()" :key="m.id"><button type="button"
+                    class="pagepin" :class="{q: m.question, sel: m.selected}" :title="'#' + m.number + ' · this page'"
+                    @click="$store.g.selectAnnotation(m.selected ? null : m.id)" x-text="m.number"></button></template></span>
             </form>
             <button class="pill-refresh" x-cloak x-show="$store.g.app.stale" @click="$store.g.appRefresh()"><span class="dot"></span>App updated — refresh</button>
             <div class="seg" role="group" aria-label="Viewport">
@@ -4259,6 +4313,8 @@
               <button data-tip="Fit to pane" data-tip-align="end" aria-label="Fit to pane" :class="{active: $store.g.viewport==='fit'}" @click="$store.g.setViewport('fit')"><svg class="ic"><use href="#gly-fit"></use></svg></button>
             </div>
             <span class="vpsize" x-text="$store.g.frameLabel"></span>
+            <button class="sq" data-tip="Annotate this page (⌥P)" data-tip-align="end" aria-label="Annotate this page"
+              :disabled="!$store.g.app.connected" @click="$store.g.annotatePage()"><svg class="ic"><use href="#gly-page-note"></use></svg></button>
             <div class="mode" role="group" aria-label="Mode" data-tip="Interact / Annotate (⌥A)" data-tip-align="end">
               <button :class="{active: $store.g.appMode==='interact'}" @click="$store.g.setAppMode('interact')"><svg class="ic"><use href="#gly-pointer"></use></svg><span>Interact</span></button><button
                 class="ann" :class="{active: $store.g.appMode==='annotate'}" @click="$store.g.setAppMode('annotate')"><svg class="ic"><use href="#gly-annotate"></use></svg><span>Annotate</span><kbd>⌥A</kbd></button>
@@ -4267,7 +4323,8 @@
           <div class="stage" id="appStage" :class="[$store.g.viewport==='fit' ? '' : 'preset ' + $store.g.viewport, $store.g.appMode==='annotate' ? 'annotate' : '']">
             <div class="frame" id="appFrame" x-ignore></div>
             <div class="stage-note" x-show="!$store.g.uiProxy">Starting the app proxy…</div>
-            <div class="mode-hint" x-cloak x-show="$store.g.appMode==='annotate'"><b>Annotate</b><span>Click an element</span><button
+            <div class="mode-hint" x-cloak x-show="$store.g.appMode==='annotate'"><b>Annotate</b><span>Click an element</span><span
+                class="opt">· ⇧-click to add · drag a box · select text · ⌥P page</span><button
                 @click="$store.g.setAppMode('interact')"><kbd>Esc</kbd>Interact</button></div>
           </div>
         </div>

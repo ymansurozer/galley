@@ -183,6 +183,7 @@ try {
   // UI annotations (issue 04): the tab saves an annotation on the app through the reviewer slice,
   // as it does after a Request change in the UI view; the Send below must carry it.
   const UI_NOTE = "Rename to Save — nothing on this page is a draft.";
+  const PAGE_NOTE = "This page needs a heading.";
   await post("/api/save", {
     annotations: [
       {
@@ -421,9 +422,21 @@ try {
     intent: "question",
     comments: [{ ...saved[0].comments[0], id: `${id}-m1`, intent: "question", body }],
   });
+  // The second question is on a text selection, and beside them sits a change request on the whole
+  // page (issue 08): every target kind reaches the agent as the tab saved it.
   const asked = [
     uiQuestion("ui-q1", 2, "Is this saved as a draft?"),
-    uiQuestion("ui-q2", 3, "Why is this grey?"),
+    {
+      ...uiQuestion("ui-q2", 3, "Why is this grey?"),
+      target: { kind: "text", quote: "Save draft", element: saved[0].target.elements[0] },
+    },
+    {
+      ...saved[0],
+      id: "ui-p4",
+      number: 4,
+      target: { kind: "page" },
+      comments: [{ ...saved[0].comments[0], id: "ui-p4-m1", body: PAGE_NOTE }],
+    },
   ];
   await post("/api/save", { annotations: [saved[0], ...asked] });
   await post("/api/ask", { annotationId: "ui-q1", messageId: "ui-q1-m1" });
@@ -503,13 +516,16 @@ try {
   assert.equal(ev2.result.requestedChanges, undefined, "the old field name is gone");
   assert.equal(ev2.result.uiTarget, `${FIXTURE}/app?round=2`, "uiTarget is the current app URL");
   assert.deepEqual(
-    ev2.result.uiAnnotations.map((a) => [a.number, a.body, a.page.route]),
-    [[1, UI_NOTE, "/app"]],
-    "the UI annotation arrives in uiAnnotations",
+    ev2.result.uiAnnotations.map((a) => [a.number, a.body, a.page.route, a.target.kind]),
+    [
+      [1, UI_NOTE, "/app", "element"],
+      [4, PAGE_NOTE, "/app", "page"],
+    ],
+    "the UI change requests arrive in uiAnnotations, an element's and the page's",
   );
   assert.deepEqual(
-    ev2.result.openQuestions.map((q) => [q.lane, q.annotationId]),
-    [["ui", "ui-q2"]],
+    ev2.result.openQuestions.map((q) => [q.lane, q.annotationId, q.target]),
+    [["ui", "ui-q2", 'text "Save draft" in button']],
     "the answered UI question is not sent; the unanswered one is, lane-tagged",
   );
   console.log("✓ openQuestions carries the unanswered UI question, not the answered one");

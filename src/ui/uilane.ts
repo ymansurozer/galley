@@ -8,13 +8,16 @@ import {
   openComposer,
   restoreComposerFocus,
 } from "./composer";
-import { appGo, captureApp, fromAppViewport, postToApp } from "./appview";
+import { appGo, appViewport, captureApp, fromAppViewport, postToApp } from "./appview";
 import {
   annotationSource,
+  draftAnchor,
   marksFor,
+  markTarget,
   nextNumber,
   openChangeCount,
   pageGroups,
+  pageMarks,
   placeComposer,
   sendSummary,
   sourcePlace,
@@ -25,16 +28,25 @@ import {
 import {
   composerHead,
   pageHead,
+  quoteLine,
   rowLine,
   shotLink,
   sourceLink,
   type ShotStatus,
 } from "./uilane-dom";
 import { uuid } from "./uuid";
-import type { AnnotationDraft, AppMode, Rect, UiAnnotationRecord, UiPage, UiTarget } from "./types";
+import type {
+  AnnotationDraft,
+  AppMode,
+  PickedTarget,
+  Rect,
+  UiAnnotationRecord,
+  UiPage,
+  UiTarget,
+} from "./types";
 
-// The UI lane's annotations: Annotate mode, the floating composer on a picked element, the
-// sidebar (the "Quiet" list: page groups, one-line rows, a row expands to its thread), and the
+// The UI lane's annotations: Annotate mode, the floating composer on a picked target or the page,
+// the sidebar (the "Quiet" list: page groups, one-line rows, a row expands to its thread), and the
 // pins the bridge draws. Annotations live on S.state.annotations and save through the reviewer
 // slice like comments do. Threads render through the code lane's own thread component, keyed by
 // annotation id. The lane gates nothing: no approval, blockers or progress.
@@ -125,9 +137,9 @@ export function stepAnnotation(dir: 1 | -1) {
   if (next) selectAnnotation(next);
 }
 
-// The reviewer clicked an element in Annotate mode: open the floating composer on it. Picking
-// again while composing moves the composer to the new element and keeps the text.
-export function pickedInApp(page: Omit<UiPage, "url">, target: UiTarget) {
+// Open the floating composer on a new target. Picking again while composing moves the composer to
+// the new target and keeps the text.
+function openDraft(page: Omit<UiPage, "url">, target: UiTarget) {
   const ui = S.state.ui;
   if (!ui) return;
   const carried = S.annotationDraft ? S.composerBody : "";
@@ -137,23 +149,54 @@ export function pickedInApp(page: Omit<UiPage, "url">, target: UiTarget) {
     // The dev server's own URL for the page, not the proxy's.
     page: { url: new URL(page.route, ui.target).href, ...page },
     target,
-    anchor: target.elements[0]!.rect, // a pick always carries its element (readBridgeMessage)
+    anchor: draftAnchor(target),
   };
   openComposer(null, carried);
 }
 
+// The reviewer picked something in Annotate mode: an element (or several), a box, or text.
+export const pickedInApp = (page: Omit<UiPage, "url">, target: PickedTarget) =>
+  openDraft(page, target);
+
+// Annotate the page in the app as a whole (the chrome bar's button, ⌥P). It needs a page with a
+// bridge on it, which reported its route: not the waiting page, not a non-HTML one.
+export function annotatePage() {
+  const viewport = appViewport();
+  if (S.view !== "ui" || !S.app.connected || !viewport) return;
+  openDraft(
+    { route: S.app.route, ...(S.app.title && { title: S.app.title }), viewport },
+    { kind: "page" },
+  );
+}
+
 export function movedInApp(rect: Rect) {
-  if (!S.annotationDraft) return;
-  S.annotationDraft.anchor = rect;
+  const draft = S.annotationDraft;
+  if (!draft || draft.target.kind === "page") return;
+  draft.anchor = rect;
   placeFloatingComposer();
 }
+
+// How many ⇧-clicked elements wait in the app for ⇧'s release, and dropping them (Esc).
+export function pendingInApp(count: number) {
+  S.pendingPicks = count;
+}
+export function clearPendingPicks() {
+  S.pendingPicks = 0;
+  if (S.uiProxy && S.app.connected) postToApp({ type: "clearPicks", token: S.uiProxy.token });
+}
+
+// The current page's page annotations, as pins in the address bar.
+export const pagePins = () => pageMarks(annotationsOf(), S.app.route, S.selectedAnnotation);
 
 // The app loaded a page (`fresh`: a new document, whose bridge has drawn nothing) or moved to
 // another route in-page. The pick it was composing on is gone with the old page.
 let sentMode = "";
 let sentMarks = "";
 export function appPageChanged(fresh: boolean) {
-  if (fresh) sentMode = sentMarks = "";
+  if (fresh) {
+    sentMode = sentMarks = "";
+    S.pendingPicks = 0;
+  }
   pickDraft = null;
   if (S.annotationDraft) closeComposer();
   else renderUiLane();
@@ -166,12 +209,15 @@ export function syncBridge() {
   const mode = appModeNow();
   if (mode !== sentMode) {
     sentMode = mode;
+    // Out of Annotate, the bridge drops its ⇧-picks.
+    if (mode !== "annotate") S.pendingPicks = 0;
     postToApp({ type: "mode", token, mode });
   }
   const marks = {
     marks: marksFor(annotationsOf(), S.app.route, S.selectedAnnotation),
     selected: S.selectedAnnotation,
-    picking: !!S.annotationDraft,
+    // The composer is on the bridge's last pick (a page draft is the desk's own).
+    picking: !!S.annotationDraft && S.annotationDraft.target.kind !== "page",
   };
   const key = JSON.stringify(marks);
   if (key !== sentMarks) {
@@ -191,22 +237,24 @@ const shotStatus = (a: UiAnnotationRecord): ShotStatus =>
 // Screenshot the page for a new annotation, as the reviewer marked it: the bridge renders the
 // viewport and a crop around the target, with the annotation's mark drawn on, and the tab uploads
 // both once the annotation's save has landed (the desk takes screenshots only for a saved
-// annotation). Nothing waits on it. The row reads "capturing…" until both are stored, else
-// "capture failed", and the annotation stands either way: it's sent without screenshots.
+// annotation). A page annotation's target is the whole page: its crop is the viewport, unmarked.
+// Nothing waits on it. The row reads "capturing…" until both are stored, else "capture failed",
+// and the annotation stands either way: it's sent without screenshots.
 async function captureScreenshots(a: UiAnnotationRecord) {
   capturing.add(a.id);
   try {
     // Two frames first, so the closed composer and the new row are painted before the render,
     // which can keep the page busy for seconds.
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const shot = await captureApp({
-      selector: a.target.elements[0]!.selector, // an annotation always has an element (readPicked)
-      mark: { number: a.number, question: a.intent === "question" },
-    });
-    if (!shot.crop) throw new Error("the annotated element wasn't on screen");
+    const target = markTarget(a.target);
+    const shot = await captureApp(
+      target ? { target, mark: { number: a.number, question: a.intent === "question" } } : {},
+    );
+    const crop = target ? shot.crop : shot.viewport;
+    if (!crop) throw new Error("the annotated target wasn't on screen");
     await saver.settled();
     for (const [kind, png] of [
-      ["crop", shot.crop],
+      ["crop", crop],
       ["viewport", shot.viewport],
     ] as const) {
       if (!find(a.id)) return; // deleted meanwhile, and its files with it
@@ -361,7 +409,7 @@ function renderList() {
   const host = $("annotationList");
   const groups = pageGroups(annotationsOf());
   if (!groups.length) {
-    host.innerHTML = `<p class="ann-empty">No annotations yet. Annotate (⌥A) and click anything in the app.</p>`;
+    host.innerHTML = `<p class="ann-empty">No annotations yet. Annotate (⌥A), then click, drag across or select anything in the app, or press ⌥P for the whole page.</p>`;
     return;
   }
   host.replaceChildren(
@@ -422,9 +470,12 @@ function renderFloatingComposer() {
     host.replaceChildren();
     return;
   }
-  const el = draft.target.elements[0]!; // a pick always carries its element (readBridgeMessage)
-  const head = composerHead(document, el, upcomingNumber(), () => closeComposer());
+  const { target } = draft;
+  const head = composerHead(document, target, draft.page.route, upcomingNumber(), () =>
+    closeComposer(),
+  );
   const parts: HTMLElement[] = [head];
+  if (target.kind === "text") parts.push(quoteLine(document, target.quote));
   // The source chip, when the bridge resolved one.
   const source = annotationSource(draft.target);
   if (source) {
@@ -449,9 +500,9 @@ export function placeFloatingComposer() {
   const host = $("uiComposer");
   const draft = S.annotationDraft;
   if (!draft || matchMedia("(max-width: 700px)").matches) return;
-  const target = fromAppViewport(draft.anchor);
+  const target = draft.anchor && fromAppViewport(draft.anchor);
   const stage = $("appStage").getBoundingClientRect();
-  if (!target || !stage.width) return;
+  if ((draft.anchor && !target) || !stage.width) return;
   const { left, top } = placeComposer(
     target,
     { width: host.offsetWidth, height: host.offsetHeight },

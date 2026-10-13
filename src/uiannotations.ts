@@ -28,6 +28,7 @@ const CAPS: UiCaps = {
   url: 2048,
   route: 2048,
   title: 300,
+  quote: 500,
   elements: 16,
 };
 
@@ -141,6 +142,29 @@ function readMessage(v: unknown): ThreadMessage | null {
   return m;
 }
 
+// What an annotation points at: elements (malformed ones dropped, at least one left), a box with a
+// size (its elements may be none), a quote and the element holding it, or the page. Element lists
+// are capped at CAPS.elements. Anything else is null.
+function readTarget(v: unknown): UiTarget | null {
+  if (!isObj(v)) return null;
+  if (v.kind === "page") return { kind: "page" };
+  if (v.kind === "text") {
+    const element = readElement(v.element);
+    const quote = typeof v.quote === "string" ? v.quote.trim() : "";
+    return element && quote ? { kind: "text", quote: cap(quote, CAPS.quote), element } : null;
+  }
+  const elements = Array.isArray(v.elements)
+    ? v.elements
+        .map(readElement)
+        .filter((e) => e !== null)
+        .slice(0, CAPS.elements)
+    : [];
+  if (v.kind === "element") return elements.length ? { kind: "element", elements } : null;
+  if (v.kind !== "region") return null;
+  const rect = readRect(v.rect);
+  return rect && rect.width > 0 && rect.height > 0 ? { kind: "region", rect, elements } : null;
+}
+
 function readAnnotation(v: unknown, app: string): UiAnnotationRecord | null {
   if (!isObj(v)) return null;
   const { id, number, intent, status, placement } = v;
@@ -149,14 +173,8 @@ function readAnnotation(v: unknown, app: string): UiAnnotationRecord | null {
   if ((intent !== "change" && intent !== "question") || placement !== "placed") return null;
   if (status !== "open" && status !== "resolved") return null;
   const page = readPage(v.page, app);
-  if (!page || !isObj(v.target) || v.target.kind !== "element") return null;
-  const elements = Array.isArray(v.target.elements)
-    ? v.target.elements
-        .map(readElement)
-        .filter((e) => e !== null)
-        .slice(0, CAPS.elements)
-    : [];
-  if (!elements.length) return null;
+  const target = readTarget(v.target);
+  if (!page || !target) return null;
   const comments = Array.isArray(v.comments)
     ? v.comments.map(readMessage).filter((m) => m !== null)
     : [];
@@ -169,7 +187,7 @@ function readAnnotation(v: unknown, app: string): UiAnnotationRecord | null {
     status,
     placement,
     page,
-    target: { kind: "element", elements },
+    target,
     comments,
   };
 }
@@ -211,18 +229,35 @@ function repoRelative(file: string, root: string) {
 const withRepoSource = (el: UiElement, root: string): UiElement =>
   el.source ? { ...el, source: { ...el.source, file: repoRelative(el.source.file, root) } } : el;
 
-// What a UI question points at, in one line for the agent: the first element's role (else tag) and
-// its accessible name (else its text), how many more elements were picked, and the source's
-// file:line (the first element's that has one, repo-relative) when the page resolved it.
+// A target with its elements' source files repo-relative.
+function withRepoSources(target: UiTarget, root: string): UiTarget {
+  if (target.kind === "page") return target;
+  if (target.kind === "text") return { ...target, element: withRepoSource(target.element, root) };
+  return { ...target, elements: target.elements.map((el) => withRepoSource(el, root)) };
+}
+
+// What a UI question points at, in one line for the agent. Elements are named by the first one's
+// role (else tag) and its accessible name (else its text), and how many more there are; a region
+// by its size first, a quote by its text and its holder's role, a page as the whole page. Then the
+// source's file:line (the first element's that has one, repo-relative) when the page resolved it.
 export function questionTarget(target: UiTarget, root: string): string {
-  const [first, ...more] = target.elements;
-  if (!first) return "";
-  const label = first.name ?? first.text;
-  const source = target.elements.find((el) => el.source)?.source;
+  if (target.kind === "page") return "the whole page";
+  const elements = target.kind === "text" ? [target.element] : target.elements;
+  const [first, ...more] = elements;
+  const label = first && (first.name ?? first.text);
+  const named =
+    target.kind === "text"
+      ? [`text "${cap(target.quote, 80)}" in ${target.element.role ?? target.element.tag}`]
+      : [
+          target.kind === "region" &&
+            `region ${Math.round(target.rect.width)}×${Math.round(target.rect.height)}`,
+          first && (first.role ?? first.tag),
+          label && `"${cap(label, 80)}"`,
+          more.length && `+${more.length} more`,
+        ];
+  const source = elements.find((el) => el.source)?.source;
   return [
-    first.role ?? first.tag,
-    label && `"${cap(label, 80)}"`,
-    more.length && `+${more.length} more`,
+    ...named,
     source && `${repoRelative(source.file, root)}${source.line ? `:${source.line}` : ""}`,
   ]
     .filter(Boolean)
@@ -267,7 +302,7 @@ export function uiAnnotationsForAgent(
         status: a.status,
         placement: a.placement,
         page: a.page,
-        target: { ...a.target, elements: a.target.elements.map((el) => withRepoSource(el, root)) },
+        target: withRepoSources(a.target, root),
         ...(screenshots && { screenshots }),
         thread: replies.map((m) => ({
           role: m.role === "agent" ? ("agent" as const) : ("user" as const),

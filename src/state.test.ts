@@ -1788,6 +1788,120 @@ test("a UI question's target names the element, how many more were picked, and i
   );
 });
 
+// ── Target kinds ────────────────────────────────────────────────────────────────────────────────
+const SRC = {
+  file: "/home/dev/shop/apps/web/app/pages/files.vue",
+  line: 84,
+  via: "vue-tracer",
+} as const;
+const REGION = { x: 10, y: 20, width: 320, height: 180 };
+const KINDS: Record<string, UiAnnotationRecord["target"]> = {
+  element: { kind: "element", elements: [uiElement(), uiElement({ selector: "#cancel" })] },
+  region: { kind: "region", rect: REGION, elements: [uiElement({ source: SRC })] },
+  bare: { kind: "region", rect: REGION, elements: [] },
+  text: {
+    kind: "text",
+    quote: "Date recieved",
+    element: uiElement({ selector: "#received", tag: "th", role: "columnheader", source: SRC }),
+  },
+  page: { kind: "page" },
+};
+
+test("every target kind is stored as saved and sent with its source files repo-relative", () => {
+  const live = state({ root: "/home/dev/shop", ui: UI });
+  const sent = Object.entries(KINDS).map(([id, target]) => annotation({ id, target }));
+  mergeReviewerSave(live, { annotations: structuredClone(sent) });
+  assert.deepEqual(live.annotations, sent);
+  const r = buildReviewResult(live, { resultJson: "r.json", sessionDir: "d" });
+  const repoSource = { ...SRC, file: "apps/web/app/pages/files.vue" };
+  assert.deepEqual(
+    r.uiAnnotations.map((a) => a.target),
+    [
+      KINDS.element,
+      { kind: "region", rect: REGION, elements: [uiElement({ source: repoSource })] },
+      KINDS.bare,
+      {
+        kind: "text",
+        quote: "Date recieved",
+        element: uiElement({
+          selector: "#received",
+          tag: "th",
+          role: "columnheader",
+          source: repoSource,
+        }),
+      },
+      { kind: "page" },
+    ],
+  );
+});
+
+test("mergeReviewerSave drops a malformed target of any kind and caps a quote and a region's elements", () => {
+  const live = state({ ui: UI });
+  const bad: Array<[string, unknown]> = [
+    ["no-rect", { kind: "region", elements: [] }],
+    ["flat-rect", { kind: "region", rect: { ...REGION, height: 0 }, elements: [] }],
+    ["odd-rect", { kind: "region", rect: { ...REGION, x: "10" }, elements: [] }],
+    ["no-quote", { kind: "text", element: uiElement() }],
+    ["blank-quote", { kind: "text", quote: "  ", element: uiElement() }],
+    ["odd-quote", { kind: "text", quote: ["Due"], element: uiElement() }],
+    ["no-holder", { kind: "text", quote: "Due" }],
+    ["bad-holder", { kind: "text", quote: "Due", element: uiElement({ tag: "<b>" }) }],
+    ["no-elements", { kind: "element", elements: [uiElement({ selector: "" })] }],
+    ["canvas", { kind: "canvas", rect: REGION }],
+    ["no-kind", { rect: REGION, elements: [] }],
+  ];
+  mergeReviewerSave(live, {
+    annotations: [
+      ...bad.map(([id, target]) => ({ ...annotation({ id }), target })),
+      annotation({
+        id: "long",
+        target: { kind: "text", quote: "q".repeat(900), element: uiElement() },
+      }),
+      annotation({
+        id: "crowded",
+        target: {
+          kind: "region",
+          rect: REGION,
+          elements: [uiElement({ tag: "<b>" }), ...Array.from({ length: 20 }, () => uiElement())],
+        },
+      }),
+      { ...annotation({ id: "page" }), target: { kind: "page", elements: [uiElement()] } },
+    ],
+  });
+  assert.deepEqual(
+    live.annotations!.map((a) => a.id),
+    ["long", "crowded", "page"],
+  );
+  const [long, crowded, page] = live.annotations!;
+  assert.ok(long!.target.kind === "text");
+  assert.equal(long!.target.quote.length, 500);
+  assert.ok(long!.target.quote.endsWith("…"));
+  assert.ok(crowded!.target.kind === "region");
+  assert.equal(crowded!.target.elements.length, 16, "a bad element dropped, the rest capped");
+  assert.deepEqual(page!.target, { kind: "page" }, "a page target carries nothing else");
+});
+
+test("a UI question's target summary says what kind of thing it points at", () => {
+  const s = state({
+    root: "/home/dev/shop",
+    ui: UI,
+    annotations: Object.entries(KINDS).map(([id, target], i) =>
+      question({ id, number: i + 1, target }),
+    ),
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.openQuestions.map((q) => q.lane === "ui" && [q.annotationId, q.target]),
+    [
+      ["element", 'button · "Upload" · +1 more'],
+      ["region", 'region 320×180 · button · "Upload" · apps/web/app/pages/files.vue:84'],
+      ["bare", "region 320×180"],
+      ["text", 'text "Date recieved" in columnheader · apps/web/app/pages/files.vue:84'],
+      ["page", "the whole page"],
+    ],
+  );
+});
+
 test("mergeReviewerSave keeps agent replies a save from a tab that hasn't seen them leaves out", () => {
   const replied = question({ id: "q1" });
   replied.comments.push(agentReply("r1", "2026-10-13T10:01:00.000Z"));
