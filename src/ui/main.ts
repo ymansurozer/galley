@@ -57,6 +57,8 @@ import {
   installUiLane,
   openChanges,
   pagePins,
+  screenshotsInFlight,
+  screenshotsSettled,
   selectAnnotation,
   setAppMode,
   shotSrc,
@@ -381,15 +383,29 @@ S.confirmSend = () => {
   openSendModal(`You're about to send your review: ${codeReceipt()}. Send to the agent?`);
 };
 // Confirm the Send modal: the typed note (trimmed; empty → omitted) rides along as the one-time
-// overall instruction. Cancel leaves the review untouched.
-S.sendConfirm = () => {
+// overall instruction. Cancel leaves the review untouched. New annotations' screenshots still being
+// captured or uploaded go too if they land within SHOTS_WAIT_MS, while the dialog says so; past
+// it, those annotations go without them, as when a capture fails.
+const SHOTS_WAIT_MS = 15_000;
+let sendWait = 0;
+S.sendConfirm = async () => {
+  if (S.sendFinishing) return;
   const note = S.sendNote.trim();
+  if (screenshotsInFlight()) {
+    const wait = ++sendWait;
+    S.sendFinishing = true;
+    await screenshotsSettled(SHOTS_WAIT_MS);
+    // Cancelled while it waited, and maybe confirmed again since.
+    if (wait !== sendWait || !S.sendFinishing) return;
+    S.sendFinishing = false;
+  }
   S.sendOpen = false;
   S.send?.(note);
 };
 S.sendCancel = () => {
   S.sendOpen = false;
   S.sendNote = "";
+  S.sendFinishing = false;
 };
 // Walkthrough sidebar tab: categories + files in guide order (plus the "Other" trailer).
 S.walkthroughRows = walkthroughRows;

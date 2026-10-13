@@ -7,6 +7,7 @@ import {
   readBridgeMessage,
   reloadRan,
   routeFromInput,
+  settledWithin,
 } from "./appnav";
 
 const TOKEN = "t0k";
@@ -445,6 +446,37 @@ test("captureWaits times a capture out when no reply comes", async (t) => {
   mock.timers.tick(1);
   await a;
   assert.equal(outcome, "The app page didn't answer the capture");
+});
+
+test("settledWithin waits for every piece of work, failed ones included, up to its cap", async (t) => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  t.after(() => mock.timers.reset());
+  // setImmediate isn't mocked: it runs once every queued promise job has.
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  let finishA!: () => void;
+  let failB!: (e: Error) => void;
+  const a = new Promise<void>((resolve) => (finishA = resolve));
+  const b = new Promise<void>((_, reject) => (failB = reject));
+  let outcome: boolean | "pending" = "pending";
+  void settledWithin([a, b], 15_000).then((done) => (outcome = done));
+  finishA();
+  await flush();
+  assert.equal(outcome, "pending", "b is still out");
+  failB(new Error("upload failed"));
+  await flush();
+  assert.equal(outcome, true);
+
+  // Work that outlasts the cap: the wait gives up at the cap.
+  let late: boolean | "pending" = "pending";
+  void settledWithin([new Promise(() => {})], 15_000).then((done) => (late = done));
+  mock.timers.tick(14_999);
+  await flush();
+  assert.equal(late, "pending");
+  mock.timers.tick(1);
+  await flush();
+  assert.equal(late, false);
+
+  assert.equal(await settledWithin([], 15_000), true, "nothing to wait for");
 });
 
 test("routeFromInput turns what the reviewer typed into a same-app route", () => {

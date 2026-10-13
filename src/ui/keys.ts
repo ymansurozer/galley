@@ -81,8 +81,7 @@ function escape() {
     return;
   }
   if (S.sendOpen) {
-    S.sendOpen = false;
-    S.sendNote = "";
+    S.sendCancel?.();
     return;
   }
   if (S.settingsOpen) {

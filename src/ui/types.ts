@@ -266,6 +266,8 @@ export interface Store {
   sendOpen: boolean;
   sendMsg: string;
   sendNote: string;
+  // Send was confirmed and waits on new annotations' screenshots (capped): the dialog says so.
+  sendFinishing: boolean;
   // Guided review: when true (and a guide is attached) the center shows the Overview page
   // instead of the diff. Selecting any file (tree or Start) drops back to the diff.
   overviewOpen: boolean;
@@ -373,7 +375,7 @@ export interface Store {
   confirmNo?: () => void;
   promptFinish?: () => void;
   confirmSend?: () => void;
-  sendConfirm?: () => void;
+  sendConfirm?: () => Promise<void>;
   sendCancel?: () => void;
   helpGroups?: () => { group: string; items: { combo: string; desc: string }[] }[];
   // The UI lane (appview.ts): the Code/UI switch, and the chrome bar's controls over the iframe.

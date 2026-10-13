@@ -9,6 +9,7 @@ import {
   restoreComposerFocus,
 } from "./composer";
 import { appGo, appViewport, captureApp, fromAppViewport, postToApp } from "./appview";
+import { settledWithin } from "./appnav";
 import {
   annotationSource,
   draftAnchor,
@@ -284,53 +285,62 @@ export function syncBridge() {
   }
 }
 
-// Screenshots of new annotations still being captured or uploaded, and why a capture failed. Both
-// are this tab's alone: after a reload, an annotation without stored screenshots reads as failed.
-const capturing = new Set<string>();
+// Screenshots of new annotations still being captured or uploaded (by annotation id, each until it
+// has stored both or failed), and why a capture failed. Both are this tab's alone: after a reload,
+// an annotation without stored screenshots reads as failed.
+const capturing = new Map<string, Promise<void>>();
 const captureErrors = new Map<string, string>();
 
 const shotStatus = (a: UiAnnotationRecord): ShotStatus =>
   capturing.has(a.id) ? "capturing" : a.screenshots ? "stored" : "failed";
 
+// Whether Send has screenshots to wait for, and the wait: until each is stored or has failed, or
+// `ms` has passed.
+export const screenshotsInFlight = () => capturing.size > 0;
+export const screenshotsSettled = (ms: number) => settledWithin(capturing.values(), ms);
+
 // Screenshot the page for a new annotation, as the reviewer marked it: the bridge renders the
 // viewport and a crop around the target, with the annotation's mark drawn on, and the tab uploads
 // both once the annotation's save has landed (the desk takes screenshots only for a saved
 // annotation). A page annotation's target is the whole page: its crop is the viewport, unmarked.
-// Nothing waits on it. The row reads "capturing…" until both are stored, else "capture failed",
-// and the annotation stands either way: it's sent without screenshots.
-async function captureScreenshots(a: UiAnnotationRecord) {
-  capturing.add(a.id);
-  try {
-    // Two frames first, so the closed composer and the new row are painted before the render,
-    // which can keep the page busy for seconds.
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const target = markTarget(a.target);
-    const shot = await captureApp(
-      target ? { target, mark: { number: a.number, question: a.intent === "question" } } : {},
-    );
-    const crop = target ? shot.crop : shot.viewport;
-    if (!crop) throw new Error("the annotated target wasn't on screen");
-    await saver.settled();
-    for (const [kind, png] of [
-      ["crop", crop],
-      ["viewport", shot.viewport],
-    ] as const) {
-      if (!find(a.id)) return; // deleted meanwhile, and its files with it
-      const res = await fetch(`/api/ui-shot?annotation=${encodeURIComponent(a.id)}&kind=${kind}`, {
-        method: "POST",
-        headers: { "content-type": "image/png" },
-        body: png,
-      });
-      if (!res.ok) throw new Error(`the desk didn't store the ${kind} (${res.status})`);
-    }
-    const stored = find(a.id);
-    if (stored) stored.screenshots = true;
-  } catch (err) {
-    captureErrors.set(a.id, err instanceof Error ? err.message : String(err));
-  } finally {
-    capturing.delete(a.id);
-    renderUiLane();
+// Only Send waits on it, and only for so long. The row reads "capturing…" until both are stored,
+// else "capture failed", and the annotation stands either way: it's sent without screenshots.
+function captureScreenshots(a: UiAnnotationRecord) {
+  const done = storeScreenshots(a)
+    .catch((err: unknown) => {
+      captureErrors.set(a.id, err instanceof Error ? err.message : String(err));
+    })
+    .finally(() => {
+      capturing.delete(a.id);
+      renderUiLane();
+    });
+  capturing.set(a.id, done);
+}
+async function storeScreenshots(a: UiAnnotationRecord) {
+  // Two frames first, so the closed composer and the new row are painted before the render,
+  // which can keep the page busy for seconds.
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const target = markTarget(a.target);
+  const shot = await captureApp(
+    target ? { target, mark: { number: a.number, question: a.intent === "question" } } : {},
+  );
+  const crop = target ? shot.crop : shot.viewport;
+  if (!crop) throw new Error("the annotated target wasn't on screen");
+  await saver.settled();
+  for (const [kind, png] of [
+    ["crop", crop],
+    ["viewport", shot.viewport],
+  ] as const) {
+    if (!find(a.id)) return; // deleted meanwhile, and its files with it
+    const res = await fetch(`/api/ui-shot?annotation=${encodeURIComponent(a.id)}&kind=${kind}`, {
+      method: "POST",
+      headers: { "content-type": "image/png" },
+      body: png,
+    });
+    if (!res.ok) throw new Error(`the desk didn't store the ${kind} (${res.status})`);
   }
+  const stored = find(a.id);
+  if (stored) stored.screenshots = true;
 }
 
 // The enlarged screenshot view: the stored crop or viewport of an annotation.
@@ -411,7 +421,7 @@ export function submitUiComposer(intent: "action" | "question") {
     toast(intent === "question" ? "Asked — waiting for answer" : "Comment saved");
   }
   // Started before the composer closes, so the row it renders already reads "capturing…".
-  if (created) void captureScreenshots(created);
+  if (created) captureScreenshots(created);
   closeComposer();
   persist();
   if (asked) void askAgent(asked.annotation, asked.message);

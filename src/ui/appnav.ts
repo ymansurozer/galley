@@ -299,6 +299,16 @@ export function captureWaits(timeoutMs: number) {
   };
 }
 
+// Whether all of `work` settles, failures included, within `ms`: true once it has, false once `ms`
+// passes first. Never rejects.
+export function settledWithin(work: Iterable<Promise<unknown>>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cap = new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), ms)));
+  return Promise.race([Promise.allSettled(work).then(() => true), cap]).finally(() =>
+    clearTimeout(timer),
+  );
+}
+
 // The address bar's input as a route on the app: a path as typed (a leading "/" added), or a full
 // URL on one of `origins` (the dev server's or the proxy's) reduced to its path. Null for anything
 // that would leave the app.

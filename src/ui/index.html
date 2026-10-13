@@ -4523,7 +4523,8 @@
           <textarea id="sendNote" x-model="$store.g.sendNote"
             placeholder="Overall note (optional) — an overall remark, or what to do after applying"></textarea>
           <div class="modal-actions"><button class="btn" @click="$store.g.sendCancel()">Cancel <kbd>Esc</kbd></button><button
-              class="btn primary" @click="$store.g.sendConfirm()">Send <kbd>⌘↵</kbd></button></div>
+              class="btn primary" :disabled="$store.g.sendFinishing" @click="$store.g.sendConfirm()"><span
+                x-text="$store.g.sendFinishing ? 'Finishing screenshots…' : 'Send'">Send</span> <kbd>⌘↵</kbd></button></div>
         </div>
       </div>
       <!-- An annotation's screenshot, enlarged from its row's context line (uilane.ts): the crop or

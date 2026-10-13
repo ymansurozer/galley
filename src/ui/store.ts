@@ -38,6 +38,7 @@ export const S: Store = Alpine.reactive<Store>({
   sendOpen: false,
   sendMsg: "",
   sendNote: "",
+  sendFinishing: false,
   overviewOpen: false,
   sidebarTab: "tree",
   treeDrawerOpen: false,
