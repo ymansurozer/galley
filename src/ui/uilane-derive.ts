@@ -31,8 +31,14 @@ export function pageName(title: string | undefined, route: string): string {
   return title?.split(/\s+[·|—–-]\s+/)[0]?.trim() || route;
 }
 
+// An annotation requests a change when it was opened as one, or when the reviewer requested one
+// later in its thread (a question with a Request change reply). The Send sends exactly these
+// (uiannotations.ts keeps the server's copy of the rule).
+export const requestsChange = (a: UiAnnotationRecord) =>
+  a.intent === "change" || a.comments.some((m) => m.role !== "agent" && m.intent === "action");
+
 export const openChangeCount = (list: readonly UiAnnotationRecord[]) =>
-  list.filter((a) => a.status === "open" && a.intent === "change").length;
+  list.filter((a) => a.status === "open" && requestsChange(a)).length;
 
 // An open annotation waits on the agent while a question of the reviewer's in its thread has no
 // agent reply after it (the code lane's "answered" rule, annotations.ts).

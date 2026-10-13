@@ -426,7 +426,7 @@ export type UiAnnotationRecord = {
   number: number;
   // What the opening message asked for, and so what the annotation is: a change request (sent in
   // uiAnnotations) or a question (asked live; in openQuestions while unanswered). Replies never
-  // change it.
+  // change it, but a question whose thread has a Request change reply is sent in uiAnnotations too.
   intent: "change" | "question";
   status: "open" | "resolved";
   // Whether the target was found on the page. An annotation is placed when it's made.

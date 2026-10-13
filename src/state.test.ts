@@ -1727,6 +1727,37 @@ test("buildReviewResult.openQuestions carries unanswered UI questions, lane-tagg
   );
 });
 
+test("a UI question whose thread requests a change is sent in uiAnnotations, as the code lane sends that request", () => {
+  const requested = question({ id: "q1" });
+  requested.comments.push(agentReply("q1-r", "2026-10-13T10:01:00.000Z"), {
+    id: "q1-m3",
+    role: "user",
+    intent: "action",
+    body: "Then hide it for a week after dismissal",
+    createdAt: "2026-10-13T10:02:00.000Z",
+    updatedAt: "2026-10-13T10:02:00.000Z",
+  });
+  const resolved = structuredClone({ ...requested, id: "q2", number: 2 });
+  resolved.status = "resolved";
+  const onlyAnswered = question({ id: "q3", number: 3 });
+  onlyAnswered.comments.push(agentReply("q3-r", "2026-10-13T10:01:00.000Z"));
+  const s = state({ ui: UI, annotations: [requested, resolved, onlyAnswered] });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.uiAnnotations.map((a) => [a.id, a.body, a.thread.map((m) => [m.role, m.body])]),
+    [
+      [
+        "q1",
+        "Why is Upload grey?",
+        [
+          ["agent", "Because it's disabled until a file is picked."],
+          ["user", "Then hide it for a week after dismissal"],
+        ],
+      ],
+    ],
+  );
+});
+
 test("a UI question's target names the element, how many more were picked, and its source", () => {
   const s = state({
     root: "/home/dev/shop",

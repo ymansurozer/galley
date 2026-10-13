@@ -239,17 +239,23 @@ function screenshotsOf(a: UiAnnotationRecord, shots: string): UiAnnotation["scre
   return existsSync(crop) && existsSync(viewport) ? { crop, viewport, exact: false } : undefined;
 }
 
-// What the agent receives: every open change request, its opening message as the body and the
-// rest as the thread, source files repo-relative, and its screenshots' paths in `shots` (the
-// session's ui-shots/) when both are stored. Resolved annotations are the reviewer's "done" and
-// are not sent.
+// An annotation requests a change when it was opened as one, or when the reviewer requested one
+// later in its thread: a question whose thread has a Request change reply is sent for that
+// request, as a code thread's change-request reply is.
+const requestsChange = (a: UiAnnotationRecord) =>
+  a.intent === "change" || a.comments.some((m) => m.role !== "agent" && m.intent === "action");
+
+// What the agent receives: every open annotation that requests a change, its opening message as
+// the body and the rest as the thread, source files repo-relative, and its screenshots' paths in
+// `shots` (the session's ui-shots/) when both are stored. Resolved annotations are the reviewer's
+// "done" and are not sent.
 export function uiAnnotationsForAgent(
   records: UiAnnotationRecord[],
   root: string,
   shots: string,
 ): UiAnnotation[] {
   return records
-    .filter((a) => a.status === "open" && a.intent === "change")
+    .filter((a) => a.status === "open" && requestsChange(a))
     .map((a) => {
       const [opener, ...replies] = a.comments;
       const screenshots = screenshotsOf(a, shots);

@@ -90,7 +90,8 @@ const ANCHORS = [
   'galley comment --ui <id> --body "…"',
   'jq -r .lane<<<"$q"',
   "your `galley comment --ui` replies",
-  "opened as a question is never here",
+  "opened as a question is here only once they request a",
+  "the change to make is in",
   "each the same lane-tagged shape as a live question",
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",

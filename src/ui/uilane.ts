@@ -16,6 +16,7 @@ import {
   nextNumber,
   openChangeCount,
   pageGroups,
+  requestsChange,
   placeComposer,
   sourcePlace,
   stepFrom,
@@ -462,14 +463,15 @@ export function placeFloatingComposer() {
 }
 
 // The Send dialog's UI line: what goes (open change requests, and questions still waiting, which go
-// as openQuestions), and what doesn't (resolved annotations, answered questions).
+// as openQuestions), and what doesn't (resolved annotations, answered questions that request no
+// change).
 export function uiSendSummary() {
   const list = annotationsOf();
-  const open = list.filter((a) => a.status === "open" && a.intent === "change");
+  const open = list.filter((a) => a.status === "open" && requestsChange(a));
   const pages = new Set(open.map((a) => a.page.route)).size;
   const waiting = waitingCount(list);
   const answered = list.filter(
-    (a) => a.status === "open" && a.intent === "question" && !isWaiting(a),
+    (a) => a.status === "open" && !requestsChange(a) && !isWaiting(a),
   ).length;
   const resolved = list.filter((a) => a.status === "resolved").length;
   const n = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;

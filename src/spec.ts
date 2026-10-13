@@ -109,8 +109,9 @@ The \`result\` field of a review event:
   screenshots?, thread}
   - number is the pin the human saw on the page; body is the request; thread[] {role, body, at}
     holds any later messages: the human's (role "user") and your \`galley comment --ui\` replies
-    (role "agent"). An annotation the human opened as a question is never here (see
-    openQuestions).
+    (role "agent"). An annotation the human opened as a question is here only once they request a
+    change later in its thread: body is then their question, and the change to make is in
+    thread. Otherwise a question reaches you only as a question (see openQuestions).
   - screenshots? — {crop, viewport, exact:false}: absolute paths to two PNGs of the page as the
     human saw it when annotating (open dialogs, typed input, scroll position). crop is the target
     with some context around it, viewport the whole visible page; both have the annotation's mark

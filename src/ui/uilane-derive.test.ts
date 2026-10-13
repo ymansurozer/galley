@@ -276,6 +276,23 @@ test("a question waits until an agent reply follows it; the head counts it and t
   ]);
 });
 
+test("a question whose thread requests a change counts as an open change request, as the Send sends it", () => {
+  const requested = ann("q", 1, "/", {
+    intent: "question",
+    comments: [
+      msg("q1", "user", T0, "question"),
+      msg("q2", "agent", T1),
+      msg("q3", "user", T1, "action"),
+    ],
+  });
+  const asked = ann("r", 2, "/", {
+    intent: "question",
+    comments: [msg("r1", "user", T0, "question")],
+  });
+  assert.equal(openChangeCount([requested, asked]), 1);
+  assert.equal(openChangeCount([{ ...requested, status: "resolved" }]), 0);
+});
+
 test("the poll's agent replies join the tab's threads once, and nothing else from it does", () => {
   const local = [ann("a", 1, "/"), ann("b", 2, "/")];
   const server = [
