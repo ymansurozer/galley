@@ -464,7 +464,7 @@ S.openInEditor = async () => {
 };
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
-// body and keeps the existing intent; the thread's Turn into action changes it (turnComment).
+// body and keeps the existing intent; turning the thread's opening comment changes it (turnComment).
 const submitComment = (intent: "question" | "action") => {
   // The UI lane's composers (a new annotation, a reply or edit in its thread) submit there.
   if (composerInUi()) {

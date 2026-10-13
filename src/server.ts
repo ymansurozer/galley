@@ -370,7 +370,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   };
   // The message each question was asked in. A queued question whose message is no longer an open
   // question (turned into a change request, resolved or deleted) has nothing left to answer, so
-  // it's withdrawn: after every save, and before the await drains the queue.
+  // it's withdrawn: after every save, and before the await drains the queue. One asked by its
+  // path and body alone names no message, and stays.
   const askedIn = new WeakMap<QuestionPayload, string>();
   const stillAsked = (q: QuestionPayload) => {
     const id = askedIn.get(q);
@@ -786,9 +787,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             body: text,
           });
         }
+        if (asked !== undefined) askedIn.set(question, asked);
         // Bake the singular into a one-element `questions` here so a question handed straight
         // to a parked waiter already carries the array — batching only has to merge on drain.
-        if (asked !== undefined) askedIn.set(question, asked);
         emitEvent({ kind: "question", question, questions: [question] });
         return json(res, 200, { ok: true });
       }
@@ -809,8 +810,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // `questions` holds them in arrival order. Safe because a Send flushes every queued
         // question before enqueuing its review (see /api/send), so a review can never sit
         // between two queued questions; draining all questions can't skip past a review.
-        // Questions withdrawn while they sat queued go first; with none left, the agent gets the
-        // next event.
+        // Questions withdrawn while they sat queued are dropped first; if none are left, the agent
+        // gets the next event.
         withdrawQuestions();
         if (eventQueue[0]?.kind === "question") {
           const batched: QuestionPayload[] = [];

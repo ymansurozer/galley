@@ -1341,7 +1341,7 @@ const answered = (question: ThreadMessage, thread: readonly ThreadMessage[]) =>
   );
 
 // Questions the reviewer asked but the agent hasn't answered yet. Mirrors the UI's "answered"
-// heuristic (src/ui/annotations.ts): an open question is unanswered until a later agent reply
+// heuristic (src/ui/uilane-derive.ts): an open question is unanswered until a later agent reply
 // lands in the same thread — the comments on its path/side/line, or its UI annotation's messages.
 // These ride out on the Send's ReviewResult so an agent that never saw the live await still owes
 // each an answer.
