@@ -1336,6 +1336,29 @@ test("buildReviewResult makes source files inside the repo repo-relative and lea
   );
 });
 
+test("buildReviewResult makes Windows source paths repo-relative under a Windows root", () => {
+  const sourced = (file: string) => uiElement({ source: { file, via: "vue-file" } });
+  const files = [
+    "C:/proj/src/a.vue",
+    String.raw`C:\proj\src\a.vue`,
+    "c:/proj/src/a.vue",
+    "D:/proj/src/a.vue",
+    String.raw`C:\proj-old\a.vue`,
+  ];
+  const s = state({
+    root: String.raw`C:\proj`,
+    ui: { target: "http://localhost:3000/" },
+    annotations: [
+      annotation({ id: "a1", target: { kind: "element", elements: files.map(sourced) } }),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.uiAnnotations[0]!.target.elements.map((el) => el.source?.file),
+    ["src/a.vue", "src/a.vue", "src/a.vue", "D:/proj/src/a.vue", String.raw`C:\proj-old\a.vue`],
+  );
+});
+
 test("buildReviewResult on a UI-only desk sends empty code fields alongside the annotations", () => {
   const s = state({
     ui: { target: "http://localhost:3000/" },

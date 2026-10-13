@@ -217,6 +217,8 @@ test("paths lose a /@fs prefix and a query; an over-long one is refused, a long 
     component: "Panel",
     via: "vue-file",
   });
+  const windows = s.component({ __file: "/@fs/C:/shop/kit/Panel.vue", __name: "Panel" }, null);
+  assert.equal(resolveSource(s.mount("#loose", windows))!.file, "C:/shop/kit/Panel.vue");
   // The capture caps it: a file past 1 KB is dropped, a component name cut to 200.
   const long = s.component({ __file: `/${"d/".repeat(600)}X.vue`, __name: "X" }, null);
   assert.equal(describeElement(s.mount("#loose", long)).source, undefined);

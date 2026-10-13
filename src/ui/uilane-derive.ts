@@ -62,13 +62,18 @@ export const annotationSource = (target: UiTarget): UiSource | undefined =>
 
 // A source as the desk shows it: a label (the last two path segments and the line), what the editor
 // opens (the repo-relative path and line; no path when the file isn't in the repo `root`), and a
-// tooltip with the component, the full place, and whether a library rendered the element.
+// tooltip with the component, the full place, and whether a library rendered the element. Paths
+// are compared whichever OS wrote them: forward slashes, an upper-case drive letter, and a
+// drive-letter path counted as absolute.
 export function sourcePlace(source: UiSource, root: string) {
-  const base = root.replace(/\/+$/, "");
-  const { file, line, column, component, vendor } = source;
+  const slashed = (p: string) =>
+    p.replace(/\\/g, "/").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
+  const base = slashed(root).replace(/\/+$/, "");
+  const { line, column, component, vendor } = source;
+  const file = slashed(source.file);
   const path = file.startsWith(`${base}/`)
     ? file.slice(base.length + 1)
-    : file.startsWith("/") || file.startsWith("../")
+    : /^([A-Z]:|\/|\.\.\/)/.test(file)
       ? null
       : file;
   const at = line ? `:${line}` : "";

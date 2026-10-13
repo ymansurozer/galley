@@ -1,4 +1,3 @@
-import path from "node:path";
 import type {
   Rect,
   ThreadMessage,
@@ -191,12 +190,18 @@ export function readUiAnnotations(
   return out;
 }
 
+// Paths compared as strings, whichever OS wrote them (the dev server's or the desk's): forward
+// slashes, an upper-case drive letter, and a drive-letter path counted as absolute.
+const slashed = (p: string) =>
+  p.replace(/\\/g, "/").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
+const isAbsolutePath = (p: string) => p.startsWith("/") || /^[A-Za-z]:/.test(p);
+
 // A source file the agent can open from the repo: inside the repo `root`, repo-relative. A path
 // outside it, or one already relative, goes as it came.
 function repoRelative(file: string, root: string) {
-  if (!path.isAbsolute(file)) return file;
-  const rel = path.relative(root, file);
-  return rel && rel.split(path.sep)[0] !== ".." && !path.isAbsolute(rel) ? rel : file;
+  const f = slashed(file);
+  const base = slashed(root).replace(/\/+$/, "");
+  return isAbsolutePath(f) && f.startsWith(`${base}/`) ? f.slice(base.length + 1) : file;
 }
 
 const withRepoSource = (el: UiElement, root: string): UiElement =>

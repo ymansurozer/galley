@@ -39,8 +39,10 @@ type Pos = { file: string; line: number; column: number };
 const isObj = (v: unknown): v is Obj => !!v && (typeof v === "object" || typeof v === "function");
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 // Paths as the dev server hands them out, minus what is unambiguously not part of the file: Vite's
-// `/@fs` prefix for files outside its root, and a query (`?vue&type=template`).
-const cleanPath = (p: string) => p.replace(/^\/@fs(?=\/)/, "").replace(/\?.*$/, "");
+// `/@fs` prefix for files outside its root (`/@fs/C:/…` on Windows), and a query
+// (`?vue&type=template`).
+const cleanPath = (p: string) =>
+  p.replace(/^\/@fs(?:\/(?=[A-Za-z]:)|(?=\/))/, "").replace(/\?.*$/, "");
 const isVendor = (file: string) => /(^|\/)node_modules\//.test(file);
 
 function vueSource(el: Element): UiSource | undefined {

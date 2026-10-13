@@ -192,6 +192,21 @@ test("a source shows its last two path segments and line, and opens repo-relativ
   assert.equal(sourcePlace({ file: "app/X.vue", via: "vue-file" }, root).path, "app/X.vue");
 });
 
+test("a Windows source path opens repo-relative under a Windows root, and is never relative", () => {
+  for (const file of ["C:/proj/src/a.vue", String.raw`C:\proj\src\a.vue`, "c:/proj/src/a.vue"]) {
+    const place = sourcePlace({ file, line: 2, via: "vue-tracer" }, String.raw`C:\proj`);
+    assert.equal(place.path, "src/a.vue", file);
+    assert.equal(place.label, "src/a.vue:2", file);
+  }
+  for (const file of ["D:/proj/src/a.vue", String.raw`C:\other\a.vue`, "C:/proj-old/a.vue"])
+    assert.equal(sourcePlace({ file, via: "vue-file" }, "C:/proj").path, null, file);
+  assert.equal(
+    sourcePlace({ file: String.raw`src\a.vue`, via: "vue-file" }, "C:/proj").path,
+    "src/a.vue",
+  );
+  assert.equal(sourcePlace({ file: String.raw`..\a.vue`, via: "vue-file" }, "C:/proj").path, null);
+});
+
 test("an annotation's source is its first element's that has one", () => {
   const src = { file: "/r/a.vue", line: 3, via: "vue-tracer" as const };
   const el = (source?: typeof src) => ({
