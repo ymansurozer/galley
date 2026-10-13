@@ -3327,8 +3327,8 @@
       background: var(--bg)
     }
 
-    /* The UI lane's open change-request count: on the header's UI segment, the UI-only label and
-       the collapsed sidebar's rail. Amber like a change request; ghosted at zero. */
+    /* The UI lane's open change-request count: on the header's UI segment, only when there are
+       some, and on the collapsed sidebar's rail. Amber like a change request; ghosted at zero. */
     .lane-count {
       min-width: 17px;
       height: 16px;
@@ -4203,9 +4203,8 @@
         <div class="toggle lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / UI (⇧U)"><button
             :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg>Code</button><button
             :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg>UI<span
-              class="lane-count" :class="{zero: !$store.g.openChanges()}" title="Open UI change requests" x-text="$store.g.openChanges()"></span></button></div>
-        <span class="lane-solo" x-cloak x-show="$store.g.uiOnly()"><svg class="ic"><use href="#gly-app"></use></svg>UI review<span
-            class="lane-count" :class="{zero: !$store.g.openChanges()}" title="Open UI change requests" x-text="$store.g.openChanges()"></span></span>
+              class="lane-count" x-show="$store.g.openChanges()" title="Open UI change requests" x-text="$store.g.openChanges()"></span></button></div>
+        <span class="lane-solo" x-cloak x-show="$store.g.uiOnly()"><svg class="ic"><use href="#gly-app"></use></svg>UI review</span>
         <div class="toggle" x-show="$store.g.view==='code' && $store.g.isMarkdownFile()" data-tip="Rendered / source (m)"><button :class="{active: $store.g.fileView==='rendered'}"
             @click="$store.g.setFileView('rendered')">Rendered</button><button
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
