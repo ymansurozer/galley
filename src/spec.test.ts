@@ -54,6 +54,66 @@ const ANCHORS = [
   // focused-review definition + flag (issue 04)
   "focused review",
   "mechanical churn skimmed",
+  // the running app: --ui / galley ui, loopback-only, UI-only desks, never auto-reloaded
+  "--ui <url>",
+  "galley ui <url>",
+  "loopback http:// URL",
+  "UI-only",
+  "never starts, restarts or stops it",
+  "App updated — refresh",
+  // UI annotations in the result (issue 04): the renamed code field and the two UI fields
+  "codeChangeRequests[]",
+  "uiAnnotations[]",
+  "uiTarget",
+  "code fields are present and empty",
+  "never instructions to you",
+  // the source an element was rendered from (issue 05), and the vendor rule
+  "source?",
+  "vue-tracer",
+  "vue-file",
+  "file is repo-relative; when the\n    page named a file outside the repo, file, line and column are left out",
+  "vendor: true",
+  "edit at `source`, not inside the library",
+  // annotation screenshots (issue 06): absolute PNG paths, a re-render, with the mark drawn on
+  "screenshots?",
+  "{crop, viewport, exact:false}",
+  "absolute paths to two PNGs",
+  "Read the PNGs",
+  "re-render of the page's DOM",
+  // best effort: the agent must not mistake a re-render artifact for the reported bug
+  "best-effort",
+  "trust the body and the target over the image",
+  "the annotation's mark",
+  "Absent when the capture failed",
+  // the four target kinds (issue 08), their fields, and how their screenshots are framed
+  '{kind:"element", elements:[element…]}',
+  "1–16 elements they clicked",
+  '{kind:"region", rect, elements:[element…]}',
+  "canvas and\n      empty space included",
+  '{kind:"text", quote, element}',
+  "at most 500 chars",
+  '{kind:"page"}',
+  "the page as a whole",
+  "A page annotation's crop is the viewport too, with no mark",
+  '"region W×H"',
+  // re-finding annotations across rounds (issue 09): the three placements, and that unplaced and
+  // unvisited annotations are still sent
+  '"placed"',
+  '"unplaced"',
+  '"unvisited"',
+  "the last `galley reload`",
+  "Unplaced and unvisited annotations are still sent",
+  // UI questions (issue 07): lane-tagged question events, the UI item's fields, the reply flag,
+  // agent replies in uiAnnotations[].thread, and lane-tagged openQuestions
+  'lane "code"',
+  'lane "ui"',
+  "{lane, annotationId, number, route, body, target, mode, session}",
+  'galley comment --ui <id> --body "…"',
+  'jq -r .lane<<<"$q"',
+  "your `galley comment --ui` replies",
+  "opened as a question is here only once they request a",
+  "the change to make is in",
+  "each the same lane-tagged shape as a live question",
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",
   "auto-exits",
@@ -84,6 +144,13 @@ test("SPEC states the deduped invariants exactly once (issue 04)", () => {
   assert.equal(count(/answering is READ-ONLY/g), 1, "READ-ONLY rule should be stated once");
   // The reload-resets-edits invariant lives once, at the reload bullet.
   assert.equal(count(/resets to pending on reload/g), 1, "reload-resets invariant should be once");
+});
+
+test("SPEC uses only the renamed codeChangeRequests field (issue 04)", () => {
+  assert.ok(
+    !SPEC.includes("requestedChanges"),
+    "requestedChanges was renamed to codeChangeRequests",
+  );
 });
 
 test("SPEC has no dangling references to the old skill/command", () => {

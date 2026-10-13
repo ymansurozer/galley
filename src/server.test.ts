@@ -1,13 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import { resolveBinding, startServer } from "./server.js";
-import { buildReviewState, hash, writeGlobalSettings } from "./state.js";
+import { AGENT_HEADER, resolveBinding, startServer } from "./server.js";
+import { buildReviewState, hash, reviewDir, writeGlobalSettings } from "./state.js";
 import type { ReviewState } from "./types.js";
+import { SHOT_CAP } from "./uishots.js";
 
 function state(root: string): ReviewState {
   return {
@@ -88,8 +98,40 @@ test("open-editor rejects absolute paths", async () => {
   });
 });
 
+test("open-editor opens only a file that exists inside the repo, symlinks followed", async () => {
+  const calls: string[][] = [];
+  const outside = await mkdtemp(path.join(tmpdir(), "galley-outside-"));
+  try {
+    await withServer(
+      async (handle, root) => {
+        await writeFile(path.join(outside, "secret.ts"), "x\n", "utf8");
+        await symlink(path.join(outside, "secret.ts"), path.join(root, "link.ts"));
+        await mkdir(path.join(root, "src"));
+        // A UI annotation's source names whatever the app page said: here, a file that isn't there.
+        for (const [rel, status] of [
+          ["src/x&calc.vue", 404],
+          ["link.ts", 400],
+          ["src", 404],
+        ] as const) {
+          const res = await fetch(`${handle.url}api/open-editor`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ path: rel, lineNumber: 1 }),
+          });
+          assert.equal(res.status, status, rel);
+        }
+        assert.deepEqual(calls, [], "the editor never ran");
+      },
+      { runEditorCommand: async (command, args) => void calls.push([command, ...args]) },
+    );
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
 test("open-editor rejects a non-allowlisted editor command", async () => {
-  await withServer(async (handle) => {
+  await withServer(async (handle, root) => {
+    await writeFile(path.join(root, "a.ts"), "hello\n", "utf8");
     await writeGlobalSettings({ settings: { editorCommand: "node {file}" } });
     const res = await fetch(`${handle.url}api/open-editor`, {
       method: "POST",
@@ -115,7 +157,8 @@ test("open-editor runs the editor command from global settings", async () => {
       }).then((r) => r.json() as Promise<{ ok: boolean }>);
       assert.equal(body.ok, true);
       assert.equal(calls[0]!.command, "code");
-      assert.deepEqual(calls[0]!.args, ["-g", `${path.join(root, "a.ts")}:9`]);
+      // The file as resolved, symlinks followed (macOS's tmpdir is under one).
+      assert.deepEqual(calls[0]!.args, ["-g", `${await realpath(path.join(root, "a.ts"))}:9`]);
     },
     {
       runEditorCommand: async (command, args) => {
@@ -141,6 +184,10 @@ const post = (url: string, pathname: string, body: unknown) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+
+// The long-poll as `galley await` makes it, with the header only the CLI sends.
+const awaitEvent = (url: string, query = "") =>
+  fetch(`${url}api/await-send${query}`, { headers: { [AGENT_HEADER]: "1" } });
 
 test("status posts ephemeral agent activity into the state payload", async () => {
   await withServer(async (handle) => {
@@ -204,6 +251,262 @@ test("/api/poll ships the lite slice plus desk status — never the heavy state"
   });
 });
 
+test("UI annotations ride the save slice into the poll and the Send result; reset clears them", async () => {
+  await withServer(async (handle, _root, st) => {
+    // A UI-only desk: an app and no diff.
+    st.files = [];
+    st.ui = { target: "http://localhost:3000/" };
+    const annotation = {
+      id: "a1",
+      number: 1,
+      intent: "change",
+      status: "open",
+      placement: "placed",
+      page: {
+        url: "http://localhost:3000/app",
+        route: "/app",
+        title: "App",
+        viewport: { width: 1280, height: 800, dpr: 1 },
+      },
+      target: {
+        kind: "element",
+        elements: [
+          {
+            selector: "#save",
+            tag: "button",
+            text: "y".repeat(5000),
+            rect: { x: 1, y: 2, width: 3, height: 4 },
+          },
+        ],
+      },
+      comments: [
+        {
+          id: "m1",
+          role: "user",
+          intent: "action",
+          body: "Rename to Save",
+          createdAt: "t",
+          updatedAt: "t",
+        },
+      ],
+    };
+    const malformed = { ...annotation, id: "a2", page: { ...annotation.page, route: "//evil" } };
+    await post(handle.url, "api/save", { annotations: [annotation, malformed] });
+    const poll = (await fetch(`${handle.url}api/poll`).then((r) => r.json())) as {
+      annotations?: Array<{ id: string; target: { elements: Array<{ text: string }> } }>;
+    };
+    assert.deepEqual(
+      poll.annotations?.map((a) => a.id),
+      ["a1"],
+      "the malformed entry was dropped on save",
+    );
+    assert.equal(poll.annotations![0]!.target.elements[0]!.text.length, 300, "text capped");
+    const sent = (await post(handle.url, "api/send", {}).then((r) => r.json())) as {
+      resultJson: string;
+    };
+    const result = JSON.parse(await readFile(sent.resultJson, "utf8")) as {
+      uiTarget?: string;
+      uiAnnotations: Array<{ id: string; body: string }>;
+      codeChangeRequests: unknown[];
+    };
+    assert.equal(result.uiTarget, "http://localhost:3000/");
+    assert.deepEqual(
+      result.uiAnnotations.map((a) => [a.id, a.body]),
+      [["a1", "Rename to Save"]],
+    );
+    assert.deepEqual(result.codeChangeRequests, []);
+    assert.equal(st.lastAnnotationNumber, 1, "the save raised the number mark");
+    await post(handle.url, "api/reset", {});
+    assert.deepEqual(st.annotations, [], "reset clears annotations along with comments");
+    assert.equal(st.lastAnnotationNumber, 0, "and starts the numbers over");
+  });
+});
+
+// ── Annotation screenshots ──────────────────────────────────────────────────────────────────────
+// A 1×1 PNG, the smallest real image.
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+function uiAnnotation(id: string) {
+  return {
+    id,
+    number: 1,
+    intent: "change",
+    status: "open",
+    placement: "placed",
+    page: { route: "/app", viewport: { width: 1280, height: 800, dpr: 1 } },
+    target: {
+      kind: "element",
+      elements: [{ selector: "#save", tag: "button", rect: { x: 1, y: 2, width: 3, height: 4 } }],
+    },
+    comments: [
+      {
+        id: `${id}-m1`,
+        role: "user",
+        intent: "action",
+        body: "Rename",
+        createdAt: "t",
+        updatedAt: "t",
+      },
+    ],
+  };
+}
+
+// A UI-only desk with annotations a1 and a2 saved, as the tab saves them before it uploads.
+async function withShotDesk(
+  run: (
+    handle: Awaited<ReturnType<typeof startServer>>,
+    st: ReviewState,
+    shots: string,
+  ) => Promise<void>,
+) {
+  await withServer(async (handle, root, st) => {
+    st.files = [];
+    st.ui = { target: "http://localhost:3000/" };
+    await post(handle.url, "api/save", { annotations: [uiAnnotation("a1"), uiAnnotation("a2")] });
+    await run(handle, st, path.join(await reviewDir(root, st.session), "ui-shots"));
+  });
+}
+
+const upload = (base: string, query: string, body: Uint8Array) =>
+  fetch(`${base}api/ui-shot?${query}`, {
+    method: "POST",
+    headers: { "content-type": "image/png" },
+    body,
+  });
+
+test("screenshot upload stores a PNG pair beside the review, never in the state, and the Send gives its paths", async () => {
+  await withShotDesk(async (handle, st, shots) => {
+    const crop = await upload(handle.url, "annotation=a1&kind=crop", PNG);
+    assert.equal(crop.status, 200);
+    assert.deepEqual(await crop.json(), { ok: true, screenshots: false });
+    assert.equal(st.annotations![0]!.screenshots, undefined, "half a pair isn't marked");
+    const viewport = await upload(handle.url, "annotation=a1&kind=viewport", PNG);
+    assert.deepEqual(await viewport.json(), { ok: true, screenshots: true });
+    assert.deepEqual(await readFile(path.join(shots, "a1-crop.png")), PNG);
+    assert.deepEqual(await readFile(path.join(shots, "a1-viewport.png")), PNG);
+
+    // The stored review and the poll carry the mark, never the bytes.
+    const stateFile = await readFile(path.join(path.dirname(shots), st.persistFile!), "utf8");
+    const poll = await fetch(`${handle.url}api/poll`).then((r) => r.text());
+    for (const text of [stateFile, poll]) {
+      assert.ok(text.includes('"screenshots":'));
+      assert.ok(!text.includes("PNG") && !text.includes(PNG.toString("base64").slice(0, 12)));
+    }
+
+    // A later save from the tab (which never sends the mark) keeps it.
+    await post(handle.url, "api/save", { annotations: [uiAnnotation("a1"), uiAnnotation("a2")] });
+    const sent = (await post(handle.url, "api/send", {}).then((r) => r.json())) as {
+      resultJson: string;
+    };
+    const result = JSON.parse(await readFile(sent.resultJson, "utf8")) as {
+      uiAnnotations: Array<{ id: string; screenshots?: Record<string, unknown> }>;
+    };
+    const [a1, a2] = result.uiAnnotations;
+    assert.deepEqual(a1!.screenshots, {
+      crop: path.join(shots, "a1-crop.png"),
+      viewport: path.join(shots, "a1-viewport.png"),
+      exact: false,
+    });
+    assert.equal(a2!.screenshots, undefined);
+
+    const served = await fetch(`${handle.url}api/ui-shot?annotation=a1&kind=viewport`);
+    assert.equal(served.status, 200);
+    assert.equal(served.headers.get("content-type"), "image/png");
+    assert.deepEqual(Buffer.from(await served.arrayBuffer()), PNG);
+  });
+});
+
+test("screenshot upload takes a PNG up to the cap and refuses a bigger, non-PNG, unknown or escaping one", async () => {
+  await withShotDesk(async (handle, _st, shots) => {
+    const atCap = Buffer.alloc(SHOT_CAP);
+    PNG.copy(atCap);
+    assert.equal((await upload(handle.url, "annotation=a1&kind=crop", atCap)).status, 200);
+    const over = Buffer.alloc(SHOT_CAP + 1);
+    PNG.copy(over);
+    const cases: Array<[string, Uint8Array, number]> = [
+      ["annotation=a2&kind=crop", over, 413],
+      ["annotation=a2&kind=crop", Buffer.from("<svg onload=alert(1)>"), 415],
+      ["annotation=nope&kind=crop", PNG, 404],
+      ["annotation=..%2F..%2Fx&kind=crop", PNG, 400],
+      ["annotation=a2&kind=..%2Fx", PNG, 400],
+      ["annotation=a2&kind=thumb", PNG, 400],
+      ["kind=crop", PNG, 400],
+    ];
+    for (const [query, body, status] of cases)
+      assert.equal((await upload(handle.url, query, body)).status, status, query);
+    assert.deepEqual(await readdir(shots), ["a1-crop.png"], "nothing else was written");
+  });
+});
+
+test("the screenshot cap fits a 4K HiDPI viewport even as raw pixels", () => {
+  assert.ok(SHOT_CAP >= 3840 * 2160 * 4);
+});
+
+test("a refused second screenshot takes the stored first one with it, so no half pair is left", async () => {
+  await withShotDesk(async (handle, st, shots) => {
+    const over = Buffer.alloc(SHOT_CAP + 1);
+    PNG.copy(over);
+    for (const [id, viewport, status] of [
+      ["a1", over, 413],
+      ["a2", Buffer.from("not a png"), 415],
+    ] as const) {
+      assert.equal((await upload(handle.url, `annotation=${id}&kind=crop`, PNG)).status, 200);
+      assert.equal(
+        (await upload(handle.url, `annotation=${id}&kind=viewport`, viewport)).status,
+        status,
+      );
+    }
+    assert.deepEqual(await readdir(shots), []);
+    assert.ok(st.annotations!.every((a) => !a.screenshots));
+    // A complete pair stays whatever a later upload does.
+    for (const kind of ["crop", "viewport"])
+      await upload(handle.url, `annotation=a1&kind=${kind}`, PNG);
+    assert.equal((await upload(handle.url, "annotation=a1&kind=crop", over)).status, 413);
+    assert.deepEqual((await readdir(shots)).sort(), ["a1-crop.png", "a1-viewport.png"]);
+  });
+});
+
+test("screenshots are served only from the session's screenshot directory", async () => {
+  const outside = await mkdtemp(path.join(tmpdir(), "galley-outside-"));
+  try {
+    await withShotDesk(async (handle, _st, shots) => {
+      await upload(handle.url, "annotation=a1&kind=crop", PNG);
+      await writeFile(path.join(outside, "secret.png"), PNG);
+      // A link planted in the directory still can't reach outside it.
+      await symlink(path.join(outside, "secret.png"), path.join(shots, "a2-crop.png"));
+      const get = (query: string) => fetch(`${handle.url}api/ui-shot?${query}`);
+      assert.equal((await get("annotation=a1&kind=crop")).status, 200);
+      assert.equal((await get("annotation=a2&kind=crop")).status, 400, "symlink out");
+      assert.equal((await get("annotation=a1&kind=viewport")).status, 404, "not uploaded");
+      assert.equal((await get("annotation=..%2Fdesk&kind=crop")).status, 400);
+      assert.equal((await get("annotation=a1&kind=..%2F..%2Fx")).status, 400);
+    });
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("deleting an annotation deletes its screenshots, and a reset deletes them all", async () => {
+  await withShotDesk(async (handle, _st, shots) => {
+    for (const id of ["a1", "a2"])
+      for (const kind of ["crop", "viewport"])
+        await upload(handle.url, `annotation=${id}&kind=${kind}`, PNG);
+    // The tab deletes a1 and saves; the save drops its files.
+    await post(handle.url, "api/save", { annotations: [uiAnnotation("a2")] });
+    assert.deepEqual((await readdir(shots)).sort(), ["a2-crop.png", "a2-viewport.png"]);
+    // A Send that drops one does the same.
+    await post(handle.url, "api/send", { annotations: [] });
+    assert.deepEqual(await readdir(shots), []);
+    await post(handle.url, "api/save", { annotations: [uiAnnotation("a1")] });
+    await upload(handle.url, "annotation=a1&kind=crop", PNG);
+    await post(handle.url, "api/reset", {});
+    await assert.rejects(readdir(shots), { code: "ENOENT" }, "reset removes the directory");
+  });
+});
+
 test("an unconsumed question surfaces as queuedQuestions", async () => {
   await withServer(async (handle) => {
     await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
@@ -217,7 +520,7 @@ test("multiple questions asked before an await batch into one event, oldest firs
   await withServer(async (handle) => {
     await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "first?" });
     await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 2, body: "second?" });
-    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
       kind: string;
       question: { body: string };
       questions: { body: string }[];
@@ -284,7 +587,7 @@ test("Send flushes queued questions and folds the unanswered ones into openQuest
     assert.equal(status.queuedQuestions, 0); // superseded questions flushed
 
     // Next await is the review (not a stale question), carrying both unanswered questions.
-    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
       kind: string;
       result: { openQuestions: { body: string }[] };
     };
@@ -292,8 +595,159 @@ test("Send flushes queued questions and folds the unanswered ones into openQuest
     assert.deepEqual(ev.result.openQuestions.map((q) => q.body).sort(), ["why q1?", "why q2?"]);
 
     // Nothing dribbles in after the round: a bounded await times out (204).
-    const after = await fetch(`${handle.url}api/await-send?timeout=1`);
+    const after = await awaitEvent(handle.url, "?timeout=1");
     assert.equal(after.status, 204);
+  });
+});
+
+// ── UI questions ────────────────────────────────────────────────────────────────────────────────
+// Annotation q1 (#2), asked as a question, as the tab saves it before it asks.
+function uiQuestion() {
+  const a = uiAnnotation("q1");
+  return {
+    ...a,
+    number: 2,
+    intent: "question",
+    comments: [{ ...a.comments[0]!, intent: "question", body: "Why is this a draft?" }],
+  };
+}
+async function withQuestionDesk(
+  run: (handle: Awaited<ReturnType<typeof startServer>>, st: ReviewState) => Promise<void>,
+) {
+  await withServer(async (handle, _root, st) => {
+    st.ui = { target: "http://localhost:3000/" };
+    await post(handle.url, "api/save", { annotations: [uiQuestion(), uiAnnotation("a1")] });
+    await run(handle, st);
+  });
+}
+
+test("a UI ask reaches await as a lane-tagged question built from the saved annotation; a code ask is tagged code", async () => {
+  await withQuestionDesk(async (handle) => {
+    const asked = await post(handle.url, "api/ask", { annotationId: "q1", messageId: "q1-m1" });
+    assert.equal(asked.status, 200);
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
+      kind: string;
+      questions: unknown[];
+    };
+    assert.equal(ev.kind, "question");
+    assert.deepEqual(ev.questions, [
+      {
+        lane: "ui",
+        annotationId: "q1",
+        number: 2,
+        route: "/app",
+        body: "Why is this a draft?",
+        target: "button",
+        mode: "repo",
+        session: "s",
+      },
+      {
+        lane: "code",
+        path: "a.ts",
+        lineNumber: 1,
+        side: "additions",
+        body: "why?",
+        mode: "repo",
+        session: "s",
+      },
+    ]);
+  });
+});
+
+test("a queued UI question whose annotation was deleted or resolved before the agent came is dropped", async () => {
+  await withServer(async (handle, _root, st) => {
+    st.ui = { target: "http://localhost:3000/" };
+    const asked = (id: string, number: number) => {
+      const q = uiQuestion();
+      return {
+        ...q,
+        id,
+        number,
+        comments: [{ ...q.comments[0]!, id: `${id}-m1`, body: `${id}?` }],
+      };
+    };
+    const [deleted, resolved, kept] = [asked("q1", 1), asked("q2", 2), asked("q3", 3)];
+    await post(handle.url, "api/save", { annotations: [deleted, resolved, kept] });
+    for (const id of ["q1", "q2", "q3"])
+      await post(handle.url, "api/ask", { annotationId: id, messageId: `${id}-m1` });
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
+    // No agent was listening; meanwhile the reviewer deletes q1 and resolves q2.
+    await post(handle.url, "api/save", {
+      annotations: [{ ...resolved, status: "resolved" }, kept],
+    });
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
+      question: { body: string };
+      questions: Array<{ body: string }>;
+    };
+    assert.deepEqual(
+      ev.questions.map((q) => q.body),
+      ["q3?", "why?"],
+    );
+    assert.equal(ev.question.body, "q3?", "the singular is the oldest one still asked");
+
+    // When every queued question went away, the agent waits for the next event instead.
+    await post(handle.url, "api/ask", { annotationId: "q3", messageId: "q3-m1" });
+    await post(handle.url, "api/save", { annotations: [] });
+    const none = await awaitEvent(handle.url, "?timeout=1");
+    assert.equal(none.status, 204);
+  });
+});
+
+test("a UI ask on an annotation, or a question, the review doesn't have is a 404", async () => {
+  await withQuestionDesk(async (handle) => {
+    for (const body of [
+      { annotationId: "nope", messageId: "q1-m1" },
+      { annotationId: "q1", messageId: "nope" },
+      // a1's opening message is a change request, not a question.
+      { annotationId: "a1", messageId: "a1-m1" },
+    ]) {
+      const res = await post(handle.url, "api/ask", body);
+      assert.equal(res.status, 404, JSON.stringify(body));
+    }
+    assert.equal((await getState(handle.url)).queuedQuestions, 0, "nothing was asked");
+  });
+});
+
+test("the agent's UI reply joins the annotation's thread, survives a save that lacks it, and clears the activity line", async () => {
+  await withQuestionDesk(async (handle, st) => {
+    await post(handle.url, "api/status", { body: "Reading the page…" });
+    const res = await post(handle.url, "api/ui-comment", {
+      annotationId: "q1",
+      body: "  It is saved as a draft until Publish.  ",
+    });
+    assert.equal(res.status, 200);
+    const { commentId } = (await res.json()) as { commentId: string };
+    type Poll = {
+      agentActivity: unknown;
+      annotations: Array<{
+        id: string;
+        comments: Array<{ id: string; role: string; body: string }>;
+      }>;
+    };
+    const thread = async () =>
+      ((await fetch(`${handle.url}api/poll`).then((r) => r.json())) as Poll).annotations
+        .find((a) => a.id === "q1")!
+        .comments.map((m) => [m.role, m.body]);
+    assert.deepEqual(await thread(), [
+      ["user", "Why is this a draft?"],
+      ["agent", "It is saved as a draft until Publish."],
+    ]);
+    assert.equal((await getState(handle.url)).agentActivity, null, "the reply cleared activity");
+    // The tab saves before its next poll has brought the reply in: the reply stays.
+    await post(handle.url, "api/save", { annotations: [uiQuestion(), uiAnnotation("a1")] });
+    assert.deepEqual((await thread()).at(-1), ["agent", "It is saved as a draft until Publish."]);
+    assert.equal(st.annotations![0]!.comments.at(-1)!.id, commentId);
+  });
+});
+
+test("a UI reply to an annotation the review doesn't have is a 404; an empty one is a 422", async () => {
+  await withQuestionDesk(async (handle) => {
+    const unknown = await post(handle.url, "api/ui-comment", { annotationId: "nope", body: "x" });
+    assert.equal(unknown.status, 404);
+    assert.match(((await unknown.json()) as { error: string }).error, /nope/);
+    const empty = await post(handle.url, "api/ui-comment", { annotationId: "q1", body: "  " });
+    assert.equal(empty.status, 422);
   });
 });
 
@@ -659,7 +1113,7 @@ test("an in-flight await-send long-poll pins the desk past the idle timeout", as
     async (handle) => {
       // Holds the connection open well past idleTimeoutMs; activeRequests > 0 must
       // block the idle exit for as long as an agent is parked on await.
-      const poll = fetch(`${handle.url}api/await-send?timeout=1`);
+      const poll = awaitEvent(handle.url, "?timeout=1");
       await sleep(200);
       assert.deepEqual(reasons, [], "no idle shutdown while a long-poll is held");
       const res = await poll;
@@ -742,6 +1196,88 @@ test("origin guard accepts a same-origin POST and a POST with no Origin", async 
     assert.equal(noOrigin.status, 200);
     assert.equal(noOrigin.headers["access-control-allow-origin"], undefined);
   });
+});
+
+test("origin guard refuses another site's page even on a GET, so it never takes the agent's event", async () => {
+  await withServer(async (handle) => {
+    // The proxied app is same-site with the desk (another port on the same host); any other page
+    // is cross-site. An <img> pointed at the long-poll would otherwise park as the agent's waiter.
+    for (const site of ["same-site", "cross-site"]) {
+      const res = await rawRequest(`${handle.url}api/await-send?timeout=5`, {
+        headers: { "sec-fetch-site": site },
+      });
+      assert.equal(res.status, 403, site);
+      assert.equal((JSON.parse(res.body) as { code?: string }).code, "FORBIDDEN_SITE");
+    }
+    assert.equal((await getState(handle.url)).agentListening, false, "neither one is waiting");
+    // The desk tab (same-origin) and a typed or opened URL (none) still get through.
+    for (const site of ["same-origin", "none"]) {
+      const res = await rawRequest(`${handle.url}api/poll`, {
+        headers: { "sec-fetch-site": site },
+      });
+      assert.equal(res.status, 200, site);
+    }
+    // The agent's await, which sends no fetch metadata, gets the next event.
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
+      question: { body: string };
+    };
+    assert.equal(ev.question.body, "why?");
+  });
+});
+
+test("the desk forbids framing, so no page can overlay it", async () => {
+  await withServer(async (handle) => {
+    for (const route of ["", "api/poll"]) {
+      const res = await rawRequest(`${handle.url}${route}`);
+      assert.equal(res.status, 200, route);
+      assert.equal(res.headers["x-frame-options"], "DENY", route);
+      assert.equal(res.headers["content-security-policy"], "frame-ancestors 'none'", route);
+    }
+  });
+});
+
+test("a link from another site opens the desk page, but reaches nothing else", async () => {
+  await withServer(async (handle) => {
+    const crossSite = (route: string, mode: string, dest: string) =>
+      rawRequest(`${handle.url}${route}`, {
+        headers: { "sec-fetch-site": "cross-site", "sec-fetch-mode": mode, "sec-fetch-dest": dest },
+      });
+    assert.equal((await crossSite("", "navigate", "document")).status, 200, "a followed link");
+    assert.equal((await crossSite("?from=chat", "navigate", "document")).status, 200);
+    for (const [route, mode, dest] of [
+      ["", "navigate", "iframe"],
+      ["", "no-cors", "image"],
+      ["api/poll", "navigate", "document"],
+      ["ui.js", "no-cors", "script"],
+    ]) {
+      const res = await crossSite(route!, mode!, dest!);
+      assert.equal(res.status, 403, `${route} ${mode} ${dest}`);
+    }
+  });
+});
+
+test("the event long-poll answers only the CLI, so a page can't take the agent's event even off loopback", async () => {
+  await withServer(
+    async (handle) => {
+      // A plain-http devbox origin gets no fetch metadata from the browser: an <img> there is a
+      // bare GET, with the hostname in Host.
+      const port = new URL(handle.lockUrl).port;
+      const bare = await withHost(
+        `${handle.lockUrl}api/await-send?timeout=5`,
+        `${hostname()}:${port}`,
+      );
+      assert.equal(bare.status, 403);
+      assert.equal((JSON.parse(bare.body) as { code?: string }).code, "AGENT_ONLY");
+      assert.equal((await getState(handle.lockUrl)).agentListening, false, "it never waited");
+      await post(handle.lockUrl, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
+      const ev = (await awaitEvent(handle.lockUrl).then((r) => r.json())) as {
+        question: { body: string };
+      };
+      assert.equal(ev.question.body, "why?", "the agent still gets it");
+    },
+    { host: "0.0.0.0", idleTimeoutMs: 0 },
+  );
 });
 
 test("resolveBinding: the loopback default widens nothing and keeps both URLs on 127.0.0.1", () => {
@@ -1070,6 +1606,240 @@ test("stable-port EADDRINUSE falls back to a different port instead of throwing"
     }
   } finally {
     occupied.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+type PollWithUi = {
+  ui?: { target: string };
+  uiProxy: { port: number; token: string } | null;
+  reloadGeneration: number;
+};
+const getPoll = (url: string) =>
+  fetch(`${url}api/poll`).then((r) => r.json() as Promise<PollWithUi>);
+
+test("POST /api/ui sets the UI target, starts the proxy once, and the poll carries both", async () => {
+  await withServer(async (handle, root, st) => {
+    const before = await getPoll(handle.url);
+    assert.equal(before.ui, undefined);
+    assert.equal(before.uiProxy, null, "no proxy until a UI target exists");
+
+    const res = await post(handle.url, "api/ui", { target: "http://localhost:3000/sign-in?as=x" });
+    assert.equal(res.status, 200);
+    assert.deepEqual(st.ui, { target: "http://localhost:3000/sign-in?as=x" });
+    const poll = await getPoll(handle.url);
+    assert.deepEqual(poll.ui, { target: "http://localhost:3000/sign-in?as=x" });
+    assert.ok(poll.uiProxy && poll.uiProxy.port > 0);
+    assert.match(poll.uiProxy.token, /^[0-9a-f]{32}$/);
+    const bridge = await fetch(`http://127.0.0.1:${poll.uiProxy.port}/__galley/bridge.js`);
+    assert.notEqual(bridge.status, 403, "the proxy answers on the advertised port");
+    await bridge.arrayBuffer();
+
+    // Replacing the target keeps the same proxy — the open tab's iframe origin doesn't move.
+    await post(handle.url, "api/ui", { target: "http://127.0.0.1:4000/" });
+    const replaced = await getPoll(handle.url);
+    assert.deepEqual(replaced.ui, { target: "http://127.0.0.1:4000/" });
+    assert.deepEqual(replaced.uiProxy, poll.uiProxy);
+    // Persisted with the review, so a restart keeps it.
+    const saved = JSON.parse(
+      await readFile(path.join(root, ".galley", hash(root), "s", st.persistFile!), "utf8"),
+    ) as ReviewState;
+    assert.deepEqual(saved.ui, { target: "http://127.0.0.1:4000/" });
+  });
+});
+
+test("POST /api/ui refuses a non-loopback or https target with 422", async () => {
+  await withServer(async (handle, _root, st) => {
+    for (const target of ["http://example.com:3000/", "https://localhost:3000/"]) {
+      const res = await post(handle.url, "api/ui", { target });
+      assert.equal(res.status, 422, target);
+      assert.equal(((await res.json()) as { code?: string }).code, "INVALID_UI_TARGET");
+    }
+    assert.equal(st.ui, undefined, "nothing was set");
+    assert.equal((await getPoll(handle.url)).uiProxy, null, "no proxy was started");
+  });
+});
+
+test("a page on the proxy origin cannot call the desk's mutating routes", async () => {
+  await withServer(async (handle) => {
+    await post(handle.url, "api/ui", { target: "http://localhost:3000/" });
+    const { uiProxy } = await getPoll(handle.url);
+    const proxyOrigin = `http://127.0.0.1:${uiProxy!.port}`;
+    for (const route of ["api/reset", "api/ui", "api/shutdown"]) {
+      const res = await rawRequest(`${handle.url}${route}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: proxyOrigin },
+        body: JSON.stringify({ target: "http://localhost:4000/" }),
+      });
+      assert.equal(res.status, 403, route);
+      assert.equal((JSON.parse(res.body) as { code?: string }).code, "FORBIDDEN_ORIGIN");
+    }
+  });
+});
+
+test("a desk started with a UI target serves it at once; proxy traffic never keeps it alive", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-uiidle-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const reasons: string[] = [];
+  const st = { ...state(root), ui: { target: "http://localhost:3000/" } };
+  const handle = await startServer({
+    state: st,
+    open: false,
+    idleTimeoutMs: 150,
+    onShutdown: (reason) => reasons.push(reason),
+  });
+  try {
+    const { uiProxy } = await getPoll(handle.url);
+    assert.ok(uiProxy, "the proxy started with the desk");
+    // Hammer the proxy well past the idle timeout: a desk nobody but the app's own traffic touches
+    // is still abandoned.
+    const until = Date.now() + 500;
+    while (Date.now() < until && !reasons.length) {
+      await fetch(`http://127.0.0.1:${uiProxy.port}/__galley/health`).then((r) => r.arrayBuffer());
+      await sleep(20);
+    }
+    assert.deepEqual(reasons, ["idle"]);
+    // The proxy closes with the desk.
+    await new Promise<void>((resolve) => handle.server.close(() => resolve()));
+    const after = await fetch(`http://127.0.0.1:${uiProxy.port}/__galley/health`).then(
+      () => "answered",
+      () => "refused",
+    );
+    assert.equal(after, "refused");
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// A desk on a real repo whose tree is clean (HOME outside it, so the desk's own files stay out),
+// with a UI target, and one page annotation for the tab to save.
+async function withUiRepoDesk(
+  run: (desk: {
+    url: string;
+    root: string;
+    reload: () => Promise<boolean>;
+    save: (placement: string, seen?: unknown) => Promise<Response>;
+    placement: () => Promise<string | undefined>;
+    stamp: () => Promise<{ token: string | null; reloadGeneration: number }>;
+  }) => Promise<void>,
+) {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-placement-"));
+  const home = await mkdtemp(path.join(tmpdir(), "galley-placement-home-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  const st = await buildReviewState(root, { session: "s", allowEmpty: true });
+  st!.ui = { target: "http://localhost:3000/" };
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  const annotation = (placement: string) => ({
+    id: "a1",
+    number: 1,
+    intent: "change",
+    status: "open",
+    placement,
+    page: {
+      url: "http://localhost:3000/app",
+      route: "/app",
+      viewport: { width: 1280, height: 800, dpr: 1 },
+    },
+    target: { kind: "page" },
+    comments: [
+      { id: "m1", role: "user", intent: "action", body: "Fix", createdAt: "t", updatedAt: "t" },
+    ],
+  });
+  try {
+    await run({
+      url: handle.url,
+      root,
+      reload: async () =>
+        ((await (await post(handle.url, "api/reload", {})).json()) as { empty: boolean }).empty,
+      save: (placement, seen) =>
+        post(handle.url, "api/save", { annotations: [annotation(placement)], seen }),
+      placement: async () =>
+        ((await getPoll(handle.url)) as unknown as { annotations: Array<{ placement: string }> })
+          .annotations[0]?.placement,
+      stamp: async () => {
+        const poll = await getPoll(handle.url);
+        return { token: poll.uiProxy?.token ?? null, reloadGeneration: poll.reloadGeneration };
+      },
+    });
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+test("/api/reload leaves every annotation unvisited, whether or not the tree has a diff", async () => {
+  await withUiRepoDesk(async (desk) => {
+    await desk.save("placed", await desk.stamp());
+    assert.equal(await desk.placement(), "placed");
+    assert.equal(await desk.reload(), true, "a clean tree: the reload finds no diff");
+    assert.equal(await desk.placement(), "unvisited");
+    await desk.save("placed", await desk.stamp());
+    await writeFile(path.join(desk.root, "a.ts"), "two\n");
+    assert.equal(await desk.reload(), false);
+    assert.equal(await desk.placement(), "unvisited");
+  });
+});
+
+test("a save the tab stamped before the latest reload keeps the desk's placements", async () => {
+  await withUiRepoDesk(async (desk) => {
+    const before = await desk.stamp();
+    await desk.save("placed", before);
+    assert.equal(await desk.placement(), "placed");
+    await desk.reload();
+    assert.equal(await desk.placement(), "unvisited");
+    // The tab hasn't polled since the reload: its save still says placed.
+    await desk.save("placed", before);
+    assert.equal(await desk.placement(), "unvisited", "the reload's reset stands");
+    await desk.save("placed");
+    assert.equal(await desk.placement(), "unvisited", "an unstamped save counts as stale");
+    // Once it has adopted the reload, its placements count again.
+    await desk.save("placed", await desk.stamp());
+    assert.equal(await desk.placement(), "placed");
+    await desk.save("unplaced", { ...(await desk.stamp()), token: "an-earlier-desk-process" });
+    assert.equal(await desk.placement(), "placed", "a save from before a restart is stale too");
+  });
+});
+
+test("every /api/reload bumps reloadGeneration, even when the diff doesn't move", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-reloadgen-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  // A clean tree: the UI-only desk shape, where the diff never moves on reload.
+  const st = await buildReviewState(root, { session: "s", allowEmpty: true });
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  try {
+    assert.equal((await getPoll(handle.url)).reloadGeneration, 0);
+    const hashBefore = (await getPoll(handle.url)) as unknown as { baseDiffHash: string };
+    await post(handle.url, "api/reload", {});
+    const once = (await getPoll(handle.url)) as PollWithUi & { baseDiffHash: string };
+    assert.equal(once.reloadGeneration, 1);
+    assert.equal(once.baseDiffHash, hashBefore.baseDiffHash, "the diff didn't move");
+    await writeFile(path.join(root, "a.ts"), "two\n");
+    await post(handle.url, "api/reload", {});
+    assert.equal((await getPoll(handle.url)).reloadGeneration, 2);
+  } finally {
+    handle.server.close();
     process.env.HOME = oldHome;
     await rm(root, { recursive: true, force: true });
   }

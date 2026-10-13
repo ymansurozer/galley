@@ -6,9 +6,11 @@ import { pathToFileURL } from "node:url";
 
 import { getBranch, getGitRoot, gh, git } from "./git.js";
 import { validateGuide } from "./guide.js";
-import { startServer } from "./server.js";
+import { parseUiTarget } from "./proxy.js";
+import { AGENT_HEADER, startServer } from "./server.js";
 import { SPEC } from "./spec.js";
 import {
+  appendAnnotationReply,
   appendComment,
   buildReviewState,
   deskLockPath,
@@ -23,6 +25,7 @@ import {
   reviewDir,
   sanitizeSession,
   stablePort,
+  stableUiPort,
   syncGitState,
 } from "./state.js";
 import type { DeskLock } from "./state.js";
@@ -84,9 +87,12 @@ async function resolveActionSession(
 
 // GET with no client-side timeout, so a long-poll holds until the server
 // responds. Avoids undici's ~5min headersTimeout that fetch() imposes.
-function httpGetJson(urlStr: string): Promise<{ status: number; body: any }> {
+function httpGetJson(
+  urlStr: string,
+  headers: http.OutgoingHttpHeaders,
+): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
-    const req = http.get(urlStr, (res) => {
+    const req = http.get(urlStr, { headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c) => chunks.push(Buffer.from(c)));
       res.on("end", () => {
@@ -125,8 +131,9 @@ export async function deskAlive(url: string): Promise<boolean> {
 async function runComment(args: Record<string, string | boolean>) {
   const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
   const session = await resolveActionSession(root, args);
-  const filePath = typeof args.path === "string" ? args.path : "";
   const body = typeof args.body === "string" ? args.body.trim() : "";
+  if (args.ui !== undefined) return runUiComment(root, session, args.ui, body);
+  const filePath = typeof args.path === "string" ? args.path : "";
   if (!filePath || !body) {
     console.error(
       'Usage: galley comment --path <file> --line <n> [--side additions|deletions] --body "..." [--session <id>] [--repo <path>]',
@@ -164,6 +171,55 @@ async function runComment(args: Record<string, string | boolean>) {
   const comment = await appendComment(root, session, payload);
   process.stdout.write(
     JSON.stringify({ ok: true, live: false, session, commentId: comment.id }) + "\n",
+  );
+}
+
+// `galley comment --ui <id> --body "..."` — an agent reply in a UI annotation's thread: over HTTP
+// to a live desk, else appended to the saved review. Only a desk that doesn't answer gets the
+// offline append: a live desk persists over that file, so writing behind it would be lost. An id
+// the review doesn't have fails rather than landing nowhere, whichever way it went.
+async function runUiComment(root: string, session: string, id: string | boolean, body: string) {
+  if (typeof id !== "string" || !body) {
+    console.error(
+      'Usage: galley comment --ui <annotation-id> --body "..." [--session <id>] [--repo <path>]',
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const lock = await readDeskLock(root, session);
+  if (lock && (await deskAlive(lock.url))) {
+    const res = await fetch(`${lock.url}api/ui-comment`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ annotationId: id, body }),
+    }).catch(() => null);
+    const json = ((await res?.json().catch(() => null)) ?? {}) as {
+      commentId?: string;
+      error?: string;
+      fix?: string;
+    };
+    if (!res?.ok) {
+      console.error(
+        json.error
+          ? `${json.error} ${json.fix ?? ""}`.trim()
+          : `The desk at ${lock.url} didn't take the reply${res ? ` (HTTP ${res.status})` : ""}; nothing was posted. Retry once it answers.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(
+      JSON.stringify({ ok: true, live: true, session, commentId: json.commentId }) + "\n",
+    );
+    return;
+  }
+  const reply = await appendAnnotationReply(root, session, id, body);
+  if (!reply) {
+    console.error(`No annotation "${id}" in session "${session}".`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(
+    JSON.stringify({ ok: true, live: false, session, commentId: reply.id }) + "\n",
   );
 }
 
@@ -244,9 +300,10 @@ async function runStop(args: Record<string, string | boolean>) {
 
 // `galley await --session <id>` — block until the next desk event, then print it
 // to stdout as a tagged envelope and exit. The event is either
-//   {"kind":"question","question":{path,lineNumber,side,body,mode,session}}  — answer it now
-//   {"kind":"review","result":{…ReviewResult…}}                              — the reviewer hit Send
-// Call in a loop and branch on `kind`. Answer a question with `galley comment`.
+//   {"kind":"question","question":{lane,…},"questions":[…]}  — answer it now
+//   {"kind":"review","result":{…ReviewResult…}}              — the reviewer hit Send
+// Call in a loop and branch on `kind`. Answer a question with `galley comment` (`--ui <id>` for a
+// question with lane "ui").
 async function runAwait(args: Record<string, string | boolean>) {
   const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
   const session = await resolveActionSession(root, args);
@@ -261,7 +318,7 @@ async function runAwait(args: Record<string, string | boolean>) {
   let urlStr = `${lock.url}api/await-send`;
   if (typeof args.timeout === "string" && Number(args.timeout) > 0)
     urlStr += `?timeout=${Number(args.timeout)}`;
-  const res = await httpGetJson(urlStr).catch(() => null);
+  const res = await httpGetJson(urlStr, { [AGENT_HEADER]: "1" }).catch(() => null);
   if (!res || res.status === 204 || !res.body) return; // timed out, no event; caller re-runs
   if (res.body.kind) process.stdout.write(JSON.stringify(res.body) + "\n");
 }
@@ -305,6 +362,44 @@ async function runReload(args: Record<string, string | boolean>) {
       empty: j.empty,
     }) + "\n",
   );
+}
+
+// `galley ui <url>` — hand the desk the running app (the agent started the dev server). A live
+// desk for the repo+session gets the target set or replaced in place: the open tab's UI view loads
+// it on its next poll, no restart. With no live desk, start one exactly as `galley` would, with
+// the target — UI-only when the tree is clean.
+async function runUi(target: string | undefined, args: Record<string, string | boolean>) {
+  if (!target) {
+    console.error("Usage: galley ui <url> [--session <id>] [--repo <path>]");
+    process.exitCode = 1;
+    return;
+  }
+  const parsed = parseUiTarget(target);
+  if (!parsed.ok) {
+    console.error(`galley ui: ${parsed.reason}.`);
+    process.exitCode = 1;
+    return;
+  }
+  const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
+  const session = await resolveActionSession(root, args);
+  const lock = await readDeskLock(root, session);
+  if (lock && (await deskAlive(lock.url))) {
+    const res = await fetch(`${lock.url}api/ui`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: parsed.url }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      console.error("The live desk did not accept the UI target — is it still running?");
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(
+      JSON.stringify({ ok: true, live: true, session, target: parsed.url }) + "\n",
+    );
+    return;
+  }
+  return runDesk("repo", undefined, { ...args, ui: parsed.url });
 }
 
 // Read + validate a guide JSON file for the `--guide` start flag. Returns the validated
@@ -376,6 +471,18 @@ async function runDesk(
   target: string | undefined,
   args: Record<string, string | boolean>,
 ) {
+  // `--ui <url>`: the running app to review alongside (or instead of) the diff. Validated before
+  // anything starts, so a non-loopback URL never gets as far as a proxy.
+  let uiTarget: string | undefined;
+  if (args.ui !== undefined) {
+    const parsed = parseUiTarget(typeof args.ui === "string" ? args.ui : "");
+    if (!parsed.ok) {
+      console.error(`--ui: ${parsed.reason}.`);
+      process.exitCode = 1;
+      return;
+    }
+    uiTarget = parsed.url;
+  }
   // Desk starts only — the agent subcommands must never block on a prompt. On a
   // confirmed update this re-execs the new version with the same args and never returns.
   await maybeOfferUpdate();
@@ -439,19 +546,34 @@ async function runDesk(
       process.exitCode = 1;
       return;
     }
-    const res = await fetch(`${liveLock.url}api/reload`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(guide ? { guide } : {}),
-    }).catch(() => null);
+    const uiSet =
+      !uiTarget ||
+      (
+        await fetch(`${liveLock.url}api/ui`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ target: uiTarget }),
+        }).catch(() => null)
+      )?.ok;
+    const res = uiSet
+      ? await fetch(`${liveLock.url}api/reload`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(guide ? { guide } : {}),
+        }).catch(() => null)
+      : null;
     if (res?.ok) {
       console.error(
-        `Desk already live for session "${session}" — reloaded${guide ? " with the new guide" : ""} in the open tab: ${liveLock.url}`,
+        `Desk already live for session "${session}" — reloaded${guide ? " with the new guide" : ""}${uiTarget ? ` with the UI target ${uiTarget}` : ""} in the open tab: ${liveLock.url}`,
       );
       return;
     }
     console.error("Live desk did not accept the reload — starting a fresh one.");
   }
+  // Repo/pr reviews are saved under the repo's git root, so read the saved one before the build:
+  // a UI target it persisted makes a clean tree a review too (a UI-only desk restarting with a bare
+  // `galley`). File mode's root comes from the file itself — its review is read after the build.
+  const early = mode === "file" ? undefined : await loadLatestReview(root, session);
   const base = await buildReviewState(repo, {
     mode,
     session,
@@ -466,6 +588,8 @@ async function runDesk(
           : undefined,
     target: mode === "pr" ? prTarget || branch : undefined,
     base: mode === "pr" ? prBase : undefined,
+    // With a UI target (given or saved), a clean tree is still a review: the UI-only desk.
+    allowEmpty: !!(uiTarget ?? early?.ui),
   });
   if (!base) {
     console.error(
@@ -478,7 +602,8 @@ async function runDesk(
     process.exitCode = 1;
     return;
   }
-  const saved = await loadLatestReview(base.root, session);
+  const saved =
+    early !== undefined && base.root === root ? early : await loadLatestReview(base.root, session);
   // Load the new guide (if any) up front — loadGuideArg validates it. Guide-declared moves
   // (movedFrom) must merge into `base` BEFORE reconciliation, so the merged pair's distinct paths
   // drive mergeReviewState's rename migration (issue 01). A new guide resolves strictly (an
@@ -503,6 +628,8 @@ async function runDesk(
     }
   }
   const state = await mergeReviewState(base, saved);
+  // A `--ui` at (re)start replaces the target the merge carried forward.
+  if (uiTarget) state.ui = { target: uiTarget };
   // Optional agent-generated guided review, attached at startup. Required to be a readable,
   // valid JSON file when --guide is passed; survives reload via the state merge.
   if (newGuide) {
@@ -555,6 +682,7 @@ async function runDesk(
     port: typeof args.port === "string" ? Number(args.port) : stablePort(state.root, state.session),
     host,
     allowedHosts,
+    uiPort: stableUiPort(state.root, state.session),
     open: args.open !== false,
     idleTimeoutMs:
       Number.isFinite(idleMinutes) && idleMinutes >= 0 ? idleMinutes * 60_000 : undefined,
@@ -597,6 +725,7 @@ async function runDesk(
   const label =
     mode === "repo" ? state.session : `${mode}:${state.target ?? ""} [${state.session}]`;
   console.error(`Galley ${label}: ${url}`);
+  if (state.ui) console.error(`App under review: ${state.ui.target} (the desk's UI view)`);
   // Bound beyond loopback: the desk API is unauthenticated and can run editor commands and mutate
   // git, so anyone who can reach this address controls the desk. Warn every launch.
   const loopbackBind = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(host);
@@ -616,7 +745,10 @@ Usage:
   galley [--diff working|staged]    Review the working-tree (default) or staged diff
   galley file <path>                Review a single file or artifact (tracked or not)
   galley pr <ref|number|url>        Review a branch's commits vs its merge-base
+  galley ui <url>                   Show the running app (a loopback dev server) in the desk;
+                                    sets it on the live desk, or starts one (UI-only if clean)
   galley comment --path <f> --line <n> --body "..."   Post an agent reply into the desk
+  galley comment --ui <id> --body "..."   Post an agent reply into a UI annotation's thread
   galley status --body "..."        Post an ephemeral "what I'm doing" line into the desk
   galley await [--timeout <s>]      Block for the next desk event (question | review)
   galley reload [--guide <file>]    Re-diff the working tree into the open desk
@@ -631,6 +763,7 @@ Common flags:
   --host <addr>     Bind address (default: 127.0.0.1, loopback-only). Bind beyond loopback ONLY on a
                     fully trusted network — the desk API is unauthenticated (see README)
   --guide <file>    Attach an AI review guide (JSON)
+  --ui <url>        Also review the running app at this loopback http:// URL (desk starts)
   --idle-timeout <m>  Desk auto-exits after <m> minutes with no tab or agent (default 120; 0 = never)
   --no-open         Don't open the browser
   -h, --help        Show this help
@@ -663,6 +796,7 @@ async function main() {
   if (sub === "await") return runAwait(args);
   if (sub === "reload") return runReload(args);
   if (sub === "stop") return runStop(args);
+  if (sub === "ui") return runUi(positional, args);
   if (sub === "spec") {
     process.stdout.write(SPEC + "\n");
     return;
@@ -678,7 +812,7 @@ async function main() {
   if (sub === "pr") return runDesk("pr", positional, args);
   if (sub) {
     console.error(
-      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref|number|url> | comment | status | await | reload | stop | spec.`,
+      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref|number|url> | ui <url> | comment | status | await | reload | stop | spec.`,
     );
     process.exitCode = 1;
     return;

@@ -9,9 +9,9 @@ Galley is a CLI (`galley`) that serves a localhost browser UI for reviewing a gi
 ## Commands
 
 ```bash
-pnpm dev          # esbuild --watch for the UI + run the CLI from source via tsx
-pnpm build        # tsc (backend) + tsc -p tsconfig.ui.json (UI typecheck) + esbuild bundle + copy index.html
-pnpm check        # typecheck both worlds, no emit
+pnpm dev          # esbuild --watch for the UI and bridge bundles + run the CLI from source via tsx
+pnpm build        # tsc (backend) + UI and bridge typechecks + esbuild bundles + copy index.html
+pnpm check        # typecheck all three worlds, no emit
 pnpm lint         # oxlint + oxfmt --check
 pnpm lint:fix     # oxlint --fix + oxfmt (formats)
 pnpm test         # node:test via tsx, all src/**/*.test.ts
@@ -27,18 +27,19 @@ node --import tsx --test src/state.test.ts
 
 CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke — all must pass.
 
-## Two compilation worlds
+## Three compilation worlds
 
-`src/` is split into a Node backend and a browser UI that are built and type-checked separately:
+`src/` is split into a Node backend and two browser bundles, built and type-checked separately:
 
-- **Backend** (`src/*.ts`, excluding `src/ui/`): ESM with NodeNext resolution — intra-backend imports use `.js` extensions. Compiled by `tsc` to `dist/`. Entry: `src/cli.ts` (`dist/cli.js` is the published bin).
-- **UI** (`src/ui/*.ts`): browser code (Alpine.js) bundled by esbuild from `src/ui/main.ts` into `dist/ui.js`; type-checked (noEmit) with `tsconfig.ui.json` (bundler resolution, DOM libs). All markup lives in `src/ui/index.html` (~2400 lines, copied verbatim to `dist/`), with `@pierre/diffs` rendering the diff.
+- **Backend** (`src/*.ts`, excluding `src/ui/` and `src/bridge/`): ESM with NodeNext resolution — intra-backend imports use `.js` extensions. Compiled by `tsc` to `dist/`. Entry: `src/cli.ts` (`dist/cli.js` is the published bin).
+- **UI** (`src/ui/*.ts`): browser code (Alpine.js) bundled by esbuild from `src/ui/main.ts` into `dist/ui.js`; type-checked (noEmit) with `tsconfig.ui.json` (bundler resolution, DOM libs). All markup lives in `src/ui/index.html` (~4500 lines, copied verbatim to `dist/`), with `@pierre/diffs` rendering the diff.
+- **Bridge** (`src/bridge/*.ts`): browser code that runs *inside the reviewed app's pages*, not the desk. The UI proxy injects it into every proxied HTML page. esbuild bundles `src/bridge/main.ts` into `dist/bridge.js` (an IIFE), and `tsconfig.bridge.json` type-checks it (noEmit, DOM libs). Its only channel is tokenized `postMessage` to the desk tab; it never calls the desk API.
 
-The two worlds do not import each other at runtime. `src/types.ts` is the single source of truth for the shared shapes (ReviewState, ReviewResult, Guide, …); `src/ui/types.ts` (and `src/ui/walkthrough.ts`) re-export what they need via `import type { ... } from "../types"` — type-only, erased by esbuild, so no backend code ships in the UI bundle and the runtime boundary holds. Change a wire type in `src/types.ts` alone; the UI picks it up through the re-export.
+The worlds do not import each other at runtime. `src/types.ts` is the single source of truth for the shared shapes (ReviewState, ReviewResult, Guide, the bridge ↔ desk messages, …); `src/ui/types.ts` (and `src/ui/walkthrough.ts`) and the bridge import what they need via `import type { ... } from "../types"` — type-only, erased by esbuild, so no backend code ships in a browser bundle and the runtime boundary holds. Change a wire type in `src/types.ts` alone; the UI and bridge pick it up through the type import.
 
 ## Architecture
 
-**Backend flow:** `cli.ts` parses args and dispatches: desk starts (`galley`, `galley file <path>`, `galley pr <ref>`) build a `ReviewState` and call `startServer`; agent subcommands (`await`, `comment`, `reload`) find the live desk and talk to it over HTTP. `git.ts` is the git plumbing + unified-diff parser. `state.ts` is the core: builds/merges/persists `ReviewState`, derives change blocks and their `stableKey`/`contentHash`, reconciles decisions across reloads, and manages desk locks + deterministic ports. `server.ts` is the HTTP server: serves the UI, exposes `/api/*` (state poll, comment, reload, decisions, and the long-poll `/api/await-send` that backs `galley await`).
+**Backend flow:** `cli.ts` parses args and dispatches: desk starts (`galley`, `galley file <path>`, `galley pr <ref>`) build a `ReviewState` and call `startServer`; agent subcommands (`await`, `comment`, `reload`, `ui`) find the live desk and talk to it over HTTP. `git.ts` is the git plumbing + unified-diff parser. `state.ts` is the core: builds/merges/persists `ReviewState`, derives change blocks and their `stableKey`/`contentHash`, reconciles decisions across reloads, and manages desk locks + deterministic ports. `server.ts` is the HTTP server: serves the UI, exposes `/api/*` (state poll, comment, reload, decisions, and the long-poll `/api/await-send` that backs `galley await`). `proxy.ts` is the UI proxy: a second listener per desk, started once the state has a UI target (`--ui` / `galley ui`). It reverse-proxies the agent's loopback dev server so the desk's UI view can frame the app on a different origin, and it injects the bridge into every page.
 
 **Key invariants in `state.ts`:**
 

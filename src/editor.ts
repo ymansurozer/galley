@@ -54,16 +54,23 @@ export function normalizeLine(line: unknown) {
   return Number.isInteger(n) && n > 0 ? n : 1;
 }
 
+// What cmd.exe reads as syntax in an argument: separators, pipes, redirects, escapes, variables
+// and quotes. On Windows the default opener runs through cmd, and an editor on PATH is usually a
+// .cmd shim, so a file name carrying one of these could run a command.
+const CMD_META = /[&|^%<>"']/;
+
 export function resolveEditorCommand(
   template: string,
   values: { repo: string; file: string; line?: unknown },
+  platform: NodeJS.Platform = process.platform,
 ): EditorCommand {
   const line = normalizeLine(values.line);
+  if (platform === "win32" && CMD_META.test(values.file))
+    throw new Error("File path contains characters cmd would interpret.");
   const trimmed = template.trim();
   if (!trimmed) {
-    if (process.platform === "darwin") return { command: "open", args: [values.file] };
-    if (process.platform === "win32")
-      return { command: "cmd", args: ["/c", "start", "", values.file] };
+    if (platform === "darwin") return { command: "open", args: [values.file] };
+    if (platform === "win32") return { command: "cmd", args: ["/c", "start", "", values.file] };
     return { command: "xdg-open", args: [values.file] };
   }
   if (trimmed.includes("$(") || SHELL_META.test(trimmed))

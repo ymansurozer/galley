@@ -11,6 +11,8 @@ import { resolveEditorCommand } from "./editor.js";
 import { blobOid, git, listProjectTree, patchForChange } from "./git.js";
 import { validateGuide } from "./guide.js";
 import { createSerializer } from "./mutex.js";
+import { parseUiTarget, startUiProxy } from "./proxy.js";
+import type { UiProxy } from "./proxy.js";
 import {
   anchorTextFor,
   buildReviewResult,
@@ -24,9 +26,14 @@ import {
   questionPayload,
   readFileContents,
   readGlobalSettings,
+  replyToAnnotation,
   resolveMovedFrom,
   resolveSkim,
+  reviewDir,
   syncGitState,
+  uiQuestionPayload,
+  unvisitedAnnotations,
+  writeFileAtomic,
   writeGlobalSettings,
 } from "./state.js";
 import type {
@@ -36,11 +43,28 @@ import type {
   PollPayload,
   QuestionPayload,
   ReviewState,
+  SaveStamp,
 } from "./types.js";
+import {
+  SHOT_CAP,
+  SHOT_KINDS,
+  isPng,
+  pruneShots,
+  readShotName,
+  shotDir,
+  shotFile,
+} from "./uishots.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = "Run `galley spec` for the full agent contract.";
+
+// Sent (as "1") by the CLI on /api/await-send, the one GET that changes something: whoever parks
+// on it takes the agent's next event. A page can't send it. An <img> or <script> sets no headers,
+// and a fetch from another origin that adds one needs a CORS preflight the desk never grants. This
+// holds where fetch metadata doesn't reach: browsers send it only to secure contexts, and a
+// plain-http `GALLEY_HOST` desk (the devbox) isn't one.
+export const AGENT_HEADER = "x-galley-agent";
 
 export type ServerOptions = {
   state: ReviewState;
@@ -52,6 +76,9 @@ export type ServerOptions = {
   // Extra host names (beyond the machine's hostname/bound address) whose authority the origin guard
   // trusts when bound non-loopback — GALLEY_ALLOWED_HOSTS, for exotic names like a MagicDNS FQDN.
   allowedHosts?: string[];
+  // Preferred port for the UI proxy (stableUiPort), started once the state has a UI target.
+  // Default: a random port.
+  uiPort?: number;
   open?: boolean;
   // Test seam: lets server.test.ts assert the resolved editor invocation without
   // actually launching anything.
@@ -78,11 +105,7 @@ export type ServerHandle = {
   lockUrl: string;
 };
 
-// 50 MB: pre-0.6.2 tabs post the entire multi-MB ReviewState on /api/send, and a big PR desk
-// crosses 5 MB — the old cap made Send fail on exactly the largest reviews (readBody threw
-// before the result was built, so no artifact and no event, while slice-only auto-saves kept
-// succeeding). The server is localhost-only, so a generous cap is safe.
-async function readBody(req: http.IncomingMessage, limit = 50_000_000) {
+async function readBytes(req: http.IncomingMessage, limit: number) {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -91,7 +114,15 @@ async function readBody(req: http.IncomingMessage, limit = 50_000_000) {
     if (size > limit) throw new Error("Request body too large");
     chunks.push(buf);
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
+}
+
+// 50 MB: pre-0.6.2 tabs post the entire multi-MB ReviewState on /api/send, and a big PR desk
+// crosses 5 MB — the old cap made Send fail on exactly the largest reviews (readBody threw
+// before the result was built, so no artifact and no event, while slice-only auto-saves kept
+// succeeding). The server is localhost-only, so a generous cap is safe.
+async function readBody(req: http.IncomingMessage, limit = 50_000_000) {
+  return (await readBytes(req, limit)).toString("utf8");
 }
 
 function json(res: http.ServerResponse, status: number, body: unknown) {
@@ -157,7 +188,15 @@ export function resolveBinding(host: string, hostname: string, allowedHostsEnv: 
 // hostname / bound address / GALLEY_ALLOWED_HOSTS when bound beyond loopback (see resolveBinding),
 // never widened otherwise. The Origin check blocks cross-site POSTs; header-less callers (curl and
 // the `galley await`/`comment`/`reload`/`status` CLI, which target 127.0.0.1 and send no Origin) stay
-// allowed. Returns false once it has answered 403.
+// allowed. Fetch metadata closes what Origin leaves open, since a GET carries no Origin and the
+// proxied app knows the desk's origin. The browser marks another page's requests `same-site` (the
+// proxy is another port on the same host) or `cross-site`, on every method; the desk tab's own are
+// `same-origin`, a typed or opened URL is `none`, and the CLI sends none at all. The one request
+// from another site let through is a link followed to the desk page: a top-level navigation, which
+// lands on the desk's own page and can't frame it (frame-ancestors). Browsers send fetch metadata
+// only to a secure context (loopback counts), so over a plain-http `GALLEY_HOST` bind this check
+// is absent, and the GET that matters most is guarded on its own (AGENT_HEADER). Returns false
+// once it has answered 403.
 function originAllowed(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -173,6 +212,22 @@ function originAllowed(
       "FORBIDDEN_HOST",
       `Host "${host ?? ""}" is not this desk.`,
       "Reach the desk at its 127.0.0.1 origin.",
+    );
+    return false;
+  }
+  const site = req.headers["sec-fetch-site"];
+  const openedPage =
+    req.method === "GET" &&
+    new URL(req.url ?? "/", "http://127.0.0.1").pathname === "/" &&
+    req.headers["sec-fetch-mode"] === "navigate" &&
+    req.headers["sec-fetch-dest"] === "document";
+  if ((site === "same-site" || site === "cross-site") && !openedPage) {
+    fail(
+      res,
+      403,
+      "FORBIDDEN_SITE",
+      `A ${site} request from another page is not allowed.`,
+      "Open the desk's URL directly.",
     );
     return false;
   }
@@ -212,6 +267,15 @@ async function uiBundlePath() {
   return firstExisting(path.join(__dirname, "ui.js"), path.join(process.cwd(), "dist", "ui.js"));
 }
 
+// The bridge bundle the UI proxy injects into every proxied page (dist/bridge.js); null if unbuilt.
+async function bridgeJs() {
+  const file = await firstExisting(
+    path.join(__dirname, "bridge.js"),
+    path.join(process.cwd(), "dist", "bridge.js"),
+  );
+  return fs.readFile(file, "utf8").catch(() => null);
+}
+
 async function html() {
   const file = await firstExisting(
     path.join(__dirname, "index.html"),
@@ -247,16 +311,6 @@ async function openUrl(url: string) {
     process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   await execFileAsync(command, args).catch(() => undefined);
-}
-
-// Repo-relative path → absolute, or null if it is absolute or escapes the repo.
-// /api/open-editor hands this to a local process, so the boundary must be strict.
-function repoPath(root: string, rel: string) {
-  if (path.isAbsolute(rel)) return null;
-  const resolvedRoot = path.resolve(root);
-  const abs = path.resolve(resolvedRoot, rel);
-  if (abs !== resolvedRoot && !abs.startsWith(resolvedRoot + path.sep)) return null;
-  return abs;
 }
 
 // Resolve a repo-relative path to an absolute one that provably stays inside the repo
@@ -306,12 +360,41 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       agentActivity = null;
     return agentActivity;
   };
+  // The UI proxy: started lazily once the state has a UI target (at launch, or by POST /api/ui),
+  // then kept for the desk's lifetime — `galley ui` only swaps the target it reads per request.
+  // A separate listener, so its traffic never touches lastActivity/activeRequests: the app's own
+  // polling and live-reload socket must not keep an abandoned desk alive.
+  const uiToken = crypto.randomBytes(16).toString("hex");
+  let uiProxy: UiProxy | null = null;
+  let uiProxyStart: Promise<UiProxy> | null = null;
+  const ensureUiProxy = () =>
+    (uiProxyStart ??= startUiProxy({
+      host,
+      port: options.uiPort ?? 0,
+      allowedHosts: binding.allowedHosts,
+      deskPort: boundPort(),
+      token: uiToken,
+      target: () => state.ui?.target,
+      bridgeJs,
+    }).then(
+      (proxy) => (uiProxy = proxy),
+      (error: unknown) => {
+        uiProxyStart = null; // let a later call retry the bind
+        throw error;
+      },
+    ));
+  let reloadGeneration = 0;
+
   const deskStatus = (): DeskStatus => ({
     agentActivity: liveActivity(),
     agentListening: eventWaiters.length > 0,
     queuedQuestions: eventQueue.filter((e) => e.kind === "question").length,
     queuedReviews: eventQueue.filter((e) => e.kind === "review").length,
+    uiProxy: uiProxy ? { port: uiProxy.port, token: uiToken } : null,
+    reloadGeneration,
   });
+  // The desk as a tab that has adopted its latest status stamps its saves (types.ts, SaveStamp).
+  const saveStamp = (): SaveStamp => ({ token: uiProxy ? uiToken : null, reloadGeneration });
 
   // Desk lifecycle: without this, an abandoned desk (tab closed, agent gone) serves
   // forever and desks accumulate across repos/sessions. Any request marks activity;
@@ -361,6 +444,16 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // is unit-tested in mutex.test.ts; the ordering/non-poisoning guarantees live there.)
   const serialize = createSerializer();
 
+  // Screenshots belong to their annotation: once a save or Send has dropped it, its files go too.
+  const pruneScreenshots = (sessionDir: string) =>
+    pruneShots(shotDir(sessionDir), new Set((state.annotations ?? []).map((a) => a.id)));
+
+  // server.address() is populated once listening — always true by the time requests arrive.
+  const boundPort = () => {
+    const bound = server.address();
+    return typeof bound === "object" && bound ? bound.port : 0;
+  };
+
   const server = http.createServer(async (req, res) => {
     lastActivity = Date.now();
     activeRequests++;
@@ -369,11 +462,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       lastActivity = Date.now();
     });
     try {
+      // No page may frame the desk (the proxied app included) and dress it up to steer the
+      // reviewer's clicks. Set on every response: it only matters on the HTML, and is inert elsewhere.
+      res.setHeader("x-frame-options", "DENY");
+      res.setHeader("content-security-policy", "frame-ancestors 'none'");
       // Guard every route (current and future) before dispatch: the desk answers only its own
-      // loopback origin. server.address() is populated by the time requests arrive.
-      const bound = server.address();
-      const boundPort = typeof bound === "object" && bound ? bound.port : 0;
-      if (!originAllowed(req, res, boundPort, binding.allowedHosts)) return;
+      // loopback origin.
+      if (!originAllowed(req, res, boundPort(), binding.allowedHosts)) return;
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       if (req.method === "GET" && url.pathname === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -412,6 +507,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           baseDiffHash: state.baseDiffHash,
           guide: state.guide,
           comments: state.comments,
+          ui: state.ui,
+          annotations: state.annotations,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
       }
@@ -497,11 +594,32 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         }
       }
       if (req.method === "POST" && url.pathname === "/api/open-editor") {
-        const body = JSON.parse(await readBody(req)) as { path?: string; lineNumber?: number };
-        const rel = body.path ?? "";
-        const abs = repoPath(state.root, rel);
-        if (!rel || !abs)
+        const body = JSON.parse(await readBody(req)) as { path?: unknown; lineNumber?: number };
+        // The path can come from the app page (a UI annotation's source), and it is handed to a
+        // local process: it must be repo-relative and name a file that exists inside the repo
+        // once symlinks are followed.
+        const rel = typeof body.path === "string" ? body.path : "";
+        const resolved =
+          rel && !path.isAbsolute(rel)
+            ? await resolveContained(state.root, rel)
+            : { error: "escape" as const };
+        if ("error" in resolved && resolved.error === "escape")
           return fail(res, 400, "BAD_PATH", "Path escapes the repo.", "Use a repo-relative path.");
+        const abs = "abs" in resolved ? resolved.abs : null;
+        const isFile =
+          !!abs &&
+          (await fs.stat(abs).then(
+            (s) => s.isFile(),
+            () => false,
+          ));
+        if (!abs || !isFile)
+          return fail(
+            res,
+            404,
+            "NOT_FOUND",
+            `"${rel}" is not a file in the repo.`,
+            "Open a file that exists in the working tree.",
+          );
         // The editor command is a reviewer/machine preference, so it lives in the global
         // ~/.galley/settings.json with the rest of them (deliberately not per-repo).
         const prefs = (await readGlobalSettings()) as { settings?: { editorCommand?: unknown } };
@@ -514,6 +632,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          if (message.includes("File path"))
+            return fail(res, 400, "BAD_PATH", message, "Open the file from your editor instead.");
           const code = message.includes("not allowed")
             ? "EDITOR_NOT_ALLOWED"
             : "BAD_EDITOR_COMMAND";
@@ -538,8 +658,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // metadata stay authoritative here. Pick from whatever body arrives so a stale open
         // tab still posting the old full-state body keeps working (extra fields ignored).
         return await serialize(async () => {
-          mergeReviewerSave(state, JSON.parse(await readBody(req)));
+          mergeReviewerSave(state, JSON.parse(await readBody(req)), saveStamp());
           const file = await persistReview(state);
+          await pruneScreenshots(path.dirname(file));
           return json(res, 200, { ok: true, file });
         });
       }
@@ -552,10 +673,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
           // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
           // full ReviewState keeps working because everything else in the body is ignored.
-          mergeReviewerSave(state, body);
+          mergeReviewerSave(state, body, saveStamp());
           await syncGitState(state);
           const file = await persistReview(state);
           const sessionDir = path.dirname(file);
+          await pruneScreenshots(sessionDir);
           const resultJson = path.join(sessionDir, `${state.id}-result.json`);
           const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
           await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
@@ -577,28 +699,57 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           lineNumber?: number;
           side?: string;
           body?: string;
+          annotationId?: string;
+          messageId?: string;
         };
-        const text = (b.body ?? "").trim();
-        if (!b.path || !text)
-          return fail(
-            res,
-            422,
-            "INVALID_QUESTION",
-            "ask requires path and body",
-            "Send { path, lineNumber, side, body } as JSON.",
+        let question: QuestionPayload;
+        if (b.annotationId !== undefined) {
+          // A UI question names its annotation and message, which the tab saved first: the event
+          // is built from the stored copy, as openQuestions is.
+          const a = state.annotations?.find((x) => x.id === b.annotationId);
+          const m = a?.comments.find(
+            (x) => x.id === b.messageId && x.role !== "agent" && x.intent === "question",
           );
+          if (!a || !m)
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `No question "${b.messageId}" on annotation "${b.annotationId}" in this review.`,
+              "Save the annotation before asking.",
+            );
+          question = uiQuestionPayload(state, a, m);
+        } else {
+          const text = (b.body ?? "").trim();
+          if (!b.path || !text)
+            return fail(
+              res,
+              422,
+              "INVALID_QUESTION",
+              "ask requires path and body",
+              "Send { path, lineNumber, side, body } as JSON.",
+            );
+          question = questionPayload(state, {
+            path: b.path,
+            lineNumber: Number(b.lineNumber ?? 1),
+            side: b.side === "deletions" ? "deletions" : "additions",
+            body: text,
+          });
+        }
         // Bake the singular into a one-element `questions` here so a question handed straight
         // to a parked waiter already carries the array — batching only has to merge on drain.
-        const question = questionPayload(state, {
-          path: b.path,
-          lineNumber: Number(b.lineNumber ?? 1),
-          side: b.side === "deletions" ? "deletions" : "additions",
-          body: text,
-        });
         emitEvent({ kind: "question", question, questions: [question] });
         return json(res, 200, { ok: true });
       }
       if (req.method === "GET" && url.pathname === "/api/await-send") {
+        if (req.headers[AGENT_HEADER] !== "1")
+          return fail(
+            res,
+            403,
+            "AGENT_ONLY",
+            "Only the galley CLI can wait on the desk's events.",
+            "Run `galley await`.",
+          );
         // Long-poll the tagged event stream: resolves with the next queued event
         // ({kind:"question"|"review"}). Lets the agent learn of questions and Sends
         // without the desk process exiting.
@@ -607,6 +758,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // `questions` holds them in arrival order. Safe because a Send flushes every queued
         // question before enqueuing its review (see /api/send), so a review can never sit
         // between two queued questions; draining all questions can't skip past a review.
+        // A UI question whose annotation was deleted or resolved while it sat queued has no thread
+        // left to answer in, so it's dropped; if none are left, the agent waits for the next event.
         if (eventQueue[0]?.kind === "question") {
           const batched: QuestionPayload[] = [];
           for (let i = eventQueue.length - 1; i >= 0; i--) {
@@ -616,7 +769,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               eventQueue.splice(i, 1);
             }
           }
-          return json(res, 200, { kind: "question", question: batched[0], questions: batched });
+          const open = new Set(
+            state.annotations?.filter((a) => a.status === "open").map((a) => a.id),
+          );
+          const asked = batched.filter((q) => q.lane === "code" || open.has(q.annotationId));
+          if (asked.length)
+            return json(res, 200, { kind: "question", question: asked[0], questions: asked });
         }
         const queued = eventQueue.shift();
         if (queued) return json(res, 200, queued);
@@ -691,7 +849,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             state.changes = [];
             state.rawDiff = "";
             state.baseDiffHash = hash("");
+            state.annotations = unvisitedAnnotations(state.annotations);
             await persistReview(state);
+            reloadGeneration++;
             return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });
           }
           // Guide-declared moves (movedFrom) must merge into `base` BEFORE reconciliation, so a
@@ -742,8 +902,148 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           Object.assign(state, merged);
           await syncGitState(state);
           await persistReview(state);
+          reloadGeneration++;
           return json(res, 200, { ok: true, empty: false, baseDiffHash: state.baseDiffHash });
         });
+      }
+      if (req.method === "POST" && url.pathname === "/api/ui") {
+        // `galley ui <url>` on a live desk: set or replace the UI target. The open tab picks it up
+        // from the poll and reloads its UI view; the proxy starts on first use and then just reads
+        // the new target per request.
+        return await serialize(async () => {
+          const body = JSON.parse(await readBody(req)) as { target?: unknown };
+          const parsed = parseUiTarget(typeof body.target === "string" ? body.target : "");
+          if (!parsed.ok)
+            return fail(
+              res,
+              422,
+              "INVALID_UI_TARGET",
+              `Invalid UI target: ${parsed.reason}.`,
+              "Pass the running dev server's loopback http:// URL, e.g. http://localhost:3000.",
+            );
+          state.ui = { target: parsed.url };
+          await persistReview(state);
+          const proxy = await ensureUiProxy();
+          return json(res, 200, { ok: true, target: parsed.url, proxyPort: proxy.port });
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/api/ui-shot") {
+        // One of a UI annotation's screenshots (?kind=crop|viewport), as the PNG the bridge
+        // rendered: the tab uploads it once the annotation's save has landed. It's stored as a file
+        // beside the review, never in the state, and the upload that completes the pair marks the
+        // annotation (UiAnnotationRecord.screenshots).
+        const name = readShotName(url.searchParams.get("annotation"), url.searchParams.get("kind"));
+        if (!name)
+          return fail(
+            res,
+            400,
+            "BAD_SCREENSHOT",
+            "A screenshot needs an annotation id and a kind (crop or viewport).",
+            "POST /api/ui-shot?annotation=<id>&kind=crop|viewport with the PNG as the body.",
+          );
+        // A refused image leaves its annotation without screenshots, so the other one goes too if
+        // it was stored: nothing would ever complete the pair, or delete it before the annotation.
+        const refuse = (status: number, code: string, error: string, fix: string) =>
+          serialize(async () => {
+            if (!state.annotations?.find((x) => x.id === name.id)?.screenshots) {
+              const dir = shotDir(await reviewDir(state.root, state.session));
+              await Promise.all(
+                SHOT_KINDS.map((kind) => fs.rm(shotFile(dir, name.id, kind), { force: true })),
+              );
+            }
+            fail(res, status, code, error, fix);
+          });
+        const tooLarge = () =>
+          refuse(
+            413,
+            "SCREENSHOT_TOO_LARGE",
+            `A screenshot is capped at ${SHOT_CAP / 1024 / 1024} MB.`,
+            "Capture a smaller viewport.",
+          );
+        // A declared length over the cap is refused before a byte is read.
+        if (Number(req.headers["content-length"]) > SHOT_CAP) return await tooLarge();
+        let bytes: Buffer;
+        try {
+          bytes = await readBytes(req, SHOT_CAP);
+        } catch {
+          return await tooLarge();
+        }
+        if (!isPng(bytes))
+          return await refuse(
+            415,
+            "NOT_PNG",
+            "A screenshot must be a PNG.",
+            "Upload the PNG the bridge rendered.",
+          );
+        return await serialize(async () => {
+          const a = state.annotations?.find((x) => x.id === name.id);
+          if (!a)
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `No annotation "${name.id}" in this review.`,
+              "Save the annotation before uploading its screenshots.",
+            );
+          const dir = shotDir(await reviewDir(state.root, state.session));
+          await fs.mkdir(dir, { recursive: true });
+          await writeFileAtomic(shotFile(dir, name.id, name.kind), bytes);
+          const stored = await Promise.all(
+            SHOT_KINDS.map((kind) =>
+              fs.stat(shotFile(dir, name.id, kind)).then(
+                () => true,
+                () => false,
+              ),
+            ),
+          );
+          if (!a.screenshots && stored.every(Boolean)) {
+            a.screenshots = true;
+            await persistReview(state);
+          }
+          return json(res, 200, { ok: true, screenshots: !!a.screenshots });
+        });
+      }
+      if (req.method === "GET" && url.pathname === "/api/ui-shot") {
+        // A stored screenshot, for the desk's enlarged view: only a file inside the session's
+        // ui-shots/ once symlinks are followed.
+        const name = readShotName(url.searchParams.get("annotation"), url.searchParams.get("kind"));
+        if (!name)
+          return fail(
+            res,
+            400,
+            "BAD_SCREENSHOT",
+            "A screenshot needs an annotation id and a kind (crop or viewport).",
+            "GET /api/ui-shot?annotation=<id>&kind=crop|viewport.",
+          );
+        const dir = shotDir(await reviewDir(state.root, state.session));
+        const resolved = await resolveContained(
+          dir,
+          path.basename(shotFile(dir, name.id, name.kind)),
+        );
+        if ("error" in resolved && resolved.error === "escape")
+          return fail(
+            res,
+            400,
+            "BAD_PATH",
+            "That screenshot is outside the review's screenshots.",
+            "Request a screenshot by annotation id and kind.",
+          );
+        const png = "abs" in resolved ? await fs.readFile(resolved.abs).catch(() => null) : null;
+        if (!png)
+          return fail(
+            res,
+            404,
+            "NOT_FOUND",
+            `No ${name.kind} screenshot for annotation "${name.id}".`,
+            "Its capture may have failed; the annotation stands without screenshots.",
+          );
+        res.writeHead(200, {
+          "content-type": "image/png",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        });
+        res.end(png);
+        return;
       }
       if (req.method === "POST" && url.pathname === "/api/comment") {
         return await serialize(async () => {
@@ -793,6 +1093,40 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           return json(res, 200, { ok: true, commentId: comment.id });
         });
       }
+      if (req.method === "POST" && url.pathname === "/api/ui-comment") {
+        // `galley comment --ui <id>`: the agent's reply in a UI annotation's thread. The tab adds it
+        // to its copy on the next poll, and a save from a tab that hasn't yet keeps it
+        // (mergeReviewerSave).
+        return await serialize(async () => {
+          const body = JSON.parse(await readBody(req)) as {
+            annotationId?: unknown;
+            body?: unknown;
+          };
+          const id = typeof body.annotationId === "string" ? body.annotationId : "";
+          const text = typeof body.body === "string" ? body.body.trim() : "";
+          if (!text)
+            return fail(
+              res,
+              422,
+              "INVALID_COMMENT",
+              "comment --ui requires a body",
+              "Send { annotationId, body } as JSON.",
+            );
+          const reply = replyToAnnotation(state, id, text);
+          if (!reply)
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `No annotation "${id}" in this review.`,
+              "Reply with a question's annotationId, or an id from uiAnnotations[].",
+            );
+          // As with a code reply: the answer has landed, so the "doing X now" line is obsolete.
+          agentActivity = null;
+          await persistReview(state);
+          return json(res, 200, { ok: true, commentId: reply.id });
+        });
+      }
       if (req.method === "POST" && url.pathname === "/api/status") {
         // Ephemeral agent activity (`galley status`): a one-line "what I'm doing
         // now" while the agent works on a question or review. Never persisted.
@@ -821,6 +1155,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             );
           }
           state.comments = [];
+          state.annotations = [];
+          state.lastAnnotationNumber = 0;
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
           state.stagedFiles = [];
@@ -832,7 +1168,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             status: "pending",
             reviewedHash: undefined,
           }));
-          await persistReview(state);
+          const file = await persistReview(state);
+          await fs.rm(shotDir(path.dirname(file)), { recursive: true, force: true });
           return json(res, 200, { ok: true, state });
         });
       }
@@ -942,9 +1279,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   });
   server.on("close", () => {
     if (idleTimer) clearInterval(idleTimer);
+    uiProxy?.close();
   });
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : 0;
+  if (state.ui) await ensureUiProxy();
+  const port = boundPort();
   const url = `http://${binding.browserHost}:${port}/`;
   const lockUrl = `http://${binding.lockHost}:${port}/`;
   if (options.open !== false) await openUrl(url);

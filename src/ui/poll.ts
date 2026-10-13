@@ -1,17 +1,31 @@
 import { S, D, api, toast, saver } from "./store";
 import { render } from "./render";
 import { updateAwaitingDom } from "./annotations";
+import { adoptUiStatus, adoptUiTarget, syncView } from "./appview";
+import { renderUiLane } from "./uilane";
+import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
 import type { DeskStatus, PollPayload, ReviewState } from "./types";
 
 // Pull the transient DeskStatus fields off a server payload into the store and
 // return the rest. They must never enter S.state: persist() posts S.state back
 // to /api/save, and the persisted review must not carry desk liveness.
 export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
-  const { agentActivity, agentListening, queuedQuestions, queuedReviews, ...server } = payload;
+  const {
+    agentActivity,
+    agentListening,
+    queuedQuestions,
+    queuedReviews,
+    uiProxy,
+    reloadGeneration,
+    ...server
+  } = payload;
   S.agentActivity = agentActivity?.body ?? null;
   S.agentListening = agentListening ?? false;
   S.queuedQuestions = queuedQuestions ?? 0;
   S.queuedReviews = queuedReviews ?? 0;
+  // `galley reload` is the agent back from a Send, even when the diff didn't move (a UI-only desk
+  // has none), so Send is open again.
+  if (adoptUiStatus(uiProxy ?? null, reloadGeneration ?? 0)) S.awaitingAgent = false;
   return server as T;
 }
 
@@ -33,6 +47,8 @@ export async function pollState() {
     return;
   }
   if (!lite || !Array.isArray(lite.comments)) return;
+  // `galley ui <url>` on the live desk: no diff change, so it rides the lite poll.
+  adoptUiTarget(lite.ui);
   if (lite.baseDiffHash !== S.lastBaseDiffHash) {
     // The reload branch replaces S.state wholesale and re-renders, which would clobber local
     // decisions/comments not yet persisted and rebuild the diff DOM out from under an open
@@ -57,12 +73,15 @@ export async function pollState() {
     // rather than trusting the numeric index — otherwise the shown file, and guided auto-advance
     // (which resolves "next" from the current index), silently jump to whatever now sits there.
     const curPath = S.state?.files?.[S.fileIndex]?.path;
+    keepPlacements(server.annotations ?? [], S.state.annotations ?? []);
     S.state = server;
     D.fileDiff = null;
     const remapped = curPath ? S.state.files.findIndex((f) => f.path === curPath) : -1;
     if (remapped >= 0) S.fileIndex = remapped;
     else if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
     S.awaitingAgent = false;
+    // A diff that appeared (or emptied) makes a UI-only desk combined (or back).
+    syncView();
     // The diff changed (e.g. a reload added files) — refresh the project listing too so
     // the tree reflects newly tracked files, not the listing fetched at startup.
     api<{ files?: string[] }>("/api/tree")
@@ -83,11 +102,15 @@ export async function pollState() {
   }
   const localIds = new Set(S.state.comments.map((c) => c.id));
   const incoming = lite.comments.filter((c) => !localIds.has(c.id));
-  if (!incoming.length) return;
   S.state.comments.push(...incoming);
-  if (incoming.some((c) => c.role === "agent")) {
+  // The agent's replies in UI annotation threads (`galley comment --ui`) join the same way; a save
+  // from this tab before they arrive keeps them on the server (mergeReviewerSave).
+  const uiReplies = mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
+  if (uiReplies || incoming.some((c) => c.role === "agent")) {
     S.awaitingAgent = false;
     toast("Agent replied");
   }
-  render();
+  // render() redraws the UI lane too.
+  if (incoming.length) render();
+  else if (uiReplies) renderUiLane();
 }

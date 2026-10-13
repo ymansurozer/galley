@@ -6,6 +6,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   anchorTextFor,
+  appendAnnotationReply,
   buildDiffSource,
   buildReviewResult,
   buildReviewState,
@@ -13,6 +14,7 @@ import {
   deskLockPath,
   findLiveDesks,
   globalSettingsPath,
+  loadLatestReview,
   mergeReviewerSave,
   mergeReviewState,
   parsedDiffOf,
@@ -24,11 +26,20 @@ import {
   reviewDir,
   sanitizeSession,
   stablePort,
+  stableUiPort,
   writeFileAtomic,
   writeGlobalSettings,
 } from "./state.js";
 import { changeBlocks, changeStableKeyFromBlock, gitStats, parseUnifiedDiff } from "./git.js";
-import type { ChangeState, Decision, Guide, ReviewComment, ReviewState } from "./types.js";
+import type {
+  ChangeState,
+  Decision,
+  Guide,
+  ReviewComment,
+  ReviewState,
+  UiAnnotationRecord,
+  UiElement,
+} from "./types.js";
 
 function file(path: string, contentHash = "FH") {
   return { path, hunks: [], contentHash, changeKind: "modified" as const };
@@ -589,7 +600,7 @@ test("buildReviewResult reads decisions, so a staged-out accepted hunk still app
   assert.equal(r.accepted[0]!.lineNumber, 4);
 });
 
-test("buildReviewResult excludes questions from requestedChanges, keeps an action on the same line", () => {
+test("buildReviewResult excludes questions from codeChangeRequests, keeps an action on the same line", () => {
   const s = state({
     comments: [
       comment({
@@ -603,8 +614,8 @@ test("buildReviewResult excludes questions from requestedChanges, keeps an actio
     ],
   });
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
-  assert.equal(r.requestedChanges.length, 1);
-  assert.equal(r.requestedChanges[0]!.body, "rename this");
+  assert.equal(r.codeChangeRequests.length, 1);
+  assert.equal(r.codeChangeRequests[0]!.body, "rename this");
 });
 
 test("buildReviewResult.openQuestions lists unanswered questions and drops answered ones", () => {
@@ -643,12 +654,18 @@ test("buildReviewResult.openQuestions lists unanswered questions and drops answe
     ],
   });
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
-  assert.equal(r.openQuestions.length, 1);
-  assert.equal(r.openQuestions[0]!.body, "why here?");
-  assert.equal(r.openQuestions[0]!.lineNumber, 4);
-  // Same shape as an await question — mode/session threaded through.
-  assert.equal(r.openQuestions[0]!.mode, "repo");
-  assert.equal(r.openQuestions[0]!.session, "sess");
+  // Same shape as an await question — lane-tagged, mode/session threaded through.
+  assert.deepEqual(r.openQuestions, [
+    {
+      lane: "code",
+      path: "a.ts",
+      lineNumber: 4,
+      side: "additions",
+      body: "why here?",
+      mode: "repo",
+      session: "sess",
+    },
+  ]);
 });
 
 test("buildReviewResult carries mode/target/base", () => {
@@ -1155,6 +1172,907 @@ test("persistReview writes a lean review — no file contents on disk", async ()
     assert.equal("oldFile" in parsed.files[0]!, false);
     assert.equal("newFile" in parsed.files[0]!, false);
     assert.equal(parsed.files[0]!.contentHash, "H"); // the OID key stays
+  } finally {
+    process.env.HOME = oldHome;
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("mergeReviewState carries the UI target across reload/restart (the rebuilt base has none)", async () => {
+  const base = state({ files: [file("a.ts")] });
+  const saved = state({ files: [file("a.ts")], ui: { target: "http://localhost:3000/app" } });
+  const merged = await mergeReviewState(base, saved);
+  assert.deepEqual(merged.ui, { target: "http://localhost:3000/app" });
+});
+
+test("stableUiPort is deterministic, in range, and distinct from the desk's stablePort", () => {
+  const a = stableUiPort("/work/repo", "main");
+  assert.equal(a, stableUiPort("/work/repo", "main"));
+  assert.ok(a >= 41000 && a < 51000);
+  assert.notEqual(a, stablePort("/work/repo", "main"), "the UI salt moves it off the desk port");
+  assert.notEqual(a, stableUiPort("/work/repo", "feature-x"));
+  assert.equal(stableUiPort("/work/repo", "feature/x"), stableUiPort("/work/repo", "feature-x"));
+});
+
+test("buildReviewState on a clean tree: null by default, an empty state with allowEmpty (UI-only desk)", async () => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-clean-")));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.co");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "a.txt"), "one\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    assert.equal(await buildReviewState(dir, { session: "s" }), null);
+    const empty = await buildReviewState(dir, { session: "s", allowEmpty: true });
+    assert.ok(empty, "an empty state is built");
+    assert.equal(empty!.root, dir);
+    assert.deepEqual(empty!.files, []);
+    assert.deepEqual(empty!.changes, []);
+    assert.equal(empty!.rawDiff, "");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// ── UI annotations ──────────────────────────────────────────────────────────────────────────────
+function uiElement(over: Partial<UiElement> = {}): UiElement {
+  return {
+    selector: 'button[data-testid="upload"]',
+    tag: "button",
+    text: "Upload",
+    role: "button",
+    name: "Upload",
+    rect: { x: 10, y: 20, width: 90, height: 32 },
+    ...over,
+  };
+}
+function annotation(over: Partial<UiAnnotationRecord> & { id: string }): UiAnnotationRecord {
+  return {
+    number: 1,
+    intent: "change",
+    status: "open",
+    placement: "placed",
+    page: {
+      url: "http://localhost:3000/app/files?tab=all",
+      route: "/app/files?tab=all",
+      title: "Files",
+      viewport: { width: 1440, height: 900, dpr: 2 },
+    },
+    target: { kind: "element", elements: [uiElement()] },
+    comments: [
+      {
+        id: `${over.id}-m1`,
+        role: "user",
+        intent: "action",
+        body: "Make Upload the primary button",
+        createdAt: "2026-10-13T10:00:00.000Z",
+        updatedAt: "2026-10-13T10:00:00.000Z",
+      },
+    ],
+    ...over,
+  };
+}
+
+test("buildReviewResult sends open UI change requests as uiAnnotations, with the UI target", () => {
+  const replied = annotation({ id: "a2", number: 2 });
+  replied.comments.push({
+    id: "a2-m2",
+    role: "user",
+    intent: "action",
+    body: "and make it blue",
+    createdAt: "2026-10-13T10:05:00.000Z",
+    updatedAt: "2026-10-13T10:05:00.000Z",
+  });
+  const s = state({
+    ui: { target: "http://localhost:3000/sign-in" },
+    annotations: [annotation({ id: "a1" }), replied, annotation({ id: "a3", status: "resolved" })],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.equal(r.uiTarget, "http://localhost:3000/sign-in");
+  assert.deepEqual(
+    r.uiAnnotations.map((a) => a.id),
+    ["a1", "a2"],
+    "the resolved annotation is not sent",
+  );
+  assert.deepEqual(r.uiAnnotations[0], {
+    id: "a1",
+    number: 1,
+    body: "Make Upload the primary button",
+    status: "open",
+    placement: "placed",
+    page: {
+      url: "http://localhost:3000/app/files?tab=all",
+      route: "/app/files?tab=all",
+      title: "Files",
+      viewport: { width: 1440, height: 900, dpr: 2 },
+    },
+    target: { kind: "element", elements: [uiElement()] },
+    thread: [],
+  });
+  assert.deepEqual(r.uiAnnotations[1]!.thread, [
+    { role: "user", body: "and make it blue", at: "2026-10-13T10:05:00.000Z" },
+  ]);
+  assert.ok(!("requestedChanges" in r), "the old field name is gone");
+});
+
+test("buildReviewResult makes source files inside the repo repo-relative and leaves out any other", () => {
+  const sourced = (file: string) =>
+    uiElement({ source: { file, line: 20, column: 7, component: "files", via: "vue-tracer" } });
+  const s = state({
+    root: "/home/dev/shop",
+    ui: { target: "http://localhost:3000/" },
+    annotations: [
+      annotation({
+        id: "a1",
+        target: {
+          kind: "element",
+          elements: [
+            sourced("/home/dev/shop/apps/web/app/pages/files.vue"),
+            sourced("/home/dev/other/Panel.vue"),
+            sourced("/home/dev/shop-old/Panel.vue"),
+            sourced("/home/dev/shop/../other/Panel.vue"),
+            sourced("app/pages/files.vue"),
+            sourced("./app/../app/pages/files.vue"),
+            sourced("../../../etc/passwd"),
+            uiElement(),
+          ],
+        },
+      }),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.uiAnnotations[0]!.target.elements.map((el) => el.source?.file),
+    [
+      "apps/web/app/pages/files.vue",
+      undefined,
+      undefined,
+      undefined,
+      "app/pages/files.vue",
+      "app/pages/files.vue",
+      undefined,
+      undefined,
+    ],
+  );
+  assert.deepEqual(r.uiAnnotations[0]!.target.elements[0]!.source, {
+    file: "apps/web/app/pages/files.vue",
+    line: 20,
+    column: 7,
+    component: "files",
+    via: "vue-tracer",
+  });
+  // A page can name any path, and the agent opens what it's handed: outside the repo, only what
+  // doesn't point at a file stays.
+  assert.deepEqual(r.uiAnnotations[0]!.target.elements[1]!.source, {
+    component: "files",
+    via: "vue-tracer",
+  });
+  const vendored = buildReviewResult(
+    state({
+      root: "/home/dev/shop",
+      ui: { target: "http://localhost:3000/" },
+      annotations: [
+        annotation({
+          id: "a2",
+          target: {
+            kind: "element",
+            elements: [
+              uiElement({ source: { file: "/opt/ui/Btn.vue", vendor: true, via: "vue-file" } }),
+            ],
+          },
+        }),
+      ],
+    }),
+    { resultJson: "r.json", sessionDir: "d" },
+  );
+  assert.deepEqual(vendored.uiAnnotations[0]!.target.elements[0]!.source, {
+    vendor: true,
+    via: "vue-file",
+  });
+  assert.equal(
+    s.annotations![0]!.target.elements[0]!.source!.file,
+    "/home/dev/shop/apps/web/app/pages/files.vue",
+    "the stored annotation keeps the path the page gave",
+  );
+});
+
+test("buildReviewResult makes Windows source paths repo-relative under a Windows root", () => {
+  const sourced = (file: string) => uiElement({ source: { file, via: "vue-file" } });
+  const files = [
+    "C:/proj/src/a.vue",
+    String.raw`C:\proj\src\a.vue`,
+    "c:/proj/src/a.vue",
+    "D:/proj/src/a.vue",
+    String.raw`C:\proj-old\a.vue`,
+  ];
+  const s = state({
+    root: String.raw`C:\proj`,
+    ui: { target: "http://localhost:3000/" },
+    annotations: [
+      annotation({ id: "a1", target: { kind: "element", elements: files.map(sourced) } }),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.uiAnnotations[0]!.target.elements.map((el) => el.source?.file),
+    ["src/a.vue", "src/a.vue", "src/a.vue", undefined, undefined],
+  );
+});
+
+test("buildReviewResult on a UI-only desk sends empty code fields alongside the annotations", () => {
+  const s = state({
+    ui: { target: "http://localhost:3000/" },
+    annotations: [annotation({ id: "a1" })],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(r.codeChangeRequests, []);
+  assert.deepEqual(r.accepted, []);
+  assert.deepEqual(r.rejected, []);
+  assert.deepEqual(r.approvedFiles, []);
+  assert.deepEqual(r.stagedFiles, []);
+  assert.deepEqual(r.openQuestions, []);
+  assert.equal(r.uiAnnotations.length, 1);
+});
+
+test("buildReviewResult gives an annotation's stored screenshots as absolute paths that exist", async () => {
+  const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "galley-shots-"));
+  try {
+    const dir = path.join(sessionDir, "ui-shots");
+    await fs.mkdir(dir);
+    for (const kind of ["crop", "viewport"])
+      await fs.writeFile(path.join(dir, `a1-${kind}.png`), "png");
+    const s = state({
+      ui: UI,
+      annotations: [annotation({ id: "a1", screenshots: true }), annotation({ id: "a2" })],
+    });
+    const r = buildReviewResult(s, { resultJson: path.join(sessionDir, "r.json"), sessionDir });
+    const shots = r.uiAnnotations[0]!.screenshots!;
+    assert.deepEqual(shots, {
+      crop: path.join(sessionDir, "ui-shots", "a1-crop.png"),
+      viewport: path.join(sessionDir, "ui-shots", "a1-viewport.png"),
+      exact: false,
+    });
+    for (const file of [shots.crop, shots.viewport]) {
+      assert.ok(path.isAbsolute(file), file);
+      await fs.access(file);
+    }
+    assert.ok(!("screenshots" in r.uiAnnotations[1]!), "no screenshots without a stored pair");
+  } finally {
+    await fs.rm(sessionDir, { recursive: true, force: true });
+  }
+});
+
+test("buildReviewResult leaves out screenshots whose files are gone from disk", async () => {
+  const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "galley-shots-"));
+  try {
+    const dir = path.join(sessionDir, "ui-shots");
+    await fs.mkdir(dir);
+    // a1 lost its viewport image; a2 lost both (ui-shots/ emptied by hand). Both are still marked.
+    await fs.writeFile(path.join(dir, "a1-crop.png"), "png");
+    const s = state({
+      ui: UI,
+      annotations: [
+        annotation({ id: "a1", screenshots: true }),
+        annotation({ id: "a2", screenshots: true }),
+      ],
+    });
+    const r = buildReviewResult(s, { resultJson: path.join(sessionDir, "r.json"), sessionDir });
+    assert.deepEqual(
+      r.uiAnnotations.map((a) => "screenshots" in a),
+      [false, false],
+    );
+  } finally {
+    await fs.rm(sessionDir, { recursive: true, force: true });
+  }
+});
+
+test("mergeReviewerSave keeps the server's screenshot mark by id and never takes the tab's", () => {
+  const live = state({
+    ui: UI,
+    annotations: [annotation({ id: "a1", screenshots: true }), annotation({ id: "a2" })],
+  });
+  // The tab's copies: a1 without the mark (a tab that never saw it), a2 claiming one.
+  mergeReviewerSave(live, {
+    annotations: [annotation({ id: "a1" }), annotation({ id: "a2", screenshots: true })],
+  });
+  assert.deepEqual(
+    live.annotations!.map((a) => [a.id, a.screenshots]),
+    [
+      ["a1", true],
+      ["a2", undefined],
+    ],
+  );
+});
+
+test("buildReviewResult without a UI lane sends no uiTarget and an empty uiAnnotations", () => {
+  const r = buildReviewResult(state({}), { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(r.uiAnnotations, []);
+  assert.equal(r.uiTarget, undefined);
+});
+
+test("mergeReviewState carries annotations and their number mark across a reload and a restart", async () => {
+  const saved = state({ annotations: [annotation({ id: "a1" })], lastAnnotationNumber: 4 });
+  const merged = await mergeReviewState(state({ baseDiffHash: "new" }), saved);
+  assert.deepEqual(merged.annotations, [annotation({ id: "a1", placement: "unvisited" })]);
+  assert.equal(merged.lastAnnotationNumber, 4);
+});
+
+test("a reload or a restart leaves every annotation unvisited until its page loads again", async () => {
+  const saved = state({
+    annotations: [
+      annotation({ id: "placed" }),
+      annotation({ id: "unplaced", placement: "unplaced" }),
+      annotation({ id: "resolved", status: "resolved" }),
+      annotation({ id: "page", target: { kind: "page" } }),
+    ],
+  });
+  const merged = await mergeReviewState(state({ baseDiffHash: "new" }), saved);
+  assert.deepEqual(
+    merged.annotations!.map((a) => [a.id, a.placement]),
+    [
+      ["placed", "unvisited"],
+      ["unplaced", "unvisited"],
+      ["resolved", "unvisited"],
+      ["page", "unvisited"],
+    ],
+  );
+  assert.equal(saved.annotations![0]!.placement, "placed", "the saved review isn't touched");
+});
+
+test("a reviewer save stamped before the desk's latest reload keeps the desk's placements", () => {
+  const desk = { token: "t2", reloadGeneration: 3 };
+  const live = () =>
+    state({ ui: UI, annotations: [annotation({ id: "a1", placement: "unvisited" })] });
+  const sent = [
+    annotation({ id: "a1", placement: "placed" }),
+    annotation({ id: "a2", number: 2, placement: "placed" }),
+  ];
+  const placements = (s: ReviewState) => s.annotations!.map((a) => [a.id, a.placement]);
+  for (const seen of [
+    { token: "t2", reloadGeneration: 2 },
+    { token: "t1", reloadGeneration: 3 },
+  ]) {
+    const s = live();
+    mergeReviewerSave(s, { annotations: sent, seen }, desk);
+    assert.deepEqual(
+      placements(s),
+      [
+        ["a1", "unvisited"],
+        ["a2", "placed"],
+      ],
+      "the stored one keeps the desk's; a new one takes the tab's",
+    );
+  }
+  const current = live();
+  mergeReviewerSave(current, { annotations: sent, seen: desk }, desk);
+  assert.deepEqual(placements(current), [
+    ["a1", "placed"],
+    ["a2", "placed"],
+  ]);
+});
+
+test("each annotation's placement persists through a reviewer save and the saved review", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "galley-placement-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const live = state({ root: home, ui: UI, annotations: [annotation({ id: "a1" })] });
+    mergeReviewerSave(live, {
+      annotations: [
+        annotation({ id: "a1", placement: "unplaced" }),
+        annotation({ id: "a2", number: 2 }),
+        annotation({ id: "a3", number: 3, placement: "unvisited" }),
+      ],
+    });
+    await persistReview(live);
+    const saved = await loadLatestReview(home, "s");
+    assert.deepEqual(
+      saved!.annotations!.map((a) => [a.id, a.placement]),
+      [
+        ["a1", "unplaced"],
+        ["a2", "placed"],
+        ["a3", "unvisited"],
+      ],
+    );
+  } finally {
+    process.env.HOME = oldHome;
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+// The desk's app, which every saved page.url is rebuilt on.
+const UI = { target: "http://localhost:3000/sign-in?as=reviewer" };
+
+test("mergeReviewerSave stores well-formed annotations as sent", () => {
+  const live = state({ ui: UI });
+  mergeReviewerSave(live, { annotations: [annotation({ id: "a1" })] });
+  assert.deepEqual(live.annotations, [annotation({ id: "a1" })]);
+});
+
+test("mergeReviewerSave truncates oversized page data to the caps", () => {
+  const live = state({ ui: UI });
+  const attrs = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`data-k${i}`, "v"]));
+  mergeReviewerSave(live, {
+    annotations: [
+      annotation({
+        id: "a1",
+        page: {
+          url: `http://localhost:3000/${"u".repeat(3000)}`,
+          route: `/${"r".repeat(3000)}`,
+          title: "T".repeat(400),
+          viewport: { width: 1440, height: 900, dpr: 2 },
+        },
+        target: {
+          kind: "element",
+          elements: [
+            uiElement({
+              text: "x".repeat(1000),
+              name: "n".repeat(500),
+              role: "r".repeat(500),
+              landmark: "l".repeat(500),
+              heading: "h".repeat(500),
+              outline: "<div>".repeat(1000),
+              attrs: { ...attrs, href: "h".repeat(900) },
+            }),
+          ],
+        },
+      }),
+    ],
+  });
+  const a = live.annotations![0]!;
+  const el = a.target.elements[0]!;
+  assert.equal(a.page.url.length, 2048);
+  assert.equal(a.page.route.length, 2048);
+  assert.equal(a.page.title!.length, 300);
+  assert.equal(el.text!.length, 300);
+  assert.ok(el.text!.endsWith("…"), "a cut string says so");
+  assert.equal(el.name!.length, 200);
+  assert.equal(el.role!.length, 200);
+  assert.equal(el.landmark!.length, 200);
+  assert.equal(el.heading!.length, 200);
+  assert.equal(el.outline!.length, 2048);
+  assert.equal(Object.keys(el.attrs!).length, 12);
+  assert.ok(Object.values(el.attrs!).every((v) => v.length <= 200));
+});
+
+test("mergeReviewerSave drops malformed annotations and elements, keeping the rest", () => {
+  const live = state({ ui: UI });
+  const good = annotation({ id: "good" });
+  const element = (over: Record<string, unknown>) => ({ kind: "element", elements: [over] });
+  mergeReviewerSave(live, {
+    annotations: [
+      good,
+      "not an object",
+      { ...annotation({ id: "no-target" }), target: undefined },
+      {
+        ...annotation({ id: "abs-route" }),
+        page: { ...good.page, route: "https://evil.example/" },
+      },
+      {
+        ...annotation({ id: "long-sel" }),
+        target: element(uiElement({ selector: "x".repeat(600) })),
+      },
+      { ...annotation({ id: "bad-rect" }), target: element({ ...uiElement(), rect: { x: "1" } }) },
+      { ...annotation({ id: "bad-tag" }), target: element(uiElement({ tag: "<script>" })) },
+      { ...annotation({ id: "bad-status" }), status: "deleted" },
+      { ...annotation({ id: "bad-placement" }), placement: "lost" },
+      { ...annotation({ id: "no-body" }), comments: [] },
+      { ...annotation({ id: "bad-vp" }), page: { ...good.page, viewport: { width: -1 } } },
+      annotation({ id: 'q"x' }), // ids end up in attributes: word characters only
+      {
+        ...annotation({ id: "odd-message-id" }),
+        comments: [{ ...good.comments[0]!, id: 'm" onclick="x' }],
+      },
+      {
+        ...annotation({ id: "odd-attrs" }),
+        target: element(uiElement({ attrs: { "on click": "x" } })),
+      },
+      annotation({ id: "good" }), // a duplicate id
+      annotation({
+        id: "many",
+        target: { kind: "element", elements: Array.from({ length: 17 }, () => uiElement()) },
+      }),
+    ],
+  });
+  assert.deepEqual(
+    live.annotations!.map((a) => a.id),
+    ["good", "odd-attrs", "many"],
+  );
+  assert.deepEqual(live.annotations![1]!.target.elements[0]!.attrs, {}, "odd attr names dropped");
+  assert.equal(live.annotations![2]!.target.elements.length, 16, "elements capped at 16");
+});
+
+test("mergeReviewerSave keeps an element's source within the caps and drops a malformed one", () => {
+  const live = state({ ui: UI });
+  const source = {
+    file: "/home/dev/shop/apps/web/app/pages/files.vue",
+    line: 20,
+    column: 7,
+    component: "files",
+    vendor: true,
+    via: "vue-tracer",
+  } as const;
+  const withSource = (id: string, s: unknown) =>
+    annotation({
+      id,
+      target: { kind: "element", elements: [{ ...uiElement(), source: s } as UiElement] },
+    });
+  mergeReviewerSave(live, {
+    annotations: [
+      withSource("ok", source),
+      withSource("long-name", { ...source, component: "c".repeat(500) }),
+      withSource("long-file", { ...source, file: "f".repeat(1025) }),
+      withSource("bad-via", { ...source, via: "guess" }),
+      withSource("bad-line", { ...source, line: -1 }),
+      withSource("control", { ...source, file: "a.vue\u0000" }),
+    ],
+  });
+  const sources = live.annotations!.map((a) => a.target.elements[0]!.source);
+  assert.deepEqual(sources[0], source);
+  assert.equal(sources[1]!.component!.length, 200);
+  assert.deepEqual(sources.slice(2), [undefined, undefined, undefined, undefined]);
+  assert.equal(live.annotations!.length, 6, "a bad source drops only the source");
+});
+
+test("mergeReviewerSave ignores an annotations field that isn't an array", () => {
+  const live = state({ annotations: [annotation({ id: "a1" })] });
+  mergeReviewerSave(live, { annotations: "nope" });
+  assert.equal(live.annotations!.length, 1);
+});
+
+test("mergeReviewerSave rebuilds page.url on the UI target's origin and drops a route that leaves it", () => {
+  const live = state({ ui: UI });
+  const page = (route: string, url = `http://localhost:3000${route}`) => ({
+    ...annotation({ id: "x" }).page,
+    route,
+    url,
+  });
+  mergeReviewerSave(live, {
+    annotations: [
+      { ...annotation({ id: "lying-url" }), page: page("/app", "http://evil.example/app") },
+      // The URL parser reads a backslash as a slash: this route is `//evil.example/x`.
+      { ...annotation({ id: "backslash" }), page: page(String.raw`/\evil.example/x`) },
+      { ...annotation({ id: "control" }), page: page("/app\nx") },
+      // A backslash after the path is query data, not a slash.
+      { ...annotation({ id: "query" }), page: page(String.raw`/search?q=a\b`) },
+    ],
+  });
+  assert.deepEqual(
+    live.annotations!.map((a) => [a.id, a.page.url]),
+    [
+      ["lying-url", "http://localhost:3000/app"],
+      ["query", String.raw`http://localhost:3000/search?q=a\b`],
+    ],
+  );
+  const noApp = state({});
+  mergeReviewerSave(noApp, { annotations: [annotation({ id: "a1" })] });
+  assert.deepEqual(noApp.annotations, [], "without a UI target there is no origin to check");
+});
+
+test("mergeReviewerSave never lowers the annotation number mark", () => {
+  const live = state({ ui: UI, lastAnnotationNumber: 5 });
+  // A stale tab posts an older mark: the mark stays.
+  mergeReviewerSave(live, {
+    annotations: [annotation({ id: "a1", number: 2 })],
+    lastAnnotationNumber: 3,
+  });
+  assert.equal(live.lastAnnotationNumber, 5);
+  // A number in use above the mark raises it, whatever the save says.
+  mergeReviewerSave(live, { annotations: [annotation({ id: "a7", number: 7 })] });
+  assert.equal(live.lastAnnotationNumber, 7);
+  mergeReviewerSave(live, { lastAnnotationNumber: "9" });
+  assert.equal(live.lastAnnotationNumber, 7, "a mark that isn't a whole number is ignored");
+});
+
+// A UI question: an annotation whose opening message asks rather than requests.
+function question(over: Partial<UiAnnotationRecord> & { id: string }): UiAnnotationRecord {
+  return annotation({
+    intent: "question",
+    comments: [
+      {
+        id: `${over.id}-m1`,
+        role: "user",
+        intent: "question",
+        body: "Why is Upload grey?",
+        createdAt: "2026-10-13T10:00:00.000Z",
+        updatedAt: "2026-10-13T10:00:00.000Z",
+      },
+    ],
+    ...over,
+  });
+}
+const agentReply = (id: string, at: string) => ({
+  id,
+  role: "agent" as const,
+  intent: "note" as const,
+  body: "Because it's disabled until a file is picked.",
+  createdAt: at,
+  updatedAt: at,
+});
+
+test("buildReviewResult.openQuestions carries unanswered UI questions, lane-tagged; answered and resolved ones stay out", () => {
+  const answered = question({ id: "q2", number: 2 });
+  answered.comments.push(agentReply("q2-r", "2026-10-13T10:01:00.000Z"));
+  // A question asked in a change request's thread is a question too.
+  const change = annotation({ id: "c3", number: 3 });
+  change.comments.push({
+    id: "c3-m2",
+    role: "user",
+    intent: "question",
+    body: "Or should it be a link?",
+    createdAt: "2026-10-13T10:02:00.000Z",
+    updatedAt: "2026-10-13T10:02:00.000Z",
+  });
+  const s = state({
+    session: "sess",
+    ui: UI,
+    annotations: [
+      question({ id: "q1", number: 1 }),
+      answered,
+      change,
+      question({ id: "q4", number: 4, status: "resolved" }),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(r.openQuestions, [
+    {
+      lane: "ui",
+      annotationId: "q1",
+      number: 1,
+      route: "/app/files?tab=all",
+      body: "Why is Upload grey?",
+      target: 'button · "Upload"',
+      mode: "repo",
+      session: "sess",
+    },
+    {
+      lane: "ui",
+      annotationId: "c3",
+      number: 3,
+      route: "/app/files?tab=all",
+      body: "Or should it be a link?",
+      target: 'button · "Upload"',
+      mode: "repo",
+      session: "sess",
+    },
+  ]);
+  assert.deepEqual(
+    r.uiAnnotations.map((a) => a.id),
+    ["c3"],
+    "questions are never sent as change requests",
+  );
+});
+
+test("a UI question whose thread requests a change is sent in uiAnnotations, as the code lane sends that request", () => {
+  const requested = question({ id: "q1" });
+  requested.comments.push(agentReply("q1-r", "2026-10-13T10:01:00.000Z"), {
+    id: "q1-m3",
+    role: "user",
+    intent: "action",
+    body: "Then hide it for a week after dismissal",
+    createdAt: "2026-10-13T10:02:00.000Z",
+    updatedAt: "2026-10-13T10:02:00.000Z",
+  });
+  const resolved = structuredClone({ ...requested, id: "q2", number: 2 });
+  resolved.status = "resolved";
+  const onlyAnswered = question({ id: "q3", number: 3 });
+  onlyAnswered.comments.push(agentReply("q3-r", "2026-10-13T10:01:00.000Z"));
+  const s = state({ ui: UI, annotations: [requested, resolved, onlyAnswered] });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.uiAnnotations.map((a) => [a.id, a.body, a.thread.map((m) => [m.role, m.body])]),
+    [
+      [
+        "q1",
+        "Why is Upload grey?",
+        [
+          ["agent", "Because it's disabled until a file is picked."],
+          ["user", "Then hide it for a week after dismissal"],
+        ],
+      ],
+    ],
+  );
+});
+
+test("a UI question's target names the element, how many more were picked, and its source", () => {
+  const s = state({
+    root: "/home/dev/shop",
+    ui: UI,
+    annotations: [
+      question({
+        id: "q1",
+        target: {
+          kind: "element",
+          elements: [
+            uiElement({ role: undefined, name: undefined, tag: "td", text: "x".repeat(120) }),
+            uiElement({ source: { file: "/etc/passwd", line: 1, via: "vue-tracer" } }),
+            uiElement({
+              source: {
+                file: "/home/dev/shop/apps/web/app/pages/files.vue",
+                line: 20,
+                via: "vue-tracer",
+              },
+            }),
+          ],
+        },
+      }),
+    ],
+  });
+  const [q] = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" }).openQuestions;
+  assert.equal(
+    q!.lane === "ui" && q!.target,
+    `td · "${"x".repeat(79)}…" · +2 more · apps/web/app/pages/files.vue:20`,
+  );
+});
+
+// ── Target kinds ────────────────────────────────────────────────────────────────────────────────
+const SRC = {
+  file: "/home/dev/shop/apps/web/app/pages/files.vue",
+  line: 84,
+  via: "vue-tracer",
+} as const;
+const REGION = { x: 10, y: 20, width: 320, height: 180 };
+const KINDS: Record<string, UiAnnotationRecord["target"]> = {
+  element: { kind: "element", elements: [uiElement(), uiElement({ selector: "#cancel" })] },
+  region: { kind: "region", rect: REGION, elements: [uiElement({ source: SRC })] },
+  bare: { kind: "region", rect: REGION, elements: [] },
+  text: {
+    kind: "text",
+    quote: "Date recieved",
+    element: uiElement({ selector: "#received", tag: "th", role: "columnheader", source: SRC }),
+  },
+  page: { kind: "page" },
+};
+
+test("every target kind is stored as saved and sent with its source files repo-relative", () => {
+  const live = state({ root: "/home/dev/shop", ui: UI });
+  const sent = Object.entries(KINDS).map(([id, target]) => annotation({ id, target }));
+  mergeReviewerSave(live, { annotations: structuredClone(sent) });
+  assert.deepEqual(live.annotations, sent);
+  const r = buildReviewResult(live, { resultJson: "r.json", sessionDir: "d" });
+  const repoSource = { ...SRC, file: "apps/web/app/pages/files.vue" };
+  assert.deepEqual(
+    r.uiAnnotations.map((a) => a.target),
+    [
+      KINDS.element,
+      { kind: "region", rect: REGION, elements: [uiElement({ source: repoSource })] },
+      KINDS.bare,
+      {
+        kind: "text",
+        quote: "Date recieved",
+        element: uiElement({
+          selector: "#received",
+          tag: "th",
+          role: "columnheader",
+          source: repoSource,
+        }),
+      },
+      { kind: "page" },
+    ],
+  );
+});
+
+test("mergeReviewerSave drops a malformed target of any kind and caps a quote and a region's elements", () => {
+  const live = state({ ui: UI });
+  const bad: Array<[string, unknown]> = [
+    ["no-rect", { kind: "region", elements: [] }],
+    ["flat-rect", { kind: "region", rect: { ...REGION, height: 0 }, elements: [] }],
+    ["odd-rect", { kind: "region", rect: { ...REGION, x: "10" }, elements: [] }],
+    ["no-quote", { kind: "text", element: uiElement() }],
+    ["blank-quote", { kind: "text", quote: "  ", element: uiElement() }],
+    ["odd-quote", { kind: "text", quote: ["Due"], element: uiElement() }],
+    ["no-holder", { kind: "text", quote: "Due" }],
+    ["bad-holder", { kind: "text", quote: "Due", element: uiElement({ tag: "<b>" }) }],
+    ["no-elements", { kind: "element", elements: [uiElement({ selector: "" })] }],
+    ["canvas", { kind: "canvas", rect: REGION }],
+    ["no-kind", { rect: REGION, elements: [] }],
+  ];
+  mergeReviewerSave(live, {
+    annotations: [
+      ...bad.map(([id, target]) => ({ ...annotation({ id }), target })),
+      annotation({
+        id: "long",
+        target: { kind: "text", quote: "q".repeat(900), element: uiElement() },
+      }),
+      annotation({
+        id: "crowded",
+        target: {
+          kind: "region",
+          rect: REGION,
+          elements: [uiElement({ tag: "<b>" }), ...Array.from({ length: 20 }, () => uiElement())],
+        },
+      }),
+      { ...annotation({ id: "page" }), target: { kind: "page", elements: [uiElement()] } },
+    ],
+  });
+  assert.deepEqual(
+    live.annotations!.map((a) => a.id),
+    ["long", "crowded", "page"],
+  );
+  const [long, crowded, page] = live.annotations!;
+  assert.ok(long!.target.kind === "text");
+  assert.equal(long!.target.quote.length, 500);
+  assert.ok(long!.target.quote.endsWith("…"));
+  assert.ok(crowded!.target.kind === "region");
+  assert.equal(crowded!.target.elements.length, 16, "a bad element dropped, the rest capped");
+  assert.deepEqual(page!.target, { kind: "page" }, "a page target carries nothing else");
+});
+
+test("a UI question's target summary says what kind of thing it points at", () => {
+  const s = state({
+    root: "/home/dev/shop",
+    ui: UI,
+    annotations: Object.entries(KINDS).map(([id, target], i) =>
+      question({ id, number: i + 1, target }),
+    ),
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.openQuestions.map((q) => q.lane === "ui" && [q.annotationId, q.target]),
+    [
+      ["element", 'button · "Upload" · +1 more'],
+      ["region", 'region 320×180 · button · "Upload" · apps/web/app/pages/files.vue:84'],
+      ["bare", "region 320×180"],
+      ["text", 'text "Date recieved" in columnheader · apps/web/app/pages/files.vue:84'],
+      ["page", "the whole page"],
+    ],
+  );
+});
+
+test("mergeReviewerSave keeps agent replies a save from a tab that hasn't seen them leaves out", () => {
+  const replied = question({ id: "q1" });
+  replied.comments.push(agentReply("r1", "2026-10-13T10:01:00.000Z"));
+  const gone = question({ id: "q2", number: 2 });
+  gone.comments.push(agentReply("r2", "2026-10-13T10:01:00.000Z"));
+  const live = state({ ui: UI, annotations: [replied, gone] });
+  // The tab's copy: q1 without the agent's reply but with a new message of the reviewer's, and q2
+  // deleted.
+  const tabCopy = question({ id: "q1" });
+  tabCopy.comments.push({
+    id: "m2",
+    role: "user",
+    intent: "action",
+    body: "Make it blue as well",
+    createdAt: "2026-10-13T10:02:00.000Z",
+    updatedAt: "2026-10-13T10:02:00.000Z",
+  });
+  mergeReviewerSave(live, { annotations: [tabCopy] });
+  assert.deepEqual(
+    live.annotations!.map((a) => [a.id, a.intent, a.comments.map((m) => m.id)]),
+    [["q1", "question", ["q1-m1", "m2", "r1"]]],
+  );
+  // A tab that has the reply saves it once.
+  mergeReviewerSave(live, { annotations: structuredClone(live.annotations) });
+  assert.deepEqual(
+    live.annotations![0]!.comments.map((m) => m.id),
+    ["q1-m1", "m2", "r1"],
+  );
+});
+
+test("appendAnnotationReply adds the agent's reply to the saved review's annotation, and refuses an unknown id", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "galley-reply-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    await persistReview(state({ root: home, ui: UI, annotations: [question({ id: "q1" })] }));
+    const reply = await appendAnnotationReply(
+      home,
+      "s",
+      "q1",
+      "It's disabled until a file is picked.",
+    );
+    assert.equal(reply?.role, "agent");
+    const saved = await loadLatestReview(home, "s");
+    assert.deepEqual(
+      saved!.annotations![0]!.comments.map((m) => [m.role, m.body]),
+      [
+        ["user", "Why is Upload grey?"],
+        ["agent", "It's disabled until a file is picked."],
+      ],
+    );
+    assert.equal(await appendAnnotationReply(home, "s", "nope", "hello"), null);
   } finally {
     process.env.HOME = oldHome;
     await fs.rm(home, { recursive: true, force: true });

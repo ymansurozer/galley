@@ -1,5 +1,5 @@
 import Alpine from "alpinejs";
-import type { Store, DiffHolder } from "./types";
+import type { DiffHolder, SaveStamp, Store } from "./types";
 import { loadSettings } from "./settings";
 import { createSaver, reviewerSlice } from "./save";
 
@@ -38,6 +38,7 @@ export const S: Store = Alpine.reactive<Store>({
   sendOpen: false,
   sendMsg: "",
   sendNote: "",
+  sendFinishing: false,
   overviewOpen: false,
   sidebarTab: "tree",
   treeDrawerOpen: false,
@@ -45,6 +46,30 @@ export const S: Store = Alpine.reactive<Store>({
   diffScrolled: false,
   skimExpanded: new Set<string>(),
   loadedOversized: new Set<string>(),
+  view: "code",
+  ready: false,
+  uiProxy: null,
+  reloadGeneration: 0,
+  app: {
+    loaded: false,
+    route: "/",
+    title: "",
+    connected: false,
+    canGoBack: null,
+    canGoForward: null,
+    stale: false,
+  },
+  viewport: "fit",
+  frameLabel: "",
+  appMode: "interact",
+  pendingPicks: 0,
+  annotationsOpen: !matchMedia("(max-width: 1100px)").matches,
+  selectedAnnotation: null,
+  shownResolved: new Set<string>(),
+  annotationDraft: null,
+  composerAnnotation: null,
+  sendLanes: null,
+  shotView: null,
 });
 
 // Imperative-island objects kept OUT of the reactive store: the @pierre/diffs
@@ -75,20 +100,33 @@ export function toast(t: string) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (S.toastMsg = ""), 2800);
 }
-export function esc(s: unknown) {
-  return String(s ?? "").replace(
-    /[&<>]/g,
-    (c: string) => (({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }) as Record<string, string>)[c] ?? c,
-  );
-}
+export { esc } from "./html";
 export const api = <T = unknown>(path: string, opts: RequestInit = {}): Promise<T> =>
   fetch(path, { headers: { "content-type": "application/json" }, ...opts }).then(
     (r) => r.json() as Promise<T>,
   );
+// Open a repo-relative file at a line in the reviewer's editor (the command is a Settings
+// preference). The code lane's open-in-editor and the UI lane's source links both come here.
+export async function openEditorAt(path: string, lineNumber: number) {
+  try {
+    const res = await api<{ ok?: boolean; error?: string }>("/api/open-editor", {
+      method: "POST",
+      body: JSON.stringify({ path, lineNumber }),
+    });
+    toast(res.ok ? "Opened in editor" : res.error || "Could not open editor");
+  } catch {
+    toast("Could not open editor");
+  }
+}
+// What this tab has adopted of the desk, stamped on every save and Send (types.ts, SaveStamp).
+export const saveStamp = (): SaveStamp => ({
+  token: S.uiProxy?.token ?? null,
+  reloadGeneration: S.reloadGeneration,
+});
 // Post only the reviewer-owned slice (see reviewerSlice in save.ts) — never the whole
 // (multi-MB) ReviewState. Saves coalesce so rapid approvals don't saturate connections.
 export const saver = createSaver(
-  () => reviewerSlice(S.state),
+  () => ({ ...reviewerSlice(S.state), seen: saveStamp() }),
   (payload) => api("/api/save", { method: "POST", body: JSON.stringify(payload) }),
 );
 // Instant auto-save: there is no manual Save button, so every state mutation
@@ -96,6 +134,9 @@ export const saver = createSaver(
 // review to ~/.galley/<repoHash>/<session>/. Saves coalesce (see save.ts): at most one
 // in flight, rapid triggers collapse into a single trailing save.
 export const persist = () => saver.trigger();
+// What the app page reports (where it found the annotations) saves at most once a second, or with
+// the reviewer's next save if that comes first (save.ts, triggerSoon).
+export const persistSoon = () => saver.triggerSoon();
 // Display preferences (settings panel + the Split/Stacked toggle) save to the global
 // ~/.galley/settings.json so they survive port/session changes. Last write wins.
 export const persistPrefs = () =>

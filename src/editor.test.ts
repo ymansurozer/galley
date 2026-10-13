@@ -23,6 +23,31 @@ test("resolveEditorCommand supports quoted arguments without invoking a shell", 
   assert.deepEqual(cmd.args, ["--reuse-window", "/repo/src/a.ts:12"]);
 });
 
+test("on Windows a file cmd would read as syntax is refused, and a plain one opens", () => {
+  for (const file of [
+    String.raw`C:\repo\x&calc.vue`,
+    "C:/repo/a|b.vue",
+    "C:/repo/a^b.vue",
+    "C:/repo/%PATH%.vue",
+    "C:/repo/a<b.vue",
+    "C:/repo/a>b.vue",
+    'C:/repo/a"b.vue',
+    "C:/repo/a'b.vue",
+  ]) {
+    assert.throws(() => resolveEditorCommand("", { ...values, file }, "win32"), /cmd/, file);
+    assert.throws(() => resolveEditorCommand("code {file}", { ...values, file }, "win32"), /cmd/);
+  }
+  assert.deepEqual(resolveEditorCommand("", { ...values, file: "C:/repo/a.vue" }, "win32"), {
+    command: "cmd",
+    args: ["/c", "start", "", "C:/repo/a.vue"],
+  });
+  // Elsewhere nothing runs through a shell, so such a name is just a name.
+  assert.deepEqual(resolveEditorCommand("", { ...values, file: "/repo/x&y.vue" }, "linux"), {
+    command: "xdg-open",
+    args: ["/repo/x&y.vue"],
+  });
+});
+
 test("normalizeLine falls back to one for invalid input", () => {
   assert.equal(normalizeLine(undefined), 1);
   assert.equal(normalizeLine(0), 1);

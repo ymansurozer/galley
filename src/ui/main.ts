@@ -1,5 +1,5 @@
 import Alpine from "alpinejs";
-import { S, D, $, api, persist, persistPrefs, toast } from "./store";
+import { S, D, $, api, openEditorAt, persist, persistPrefs, saveStamp, toast } from "./store";
 import { loadDiffLib } from "./difflib";
 import {
   currentFile,
@@ -36,9 +36,41 @@ import {
 } from "./guide";
 import { setBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
+import {
+  appBack,
+  appForward,
+  appGo,
+  appHost,
+  appRefresh,
+  hasUi,
+  installAppView,
+  setView,
+  setViewport,
+  syncView,
+  uiOnly,
+} from "./appview";
+import { installCaptureDebug } from "./capturedebug";
+import { composerInUi } from "./composer";
+import {
+  annotatePage,
+  closeShot,
+  installUiLane,
+  openChanges,
+  pagePins,
+  screenshotsInFlight,
+  screenshotsSettled,
+  selectAnnotation,
+  setAppMode,
+  shotSrc,
+  shotTitle,
+  submitUiComposer,
+  toggleAnnotations,
+  uiSendSummary,
+  waitingQuestions,
+} from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { uuid } from "./uuid";
-import type { ReviewState, FileRow, Settings, DiffStyle } from "./types";
+import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
 // Close the inline composer when clicking outside it (unless it has unsaved text). The
 // composer/editor live inside the diff DOM now, so match their containers directly.
@@ -101,6 +133,7 @@ S.selectFile = (i) => {
   // way. The single funnel for tree/walkthrough clicks + next/prev + guide nav; no-op when shut.
   S.treeDrawerOpen = false;
   S.overviewOpen = false;
+  S.view = "code"; // like the Overview, the UI view is an alternate centre a file selection leaves
   S.preview = null;
   S.diffScrolled = false; // the new file renders at the top (see render.ts) — hide the floating action
   S.fileIndex = i;
@@ -302,12 +335,27 @@ const plural = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
 // Open the Send modal: a receipt of what's about to go, plus an empty (always fresh) note box.
 // An attached agent picks the review up the instant it's sent, so there's no taking it back —
 // this is the moment to look, and to leave an overall instruction for the whole review.
-const openSendModal = (msg: string) => {
+const openSendModal = (msg: string, lanes: Store["sendLanes"] = null) => {
   S.sendMsg = msg;
+  S.sendLanes = lanes;
   S.sendNote = "";
   S.sendOpen = true;
   setTimeout(() => $("sendNote")?.focus(), 0); // after Alpine shows it (mirrors the composer)
 };
+// With a UI lane the receipt splits by lane: the code line (none on a UI-only desk) and the UI one.
+const codeReceipt = () => {
+  const { files, lines, comments, rejections } = reviewStats();
+  return [
+    plural(files, "file"),
+    plural(lines, "changed line"),
+    comments ? plural(comments, "comment") : "",
+    rejections ? plural(rejections, "rejected hunk") : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+};
+const sendLanes = (): Store["sendLanes"] =>
+  hasUi() ? { code: uiOnly() ? null : codeReceipt(), ...uiSendSummary() } : null;
 // Fired after the last file is approved — a small receipt of the work done (files, lines,
 // comments, rejections) plus the offer to send the finished review back to the agent.
 S.promptFinish = () => {
@@ -320,6 +368,7 @@ S.promptFinish = () => {
   const tail = extras.length ? extras.join(", ") : "all clean";
   openSendModal(
     `You've reviewed ${what} — ${plural(lines, "changed line")}, ${tail}. Send the review back to the agent?`,
+    sendLanes(),
   );
 };
 // Every manual send — the Send button and ⇧S — routes through this receipt-style modal: a
@@ -327,25 +376,36 @@ S.promptFinish = () => {
 // (The button used to call send() directly with no confirm at all, which made accidental sends
 // too easy.)
 S.confirmSend = () => {
-  const { files, lines, comments, rejections } = reviewStats();
-  const parts = [
-    plural(files, "file"),
-    plural(lines, "changed line"),
-    comments ? plural(comments, "comment") : "",
-    rejections ? plural(rejections, "rejected hunk") : "",
-  ].filter(Boolean);
-  openSendModal(`You're about to send your review: ${parts.join(", ")}. Send to the agent?`);
+  if (hasUi()) {
+    openSendModal("You're about to send your review. Send to the agent?", sendLanes());
+    return;
+  }
+  openSendModal(`You're about to send your review: ${codeReceipt()}. Send to the agent?`);
 };
 // Confirm the Send modal: the typed note (trimmed; empty → omitted) rides along as the one-time
-// overall instruction. Cancel leaves the review untouched.
-S.sendConfirm = () => {
+// overall instruction. Cancel leaves the review untouched. New annotations' screenshots still being
+// captured or uploaded go too if they land within SHOTS_WAIT_MS, while the dialog says so; past
+// it, those annotations go without them, as when a capture fails.
+const SHOTS_WAIT_MS = 15_000;
+let sendWait = 0;
+S.sendConfirm = async () => {
+  if (S.sendFinishing) return;
   const note = S.sendNote.trim();
+  if (screenshotsInFlight()) {
+    const wait = ++sendWait;
+    S.sendFinishing = true;
+    await screenshotsSettled(SHOTS_WAIT_MS);
+    // Cancelled while it waited, and maybe confirmed again since.
+    if (wait !== sendWait || !S.sendFinishing) return;
+    S.sendFinishing = false;
+  }
   S.sendOpen = false;
   S.send?.(note);
 };
 S.sendCancel = () => {
   S.sendOpen = false;
   S.sendNote = "";
+  S.sendFinishing = false;
 };
 // Walkthrough sidebar tab: categories + files in guide order (plus the "Other" trailer).
 S.walkthroughRows = walkthroughRows;
@@ -364,21 +424,17 @@ S.openInEditor = async () => {
     return;
   }
   const sel = cursorSelection() ?? S.selected;
-  const lineNumber = sel ? fromDisplayLine(sel.side, sel.lineNumber) : 1;
-  try {
-    const res = await api<{ ok?: boolean; error?: string }>("/api/open-editor", {
-      method: "POST",
-      body: JSON.stringify({ path: file.path, lineNumber }),
-    });
-    toast(res.ok ? "Opened in editor" : res.error || "Could not open editor");
-  } catch {
-    toast("Could not open editor");
-  }
+  await openEditorAt(file.path, sel ? fromDisplayLine(sel.side, sel.lineNumber) : 1);
 };
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
 // body and keeps the existing intent.
 const submitComment = (intent: "question" | "action") => {
+  // The UI lane's composers (a new annotation, a reply or edit in its thread) submit there.
+  if (composerInUi()) {
+    submitUiComposer(intent);
+    return;
+  }
   const body = (S.composerBody || "").trim();
   if (!body) return;
   if (S.editingCommentId) {
@@ -454,13 +510,36 @@ S.send = async (overallNote = "") => {
   // whole review; the server reads it off the body and never persists it (see /api/send).
   const r = await api<{ sent?: boolean }>("/api/send", {
     method: "POST",
-    body: JSON.stringify({ ...reviewerSlice(S.state), overallNote }),
+    body: JSON.stringify({ ...reviewerSlice(S.state), seen: saveStamp(), overallNote }),
   });
   if (r && r.sent) {
     S.awaitingAgent = true;
     toast("Sent to agent");
   } else toast("Could not send review");
 };
+
+// The UI lane: the Code / UI switch and the chrome bar over the proxied app (appview.ts).
+S.hasUi = hasUi;
+S.uiOnly = uiOnly;
+S.setView = setView;
+S.appHost = appHost;
+S.appBack = appBack;
+S.appForward = appForward;
+S.appRefresh = appRefresh;
+S.appGo = appGo;
+S.setViewport = setViewport;
+// Its annotations (uilane.ts): the mode toggle, the page annotation button and the address bar's
+// page pins, the sidebar, the header's open and waiting counts, and the enlarged screenshot.
+S.setAppMode = setAppMode;
+S.annotatePage = annotatePage;
+S.pagePins = pagePins;
+S.selectAnnotation = selectAnnotation;
+S.toggleAnnotations = toggleAnnotations;
+S.openChanges = openChanges;
+S.waitingQuestions = waitingQuestions;
+S.closeShot = closeShot;
+S.shotSrc = shotSrc;
+S.shotTitle = shotTitle;
 
 // Alpine: register the reactive store, then start.
 (window as any).Alpine = Alpine;
@@ -511,7 +590,14 @@ if (hasGuide()) {
   S.overviewOpen = true;
   S.sidebarTab = S.settings.sidebarDefault === "walkthrough" ? "walkthrough" : "tree";
 }
+installAppView();
+installUiLane();
+installCaptureDebug();
+syncView(); // a UI-only desk opens straight on the app
 render();
+// Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,
+// so the lane chrome appears at once.
+requestAnimationFrame(() => (S.ready = true));
 // Reveal the floating Approve button once the diff scrolls past its (non-sticky) header. #diff
 // is the persistent scroll container (x-ignore), so this listener is attached once and survives
 // every re-render/file switch.

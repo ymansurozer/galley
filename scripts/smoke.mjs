@@ -3,8 +3,9 @@
 // event ({kind:"question"|"review"}), `galley comment` answers, and a Send produces a
 // ReviewResult. Validates the event-stream contract that SKILL.md documents.
 // Run: pnpm build && pnpm smoke
-import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -16,6 +17,11 @@ const CLI = path.join(process.cwd(), "dist", "cli.js");
 // every fetch fail confusingly on a busy machine; we read the port it actually bound instead.
 let BASE;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A 1×1 PNG: an annotation's screenshots in miniature.
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 // The desk prints `Galley <session>: http://127.0.0.1:<port>/` to stderr once it's listening.
 // Read that line (accumulating chunks — it can arrive split) and return the origin without the
@@ -65,6 +71,17 @@ const post = (p, body) =>
     body: JSON.stringify(body),
   });
 
+// A tiny fixture dev server for the UI lane, served by the smoke itself so it stays hermetic: a
+// dev-auth style sign-in that redirects into the app, and one HTML page.
+const fixture = http.createServer((req, res) => {
+  if (req.url.startsWith("/sign-in")) {
+    res.writeHead(302, { location: `http://localhost:${fixture.address().port}/app` });
+    return res.end();
+  }
+  res.writeHead(200, { "content-type": "text/html; charset=utf-8", "x-frame-options": "DENY" });
+  res.end("<!doctype html><html><head><title>Fixture</title></head><body>app</body></html>");
+});
+
 let desk, tmp;
 const cleanup = () => {
   try {
@@ -72,6 +89,7 @@ const cleanup = () => {
   } catch {
     /**/
   }
+  fixture.close();
   try {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   } catch {
@@ -100,7 +118,12 @@ try {
   writeFileSync(path.join(tmp, "huge-approved.txt"), bigLines("edited"));
   writeFileSync(path.join(tmp, "huge-rejected.txt"), bigLines("edited"));
 
-  desk = spawn("node", [CLI, "--repo", tmp, "--session", ID, "--port", "0", "--no-open"], {
+  await new Promise((resolve) => fixture.listen(0, "127.0.0.1", resolve));
+  const FIXTURE = `http://localhost:${fixture.address().port}`;
+  const UI_START = `${FIXTURE}/sign-in?as=smoke`;
+
+  const deskArgs = [CLI, "--repo", tmp, "--session", ID, "--port", "0", "--no-open"];
+  desk = spawn("node", [...deskArgs, "--ui", UI_START], {
     // stderr piped so we can read the bound URL; stdout ignored.
     stdio: ["ignore", "ignore", "pipe"],
     env: ENV,
@@ -125,6 +148,97 @@ try {
   );
   assert.ok(!JSON.stringify(state.files).includes('"contents"'), "state.files has no contents");
   console.log(`✓ desk up — repo mode, ${state.changes.length} change(s), lean state (no contents)`);
+
+  // UI lane (issue 02): the desk started with --ui serves the fixture through its UI proxy, with the
+  // bridge injected into every page, and `galley ui` swaps the target on the live desk.
+  assert.equal(state.ui?.target, UI_START, "the --ui target is on the state");
+  const PROXY = `http://127.0.0.1:${state.uiProxy?.port}`;
+  assert.ok(state.uiProxy?.port && /^[0-9a-f]{32}$/.test(state.uiProxy.token), "proxy + token");
+  const signIn = await fetch(PROXY + "/sign-in?as=smoke", { redirect: "manual" });
+  assert.equal(signIn.status, 302);
+  assert.equal(signIn.headers.get("location"), `${PROXY}/app`, "redirect lands on the proxy");
+  const proxied = await fetch(PROXY + "/app", { headers: { accept: "text/html" } });
+  const html = await proxied.text();
+  assert.match(
+    html,
+    /<head><script src="\/__galley\/bridge\.js" data-galley-desk="http:\/\/127\.0\.0\.1:\d+" data-galley-token="[0-9a-f]{32}"><\/script><title>/,
+    "the proxied HTML carries the bridge tag right after <head>",
+  );
+  assert.equal(proxied.headers.get("x-frame-options"), null, "framing headers replaced");
+  const bridge = await fetch(PROXY + "/__galley/bridge.js");
+  assert.equal(bridge.status, 200);
+  assert.ok((await bridge.text()).includes("postMessage"), "the built bridge bundle is served");
+  const switched = JSON.parse(cli("ui", `${FIXTURE}/app?round=2`, "--repo", tmp, "--session", ID));
+  assert.ok(switched.ok && switched.live, "galley ui reached the live desk");
+  const pollUi = await getJson("/api/poll");
+  assert.equal(pollUi.ui?.target, `${FIXTURE}/app?round=2`, "the tab sees the new target");
+  const remote = spawnSync("node", [CLI, "ui", "http://example.com/", "--repo", tmp], {
+    encoding: "utf8",
+    env: ENV,
+  });
+  assert.equal(remote.status, 1, "a non-loopback UI target exits non-zero");
+  assert.match(remote.stderr, /not a loopback host/);
+  console.log("✓ --ui → proxied app with the bridge injected; galley ui switches it live");
+
+  // UI annotations (issue 04): the tab saves an annotation on the app through the reviewer slice,
+  // as it does after a Request change in the UI view; the Send below must carry it.
+  const UI_NOTE = "Rename to Save — nothing on this page is a draft.";
+  const PAGE_NOTE = "This page needs a heading.";
+  await post("/api/save", {
+    annotations: [
+      {
+        id: "ui-1",
+        number: 1,
+        intent: "change",
+        status: "open",
+        placement: "placed",
+        page: {
+          url: `${FIXTURE}/app`,
+          route: "/app",
+          title: "Fixture",
+          viewport: { width: 1280, height: 800, dpr: 1 },
+        },
+        target: {
+          kind: "element",
+          elements: [
+            {
+              selector: "#save",
+              tag: "button",
+              text: "Save draft",
+              role: "button",
+              name: "Save draft",
+              rect: { x: 40, y: 60, width: 90, height: 32 },
+            },
+          ],
+        },
+        comments: [
+          {
+            id: "ui-1-m1",
+            role: "user",
+            intent: "action",
+            body: UI_NOTE,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+      },
+    ],
+  });
+  const pollAnn = await getJson("/api/poll");
+  assert.equal(pollAnn.annotations?.[0]?.id, "ui-1", "the saved annotation rides the poll");
+  console.log("✓ a UI annotation saves through the reviewer slice");
+
+  // Its screenshots (issue 06): the tab uploads the crop and viewport PNGs the bridge rendered once
+  // the save has landed; they're stored as files, and the Send below hands the agent their paths.
+  for (const kind of ["crop", "viewport"]) {
+    const shot = await fetch(`${BASE}/api/ui-shot?annotation=ui-1&kind=${kind}`, {
+      method: "POST",
+      headers: { "content-type": "image/png" },
+      body: TINY_PNG,
+    });
+    assert.equal(shot.status, 200, `the ${kind} screenshot uploads`);
+  }
+  console.log("✓ a UI annotation's screenshot pair uploads");
 
   // Oversized-file stamp (issue 05): the two 6000-line rewrites clear the threshold and are
   // stamped `oversized`; the ordinary one-line change to a.txt is not.
@@ -230,9 +344,10 @@ try {
   console.log("✓ queuedQuestions reflects an undelivered question");
   const ev1 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
   assert.equal(ev1.kind, "question");
+  assert.equal(ev1.question.lane, "code");
   assert.equal(ev1.question.body, "why this change?");
   assert.equal(ev1.question.lineNumber, 2);
-  console.log("✓ await → question event");
+  console.log("✓ await → question event (lane code)");
 
   // Two more questions fired back-to-back with no await parked → they batch: a single await
   // hands over BOTH, oldest first, with the singular `question` kept for compatibility.
@@ -297,6 +412,73 @@ try {
   assert.equal(answeredState.agentActivity, null, "agent answer cleared the activity line");
   console.log("✓ comment posted (answer) — activity cleared");
 
+  // UI questions (issue 07): the tab saves two annotations asked as questions on the app, then asks
+  // the first; `galley await` hands it over tagged lane "ui", and `galley comment --ui` answers it.
+  const { annotations: saved } = await getJson("/api/poll");
+  const uiQuestion = (id, number, body) => ({
+    ...saved[0],
+    id,
+    number,
+    intent: "question",
+    comments: [{ ...saved[0].comments[0], id: `${id}-m1`, intent: "question", body }],
+  });
+  // The second question is on a text selection, and beside them sits a change request on the whole
+  // page (issue 08): every target kind reaches the agent as the tab saved it.
+  const asked = [
+    uiQuestion("ui-q1", 2, "Is this saved as a draft?"),
+    {
+      ...uiQuestion("ui-q2", 3, "Why is this grey?"),
+      target: { kind: "text", quote: "Save draft", element: saved[0].target.elements[0] },
+    },
+    {
+      ...saved[0],
+      id: "ui-p4",
+      number: 4,
+      target: { kind: "page" },
+      comments: [{ ...saved[0].comments[0], id: "ui-p4-m1", body: PAGE_NOTE }],
+    },
+  ];
+  await post("/api/save", { annotations: [saved[0], ...asked] });
+  await post("/api/ask", { annotationId: "ui-q1", messageId: "ui-q1-m1" });
+  const evUi = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  assert.equal(evUi.kind, "question");
+  assert.deepEqual(evUi.questions, [
+    {
+      lane: "ui",
+      annotationId: "ui-q1",
+      number: 2,
+      route: "/app",
+      body: "Is this saved as a draft?",
+      target: 'button · "Save draft"',
+      mode: "repo",
+      session: ID,
+    },
+  ]);
+  console.log("✓ await → question event (lane ui) for a question asked on the app");
+  const uiReply = JSON.parse(
+    cli("comment", "--repo", tmp, "--session", ID, "--ui", "ui-q1", "--body", "No, it publishes."),
+  );
+  assert.ok(uiReply.ok && uiReply.live && uiReply.commentId, "comment --ui posted live");
+  const unknownUi = spawnSync(
+    "node",
+    [CLI, "comment", "--repo", tmp, "--session", ID, "--ui", "nope", "--body", "x"],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.notEqual(unknownUi.status, 0, "comment --ui with an unknown id fails");
+  assert.match(unknownUi.stderr, /No annotation "nope"/);
+  // A save from a tab that hasn't polled the reply in yet keeps it.
+  await post("/api/save", { annotations: [saved[0], ...asked] });
+  const repliedPoll = await getJson("/api/poll");
+  assert.deepEqual(
+    repliedPoll.annotations.find((a) => a.id === "ui-q1").comments.map((m) => [m.role, m.body]),
+    [
+      ["user", "Is this saved as a draft?"],
+      ["agent", "No, it publishes."],
+    ],
+    "the reply is in the thread and survives the reviewer's save",
+  );
+  console.log("✓ comment --ui answers in the thread; an unknown id fails; a save keeps the reply");
+
   // human clicks Send → `galley await` yields a review event with a ReviewResult.
   // Attach an overall note and confirm it round-trips as a field on the structured result.
   // Also drive both whole-file verdicts an oversized card offers, through the SAME reviewer slice
@@ -329,8 +511,33 @@ try {
   const ev2 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
   assert.equal(ev2.kind, "review");
   assert.equal(ev2.result.mode, "repo");
-  for (const k of ["requestedChanges", "accepted", "rejected", "stagedFiles"])
+  for (const k of ["codeChangeRequests", "uiAnnotations", "accepted", "rejected", "stagedFiles"])
     assert.ok(Array.isArray(ev2.result[k]), `result.${k} is an array`);
+  assert.equal(ev2.result.requestedChanges, undefined, "the old field name is gone");
+  assert.equal(ev2.result.uiTarget, `${FIXTURE}/app?round=2`, "uiTarget is the current app URL");
+  assert.deepEqual(
+    ev2.result.uiAnnotations.map((a) => [a.number, a.body, a.page.route, a.target.kind]),
+    [
+      [1, UI_NOTE, "/app", "element"],
+      [4, PAGE_NOTE, "/app", "page"],
+    ],
+    "the UI change requests arrive in uiAnnotations, an element's and the page's",
+  );
+  assert.deepEqual(
+    ev2.result.openQuestions.map((q) => [q.lane, q.annotationId, q.target]),
+    [["ui", "ui-q2", 'text "Save draft" in button']],
+    "the answered UI question is not sent; the unanswered one is, lane-tagged",
+  );
+  console.log("✓ openQuestions carries the unanswered UI question, not the answered one");
+  assert.equal(ev2.result.uiAnnotations[0].target.elements[0].selector, "#save");
+  const shots = ev2.result.uiAnnotations[0].screenshots;
+  assert.equal(shots?.exact, false, "screenshots are marked as a re-render");
+  for (const file of [shots.crop, shots.viewport]) {
+    assert.ok(path.isAbsolute(file), `${file} is absolute`);
+    assert.deepEqual(readFileSync(file), TINY_PNG, `${file} holds the uploaded PNG`);
+  }
+  console.log("✓ await → review carries uiAnnotations + uiTarget beside codeChangeRequests");
+  console.log("✓ uiAnnotations[].screenshots → absolute paths to the uploaded PNGs");
   assert.ok(
     ev2.result.approvedFiles.includes("huge-approved.txt"),
     "card approve on an oversized file lands in approvedFiles",

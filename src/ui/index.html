@@ -559,6 +559,15 @@
       display: none !important
     }
 
+    /* Until the first state is in, the desk doesn't know which lanes it has: only the brand shows,
+       so neither lane's chrome flashes before the other's. */
+    .app.booting .nav-toggle,
+    .app.booting .toggles,
+    .app.booting .actions,
+    .app.booting .main {
+      visibility: hidden
+    }
+
     .guidebar {
       flex: 0 0 auto;
       display: flex;
@@ -1839,6 +1848,7 @@
        straight rule (no radius) so the accent reads as a solid bar down the message's left side.
        Roomier padding + a ~76ch measure so the body reads as prose, not a form field. */
     .annotation .msg {
+      position: relative;
       max-width: 76ch;
       margin: 0 0 10px 0;
       padding: 11px 14px 12px;
@@ -1899,10 +1909,17 @@
       font-size: var(--text-xs)
     }
 
+    /* Out of the meta line's flow: hidden actions that still took their width wrapped the badge and
+       time onto a second line in narrow threads (the UI lane's sidebar, a narrow diff). On hover
+       they sit over the line's right end, on the message's own ground. */
     .annotation .msg-actions {
-      margin-left: auto;
+      position: absolute;
+      top: 9px;
+      right: 10px;
       display: flex;
       gap: 4px;
+      padding-left: 6px;
+      background: var(--panel);
       opacity: 0;
       transition: opacity .12s
     }
@@ -3027,6 +3044,1127 @@
       margin-left: 4px
     }
 
+    /* ── UI lane: the Code / UI switch and the UI view (the proxied app) ─────────────────────── */
+    .lane-switch button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      font-size: var(--text-sm)
+    }
+
+    .lane-switch button:hover {
+      color: var(--ink)
+    }
+
+    /* The UI view replaces the file tree and the diff; the tree's Settings entry moves up into the
+       header (as on single-file desks), and review progress — a code-lane measure — steps aside. */
+    .app.view-ui .tree,
+    .app.view-ui .resizer,
+    .app.view-ui .tree-backdrop,
+    .app.view-ui .nav-toggle,
+    .app.view-ui .guidebar,
+    .app.view-ui .diff-area,
+    .app.view-ui .top-progress,
+    .app.view-ui .top-pct {
+      display: none !important
+    }
+
+    .app.view-ui .actions .top-settings {
+      display: inline-flex
+    }
+
+    .uiview {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      position: relative
+    }
+
+    /* Browser-chrome bar: sits in the guide bar's slot, same height and surface. */
+    .chrome {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: var(--subbar-h);
+      padding: 6px 10px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      font-size: var(--text-sm)
+    }
+
+    .chrome .grp {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex: 0 0 auto
+    }
+
+    .chrome .sq {
+      flex: 0 0 auto;
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      color: var(--muted);
+      cursor: pointer
+    }
+
+    .chrome .sq:not(:disabled):hover {
+      border-color: var(--line-strong);
+      color: var(--ink);
+      background: var(--surface-raised)
+    }
+
+    .chrome .sq:disabled {
+      opacity: .4;
+      cursor: default
+    }
+
+    .chrome .addr {
+      flex: 1 1 auto;
+      min-width: 120px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 26px;
+      margin: 0;
+      padding: 0 4px 0 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg)
+    }
+
+    .chrome .addr:focus-within {
+      border-color: var(--line-strong)
+    }
+
+    .chrome .addr .host {
+      color: var(--ghost);
+      font-family: var(--mono);
+      font-size: var(--text-xs);
+      white-space: nowrap
+    }
+
+    .chrome .addr input {
+      flex: 1 1 auto;
+      min-width: 40px;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: var(--text-sm);
+      padding: 0;
+      outline: none
+    }
+
+    .chrome .seg,
+    .modal.shot .seg {
+      display: flex;
+      gap: 2px;
+      padding: 2px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg)
+    }
+
+    .chrome .seg button,
+    .modal.shot .seg button {
+      display: inline-flex;
+      align-items: center;
+      height: 20px;
+      padding: 0 6px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer
+    }
+
+    .chrome .seg button:hover,
+    .modal.shot .seg button:hover {
+      color: var(--ink)
+    }
+
+    .chrome .seg button.active,
+    .modal.shot .seg button.active {
+      background: var(--panel3);
+      color: var(--ink)
+    }
+
+    .chrome .vpsize {
+      color: var(--ghost);
+      font-family: var(--mono);
+      font-size: var(--text-2xs);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums
+    }
+
+    /* A page annotation's pin: in the address bar, since it has no spot on the page. Tinted by
+       kind like the page's pins (amber change request, cyan question). */
+    .chrome .pagepins {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 3px
+    }
+
+    .chrome .pagepin {
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border: 0;
+      border-radius: var(--radius-pill);
+      display: inline-grid;
+      place-items: center;
+      background: var(--amber);
+      color: var(--on-accent);
+      font-size: var(--text-2xs);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      cursor: pointer
+    }
+
+    .chrome .pagepin.q {
+      background: var(--cyan)
+    }
+
+    .chrome .pagepin.sel {
+      box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--cyan-line-strong)
+    }
+
+    /* After `galley reload`: the app is never reloaded under the reviewer — this asks. */
+    .pill-refresh {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 24px;
+      padding: 0 10px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--cyan-line-strong);
+      background: var(--cyan-bg-strong);
+      color: var(--cyan-fg);
+      font-size: var(--text-xs);
+      font-weight: 500;
+      cursor: pointer;
+      animation: pill-in .25s ease-out
+    }
+
+    .pill-refresh:hover {
+      color: var(--ink-bright);
+      border-color: var(--cyan)
+    }
+
+    .pill-refresh .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--cyan) 20%, transparent)
+    }
+
+    @keyframes pill-in {
+      from {
+        transform: translateY(-4px);
+        opacity: 0
+      }
+    }
+
+    /* Stage: the app frame. Fit fills it; a viewport preset renders the iframe at its real size,
+       centred and scaled down to fit (appview.ts sizeFrame), over a dotted ground. */
+    .stage {
+      flex: 1 1 auto;
+      min-height: 0;
+      position: relative;
+      container: stage / inline-size;
+      overflow: hidden;
+      background: var(--bg)
+    }
+
+    .stage.preset {
+      background-image: radial-gradient(var(--line) 1px, transparent 1px);
+      background-size: 14px 14px
+    }
+
+    .stage .frame {
+      position: absolute;
+      left: 0;
+      top: 0;
+      transform-origin: 0 0;
+      background: #fff;
+      overflow: hidden
+    }
+
+    .stage.preset .frame {
+      border-radius: 10px;
+      box-shadow: 0 0 0 1px var(--line-strong), 0 20px 60px rgba(0, 0, 0, .55)
+    }
+
+    .stage.preset.mobile .frame {
+      border-radius: 22px;
+      box-shadow: 0 0 0 6px var(--panel3), 0 0 0 7px var(--line-strong), 0 20px 60px rgba(0, 0, 0, .55)
+    }
+
+    .stage .frame iframe {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: #fff
+    }
+
+    .stage-note {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: var(--text-sm);
+      background: var(--bg)
+    }
+
+    /* The UI lane's open change-request count: on the header's UI segment, only when there are
+       some, and on the collapsed sidebar's rail. Amber like a change request; ghosted at zero. */
+    .lane-count {
+      min-width: 17px;
+      height: 16px;
+      padding: 0 5px;
+      margin-left: 6px;
+      border-radius: var(--radius-pill);
+      display: inline-grid;
+      place-items: center;
+      font-size: var(--text-2xs);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--amber);
+      background: rgba(224, 175, 104, .1);
+      border: 1px solid rgba(224, 175, 104, .35)
+    }
+
+    .lane-count.zero {
+      color: var(--ghost);
+      background: transparent;
+      border-color: var(--line)
+    }
+
+    /* The rail's count of questions waiting on the agent: cyan like a question, shown only when
+       there are some. */
+    .lane-count.waiting {
+      color: var(--cyan);
+      background: var(--cyan-bg);
+      border-color: var(--cyan-line-strong)
+    }
+
+    /* Interact / Annotate: Annotate lights up cyan so the mode reads at a glance. */
+    .chrome .mode {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 2px;
+      padding: 2px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg)
+    }
+
+    .chrome .mode button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 22px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--muted);
+      font-size: var(--text-sm);
+      cursor: pointer
+    }
+
+    .chrome .mode button:hover {
+      color: var(--ink)
+    }
+
+    .chrome .mode button.active {
+      background: var(--panel3);
+      color: var(--ink)
+    }
+
+    .chrome .mode button.active.ann {
+      background: var(--cyan-bg-strong);
+      color: var(--cyan);
+      box-shadow: inset 0 0 0 1px var(--cyan-line-strong)
+    }
+
+    .chrome .mode kbd {
+      padding: 2px 4px
+    }
+
+    /* Annotate draws a cyan ring around the app and a hint pill naming the gestures. */
+    .stage .frame::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      box-shadow: inset 0 0 0 2px transparent;
+      transition: box-shadow .15s
+    }
+
+    .stage.annotate .frame::after {
+      box-shadow: inset 0 0 0 2px var(--cyan)
+    }
+
+    .mode-hint {
+      position: absolute;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      max-width: calc(100% - 24px);
+      padding: 4px 4px 4px 13px;
+      border-radius: var(--radius-pill);
+      background: color-mix(in oklab, var(--panel) 94%, transparent);
+      border: 1px solid var(--cyan-line-strong);
+      color: var(--muted);
+      font-size: var(--text-xs);
+      white-space: nowrap;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+      pointer-events: none
+    }
+
+    .mode-hint b {
+      margin-right: 2px;
+      color: var(--cyan);
+      font-weight: 600
+    }
+
+    /* Each tip is a key or gesture chip, then what it does. */
+    .mode-hint .tip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    .mode-hint kbd {
+      color: var(--ink);
+      background: var(--surface-raised);
+      border-color: var(--line-strong)
+    }
+
+    .mode-hint button {
+      pointer-events: auto;
+      height: 24px;
+      padding: 0 10px 0 5px;
+      border: 0;
+      border-radius: var(--radius-pill);
+      background: none;
+      color: var(--muted);
+      font-size: var(--text-xs);
+      cursor: pointer
+    }
+
+    .mode-hint button:hover {
+      color: var(--ink);
+      background: var(--surface-raised)
+    }
+
+    /* Narrow stages drop tips, least needed first: the page button is in the chrome bar, and
+       adding to a pick is the rarest gesture. Clicking and the way out always stay. */
+    @container stage (max-width: 760px) {
+      .mode-hint .t-page {
+        display: none
+      }
+    }
+
+    @container stage (max-width: 680px) {
+      .mode-hint .t-add {
+        display: none
+      }
+    }
+
+    @container stage (max-width: 520px) {
+      .mode-hint .t-quote {
+        display: none
+      }
+    }
+
+    @container stage (max-width: 420px) {
+      .mode-hint .t-region {
+        display: none
+      }
+    }
+
+    /* ── The annotation sidebar (the "Quiet" design) ─────────────────────────────────────────
+       Calm by default: colour appears only where kind needs it. One axis (--ann-ax) carries page
+       names, bodies and the resolved toggle; numbers hang in the gutter to its left like footnote
+       marks. The thread inside an expanded row is the code lane's and isn't restyled here — only
+       the space around it is. */
+    .app.view-ui .main {
+      grid-template-columns: minmax(0, 1fr) 360px
+    }
+
+    .app.view-ui.annotations-closed .main {
+      grid-template-columns: minmax(0, 1fr) 40px
+    }
+
+    .annside {
+      --ann-ax: 40px;
+      --ann-change: color-mix(in oklab, var(--amber) 85%, var(--panel));
+      --ann-question: color-mix(in oklab, var(--cyan) 85%, var(--panel));
+      --ann-faint: color-mix(in oklab, var(--muted) 85%, var(--panel));
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      background: var(--panel);
+      border-left: 1px solid var(--line)
+    }
+
+    .ann-panel {
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column
+    }
+
+    .annotations-closed .ann-panel {
+      display: none
+    }
+
+    .ann-top {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: var(--subbar-h);
+      padding: 0 7px 0 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface)
+    }
+
+    .ann-top .ttl {
+      color: var(--ink);
+      font-size: var(--text-sm);
+      font-weight: 600
+    }
+
+    .ann-top .cnt {
+      color: var(--muted);
+      font-size: var(--text-xs);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums
+    }
+
+    .ann-top .cnt .waiting {
+      color: var(--ann-question)
+    }
+
+    .ann-top .grow {
+      flex: 1
+    }
+
+    .ann-top .sq,
+    .ann-rail {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer
+    }
+
+    .ann-top .sq {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border-radius: var(--radius)
+    }
+
+    .ann-top .sq:hover {
+      color: var(--ink);
+      background: var(--surface-raised)
+    }
+
+    .ann-rail {
+      display: none;
+      flex: 1 1 auto;
+      flex-direction: column;
+      align-items: center;
+      gap: 9px;
+      padding: 10px 0
+    }
+
+    .ann-rail:hover {
+      background: var(--surface-raised);
+      color: var(--ink)
+    }
+
+    .ann-rail .lane-count {
+      margin-left: 0
+    }
+
+    .ann-rail .vt {
+      writing-mode: vertical-rl;
+      font-size: var(--text-xs);
+      letter-spacing: .03em
+    }
+
+    .annotations-closed .ann-rail {
+      display: flex
+    }
+
+    .annside-backdrop {
+      display: none
+    }
+
+    /* The gutter is kept so a scrollbar that appears when a row expands doesn't narrow the rows.
+       uilane.ts keeps rows in place itself (its gaps), so the browser's scroll anchoring stays out
+       of it rather than correcting the same move twice. */
+    .ann-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      overflow-anchor: none;
+      scrollbar-gutter: stable;
+      padding: 2px 0 72px
+    }
+
+    .ann-empty {
+      margin: 0;
+      padding: 14px 12px;
+      color: var(--ghost);
+      font-size: var(--text-sm);
+      line-height: 1.55
+    }
+
+    /* Page groups: one line each, separated by space rather than rules. The current page is a dot
+       hanging in the number gutter and a full-ink name; title and route live in the tooltip. */
+    .ann-page {
+      padding: 12px 0 4px
+    }
+
+    .ann-page+.ann-page {
+      padding-top: 18px
+    }
+
+    .ann-head {
+      position: relative;
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      width: 100%;
+      min-width: 0;
+      padding: 3px 14px 7px var(--ann-ax);
+      border: 0;
+      background: none;
+      text-align: left;
+      font-size: var(--text-xs);
+      line-height: 16px;
+      color: var(--muted);
+      cursor: pointer
+    }
+
+    .ann-page.here .ann-head::before {
+      content: "";
+      position: absolute;
+      left: calc(var(--ann-ax) - 13px);
+      top: 8px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--muted)
+    }
+
+    .ann-page-name {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: var(--text-sm);
+      font-weight: 600;
+      color: var(--muted)
+    }
+
+    .ann-page.here .ann-page-name,
+    .ann-head:hover .ann-page-name {
+      color: var(--ink)
+    }
+
+    .ann-count {
+      flex: 0 0 auto;
+      margin-left: auto;
+      padding-left: 8px;
+      color: var(--ghost);
+      font-variant-numeric: tabular-nums
+    }
+
+    /* Not checked since the last reload: one faint word on the head, never on the rows. */
+    .ann-unchecked {
+      flex: 0 0 auto;
+      color: var(--ann-faint);
+      font-size: var(--text-xs)
+    }
+
+    .ann-head:focus-visible {
+      outline: 1px solid var(--line-strong);
+      outline-offset: -1px
+    }
+
+    /* Rows: a tabular numeral tinted by kind, then the body's first line. No glyphs, no state
+       words: the tooltip carries the state. */
+    .ann-row {
+      display: grid;
+      grid-template-columns: var(--ann-ax) minmax(0, 1fr);
+      align-items: baseline;
+      min-height: 30px;
+      padding: 7px 14px 7px 0;
+      font-size: var(--text-sm);
+      line-height: 16px;
+      color: color-mix(in oklab, var(--ink) 88%, var(--panel));
+      cursor: pointer
+    }
+
+    .ann-row:hover {
+      background: color-mix(in oklab, var(--surface-raised) 70%, var(--panel))
+    }
+
+    .ann-row.sel {
+      color: var(--ink-bright)
+    }
+
+    .ann-num {
+      justify-self: end;
+      padding-right: 12px;
+      font-size: var(--text-xs);
+      font-weight: 500;
+      font-variant-numeric: tabular-nums
+    }
+
+    .ann-row.k-change .ann-num {
+      color: var(--ann-change)
+    }
+
+    .ann-row.k-question .ann-num {
+      color: var(--ann-question)
+    }
+
+    .ann-body {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap
+    }
+
+    /* Resolved: one quiet toggle on the axis; revealed rows dimmed, numeral untinted. */
+    .ann-show-resolved {
+      display: block;
+      width: 100%;
+      padding: 5px 14px 5px var(--ann-ax);
+      border: 0;
+      background: none;
+      text-align: left;
+      color: var(--ann-faint);
+      font-size: var(--text-xs);
+      line-height: 16px;
+      cursor: pointer
+    }
+
+    .ann-show-resolved:hover {
+      color: var(--ink)
+    }
+
+    .ann-row.resolved {
+      color: var(--muted)
+    }
+
+    .ann-row.resolved .ann-num {
+      color: var(--ghost)
+    }
+
+    .ann-row.resolved.sel {
+      color: var(--ink)
+    }
+
+    /* Expanded: one block set apart from its neighbours. A ground runs behind the row, its context
+       line and its thread, with an edge in the kind's colour down its left; the row heads it.
+       Expanding moves nothing already on screen: the row keeps its collapsed box and type, the
+       edge is a shadow, and only what opens below the row takes space. */
+    .ann-item {
+      margin-bottom: 8px;
+      padding-bottom: 12px;
+      background: color-mix(in oklab, var(--surface-raised) 55%, var(--panel3))
+    }
+
+    .ann-item.k-change {
+      box-shadow: inset 2px 0 0 var(--ann-change)
+    }
+
+    .ann-item.k-question {
+      box-shadow: inset 2px 0 0 var(--ann-question)
+    }
+
+    .ann-item.resolved {
+      box-shadow: inset 2px 0 0 var(--line-strong)
+    }
+
+    .ann-item .ann-row:hover {
+      background: none
+    }
+
+    .ann-item .annotation {
+      width: auto;
+      margin: 0 6px
+    }
+
+    /* The expanded row's one muted line of context, its parts text links. */
+    .ann-ctx {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      min-width: 0;
+      margin-top: -3px;
+      padding: 0 14px 8px var(--ann-ax);
+      font-size: var(--text-xs);
+      line-height: 16px;
+      color: var(--ghost)
+    }
+
+    .ann-src {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: var(--text-2xs);
+      text-underline-offset: 2px
+    }
+
+    button.ann-src {
+      cursor: pointer
+    }
+
+    button.ann-src:hover {
+      color: var(--ink);
+      text-decoration: underline;
+      text-decoration-color: var(--line-strong)
+    }
+
+    /* The screenshot's part of the line: "capturing…" and "capture failed" stay ghost text; the
+       stored pair is a link like the source's. */
+    .ann-shot {
+      flex: 0 0 auto;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--ghost);
+      font-size: var(--text-xs);
+      white-space: nowrap;
+      text-underline-offset: 2px
+    }
+
+    button.ann-shot {
+      color: var(--muted);
+      cursor: pointer
+    }
+
+    button.ann-shot:hover {
+      color: var(--ink);
+      text-decoration: underline;
+      text-decoration-color: var(--line-strong)
+    }
+
+    /* Its target wasn't found on the page: the line's last word, text like the rest. */
+    .ann-unplaced {
+      flex: 0 0 auto;
+      color: var(--muted);
+      white-space: nowrap
+    }
+
+    /* The enlarged screenshot: a viewport fills the dialog's width, a small crop grows to about
+       half of it, and either shrinks to fit the window's height. The frame hugs the image. */
+    .modal.shot {
+      display: flex;
+      flex-direction: column;
+      width: 880px;
+      max-width: 94vw;
+      max-height: 92vh
+    }
+
+    .modal.shot h3 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: var(--text-sm)
+    }
+
+    .modal.shot .seg {
+      font-size: var(--text-xs);
+      font-weight: 400
+    }
+
+    .shot-frame {
+      align-self: center;
+      max-width: 100%;
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius)
+    }
+
+    .shot-frame img {
+      display: block;
+      min-width: min(440px, 80vw);
+      max-width: 100%;
+      max-height: calc(92vh - 120px);
+      object-fit: contain
+    }
+
+    /* The floating composer: beside the picked element, its card the code lane's composer. */
+    .ucomposer {
+      position: fixed;
+      z-index: 40;
+      display: none;
+      width: 380px;
+      max-width: calc(100vw - 24px);
+      padding: 10px;
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      border: 1px solid var(--line-strong);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, .6)
+    }
+
+    .ucomposer.show {
+      display: block
+    }
+
+    .ucomposer .composer-card {
+      margin: 0;
+      max-width: none
+    }
+
+    .uc-head {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+      margin: 0 2px 8px
+    }
+
+    .uc-num {
+      flex: 0 0 auto;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: var(--radius-pill);
+      display: inline-grid;
+      place-items: center;
+      font-size: var(--text-2xs);
+      font-weight: 700;
+      background: var(--panel3);
+      color: var(--ink);
+      box-shadow: inset 0 0 0 1px var(--line-strong)
+    }
+
+    .uc-target {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: var(--text-xs)
+    }
+
+    .uc-more {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: var(--text-2xs);
+      white-space: nowrap
+    }
+
+    .uc-close {
+      flex: 0 0 auto;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--ghost);
+      cursor: pointer
+    }
+
+    .uc-close:hover {
+      color: var(--ink)
+    }
+
+    .uc-src {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 0 2px 8px
+    }
+
+    /* A text annotation's quote, under the composer's head: three lines at most. */
+    .uc-quote {
+      margin: 0 2px 8px;
+      padding: 4px 8px;
+      border-left: 2px solid var(--amber);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      background: color-mix(in oklab, var(--amber) 6%, transparent);
+      color: var(--ink);
+      font-size: var(--text-sm);
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
+      overflow: hidden
+    }
+
+    .src-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 100%;
+      height: 20px;
+      padding: 0 7px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: var(--text-2xs);
+      white-space: nowrap;
+      overflow: hidden
+    }
+
+    button.src-chip {
+      cursor: pointer
+    }
+
+    button.src-chip:hover {
+      color: var(--ink);
+      border-color: var(--line-strong)
+    }
+
+    .src-chip .ic {
+      flex: 0 0 auto;
+      width: 12px;
+      height: 12px;
+      color: var(--cyan-fg)
+    }
+
+    /* The Send dialog's receipt, split by lane. */
+    .modal .lanes {
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg)
+    }
+
+    .modal .lane {
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      gap: 10px;
+      padding: 9px 11px;
+      font-size: var(--text-sm);
+      color: var(--ink);
+      line-height: 1.5
+    }
+
+    .modal .lane+.lane {
+      border-top: 1px solid var(--line)
+    }
+
+    .modal .lane>b {
+      padding-top: 2px;
+      font-size: var(--text-2xs);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--ghost)
+    }
+
+    .modal .lane .sub {
+      color: var(--muted);
+      font-size: var(--text-xs)
+    }
+
+    @media(max-width:700px) {
+      .chrome {
+        flex-wrap: wrap;
+        row-gap: 6px;
+        gap: 6px
+      }
+
+      .chrome .addr {
+        order: 5;
+        flex-basis: 100%
+      }
+
+      .chrome .vpsize,
+      .chrome .mode kbd,
+      .chrome .mode button span {
+        display: none
+      }
+
+      /* The floating composer becomes a bottom sheet; !important beats the inline left/top. */
+      .ucomposer {
+        left: 8px !important;
+        right: 8px !important;
+        bottom: 8px !important;
+        top: auto !important;
+        width: auto;
+        max-width: none
+      }
+    }
+
+    /* Narrow widths: the rail stays in the flow and the list opens as a drawer over the app. */
+    @media(max-width:1100px) {
+
+      .app.view-ui .main,
+      .app.view-ui.annotations-closed .main {
+        grid-template-columns: minmax(0, 1fr) 40px
+      }
+
+      .app.view-ui .ann-rail {
+        display: flex
+      }
+
+      .app.view-ui .ann-panel {
+        position: fixed;
+        z-index: 30;
+        top: 48px;
+        right: 0;
+        bottom: 0;
+        width: min(92vw, 360px);
+        background: var(--panel);
+        border-left: 1px solid var(--line);
+        box-shadow: -8px 0 24px rgba(0, 0, 0, .35)
+      }
+
+      .app.view-ui .annside-backdrop {
+        display: block;
+        position: fixed;
+        inset: 48px 0 0 0;
+        z-index: 29;
+        background: rgba(0, 0, 0, .5)
+      }
+    }
+
     /* Narrow widths: the file tree leaves the flow and becomes an off-canvas left drawer, so the
        app stays a fixed-height single column with the diff filling it (the core surface owns the
        screen) — no more tree-on-top page-scroll stacking. The tree is hidden by default and slides
@@ -3115,12 +4253,18 @@
 </head>
 
 <body>
-  <div class="app" x-data>
+  <div class="app booting" x-data :class="{booting: !$store.g.ready, 'view-ui': $store.g.view==='ui', 'ui-only': $store.g.uiOnly(), 'annotations-closed': !$store.g.annotationsOpen}">
     <header class="top">
       <div class="brand"><button class="nav-toggle" data-tip="Files (⇧B)" aria-label="Toggle file tree"
           @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="brand-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#hb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#hb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#hb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="hb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span></div>
       <div class="toggles">
-        <div class="toggle" x-show="$store.g.isMarkdownFile()" data-tip="Rendered / source (m)"><button :class="{active: $store.g.fileView==='rendered'}"
+        <!-- Code / UI lane switch: only when the desk has a UI target and a diff. A single-lane desk
+             shows no lane label. -->
+        <div class="toggle lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / UI (⇧U)"><button
+            :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg>Code</button><button
+            :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg>UI<span
+              class="lane-count" x-show="$store.g.openChanges()" title="Open UI change requests" x-text="$store.g.openChanges()"></span></button></div>
+        <div class="toggle" x-show="$store.g.view==='code' && $store.g.isMarkdownFile()" data-tip="Rendered / source (m)"><button :class="{active: $store.g.fileView==='rendered'}"
             @click="$store.g.setFileView('rendered')">Rendered</button><button
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
         </div>
@@ -3220,7 +4364,78 @@
             @click="$store.g.approveFile && $store.g.approveFile()"><span
               x-text="$store.g.fabState && $store.g.fabState()==='changes' ? 'Mark Reviewed' : 'Approve'">Approve</span> <kbd>⇧A</kbd></button>
         </div>
+        <!-- The UI view: the proxied app under a browser-chrome bar (in the guide bar's slot). The
+             iframe is created by appview.ts inside #appFrame and stays alive across view switches. -->
+        <div class="uiview" x-cloak x-show="$store.g.view==='ui'">
+          <div class="chrome">
+            <div class="grp">
+              <button class="sq" data-tip="Back" aria-label="Back" @click="$store.g.appBack()"
+                :disabled="!$store.g.app.connected || $store.g.app.canGoBack===false"><svg class="ic"><use href="#gly-arrow-left"></use></svg></button>
+              <button class="sq" data-tip="Forward" aria-label="Forward" @click="$store.g.appForward()"
+                :disabled="!$store.g.app.connected || $store.g.app.canGoForward===false"><svg class="ic"><use href="#gly-arrow-right"></use></svg></button>
+              <button class="sq" data-tip="Refresh app" aria-label="Refresh app" @click="$store.g.appRefresh()"><svg class="ic"><use href="#gly-refresh"></use></svg></button>
+            </div>
+            <form class="addr" @submit.prevent="$store.g.appGo($refs.addr.value); $refs.addr.blur()" :title="$store.g.app.title">
+              <span class="host" x-text="$store.g.appHost()"></span>
+              <input x-ref="addr" :value="$store.g.app.route" spellcheck="false" autocomplete="off" aria-label="App route"
+                @keydown.escape="$event.target.value = $store.g.app.route; $event.target.blur()">
+              <!-- The page's own annotations: their pins live here, not on the page. -->
+              <span class="pagepins"><template x-for="m in $store.g.pagePins()" :key="m.id"><button type="button"
+                    class="pagepin" :class="{q: m.question, sel: m.selected}" :title="'#' + m.number + ' · this page'"
+                    @click="$store.g.selectAnnotation(m.selected ? null : m.id)" x-text="m.number"></button></template></span>
+            </form>
+            <button class="pill-refresh" x-cloak x-show="$store.g.app.stale" @click="$store.g.appRefresh()"><span class="dot"></span>App updated — refresh</button>
+            <div class="seg" role="group" aria-label="Viewport">
+              <button data-tip="Desktop 1440" aria-label="Desktop 1440" :class="{active: $store.g.viewport==='desktop'}" @click="$store.g.setViewport('desktop')"><svg class="ic"><use href="#gly-desktop"></use></svg></button>
+              <button data-tip="Tablet 820" aria-label="Tablet 820" :class="{active: $store.g.viewport==='tablet'}" @click="$store.g.setViewport('tablet')"><svg class="ic"><use href="#gly-tablet"></use></svg></button>
+              <button data-tip="Mobile 390" aria-label="Mobile 390" :class="{active: $store.g.viewport==='mobile'}" @click="$store.g.setViewport('mobile')"><svg class="ic"><use href="#gly-mobile"></use></svg></button>
+              <button data-tip="Fit to pane" data-tip-align="end" aria-label="Fit to pane" :class="{active: $store.g.viewport==='fit'}" @click="$store.g.setViewport('fit')"><svg class="ic"><use href="#gly-fit"></use></svg></button>
+            </div>
+            <span class="vpsize" x-text="$store.g.frameLabel"></span>
+            <button class="sq" data-tip="Annotate this page (⌥P)" data-tip-align="end" aria-label="Annotate this page"
+              :disabled="!$store.g.app.connected" @click="$store.g.annotatePage()"><svg class="ic"><use href="#gly-page-note"></use></svg></button>
+            <div class="mode" role="group" aria-label="Mode" data-tip="Interact / Annotate (⌥A)" data-tip-align="end">
+              <button :class="{active: $store.g.appMode==='interact'}" @click="$store.g.setAppMode('interact')"><svg class="ic"><use href="#gly-pointer"></use></svg><span>Interact</span></button><button
+                class="ann" :class="{active: $store.g.appMode==='annotate'}" @click="$store.g.setAppMode('annotate')"><svg class="ic"><use href="#gly-annotate"></use></svg><span>Annotate</span><kbd>⌥A</kbd></button>
+            </div>
+          </div>
+          <div class="stage" id="appStage" :class="[$store.g.viewport==='fit' ? '' : 'preset ' + $store.g.viewport, $store.g.appMode==='annotate' ? 'annotate' : '']">
+            <div class="frame" id="appFrame" x-ignore></div>
+            <div class="stage-note" x-show="!$store.g.uiProxy">Starting the app proxy…</div>
+            <div class="mode-hint" x-cloak x-show="$store.g.appMode==='annotate'"><b>Annotate</b><span
+                class="tip"><kbd>Click</kbd>element</span><span
+                class="tip t-add"><kbd>⇧ Click</kbd>select several</span><span
+                class="tip t-region"><kbd>Drag</kbd>region</span><span
+                class="tip t-quote"><kbd>Drag text</kbd>quote</span><span
+                class="tip t-page"><kbd>⌥P</kbd>page</span><button
+                class="tip" @click="$store.g.setAppMode('interact')"><kbd>Esc</kbd>interact</button></div>
+          </div>
+        </div>
       </section>
+      <!-- The annotation sidebar (UI view): page groups of one-line rows; a row expands in place to its
+           thread. #annotationList is drawn by uilane.ts. Collapsed, it's a rail with the open count
+           and the waiting count; below 1100px the rail stays and the list opens as a drawer over the
+           app. -->
+      <aside class="annside" x-cloak x-show="$store.g.view==='ui'">
+        <div class="ann-panel">
+          <div class="ann-top"><span class="ttl">Annotations</span><span class="cnt"><span
+                x-text="$store.g.openChanges() + ' open'"></span><span x-show="$store.g.waitingQuestions()"> · <span
+                  class="waiting" title="Questions waiting for the agent"
+                  x-text="$store.g.waitingQuestions() + ' waiting'"></span></span></span><span
+              class="grow"></span><button class="sq" data-tip="Collapse (⇧L)" data-tip-align="end" aria-label="Collapse annotations"
+              @click="$store.g.toggleAnnotations()"><svg class="ic"><use href="#gly-panel-close"></use></svg></button></div>
+          <div class="ann-list" id="annotationList" x-ignore></div>
+        </div>
+        <button class="ann-rail" aria-label="Show annotations (⇧L)" data-tip="Annotations (⇧L)" data-tip-align="end"
+          @click="$store.g.toggleAnnotations()"><svg class="ic"><use href="#gly-panel-open"></use></svg><span class="lane-count"
+            :class="{zero: !$store.g.openChanges()}" title="Open change requests" x-text="$store.g.openChanges()"></span><span
+            class="lane-count waiting" x-show="$store.g.waitingQuestions()" title="Questions waiting for the agent"
+            x-text="$store.g.waitingQuestions()"></span><span class="vt">Annotations</span></button>
+      </aside>
+      <div class="annside-backdrop" x-show="$store.g.view==='ui' && $store.g.annotationsOpen" @click="$store.g.toggleAnnotations()"></div>
+      <!-- The floating composer on an element picked in Annotate mode (uilane.ts): beside its target,
+           a bottom sheet at narrow widths. -->
+      <div class="ucomposer" id="uiComposer" x-ignore></div>
       <div class="modal-backdrop" id="settingsModal" :class="{show: $store.g.settingsOpen}"
         @click.self="$store.g.closeSettings()">
         <div class="modal settings">
@@ -3362,10 +4577,27 @@
       <div class="modal-backdrop" id="sendModal" :class="{show: $store.g.sendOpen}" @click.self="$store.g.sendCancel()">
         <div class="modal send">
           <p x-text="$store.g.sendMsg"></p>
+          <div class="lanes" x-show="$store.g.sendLanes">
+            <div class="lane" x-show="$store.g.sendLanes?.code"><b>Code</b><div x-text="$store.g.sendLanes?.code"></div></div>
+            <div class="lane"><b>UI</b><div><span x-text="$store.g.sendLanes?.ui"></span><div class="sub"
+                  x-show="$store.g.sendLanes?.uiNotSent" x-text="$store.g.sendLanes?.uiNotSent"></div></div></div>
+          </div>
           <textarea id="sendNote" x-model="$store.g.sendNote"
             placeholder="Overall note (optional) — an overall remark, or what to do after applying"></textarea>
           <div class="modal-actions"><button class="btn" @click="$store.g.sendCancel()">Cancel <kbd>Esc</kbd></button><button
-              class="btn primary" @click="$store.g.sendConfirm()">Send <kbd>⌘↵</kbd></button></div>
+              class="btn primary" :disabled="$store.g.sendFinishing" @click="$store.g.sendConfirm()"><span
+                x-text="$store.g.sendFinishing ? 'Finishing screenshots…' : 'Send'">Send</span> <kbd>⌘↵</kbd></button></div>
+        </div>
+      </div>
+      <!-- An annotation's screenshot, enlarged from its row's context line (uilane.ts): the crop or
+           the whole viewport, as the bridge rendered them with the mark drawn on. -->
+      <div class="modal-backdrop" id="shotModal" :class="{show: $store.g.shotView}" @click.self="$store.g.closeShot()">
+        <div class="modal shot" role="dialog" :aria-label="$store.g.shotTitle()">
+          <h3><span x-text="$store.g.shotTitle()"></span><span class="seg" role="group" aria-label="Image"><button
+                :class="{active: $store.g.shotView?.kind==='crop'}" @click="$store.g.shotView.kind='crop'">Crop</button><button
+                :class="{active: $store.g.shotView?.kind==='viewport'}" @click="$store.g.shotView.kind='viewport'">Viewport</button></span></h3>
+          <div class="shot-frame"><template x-if="$store.g.shotView"><img :src="$store.g.shotSrc()" :alt="$store.g.shotTitle()"></template></div>
+          <div class="modal-actions"><button class="btn" @click="$store.g.closeShot()">Close <kbd>Esc</kbd></button></div>
         </div>
       </div>
       <div class="toast" id="toast" :class="{show: $store.g.toastMsg}" x-text="$store.g.toastMsg">saved</div>

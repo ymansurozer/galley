@@ -12,6 +12,8 @@ export function reviewerSlice(state: ReviewState): ReviewerSave {
     reviewedFiles: state.reviewedFiles,
     reviewedFileHashes: state.reviewedFileHashes,
     decisionFiles: state.decisionFiles,
+    annotations: state.annotations,
+    lastAnnotationNumber: state.lastAnnotationNumber,
   };
 }
 
@@ -28,15 +30,27 @@ export function reviewerSlice(state: ReviewState): ReviewerSave {
 export type Saver = {
   // Request a save. Sends immediately if idle; otherwise schedules exactly one trailing save.
   trigger: () => void;
+  // Request a save that can wait (what the app page reports, not what the reviewer did): one
+  // trigger a second later however many arrive meanwhile, or none if a trigger() saves first, since
+  // its snapshot carries them. Not busy while it waits, so a page reporting in a loop can neither
+  // flood the desk with full saves nor hold off the poll's diff adoption.
+  triggerSoon: () => void;
   // In-flight OR a trailing save pending — a save is "busy" until the wire is quiet again.
   // The poll's reload branch checks this so it never adopts server state over local
   // mutations that haven't been persisted yet (see poll.ts).
   isBusy: () => boolean;
+  // Resolves once the wire is quiet: everything triggered so far has been sent (or failed).
+  // A screenshot upload waits on it, since the server takes one only for a saved annotation.
+  settled: () => Promise<void>;
 };
+
+const SOON_MS = 1000;
 
 export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promise<unknown>): Saver {
   let inFlight = false;
   let pending = false;
+  let soon: ReturnType<typeof setTimeout> | undefined;
+  let waiters: Array<() => void> = [];
 
   const run = () => {
     inFlight = true;
@@ -50,17 +64,31 @@ export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promis
         if (pending) {
           pending = false;
           run();
+          return;
         }
+        const quiet = waiters;
+        waiters = [];
+        for (const resolve of quiet) resolve();
       });
   };
 
+  const trigger = () => {
+    clearTimeout(soon);
+    soon = undefined;
+    if (inFlight) pending = true;
+    else run();
+  };
+
   return {
-    trigger() {
-      if (inFlight) pending = true;
-      else run();
+    trigger,
+    triggerSoon() {
+      soon ??= setTimeout(trigger, SOON_MS);
     },
     isBusy() {
       return inFlight || pending;
+    },
+    settled() {
+      return inFlight ? new Promise((resolve) => waiters.push(resolve)) : Promise.resolve();
     },
   };
 }

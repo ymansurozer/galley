@@ -27,7 +27,12 @@ import type {
   ReviewResult,
   ReviewState,
   ReviewerSave,
+  SaveStamp,
+  ThreadMessage,
+  UiAnnotationRecord,
 } from "./types.js";
+import { questionTarget, readUiAnnotations, uiAnnotationsForAgent } from "./uiannotations.js";
+import { shotDir } from "./uishots.js";
 
 export function nowIso() {
   return new Date().toISOString();
@@ -41,8 +46,16 @@ export function hash(text: string) {
 // origin, so an already-open tab self-heals through its state poll instead of dying on
 // a dead random port. Collisions with foreign processes fall back to a random port at
 // listen time (startServer).
-export function stablePort(root: string, session: string) {
-  return 41000 + (parseInt(hash(`${root}:${sanitizeSession(session)}`).slice(0, 8), 16) % 10000);
+export function stablePort(root: string, session: string, salt = "") {
+  const key = `${root}:${sanitizeSession(session)}${salt}`;
+  return 41000 + (parseInt(hash(key).slice(0, 8), 16) % 10000);
+}
+
+// The UI proxy's port: the same scheme with a salt (one no sanitized session can produce), so a
+// restarted desk serves the app on the same origin too — the open tab's iframe and its session
+// cookies keep working. Collisions fall back to the next free port (startUiProxy).
+export function stableUiPort(root: string, session: string) {
+  return stablePort(root, session, ":ui");
 }
 
 export function sanitizeSession(session: string) {
@@ -659,9 +672,14 @@ export async function buildReviewState(
     session: string;
     target?: string;
     base?: string;
+    // A clean tree (repo) / branch at its base (pr) builds an empty state instead of null — the
+    // UI-only desk, where the app is the whole review. File mode's null (unreadable file) stays.
+    allowEmpty?: boolean;
   },
 ): Promise<ReviewState | null> {
   const mode = opts.mode ?? "repo";
+  const emptySource: DiffSource = { files: [], changes: [], rawDiff: "", parsedDiff: [] };
+  const orEmpty = (source: DiffSource | null) => source ?? (opts.allowEmpty ? emptySource : null);
   const make = (
     root: string,
     source: DiffSource,
@@ -689,6 +707,7 @@ export async function buildReviewState(
       reviewedFileHashes: {},
       stagedFiles: [],
       decisions: [],
+      annotations: [],
     };
     // Seed the parse memo with the DiffFile[] buildDiffSource already produced, so the reload path's
     // resolveSkim reuses it (parsedDiffOf(base)) rather than re-parsing rawDiff (issue 06).
@@ -718,7 +737,7 @@ export async function buildReviewState(
     const root = await getGitRoot(cwd);
     const defaultBranch = opts.base ?? (await resolveDefaultBranch(root));
     const base = await git(["merge-base", defaultBranch, "HEAD"], root).catch(() => defaultBranch);
-    const source = await buildDiffSource({ mode, root, base });
+    const source = orEmpty(await buildDiffSource({ mode, root, base }));
     if (!source) return null;
     return make(root, source, { staged: false, target: opts.target, base }, await getHead(root));
   }
@@ -731,7 +750,7 @@ export async function buildReviewState(
   const discovery = opts.path ? (stat?.isDirectory() ? requested : path.dirname(requested)) : cwd;
   const root = await getGitRoot(discovery);
   const rel = opts.path ? path.relative(root, requested) : undefined;
-  const source = await buildDiffSource({ mode, root, path: rel, staged: opts.staged });
+  const source = orEmpty(await buildDiffSource({ mode, root, path: rel, staged: opts.staged }));
   if (!source) return null;
   return make(root, source, { staged: !!opts.staged }, await getHead(root));
 }
@@ -825,18 +844,53 @@ const REVIEWER_SAVE_KEYS = [
   "reviewedFileHashes",
   "decisionFiles",
 ] as const satisfies ReadonlyArray<keyof ReviewerSave>;
-export function mergeReviewerSave(state: ReviewState, body: unknown) {
+// `desk`: the live desk's own stamp (types.ts, SaveStamp), to tell a save the tab made before the
+// latest `galley reload` or restart. Without one, every save counts as current.
+export function mergeReviewerSave(state: ReviewState, body: unknown, desk?: SaveStamp) {
   if (!body || typeof body !== "object") return;
   const incoming = body as Record<string, unknown>;
   for (const key of REVIEWER_SAVE_KEYS) {
     if (incoming[key] !== undefined) (state as Record<string, unknown>)[key] = incoming[key];
   }
+  const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
+  const beforeReload =
+    !!desk && (seen?.token !== desk.token || seen?.reloadGeneration !== desk.reloadGeneration);
+  // Annotations carry data the app page supplied, so they're validated and capped on the way in
+  // (uiannotations.ts) rather than taken as sent.
+  const annotations = readUiAnnotations(incoming.annotations, state.ui?.target);
+  if (annotations) {
+    const stored = new Map(state.annotations?.map((a) => [a.id, a]));
+    for (const a of annotations) {
+      const prev = stored.get(a.id);
+      if (!prev) continue;
+      // Whether an annotation's screenshots are stored is the server's to say (the upload that
+      // completes the pair sets it), so it carries over by id, whatever the tab sent.
+      if (prev.screenshots) a.screenshots = true;
+      // A save from before the latest reload carries placements that reload reset.
+      if (beforeReload) a.placement = prev.placement;
+      // An agent reply (`galley comment --ui`) lands here between the tab's polls, so a save from a
+      // tab that hasn't seen it yet lacks it. The tab can't delete an agent message, so every one
+      // the save lacks is kept, at the end of its thread.
+      const have = new Set(a.comments.map((m) => m.id));
+      a.comments.push(...prev.comments.filter((m) => m.role === "agent" && !have.has(m.id)));
+    }
+    state.annotations = annotations;
+  }
+  // The number mark only goes up: past the stored mark, a stale tab's lower one, and every number
+  // in use, so a deleted annotation's number is never handed out again.
+  const sent = incoming.lastAnnotationNumber;
+  const last = Math.max(
+    state.lastAnnotationNumber ?? 0,
+    Number.isSafeInteger(sent) ? (sent as number) : 0,
+    ...(state.annotations ?? []).map((a) => a.number),
+  );
+  if (last) state.lastAnnotationNumber = last;
 }
 
 // Write via a same-directory temp file + rename so a desk killed mid-write never leaves a truncated
 // review behind: the rename is atomic on one filesystem, so a reader sees either the whole old file
 // or the whole new one, never a half. Same dir keeps source and target on the same filesystem.
-export async function writeFileAtomic(file: string, data: string) {
+export async function writeFileAtomic(file: string, data: string | Uint8Array) {
   const tmp = `${file}.${crypto.randomUUID()}.tmp`;
   await fs.writeFile(tmp, data, "utf8");
   await fs.rename(tmp, file);
@@ -1013,6 +1067,11 @@ export function reanchorComments(
   return comments;
 }
 
+// After `galley reload` or a desk restart the app may have changed under every annotation, so none
+// counts as found until its page loads in the desk again and the bridge looks for it.
+export const unvisitedAnnotations = (list: UiAnnotationRecord[] | undefined) =>
+  list?.map((a) => ({ ...a, placement: "unvisited" as const }));
+
 export async function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   if (!saved) return base;
   const currentFiles = new Set(base.files.map((file) => file.path));
@@ -1123,6 +1182,12 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
     decisions,
     // Carry the attached guide forward across reload/restart (the rebuilt base has none).
     guide: saved.guide ?? base.guide,
+    // Same for the UI target; a `--ui` at restart replaces it after the merge (runDesk).
+    ui: saved.ui ?? base.ui,
+    // Annotations are the reviewer's, on the app rather than the diff: a re-diff never touches them,
+    // but none has been looked for on the changed app yet.
+    annotations: unvisitedAnnotations(saved.annotations ?? base.annotations),
+    lastAnnotationNumber: saved.lastAnnotationNumber,
     persistFile: saved.persistFile,
   } satisfies ReviewState;
 }
@@ -1139,7 +1204,7 @@ export async function syncGitState(state: ReviewState) {
 
 // Files the reviewer signed off as-is: finished (in reviewedFiles, content hash still current)
 // AND with no objections — no rejected hunk and no open requested-change comment (questions and
-// agent replies don't count). Guarantees approvedFiles is disjoint from rejected/requestedChanges.
+// agent replies don't count). Guarantees approvedFiles is disjoint from rejected/codeChangeRequests.
 export function computeApprovedFiles(state: ReviewState): string[] {
   const hashes = state.reviewedFileHashes ?? {};
   const fileHash = new Map(state.files.map((f) => [f.path, f.contentHash]));
@@ -1190,13 +1255,51 @@ export async function appendComment(
   return comment;
 }
 
-// The single QuestionPayload constructor — shared by /api/ask (live question event) and
+// The agent's reply in a UI annotation's thread (`galley comment --ui`), added to `state`. Null when
+// the review has no annotation with that id.
+export function replyToAnnotation(
+  state: Pick<ReviewState, "annotations">,
+  id: string,
+  body: string,
+): ThreadMessage | null {
+  const a = state.annotations?.find((x) => x.id === id);
+  if (!a) return null;
+  const now = nowIso();
+  const reply: ThreadMessage = {
+    id: crypto.randomUUID(),
+    role: "agent",
+    intent: "note",
+    body,
+    createdAt: now,
+    updatedAt: now,
+  };
+  a.comments.push(reply);
+  return reply;
+}
+
+// replyToAnnotation on the saved review, for when no desk is live (as appendComment is).
+export async function appendAnnotationReply(
+  root: string,
+  session: string,
+  id: string,
+  body: string,
+): Promise<ThreadMessage | null> {
+  const saved = await loadLatestReview(root, session);
+  if (!saved)
+    throw new Error(`No saved review for session "${session}" in ${root}. Open the desk first.`);
+  const reply = replyToAnnotation(saved, id, body);
+  if (reply) await persistReview(saved);
+  return reply;
+}
+
+// The single QuestionPayload constructors — shared by /api/ask (live question event) and
 // computeOpenQuestions (questions folded into a Send) so the two payload shapes can't drift.
 export function questionPayload(
   state: Pick<ReviewState, "mode" | "session">,
   q: { path: string; lineNumber: number; side: "additions" | "deletions"; body: string },
 ): QuestionPayload {
   return {
+    lane: "code",
     path: q.path,
     lineNumber: q.lineNumber,
     side: q.side,
@@ -1206,27 +1309,56 @@ export function questionPayload(
   };
 }
 
+// `question` is a message in annotation `a`'s thread.
+export function uiQuestionPayload(
+  state: Pick<ReviewState, "mode" | "session" | "root">,
+  a: UiAnnotationRecord,
+  question: ThreadMessage,
+): QuestionPayload {
+  return {
+    lane: "ui",
+    annotationId: a.id,
+    number: a.number,
+    route: a.page.route,
+    body: question.body,
+    target: questionTarget(a.target, state.root),
+    mode: state.mode,
+    session: state.session,
+  };
+}
+
+// A question is answered once an agent reply lands after it in its thread.
+const answered = (question: ThreadMessage, thread: readonly ThreadMessage[]) =>
+  thread.some((r) => r.role === "agent" && +new Date(r.createdAt) > +new Date(question.createdAt));
+
 // Questions the reviewer asked but the agent hasn't answered yet. Mirrors the UI's "answered"
-// heuristic (src/ui/annotations.ts): an open question comment is unanswered until a later agent
-// reply lands in the same thread (same path/side/line). These ride out on the Send's ReviewResult
-// so an agent that never saw the live await still owes each an answer.
+// heuristic (src/ui/annotations.ts): an open question is unanswered until a later agent reply
+// lands in the same thread — the comments on its path/side/line, or its UI annotation's messages.
+// These ride out on the Send's ReviewResult so an agent that never saw the live await still owes
+// each an answer.
 export function computeOpenQuestions(state: ReviewState): QuestionPayload[] {
-  return state.comments
+  const asked = (m: ThreadMessage) => m.intent === "question" && m.role !== "agent";
+  const code = state.comments
     .filter(
       (c) =>
-        c.intent === "question" &&
+        asked(c) &&
         c.status === "open" &&
-        c.role !== "agent" &&
-        !state.comments.some(
-          (r) =>
-            r.role === "agent" &&
-            r.path === c.path &&
-            r.side === c.side &&
-            r.lineNumber === c.lineNumber &&
-            +new Date(r.createdAt) > +new Date(c.createdAt),
+        !answered(
+          c,
+          state.comments.filter(
+            (r) => r.path === c.path && r.side === c.side && r.lineNumber === c.lineNumber,
+          ),
         ),
     )
     .map((c) => questionPayload(state, c));
+  const ui = (state.annotations ?? [])
+    .filter((a) => a.status === "open")
+    .flatMap((a) =>
+      a.comments
+        .filter((m) => asked(m) && !answered(m, a.comments))
+        .map((m) => uiQuestionPayload(state, a, m)),
+    );
+  return [...code, ...ui];
 }
 
 export function buildReviewResult(
@@ -1251,9 +1383,15 @@ export function buildReviewResult(
     baseDiffHash: state.baseDiffHash,
     accepted: pick("accepted"),
     rejected: pick("rejected"),
-    requestedChanges: state.comments
+    codeChangeRequests: state.comments
       .filter((c) => c.status === "open" && c.role !== "agent" && c.intent !== "question")
       .map((c) => ({ path: c.path, lineNumber: c.lineNumber, side: c.side, body: c.body })),
+    uiAnnotations: uiAnnotationsForAgent(
+      state.annotations ?? [],
+      state.root,
+      shotDir(artifacts.sessionDir),
+    ),
+    uiTarget: state.ui?.target,
     overallNote: note || undefined,
     stagedFiles: state.stagedFiles,
     approvedFiles: computeApprovedFiles(state),

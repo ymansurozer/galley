@@ -1,14 +1,35 @@
 import type {
+  AppMode,
+  BridgeMessage,
+  BridgeNav,
+  BridgeShot,
+  ForwardedKey,
   ReviewState,
   ReviewComment,
   ChangeState,
   Decision,
+  DeskMessage,
   DeskStatus,
   FileContentsPayload,
   GuideFile,
+  PickedTarget,
   PollPayload,
+  Rect,
   ReviewFile,
   ReviewerSave,
+  SaveStamp,
+  ThreadMessage,
+  UiAnnotationRecord,
+  UiCaps,
+  UiElement,
+  UiMark,
+  UiMarkElement,
+  UiMarkTarget,
+  UiPage,
+  UiPlacement,
+  UiProxyInfo,
+  UiSource,
+  UiTarget,
 } from "../types";
 import type { WalkRow } from "./walkthrough";
 
@@ -245,6 +266,8 @@ export interface Store {
   sendOpen: boolean;
   sendMsg: string;
   sendNote: string;
+  // Send was confirmed and waits on new annotations' screenshots (capped): the dialog says so.
+  sendFinishing: boolean;
   // Guided review: when true (and a guide is attached) the center shows the Overview page
   // instead of the diff. Selecting any file (tree or Start) drops back to the diff.
   overviewOpen: boolean;
@@ -268,6 +291,44 @@ export interface Store {
   // a file renders its real diff for the rest of the session instead of the summary card. Per-
   // session and never persisted — the oversized stamp is server-owned and re-derived on reload.
   loadedOversized: Set<string>;
+  // Which lane the centre shows: the diff ("code") or the proxied app ("ui"). Only "code" without
+  // a UI target; only "ui" on a UI-only desk (a target and no diff).
+  view: "code" | "ui";
+  // The first state is in and the view fits the desk's lanes. Until then the lane chrome stays
+  // hidden, so a UI-only desk doesn't flash the code lane on load (or the reverse).
+  ready: boolean;
+  // DeskStatus.uiProxy / reloadGeneration — desk-process liveness, held outside S.state like the
+  // agent fields above. reloadGeneration is the last one the tab adopted (see adoptUiStatus).
+  uiProxy: UiProxyInfo | null;
+  reloadGeneration: number;
+  // The app in the UI view, as the iframe was last pointed or the bridge last reported.
+  app: AppFrame;
+  viewport: Viewport;
+  // The chrome bar's "W × H" readout (plus the scale for a scaled-down preset).
+  frameLabel: string;
+  // Interact (the app gets the pointer and keys) or Annotate (a click picks an element). Only the
+  // UI view sends it to the app; the code view leaves the app in Interact.
+  appMode: AppMode;
+  // How many elements the reviewer has ⇧-clicked in the app, waiting for ⇧'s release (the bridge
+  // reports it). While there are some, Esc drops them before it leaves Annotate.
+  pendingPicks: number;
+  // The annotation sidebar is open; closed, it's a 40px rail. Below 1100px it opens as a drawer.
+  annotationsOpen: boolean;
+  // The annotation whose row is expanded and whose target is outlined on the page.
+  selectedAnnotation: string | null;
+  // Pages (routes) whose resolved annotations the sidebar reveals.
+  shownResolved: Set<string>;
+  // The target just picked in Annotate mode, or the page: while set, the floating composer is open
+  // on it.
+  annotationDraft: AnnotationDraft | null;
+  // The annotation whose thread holds the open composer (a reply, or an edit of one of its
+  // messages). Null for the code lane's composers and the floating one.
+  composerAnnotation: string | null;
+  // The Send dialog's receipt split by lane, when the desk has a UI lane (code is null on a
+  // UI-only desk). Null without a UI lane: the dialog shows sendMsg alone, as it always has.
+  sendLanes: { code: string | null; ui: string; uiNotSent: string } | null;
+  // The enlarged screenshot: whose, and which of its two images. Null when closed.
+  shotView: { id: string; kind: "crop" | "viewport" } | null;
 
   treeRows?: () => TreeRow[];
   selectFile?: (i: number) => void;
@@ -317,19 +378,81 @@ export interface Store {
   confirmNo?: () => void;
   promptFinish?: () => void;
   confirmSend?: () => void;
-  sendConfirm?: () => void;
+  sendConfirm?: () => Promise<void>;
   sendCancel?: () => void;
   helpGroups?: () => { group: string; items: { combo: string; desc: string }[] }[];
+  // The UI lane (appview.ts): the Code/UI switch, and the chrome bar's controls over the iframe.
+  hasUi?: () => boolean;
+  uiOnly?: () => boolean;
+  setView?: (view: "code" | "ui") => void;
+  appHost?: () => string;
+  appBack?: () => void;
+  appForward?: () => void;
+  appRefresh?: () => void;
+  appGo?: (input: string) => void;
+  setViewport?: (viewport: Viewport) => void;
+  setAppMode?: (mode: AppMode) => void;
+  annotatePage?: () => void;
+  pagePins?: () => { id: string; number: number; question: boolean; selected: boolean }[];
+  selectAnnotation?: (id: string | null) => void;
+  toggleAnnotations?: () => void;
+  openChanges?: () => number;
+  waitingQuestions?: () => number;
+  closeShot?: () => void;
+  shotSrc?: () => string;
+  shotTitle?: () => string;
 }
 
+// A picked target awaiting its first message: the page and target the annotation will record,
+// and where the target sits now in the app's viewport (the floating composer stays beside it).
+// A page target has no anchor: the composer sits at the stage's top right.
+export type AnnotationDraft = { page: UiPage; target: UiTarget; anchor: Rect | null };
+
+export type Viewport = "desktop" | "tablet" | "mobile" | "fit";
+
+export type AppFrame = {
+  // The iframe has been pointed at the app at least once (it then stays alive across view switches).
+  loaded: boolean;
+  route: string;
+  title: string;
+  // A bridge has handshaken on the current page. Off on the waiting page, non-HTML pages, and pages
+  // carrying a previous desk process's token; the controls then fall back to resetting the src.
+  connected: boolean;
+  canGoBack: boolean | null;
+  canGoForward: boolean | null;
+  // The agent ran `galley reload` since the app was last (re)loaded: the "App updated" pill.
+  stale: boolean;
+};
+
 export type {
+  AppMode,
+  BridgeMessage,
+  BridgeNav,
+  BridgeShot,
+  ForwardedKey,
   ReviewState,
   ReviewComment,
   ChangeState,
   Decision,
+  DeskMessage,
   DeskStatus,
   FileContentsPayload,
   GuideFile,
+  PickedTarget,
   PollPayload,
+  Rect,
   ReviewerSave,
+  SaveStamp,
+  ThreadMessage,
+  UiAnnotationRecord,
+  UiCaps,
+  UiElement,
+  UiMark,
+  UiMarkElement,
+  UiMarkTarget,
+  UiPage,
+  UiPlacement,
+  UiProxyInfo,
+  UiSource,
+  UiTarget,
 };

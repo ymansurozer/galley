@@ -64,6 +64,8 @@ The printed URL is what you open in the remote browser; the agent's `galley awai
 
 > [!WARNING]
 > **The desk API is unauthenticated.** Anyone who can reach the bound address can drive the desk — run your configured editor command, stage and reset changes, mutate the git index, read any file in the repo. Bind beyond loopback **only** on a fully trusted network: a personal tailnet, or a host whose firewall blocks the port from everything else. **Never on a shared office/coffee-shop LAN.**
+>
+> **With a UI target, the desk also serves your dev app.** `--ui` / `galley ui` adds a second port, bound the same way, that proxies the running app — including whatever session you signed into it with. Anyone who can reach that port uses the app as you. Two desks proxying the same app on the same host name share its cookies, so switching between them may sign you out.
 
 ## Features
 
@@ -74,6 +76,7 @@ The printed URL is what you open in the remote browser; the agent's `galley awai
 - **Guided review.** Your agent can attach a guide: an overview, the files in a sensible order, a per-file orientation (the lens to read it with) and category, and the risky ones flagged.
 - **Focused review.** Ask your agent to skim the noise ("ignore the import churn") and the guide marks it: skimmed changes collapse behind one-line strips, and files that are pure noise leave the flow entirely — folded into a Skimmed group, with no progress weight. Everything stays one click from visible, and nothing is ever auto-approved.
 - **Four review modes.** The working tree, the staged diff, a single file (tracked or not, like a plan, PRD, or issue), or a branch against its merge-base.
+- **Review the running app, too.** Your agent hands over its dev server (`galley ui http://localhost:3000`, or `--ui` at start), and the desk shows the app behind a **Code / UI** switch. Annotate an element, a region, some text or a whole page with a change request or a question; your agent gets screenshots of each and, in Vue and Nuxt apps, the source `file:line`. No diff yet? It opens as a UI-only desk. Works the same from a remote machine.
 - **Keyboard-first.** Intuitive navigation: move by file, line, or change, and accept, reject, comment, or approve without touching the mouse.
 - **Open in editor.** Configure a repo-scoped editor command and jump from the review desk to the current file and line.
 - **Customize** diff layout, intra-line, hunk separators, wrapping, code-highlight theme, and fonts.
@@ -84,7 +87,7 @@ Galley is opinionated about exactly one thing: the review surface. It's a protoc
 
 - **No model runs here.** Galley doesn't call an LLM or orchestrate one. It renders the diff, validates the structured input it's given, and hands a result back.
 - **Your agent, not ours.** The contract is plain JSON over stdout and a localhost server, with no assumption about who's on the other end: Claude Code, Cursor, Codex, a shell script. The guided review, the answers to your questions, the code changes themselves are all *your* agent's work. Galley just gives it somewhere to land.
-- **Local and private.** The server binds to loopback (`127.0.0.1`) on a stable per-session port. No telemetry. Your browser may fetch a web font; switch to system fonts and even that stops. (For remote-dev setups, `--host` can bind it wider — see [Reviewing on a remote machine](#reviewing-on-a-remote-machine); the default stays loopback-only.)
+- **Local and private.** The server binds to loopback (`127.0.0.1`) on a stable per-session port. No telemetry. Your browser may fetch a web font; switch to system fonts and even that stops. (For remote-dev setups, `--host` can bind it wider — see [Reviewing on a remote machine](#reviewing-on-a-remote-machine); the default stays loopback-only. With a UI target, the app's proxy is a second port under the same rules.)
 - **It won't touch your repo unless you ask.** Galley never edits your tracked files.
 
 ## Roadmap

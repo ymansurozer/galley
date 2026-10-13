@@ -2,7 +2,19 @@ import { S } from "./store";
 import { hasGuide } from "./guide";
 import { approveCurrentFile } from "./decisions";
 import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
-import { closeComposer } from "./composer";
+import { closeComposer, composerInUi } from "./composer";
+import { hasUi, toggleView, uiOnly } from "./appview";
+import {
+  annotatePage,
+  clearPendingPicks,
+  closeShot,
+  selectAnnotation,
+  setAppMode,
+  stepAnnotation,
+  toggleAnnotations,
+  toggleAppMode,
+} from "./uilane";
+import type { ForwardedKey } from "./types";
 import {
   cursorMoveLine,
   cursorMoveHunk,
@@ -22,7 +34,7 @@ import {
 // key matches and whose scope is active, and the ? help overlay renders from the same table — so
 // hints can never drift from behavior. Scopes keep a key meaning the right thing in context.
 
-type Group = "Navigate" | "Review" | "Comment" | "View" | "App";
+type Group = "Navigate" | "Review" | "Comment" | "View" | "UI" | "App";
 type Hotkey = {
   combo: string;
   desc: string;
@@ -37,10 +49,13 @@ type Hotkey = {
 
 // Scopes
 const inComposer = () => S.composerOpen;
-const inModal = () => S.settingsOpen || !!S.confirmMsg || S.sendOpen;
+const inModal = () => S.settingsOpen || !!S.confirmMsg || S.sendOpen || !!S.shotView;
 const inOverview = () => !!S.overviewOpen && hasGuide();
-const inDiff = () => !inComposer() && !inModal() && !inOverview();
+// The UI view (the proxied app) takes over the centre: diff and file bindings stand down there.
+const inUiView = () => S.view === "ui";
+const inDiff = () => !inComposer() && !inModal() && !inOverview() && !inUiView();
 const navigable = () => !inComposer() && !inModal();
+const inCode = () => navigable() && !inUiView();
 const isMd = () => inDiff() && !!S.isMarkdownFile?.();
 
 // Key matchers
@@ -66,17 +81,39 @@ function escape() {
     return;
   }
   if (S.sendOpen) {
-    S.sendOpen = false;
-    S.sendNote = "";
+    S.sendCancel?.();
     return;
   }
   if (S.settingsOpen) {
     S.settingsOpen = false;
     return;
   }
+  if (S.shotView) {
+    closeShot();
+    return;
+  }
   if (S.composerOpen || S.editingCommentId) {
-    cursorReset(); // also drop the line highlight the composer was anchored to
-    closeComposer(); // rebuilds the diff so the inline composer's DOM goes away
+    // A code composer also drops the line highlight it was anchored to.
+    if (!composerInUi()) cursorReset();
+    closeComposer(); // rebuilds the lane so the inline composer's DOM goes away
+    return;
+  }
+  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate, then the expanded
+  // row, then the narrow-width drawer.
+  if (inUiView() && S.appMode === "annotate" && S.pendingPicks) {
+    clearPendingPicks();
+    return;
+  }
+  if (inUiView() && S.appMode === "annotate") {
+    setAppMode("interact");
+    return;
+  }
+  if (inUiView() && S.selectedAnnotation) {
+    selectAnnotation(null);
+    return;
+  }
+  if (inUiView() && S.annotationsOpen && matchMedia("(max-width: 1100px)").matches) {
+    S.annotationsOpen = false;
     return;
   }
   // A lone line selection (keyboard cursor, or a click that left the highlight without an open
@@ -137,7 +174,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Next file (review order)",
     group: "Navigate",
     test: shift("ArrowRight"),
-    when: navigable,
+    when: inCode,
     run: () => S.nextFile?.(),
   },
   {
@@ -145,7 +182,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Previous file (review order)",
     group: "Navigate",
     test: shift("ArrowLeft"),
-    when: navigable,
+    when: inCode,
     run: () => S.prevFile?.(),
   },
   {
@@ -153,7 +190,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Next file (tree order)",
     group: "Navigate",
     test: cmdShift("ArrowDown"),
-    when: navigable,
+    when: inCode,
     run: () => S.treeStep?.(1),
   },
   {
@@ -161,7 +198,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Previous file (tree order)",
     group: "Navigate",
     test: cmdShift("ArrowUp"),
-    when: navigable,
+    when: inCode,
     run: () => S.treeStep?.(-1),
   },
   {
@@ -228,7 +265,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Overview",
     group: "Navigate",
     test: k("o"),
-    when: () => hasGuide() && navigable(),
+    when: () => hasGuide() && inCode(),
     run: () => S.openOverview?.(),
   },
   {
@@ -342,15 +379,71 @@ const HOTKEYS: Hotkey[] = [
     combo: "w",
     desc: "Tree / Walkthrough sidebar",
     group: "View",
-    when: () => hasGuide() && navigable(),
+    when: () => hasGuide() && inCode(),
     test: k("w"),
     run: () => (S.sidebarTab = S.sidebarTab === "tree" ? "walkthrough" : "tree"),
+  },
+  {
+    combo: "⇧U",
+    desc: "Code / UI view",
+    group: "View",
+    // Only with both lanes. From inside the app it arrives only while annotating (dispatchKey).
+    when: () => navigable() && hasUi() && !uiOnly(),
+    test: shift("U"),
+    // Called through an arrow: appview and uilane import this module back, so their exports
+    // aren't initialised yet while this table is built.
+    run: () => toggleView(),
+  },
+  // UI view: the app's mode, the annotation sidebar, and stepping through annotations. ⌥A and ⇧
+  // chords pressed in the app arrive here too: the bridge forwards them (dispatchKey).
+  {
+    combo: "⌥A",
+    desc: "Interact / Annotate",
+    group: "UI",
+    // By code, not key: ⌥A types "å" on a Mac keyboard.
+    test: (e) => e.code === "KeyA" && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey,
+    when: () => inUiView() && !inModal(),
+    run: () => toggleAppMode(),
+  },
+  {
+    combo: "⌥P",
+    desc: "Annotate the whole page",
+    group: "UI",
+    // By code, not key: ⌥P types "π" on a Mac keyboard. From inside the app it arrives only while
+    // annotating (dispatchKey).
+    test: (e) => e.code === "KeyP" && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey,
+    when: () => inUiView() && !inModal(),
+    run: () => annotatePage(),
+  },
+  {
+    combo: "⇧L",
+    desc: "Annotations sidebar",
+    group: "UI",
+    test: shift("L"),
+    when: () => inUiView() && navigable(),
+    run: () => toggleAnnotations(),
+  },
+  {
+    combo: "⇧↓",
+    desc: "Next annotation",
+    group: "UI",
+    test: shift("ArrowDown"),
+    when: () => inUiView() && navigable(),
+    run: () => stepAnnotation(1),
+  },
+  {
+    combo: "⇧↑",
+    desc: "Previous annotation",
+    group: "UI",
+    test: shift("ArrowUp"),
+    when: () => inUiView() && navigable(),
+    run: () => stepAnnotation(-1),
   },
   {
     combo: "⇧B",
     desc: "Files drawer (narrow screens)",
     group: "View",
-    when: navigable,
+    when: inCode,
     test: shift("B"),
     // Toggles the off-canvas file tree at narrow widths; inert on desktop (drawer is media-gated).
     run: () => (S.treeDrawerOpen = !S.treeDrawerOpen),
@@ -416,26 +509,33 @@ function isTyping(e: KeyboardEvent) {
   return t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || !!t?.isContentEditable;
 }
 
+function dispatch(e: KeyboardEvent) {
+  const typing = isTyping(e);
+  for (const h of HOTKEYS) {
+    if (!h.test(e)) continue;
+    if (typing && !h.typing) continue;
+    if (h.when && !h.when()) continue;
+    // Any other action abandons pending goline digits — otherwise the idle timer would
+    // yank the cursor away ~800ms after e.g. a j/⇧Y that already moved on.
+    if (!h.goline) golineCancel();
+    e.preventDefault();
+    h.run(e);
+    return;
+  }
+}
+
 export function installKeys() {
-  document.addEventListener("keydown", (e) => {
-    const typing = isTyping(e);
-    for (const h of HOTKEYS) {
-      if (!h.test(e)) continue;
-      if (typing && !h.typing) continue;
-      if (h.when && !h.when()) continue;
-      // Any other action abandons pending goline digits — otherwise the idle timer would
-      // yank the cursor away ~800ms after e.g. a j/⇧Y that already moved on.
-      if (!h.goline) golineCancel();
-      e.preventDefault();
-      h.run(e);
-      return;
-    }
-  });
+  document.addEventListener("keydown", dispatch);
+}
+
+// A key pressed in the app page, passed up by the bridge: it runs as if pressed in the desk.
+export function dispatchKey(k: ForwardedKey) {
+  dispatch(new KeyboardEvent("keydown", k));
 }
 
 // Grouped view for the ? help overlay (built from the table so it stays in sync).
 export function helpGroups(): { group: Group; items: { combo: string; desc: string }[] }[] {
-  const order: Group[] = ["Navigate", "Review", "Comment", "View", "App"];
+  const order: Group[] = ["Navigate", "Review", "Comment", "View", "UI", "App"];
   return order.map((group) => ({
     group,
     items: HOTKEYS.filter((h) => h.group === group && !h.hide).map((h) => ({
