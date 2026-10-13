@@ -166,6 +166,29 @@ test("⇧↓/⇧↑ step through the visible rows in list order and wrap", () =>
   assert.equal(stepFrom([], null, 1), null);
 });
 
+test("a narrowed walk steps from the selection's place, even when it isn't one of its rows", () => {
+  const order = ["a", "b", "c", "d", "e"];
+  const kept = (id: string) => id === "b" || id === "d";
+  // From a row the walk skips (an ask, a resolved row), on to the next one it keeps.
+  assert.equal(stepFrom(order, "c", 1, kept), "d");
+  assert.equal(stepFrom(order, "c", -1, kept), "b");
+  assert.equal(stepFrom(order, "e", 1, kept), "b");
+  assert.equal(stepFrom(order, "a", -1, kept), "d");
+  // From a kept row, past it; with no selection, from the ends.
+  assert.equal(stepFrom(order, "b", 1, kept), "d");
+  assert.equal(stepFrom(order, null, 1, kept), "b");
+  assert.equal(stepFrom(order, null, -1, kept), "d");
+  // A lone kept row wraps onto itself; none kept, no step.
+  assert.equal(
+    stepFrom(order, "b", 1, (id) => id === "b"),
+    "b",
+  );
+  assert.equal(
+    stepFrom(order, "c", 1, () => false),
+    null,
+  );
+});
+
 test("the page gets pins for its open annotations, and for a resolved one only while selected", () => {
   const list = [ann("a", 1, "/p"), ann("b", 2, "/q"), ann("c", 3, "/p", { status: "resolved" })];
   assert.deepEqual(marksFor(list, "/p", null), [

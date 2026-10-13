@@ -3,7 +3,7 @@ import type { Decision, ReviewComment, Side } from "./types";
 import { currentFile, toDisplayLine } from "./changes";
 import { isUnanchored } from "./unanchored";
 import { revealLine } from "./expand";
-import { cursorJumpTo } from "./cursor";
+import { cursorJumpTo, isRendered } from "./cursor";
 
 // ── "Why can't I approve this file?" ─────────────────────────────────────────
 // fileObjections gates Approve on rejected hunks and open change-request comments, but
@@ -88,10 +88,11 @@ export function jumpToBlocker(b: Blocker) {
     return;
   }
   if (b.kind === "thread") {
+    const line = toDisplayLine(b.side, b.lineNumber);
     // Unfold only when the line isn't rendered: each expansion reveals more lines, so unfolding a
     // line that already renders would widen the run on every jump to it.
-    if (!cursorJumpTo(b.side, toDisplayLine(b.side, b.lineNumber)))
-      revealLine(b.side, b.lineNumber);
+    if (!isRendered(b.side, line)) revealLine(b.side, b.lineNumber);
+    cursorJumpTo(b.side, line);
     return;
   }
   const pos = decisionDisplayPos(b.decision);

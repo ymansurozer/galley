@@ -33,3 +33,8 @@ export function mergeRows(out: Row[]): Row[] {
   }
   return list;
 }
+
+// A row shows a line when its own coordinates or its split-view twin's (`alt`) are that side and
+// number. The same number on the other side is a different line.
+export const rowMatches = (r: Row, side: Side, line: number) =>
+  (r.side === side && r.line === line) || (r.alt?.side === side && r.alt.line === line);

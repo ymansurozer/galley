@@ -1,8 +1,8 @@
 import { S, $, toast } from "./store";
-import { currentFile, fromDisplayLine } from "./changes";
+import { currentFile, fromDisplayLine, toDisplayLine } from "./changes";
 import { isUnanchored } from "./unanchored";
 import { flashThread, jumpToBlocker } from "./blockers";
-import { cursorReset, cursorSelection } from "./cursor";
+import { cursorOn, cursorReset, cursorSelection } from "./cursor";
 import { hasGuide, reviewFileOrder } from "./guide";
 import { isFileSkimCollapsed, toggleFileSkim } from "./skim";
 import { openRequestCount, requestStops, stepRequest, type RequestStop } from "./requests-derive";
@@ -20,12 +20,18 @@ let last: RequestStop | null = null;
 
 const inOverview = () => !!S.overviewOpen && hasGuide();
 
-// Where the walk steps from in the file on screen: the cursor, else the last stop in this file,
-// else the file's top.
+// Where the walk steps from in the file on screen: the last stop in this file while the cursor is
+// off the diff or still on that stop's row, else the cursor, else the file's top. A context row
+// holds the cursor at its new-side number, which can differ from a deleted-side stop's own.
 function here(): RequestStop | null {
   const file = currentFile();
   if (!file || inOverview()) return null;
   const sel = cursorSelection();
+  if (
+    last?.path === file.path &&
+    (!sel || (!last.unanchored && cursorOn(last.side, toDisplayLine(last.side, last.lineNumber))))
+  )
+    return last;
   if (sel)
     return {
       path: file.path,
@@ -33,7 +39,6 @@ function here(): RequestStop | null {
       lineNumber: fromDisplayLine(sel.side, sel.lineNumber),
       unanchored: false,
     };
-  if (last?.path === file.path) return last;
   return { path: file.path, side: "deletions", lineNumber: 0, unanchored: true };
 }
 
@@ -51,7 +56,12 @@ export function stepOpenRequest(dir: 1 | -1) {
     toast("No open change requests");
     return;
   }
-  if (step.wrapped) toast(`Wrapped to the ${dir > 0 ? "first" : "last"} change request`);
+  if (step.wrapped)
+    toast(
+      stops.length === 1
+        ? "Only 1 open change request"
+        : `Wrapped to the ${dir > 0 ? "first" : "last"} change request`,
+    );
   last = step.stop;
   void land(step.stop);
 }
