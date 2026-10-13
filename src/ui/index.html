@@ -3048,14 +3048,6 @@
       color: var(--ink)
     }
 
-    .lane-solo {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--ink);
-      font-size: var(--text-sm)
-    }
-
     /* The UI view replaces the file tree and the diff; the tree's Settings entry moves up into the
        header (as on single-file desks), and review progress — a code-lane measure — steps aside. */
     .app.view-ui .tree,
@@ -4254,13 +4246,12 @@
       <div class="brand"><button class="nav-toggle" data-tip="Files (⇧B)" aria-label="Toggle file tree"
           @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="brand-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#hb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#hb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#hb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="hb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span></div>
       <div class="toggles">
-        <!-- Code / UI lane switch: only when the desk has a UI target and a diff. A UI-only desk shows
-             the lone lane's label instead. -->
+        <!-- Code / UI lane switch: only when the desk has a UI target and a diff. A single-lane desk
+             shows no lane label. -->
         <div class="toggle lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / UI (⇧U)"><button
             :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg>Code</button><button
             :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg>UI<span
               class="lane-count" x-show="$store.g.openChanges()" title="Open UI change requests" x-text="$store.g.openChanges()"></span></button></div>
-        <span class="lane-solo" x-cloak x-show="$store.g.uiOnly()"><svg class="ic"><use href="#gly-app"></use></svg>UI review</span>
         <div class="toggle" x-show="$store.g.view==='code' && $store.g.isMarkdownFile()" data-tip="Rendered / source (m)"><button :class="{active: $store.g.fileView==='rendered'}"
             @click="$store.g.setFileView('rendered')">Rendered</button><button
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
