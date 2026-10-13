@@ -69,7 +69,7 @@ export function composerHead(
 }
 
 // Where an annotation's screenshots stand: being captured and uploaded, stored, or not stored
-// (the capture failed, in this tab or before it was opened).
+// (its capture failed, in this tab or in one since closed or reloaded).
 export type ShotStatus = "capturing" | "stored" | "failed";
 
 // The screenshot part of an expanded row's context line: a quiet "capturing…", then a link that
