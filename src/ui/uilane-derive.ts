@@ -55,6 +55,34 @@ export const isWaiting = (a: UiAnnotationRecord) =>
 
 export const waitingCount = (list: readonly UiAnnotationRecord[]) => list.filter(isWaiting).length;
 
+// The Send dialog's UI line: what goes (open change requests, and questions still waiting, which go
+// as openQuestions), and what doesn't (resolved annotations, answered questions that request no
+// change).
+export function sendSummary(list: readonly UiAnnotationRecord[]) {
+  const open = list.filter((a) => a.status === "open" && requestsChange(a));
+  const pages = new Set(open.map((a) => a.page.route)).size;
+  const waiting = waitingCount(list);
+  const answered = list.filter(
+    (a) => a.status === "open" && !requestsChange(a) && !isWaiting(a),
+  ).length;
+  const resolved = list.filter((a) => a.status === "resolved").length;
+  const n = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
+  const notSent = [
+    resolved ? `${resolved} resolved` : "",
+    answered ? n(answered, "answered question") : "",
+  ].filter(Boolean);
+  return {
+    ui:
+      [
+        open.length ? `${n(open.length, "change request")} on ${n(pages, "page")}` : "",
+        waiting ? n(waiting, "open question") : "",
+      ]
+        .filter(Boolean)
+        .join(" · ") || "No change requests",
+    uiNotSent: notSent.length ? `Not sent: ${notSent.join(" · ")}` : "",
+  };
+}
+
 // The agent's replies from the poll (`galley comment --ui`) that the tab's threads lack, added to
 // them. Only agent messages: the tab owns everything else, and a message or annotation it dropped
 // isn't brought back. Returns how many it added.

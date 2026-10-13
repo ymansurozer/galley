@@ -241,7 +241,8 @@ function screenshotsOf(a: UiAnnotationRecord, shots: string): UiAnnotation["scre
 
 // An annotation requests a change when it was opened as one, or when the reviewer requested one
 // later in its thread: a question whose thread has a Request change reply is sent for that
-// request, as a code thread's change-request reply is.
+// request, as a code thread's change-request reply is. The tab counts with its own copy
+// (uilane-derive.ts): the worlds share no runtime code, so each copy has its own test.
 const requestsChange = (a: UiAnnotationRecord) =>
   a.intent === "change" || a.comments.some((m) => m.role !== "agent" && m.intent === "action");
 

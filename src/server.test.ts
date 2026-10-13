@@ -623,6 +623,45 @@ test("a UI ask reaches await as a lane-tagged question built from the saved anno
   });
 });
 
+test("a queued UI question whose annotation was deleted or resolved before the agent came is dropped", async () => {
+  await withServer(async (handle, _root, st) => {
+    st.ui = { target: "http://localhost:3000/" };
+    const asked = (id: string, number: number) => {
+      const q = uiQuestion();
+      return {
+        ...q,
+        id,
+        number,
+        comments: [{ ...q.comments[0]!, id: `${id}-m1`, body: `${id}?` }],
+      };
+    };
+    const [deleted, resolved, kept] = [asked("q1", 1), asked("q2", 2), asked("q3", 3)];
+    await post(handle.url, "api/save", { annotations: [deleted, resolved, kept] });
+    for (const id of ["q1", "q2", "q3"])
+      await post(handle.url, "api/ask", { annotationId: id, messageId: `${id}-m1` });
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
+    // No agent was listening; meanwhile the reviewer deletes q1 and resolves q2.
+    await post(handle.url, "api/save", {
+      annotations: [{ ...resolved, status: "resolved" }, kept],
+    });
+    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+      question: { body: string };
+      questions: Array<{ body: string }>;
+    };
+    assert.deepEqual(
+      ev.questions.map((q) => q.body),
+      ["q3?", "why?"],
+    );
+    assert.equal(ev.question.body, "q3?", "the singular is the oldest one still asked");
+
+    // When every queued question went away, the agent waits for the next event instead.
+    await post(handle.url, "api/ask", { annotationId: "q3", messageId: "q3-m1" });
+    await post(handle.url, "api/save", { annotations: [] });
+    const none = await fetch(`${handle.url}api/await-send?timeout=1`);
+    assert.equal(none.status, 204);
+  });
+});
+
 test("a UI ask on an annotation, or a question, the review doesn't have is a 404", async () => {
   await withQuestionDesk(async (handle) => {
     for (const body of [

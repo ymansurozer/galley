@@ -171,9 +171,10 @@ async function runComment(args: Record<string, string | boolean>) {
   );
 }
 
-// `galley comment --ui <id> --body "..."` — an agent reply in a UI annotation's thread, posted the
-// same way: live over HTTP, else appended to the saved review. An id the review doesn't have fails
-// rather than landing nowhere, whichever way it went.
+// `galley comment --ui <id> --body "..."` — an agent reply in a UI annotation's thread: over HTTP
+// to a live desk, else appended to the saved review. Only a desk that doesn't answer gets the
+// offline append: a live desk persists over that file, so writing behind it would be lost. An id
+// the review doesn't have fails rather than landing nowhere, whichever way it went.
 async function runUiComment(root: string, session: string, id: string | boolean, body: string) {
   if (typeof id !== "string" || !body) {
     console.error(
@@ -183,21 +184,23 @@ async function runUiComment(root: string, session: string, id: string | boolean,
     return;
   }
   const lock = await readDeskLock(root, session);
-  const res = lock
-    ? await fetch(`${lock.url}api/ui-comment`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ annotationId: id, body }),
-      }).catch(() => null) // desk not reachable; fall through to the offline append
-    : null;
-  if (res) {
-    const json = (await res.json().catch(() => ({}))) as {
+  if (lock && (await deskAlive(lock.url))) {
+    const res = await fetch(`${lock.url}api/ui-comment`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ annotationId: id, body }),
+    }).catch(() => null);
+    const json = ((await res?.json().catch(() => null)) ?? {}) as {
       commentId?: string;
       error?: string;
       fix?: string;
     };
-    if (!res.ok) {
-      console.error(json.error ? `${json.error} ${json.fix ?? ""}`.trim() : `HTTP ${res.status}`);
+    if (!res?.ok) {
+      console.error(
+        json.error
+          ? `${json.error} ${json.fix ?? ""}`.trim()
+          : `The desk at ${lock.url} didn't take the reply${res ? ` (HTTP ${res.status})` : ""}; nothing was posted. Retry once it answers.`,
+      );
       process.exitCode = 1;
       return;
     }

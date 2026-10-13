@@ -11,13 +11,12 @@ import {
 import { appGo, captureApp, fromAppViewport, postToApp } from "./appview";
 import {
   annotationSource,
-  isWaiting,
   marksFor,
   nextNumber,
   openChangeCount,
   pageGroups,
-  requestsChange,
   placeComposer,
+  sendSummary,
   sourcePlace,
   stepFrom,
   stepOrder,
@@ -462,34 +461,7 @@ export function placeFloatingComposer() {
   host.style.top = `${top}px`;
 }
 
-// The Send dialog's UI line: what goes (open change requests, and questions still waiting, which go
-// as openQuestions), and what doesn't (resolved annotations, answered questions that request no
-// change).
-export function uiSendSummary() {
-  const list = annotationsOf();
-  const open = list.filter((a) => a.status === "open" && requestsChange(a));
-  const pages = new Set(open.map((a) => a.page.route)).size;
-  const waiting = waitingCount(list);
-  const answered = list.filter(
-    (a) => a.status === "open" && !requestsChange(a) && !isWaiting(a),
-  ).length;
-  const resolved = list.filter((a) => a.status === "resolved").length;
-  const n = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
-  const notSent = [
-    resolved ? `${resolved} resolved` : "",
-    answered ? n(answered, "answered question") : "",
-  ].filter(Boolean);
-  return {
-    ui:
-      [
-        open.length ? `${n(open.length, "change request")} on ${n(pages, "page")}` : "",
-        waiting ? n(waiting, "open question") : "",
-      ]
-        .filter(Boolean)
-        .join(" · ") || "No change requests",
-    uiNotSent: notSent.length ? `Not sent: ${notSent.join(" · ")}` : "",
-  };
-}
+export const uiSendSummary = () => sendSummary(annotationsOf());
 
 export function installUiLane() {
   $("annotationList").addEventListener("click", (e) => {

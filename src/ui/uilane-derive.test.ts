@@ -12,6 +12,7 @@ import {
   pageName,
   placeComposer,
   rowTitle,
+  sendSummary,
   sourcePlace,
   stepFrom,
   stepOrder,
@@ -289,8 +290,21 @@ test("a question whose thread requests a change counts as an open change request
     intent: "question",
     comments: [msg("r1", "user", T0, "question")],
   });
+  const answered = ann("s", 3, "/b", {
+    intent: "question",
+    comments: [msg("s1", "user", T0, "question"), msg("s2", "agent", T1)],
+  });
   assert.equal(openChangeCount([requested, asked]), 1);
   assert.equal(openChangeCount([{ ...requested, status: "resolved" }]), 0);
+  // The Send dialog agrees: the escalated question goes as a change request, not as answered.
+  assert.deepEqual(
+    sendSummary([requested, asked, answered, ann("t", 4, "/", { status: "resolved" })]),
+    {
+      ui: "1 change request on 1 page · 1 open question",
+      uiNotSent: "Not sent: 1 resolved · 1 answered question",
+    },
+  );
+  assert.deepEqual(sendSummary([]), { ui: "No change requests", uiNotSent: "" });
 });
 
 test("the poll's agent replies join the tab's threads once, and nothing else from it does", () => {

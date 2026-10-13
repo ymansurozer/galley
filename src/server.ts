@@ -711,6 +711,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // `questions` holds them in arrival order. Safe because a Send flushes every queued
         // question before enqueuing its review (see /api/send), so a review can never sit
         // between two queued questions; draining all questions can't skip past a review.
+        // A UI question whose annotation was deleted or resolved while it sat queued has no thread
+        // left to answer in, so it's dropped; if none are left, the agent waits for the next event.
         if (eventQueue[0]?.kind === "question") {
           const batched: QuestionPayload[] = [];
           for (let i = eventQueue.length - 1; i >= 0; i--) {
@@ -720,7 +722,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               eventQueue.splice(i, 1);
             }
           }
-          return json(res, 200, { kind: "question", question: batched[0], questions: batched });
+          const open = new Set(
+            state.annotations?.filter((a) => a.status === "open").map((a) => a.id),
+          );
+          const asked = batched.filter((q) => q.lane === "code" || open.has(q.annotationId));
+          if (asked.length)
+            return json(res, 200, { kind: "question", question: asked[0], questions: asked });
         }
         const queued = eventQueue.shift();
         if (queued) return json(res, 200, queued);
