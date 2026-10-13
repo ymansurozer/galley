@@ -3281,6 +3281,7 @@
       flex: 1 1 auto;
       min-height: 0;
       position: relative;
+      container: stage / inline-size;
       overflow: hidden;
       background: var(--bg)
     }
@@ -3403,7 +3404,7 @@
       padding: 2px 4px
     }
 
-    /* Annotate draws a cyan ring around the app and a hint pill naming the gesture. */
+    /* Annotate draws a cyan ring around the app and a hint pill naming the gestures. */
     .stage .frame::after {
       content: "";
       position: absolute;
@@ -3426,11 +3427,11 @@
       z-index: 6;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 14px;
       max-width: calc(100% - 24px);
-      padding: 5px 6px 5px 11px;
+      padding: 4px 4px 4px 13px;
       border-radius: var(--radius-pill);
-      background: rgba(16, 20, 21, .94);
+      background: color-mix(in oklab, var(--panel) 94%, transparent);
       border: 1px solid var(--cyan-line-strong);
       color: var(--muted);
       font-size: var(--text-xs);
@@ -3440,28 +3441,65 @@
     }
 
     .mode-hint b {
+      margin-right: 2px;
       color: var(--cyan);
       font-weight: 600
     }
 
-    .mode-hint button {
-      pointer-events: auto;
+    /* Each tip is a key or gesture chip, then what it does. */
+    .mode-hint .tip {
       display: inline-flex;
       align-items: center;
-      gap: 5px;
-      height: 20px;
-      padding: 0 7px;
-      border: 1px solid var(--line);
+      gap: 6px
+    }
+
+    .mode-hint kbd {
+      color: var(--ink);
+      background: var(--surface-raised);
+      border-color: var(--line-strong)
+    }
+
+    .mode-hint button {
+      pointer-events: auto;
+      height: 24px;
+      padding: 0 10px 0 5px;
+      border: 0;
       border-radius: var(--radius-pill);
-      background: var(--panel);
+      background: none;
       color: var(--muted);
-      font-size: var(--text-2xs);
+      font-size: var(--text-xs);
       cursor: pointer
     }
 
     .mode-hint button:hover {
       color: var(--ink);
-      border-color: var(--line-strong)
+      background: var(--surface-raised)
+    }
+
+    /* Narrow stages drop tips, least needed first: the page button is in the chrome bar, and
+       adding to a pick is the rarest gesture. Clicking and the way out always stay. */
+    @container stage (max-width: 720px) {
+      .mode-hint .t-page {
+        display: none
+      }
+    }
+
+    @container stage (max-width: 620px) {
+      .mode-hint .t-add {
+        display: none
+      }
+    }
+
+    @container stage (max-width: 520px) {
+      .mode-hint .t-quote {
+        display: none
+      }
+    }
+
+    @container stage (max-width: 420px) {
+      .mode-hint .t-region {
+        display: none
+      }
     }
 
     /* ── The annotation sidebar (the "Quiet" design) ─────────────────────────────────────────
@@ -4076,8 +4114,7 @@
 
       .chrome .vpsize,
       .chrome .mode kbd,
-      .chrome .mode button span,
-      .mode-hint .opt {
+      .chrome .mode button span {
         display: none
       }
 
@@ -4363,9 +4400,13 @@
           <div class="stage" id="appStage" :class="[$store.g.viewport==='fit' ? '' : 'preset ' + $store.g.viewport, $store.g.appMode==='annotate' ? 'annotate' : '']">
             <div class="frame" id="appFrame" x-ignore></div>
             <div class="stage-note" x-show="!$store.g.uiProxy">Starting the app proxy…</div>
-            <div class="mode-hint" x-cloak x-show="$store.g.appMode==='annotate'"><b>Annotate</b><span>Click an element</span><span
-                class="opt">· ⇧-click to add · drag a box · select text · ⌥P page</span><button
-                @click="$store.g.setAppMode('interact')"><kbd>Esc</kbd>Interact</button></div>
+            <div class="mode-hint" x-cloak x-show="$store.g.appMode==='annotate'"><b>Annotate</b><span
+                class="tip"><kbd>Click</kbd>element</span><span
+                class="tip t-add"><kbd>⇧ Click</kbd>add</span><span
+                class="tip t-region"><kbd>Drag</kbd>region</span><span
+                class="tip t-quote"><kbd>Drag text</kbd>quote</span><span
+                class="tip t-page"><kbd>⌥P</kbd>page</span><button
+                class="tip" @click="$store.g.setAppMode('interact')"><kbd>Esc</kbd>interact</button></div>
           </div>
         </div>
       </section>
