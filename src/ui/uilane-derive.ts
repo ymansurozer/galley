@@ -160,7 +160,8 @@ const elementLabel = (el: UiElement) => {
   return el.name ? `${what} · "${el.name}"` : what;
 };
 
-// What the floating composer says it's on.
+// What the floating composer says it's on. Of several elements, the first: the head counts the
+// rest beside it.
 export function targetLabel(target: UiTarget): string {
   if (target.kind === "page") return "Whole page";
   if (target.kind === "text") return `Text in ${elementLabel(target.element)}`;
@@ -170,9 +171,8 @@ export function targetLabel(target: UiTarget): string {
     const size = `Region ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
     return n ? `${size} · ${n} element${n === 1 ? "" : "s"}` : size;
   }
-  const [first, ...more] = target.elements;
-  if (!first) return "";
-  return more.length ? `${elementLabel(first)} +${more.length} more` : elementLabel(first);
+  const [first] = target.elements;
+  return first ? elementLabel(first) : "";
 }
 
 // Where a new pick's composer starts, until the bridge reports where the pick is now: beside all of
@@ -244,17 +244,19 @@ export function stepFrom(order: readonly string[], current: string | null, dir: 
 
 // How the bridge finds a target's mark on the page (types.ts, UiMarkTarget): by its elements'
 // selectors, by its box moving with its first element, or by its quote in its holder. A page target
-// has no mark on the page.
+// has no mark on the page. Built of fresh objects: it's posted to the page, and postMessage can't
+// clone the store's reactive proxies.
 export function markTarget(target: UiTarget): UiMarkTarget | null {
   if (target.kind === "page") return null;
   if (target.kind === "text")
     return { kind: "text", selector: target.element.selector, quote: target.quote };
   if (target.kind === "element")
     return { kind: "element", selectors: target.elements.map((el) => el.selector) };
+  const rect = { ...target.rect };
   const [first] = target.elements;
   return first
-    ? { kind: "region", rect: target.rect, anchor: { selector: first.selector, rect: first.rect } }
-    : { kind: "region", rect: target.rect };
+    ? { kind: "region", rect, anchor: { selector: first.selector, rect: { ...first.rect } } }
+    : { kind: "region", rect };
 }
 
 // Shown on the page: its open annotations, plus a resolved one while it's selected (its row revealed

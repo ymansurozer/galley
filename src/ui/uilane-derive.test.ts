@@ -201,12 +201,23 @@ test("each kind's pin finds its target its own way, and a page annotation's pin 
   );
 });
 
+test("a pin's target can be posted to the page while the store holds the annotation as a proxy", () => {
+  // Alpine's store wraps every object in a reactive Proxy, which postMessage (structured clone)
+  // refuses.
+  const proxied = <T extends object>(o: T): T => new Proxy(o, {});
+  const rect = proxied({ x: 10, y: 20, width: 300, height: 100 });
+  const el = { ...uiEl("#a"), rect: proxied({ x: 12, y: 30, width: 80, height: 20 }) };
+  const region = ann("r", 1, "/p", { target: { kind: "region", rect, elements: [proxied(el)] } });
+  assert.doesNotThrow(() => structuredClone(marksFor([region], "/p", null)));
+});
+
 test("the composer's head names each kind of target", () => {
   const save = { ...uiEl("#save"), role: "button", name: "Save" };
   assert.equal(targetLabel({ kind: "element", elements: [save] }), 'button · "Save"');
   assert.equal(
     targetLabel({ kind: "element", elements: [save, uiEl("#a"), uiEl("#b")] }),
-    'button · "Save" +2 more',
+    'button · "Save"',
+    "the head counts the rest on its own, where a long name can't cut it off",
   );
   assert.equal(
     targetLabel({ kind: "element", elements: [{ selector: "p", tag: "p", rect: save.rect }] }),

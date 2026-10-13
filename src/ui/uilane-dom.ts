@@ -55,8 +55,8 @@ export function rowLine(doc: Document, a: UiAnnotationRecord, selected: boolean)
   return line;
 }
 
-// The floating composer's head: the number the annotation will get, and what was picked, its
-// tooltip the elements' selectors (the page's route for a page).
+// The floating composer's head: the number the annotation will get, what was picked (its tooltip
+// the elements' selectors, the page's route for a page), and how many more elements there are.
 export function composerHead(
   doc: Document,
   picked: UiTarget,
@@ -78,7 +78,10 @@ export function composerHead(
   close.title = "Cancel (Esc)";
   close.append(node(doc, "kbd", "", "Esc"));
   close.onclick = cancel;
-  head.append(num, target, close);
+  head.append(num, target);
+  if (picked.kind === "element" && picked.elements.length > 1)
+    head.append(node(doc, "span", "uc-more", `+${picked.elements.length - 1} more`));
+  head.append(close);
   return head;
 }
 

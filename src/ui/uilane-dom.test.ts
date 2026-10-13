@@ -78,11 +78,13 @@ test("the composer head names a region, a page and several elements, with their 
     1,
     () => {},
   );
-  assert.equal(target(several).textContent, "button +1 more");
+  assert.equal(target(several).textContent, "button");
+  assert.equal(several.querySelector(".uc-more")?.textContent, "+1 more");
   assert.equal(target(several).getAttribute("title"), `#a\n${HOSTILE}`);
   const rect = { x: 0, y: 0, width: 200, height: 80 };
   const region = composerHead(d, { kind: "region", rect, elements: [el("#a")] }, "/x", 2, () => {});
   assert.equal(target(region).textContent, "Region 200 × 80 · 1 element");
+  assert.equal(region.querySelector(".uc-more"), null);
   const page = composerHead(d, { kind: "page" }, `/x?${HOSTILE}`, 3, () => {});
   assert.equal(target(page).textContent, "Whole page");
   assert.equal(target(page).getAttribute("title"), `/x?${HOSTILE}`);
