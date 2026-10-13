@@ -3625,10 +3625,12 @@
       display: none
     }
 
+    /* The gutter is kept so a scrollbar that appears when a row expands doesn't narrow the rows. */
     .ann-list {
       flex: 1 1 auto;
       min-height: 0;
       overflow: auto;
+      scrollbar-gutter: stable;
       padding: 2px 0 72px
     }
 
@@ -3733,8 +3735,7 @@
     }
 
     .ann-row.sel {
-      color: var(--ink-bright);
-      font-weight: 600
+      color: var(--ink-bright)
     }
 
     .ann-num {
@@ -3791,9 +3792,11 @@
     }
 
     /* Expanded: one block set apart from its neighbours. A ground runs behind the row, its context
-       line and its thread, with an edge in the kind's colour down its left; the row heads it. */
+       line and its thread, with an edge in the kind's colour down its left; the row heads it.
+       Expanding moves nothing already on screen: the row keeps its collapsed box and type, the
+       edge is a shadow, and only what opens below the row takes space. */
     .ann-item {
-      margin: 8px 0;
+      margin-bottom: 8px;
       padding-bottom: 12px;
       background: color-mix(in oklab, var(--surface-raised) 55%, var(--panel3))
     }
@@ -3808,10 +3811,6 @@
 
     .ann-item.resolved {
       box-shadow: inset 2px 0 0 var(--line-strong)
-    }
-
-    .ann-item .ann-row {
-      padding-top: 10px
     }
 
     .ann-item .ann-row:hover {

@@ -599,7 +599,13 @@ export function installUiLane() {
     const rowEl = t.closest<HTMLElement>("[data-annotation]");
     if (rowEl) {
       const id = rowEl.dataset.annotation ?? null;
+      const top = rowEl.getBoundingClientRect().top;
       selectAnnotation(id === S.selectedAnnotation ? null : id);
+      // A thread closing above the clicked row would pull it up; scroll it back under the pointer,
+      // as far as the list can scroll.
+      const list = $("annotationList");
+      const now = id && list.querySelector(`[data-annotation="${CSS.escape(id)}"]`);
+      if (now) list.scrollTop += now.getBoundingClientRect().top - top;
       return;
     }
     const head = t.closest<HTMLElement>("[data-route]");
