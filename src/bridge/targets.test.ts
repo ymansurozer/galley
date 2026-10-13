@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { Rect } from "../types";
-import { findQuote, locate, regionElements, textTarget, togglePick } from "./targets";
+import { findQuote, locate, quoteFinder, regionElements, textTarget, togglePick } from "./targets";
 
 // A fixture page whose elements have the boxes their `data-box="x y width height"` gives (happy-dom
 // lays nothing out), and a hit test over those boxes: the last element in document order whose box
@@ -168,6 +168,37 @@ test("a quote is found again in its element whatever its whitespace, and a cut o
     "signed\n      copy, then op",
   );
   assert.equal(findQuote($("#intro"), "unsigned"), null);
+  // Whitespace runs across nodes and at a node's start collapse as the quote's did.
+  const { $: $2 } = page(`<div id="list">  <span>Due </span>
+    <span>  soon</span><script>var soon = 1</script><em>now</em></div>`);
+  assert.equal(findQuote($2("#list"), "Due soon")?.toString(), "Due \n      soon");
+  const across = findQuote($2("#list"), "soonnow");
+  assert.deepEqual(
+    [across?.startContainer.textContent, across?.startOffset, across?.endContainer.textContent],
+    ["  soon", 2, "now"],
+    "script source between them isn't page text",
+  );
+});
+
+test("a text mark's quote is searched once, and again only when its text changes", () => {
+  const { $ } = page(`<main id="m"><p id="a">Date recieved soon</p><p>Other text</p></main>`);
+  const text = () => $("#a").firstChild as Text;
+  let now = 0;
+  const quotes = quoteFinder(() => now);
+  const first = quotes.find("n3", $("#m"), "Date recieved");
+  assert.equal(first?.toString(), "Date recieved");
+  assert.equal(quotes.find("n3", $("#m"), "Date recieved"), first, "the found range is reused");
+  text().data = "Due: Date recieved soon";
+  const moved = quotes.find("n3", $("#m"), "Date recieved");
+  assert.notEqual(moved, first, "changed text is searched again");
+  assert.equal(moved?.toString(), "Date recieved");
+  assert.equal(moved?.startOffset, 5);
+  text().data = "Date received";
+  assert.equal(quotes.find("n3", $("#m"), "Date recieved"), null);
+  text().data = "Date recieved";
+  assert.equal(quotes.find("n3", $("#m"), "Date recieved"), null, "a miss holds for a while");
+  now += 1000;
+  assert.equal(quotes.find("n3", $("#m"), "Date recieved")?.toString(), "Date recieved");
 });
 
 test("a mark is found where its target is now", () => {

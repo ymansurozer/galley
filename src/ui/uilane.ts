@@ -180,9 +180,11 @@ export function movedInApp(rect: Rect) {
 export function pendingInApp(count: number) {
   S.pendingPicks = count;
 }
+// Posted whether or not the desk counts the page's bridge as connected: a bridge that is still
+// there (its handshake not yet seen again) keeps its picks otherwise.
 export function clearPendingPicks() {
   S.pendingPicks = 0;
-  if (S.uiProxy && S.app.connected) postToApp({ type: "clearPicks", token: S.uiProxy.token });
+  if (S.uiProxy) postToApp({ type: "clearPicks", token: S.uiProxy.token });
 }
 
 // The current page's page annotations, as pins in the address bar.

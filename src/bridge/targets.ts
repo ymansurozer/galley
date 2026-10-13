@@ -78,11 +78,7 @@ export function regionElements(
 // element holding all of it, resolved as a click on it would be (the control it's in, else
 // itself). Null when only whitespace is selected.
 export function textTarget(range: Range): Extract<PickedTarget, { kind: "text" }> | null {
-  const quote = squash(
-    textParts(range)
-      .map((part) => part.toString())
-      .join(""),
-  );
+  const quote = rangeQuote(range);
   const node = range.commonAncestorContainer;
   const holder = node.nodeType === 1 ? (node as Element) : node.parentElement;
   if (!quote || !holder) return null;
@@ -118,42 +114,124 @@ function textParts(range: Range): Range[] {
   if (root.nodeType === 3) return pageText(root) ? [part(root)] : [];
   const parts: Range[] = [];
   const walker = doc.createTreeWalker(root, SHOW_TEXT);
-  for (let n = walker.nextNode(); n; n = walker.nextNode())
-    if (pageText(n) && range.intersectsNode(n)) parts.push(part(n));
+  // From the range's first text node when it starts in one, not from the top of `root`, and only
+  // as far as its end: text nodes in a range come one after another.
+  const start = range.startContainer;
+  if (start.nodeType === 3) walker.currentNode = start;
+  let inside = false;
+  for (let n = start.nodeType === 3 ? start : walker.nextNode(); n; n = walker.nextNode()) {
+    if (!range.intersectsNode(n)) {
+      if (inside) break;
+      continue;
+    }
+    inside = true;
+    if (pageText(n)) parts.push(part(n));
+  }
   return parts;
+}
+
+// The page's text a range runs over, whitespace collapsed: what a quote of it says.
+const rangeQuote = (range: Range) =>
+  squash(
+    textParts(range)
+      .map((part) => part.toString())
+      .join(""),
+  );
+
+// What a quote matches on: all of it, or what's left of one cut at its cap (ending in "…").
+const quoted = (quote: string) => (quote.endsWith("…") ? quote.slice(0, -1) : quote).trim();
+
+// The page's text under `root` with its whitespace collapsed, as quotes are taken, and where each
+// text node's share of it starts. `trimmed`: the node's leading whitespace collapsed into the space
+// before it (or into nothing, at the start).
+function collapsedText(root: Element) {
+  let text = "";
+  const parts: Array<{ node: Text; at: number; trimmed: boolean }> = [];
+  const walker = root.ownerDocument.createTreeWalker(root, SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!pageText(n)) continue;
+    const node = n as Text;
+    let piece = node.data.replace(/\s+/g, " ");
+    const trimmed = piece.startsWith(" ") && (!text || text.endsWith(" "));
+    if (trimmed) piece = piece.slice(1);
+    if (!piece) continue;
+    parts.push({ node, at: text.length, trimmed });
+    text += piece;
+  }
+  return { text, parts };
+}
+
+// The offset in its text node of the collapsed text's character `i`, by walking that node alone.
+function offsetIn(part: { node: Text; at: number; trimmed: boolean }, i: number): number {
+  const data = part.node.data;
+  const space = (r: number) => /\s/.test(data[r]!);
+  for (let r = 0, k = part.at; r < data.length; r++) {
+    if (space(r) && (r === 0 ? part.trimmed : space(r - 1))) continue;
+    if (k === i) return r;
+    k++;
+  }
+  return data.length;
 }
 
 // `quote` found again in `root`'s text: a range over its first occurrence, compared with whitespace
 // collapsed, as the quote was taken. A quote cut at its cap (ending in "…") is matched on what's
 // left of it. Null when it isn't there.
 export function findQuote(root: Element, quote: string): Range | null {
-  const want = (quote.endsWith("…") ? quote.slice(0, -1) : quote).trim();
+  const want = quoted(quote);
   if (!want) return null;
-  const doc = root.ownerDocument;
-  // The collapsed text, and for each of its characters the text node and offset it came from.
-  let text = "";
-  const from: Array<[Text, number]> = [];
-  const walker = doc.createTreeWalker(root, SHOW_TEXT);
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    const node = n as Text;
-    if (!pageText(node)) continue;
-    for (let i = 0; i < node.data.length; i++) {
-      const c = node.data[i]!;
-      if (/\s/.test(c)) {
-        if (!text || text.endsWith(" ")) continue;
-        text += " ";
-      } else text += c;
-      from.push([node, i]);
-    }
-  }
+  const { text, parts } = collapsedText(root);
   const i = text.indexOf(want);
   if (i < 0) return null;
-  const [startNode, startOffset] = from[i]!;
-  const [endNode, endOffset] = from[i + want.length - 1]!;
-  const range = doc.createRange();
-  range.setStart(startNode, startOffset);
-  range.setEnd(endNode, endOffset + 1);
+  const end = i + want.length - 1;
+  // The text node holding the collapsed text's character `k`: the last to start at or before it.
+  const partAt = (k: number) => {
+    let lo = 0;
+    let hi = parts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (parts[mid]!.at <= k) lo = mid;
+      else hi = mid - 1;
+    }
+    return parts[lo]!;
+  };
+  const first = partAt(i);
+  const last = partAt(end);
+  const range = root.ownerDocument.createRange();
+  range.setStart(first.node, offsetIn(first, i));
+  range.setEnd(last.node, offsetIn(last, end) + 1);
   return range;
+}
+
+// How long a quote that wasn't found is left alone before it's searched for again.
+const RETRY_MISS = 1000;
+
+// findQuote for the marks the page redraws on every scroll frame and every half second: a found
+// range is kept per mark and reused while it still quotes the same text inside its holder. A
+// quote that wasn't there is searched for again only after RETRY_MISS, since each search reads all
+// of its holder's text.
+export function quoteFinder(now = () => performance.now()) {
+  const found = new Map<string, { range: Range | null; at: number }>();
+  return {
+    find(key: string, holder: Element, quote: string): Range | null {
+      const seen = found.get(key);
+      const r = seen?.range;
+      if (r) {
+        const intact =
+          r.startContainer.isConnected &&
+          r.endContainer.isConnected &&
+          holder.contains(r.commonAncestorContainer) &&
+          rangeQuote(r) === quoted(quote);
+        if (intact) return r;
+      } else if (seen && now() - seen.at < RETRY_MISS) return null;
+      const range = findQuote(holder, quote);
+      found.set(key, { range, at: now() });
+      return range;
+    },
+    // Forget the marks no longer drawn, and the page text their ranges hold on to.
+    keep(keys: ReadonlySet<string>) {
+      for (const key of found.keys()) if (!keys.has(key)) found.delete(key);
+    },
+  };
 }
 
 // The boxes of the text a range runs over, one per line fragment: its text nodes' own rects, not
@@ -184,7 +262,13 @@ export type Located = {
   anchor: Element | null;
 };
 
-export function locate(doc: Document, target: UiMarkTarget): Located | null {
+// `find` finds a text target's quote in its holder: a quoteFinder's, for marks redrawn again and
+// again.
+export function locate(
+  doc: Document,
+  target: UiMarkTarget,
+  find: (holder: Element, quote: string) => Range | null = findQuote,
+): Located | null {
   const { kind } = target;
   if (target.kind === "element") {
     const els = target.selectors.map((s) => query(doc, s)).filter((el) => el !== null);
@@ -202,7 +286,7 @@ export function locate(doc: Document, target: UiMarkTarget): Located | null {
     return { kind, boxes: [moved], anchor: el };
   }
   const el = query(doc, target.selector);
-  const range = el && findQuote(el, target.quote);
+  const range = el && find(el, target.quote);
   const [first, ...rest] = range ? textRects(range) : [];
   return first ? { kind, boxes: [first, ...rest], anchor: el } : null;
 }

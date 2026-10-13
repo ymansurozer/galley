@@ -2,7 +2,7 @@ import type { AppMode, BridgeMessage, PickedTarget, Rect, UiMark } from "../type
 import { OVERLAY_ATTR } from "./capture";
 import { unionRect } from "./crop";
 import { CAPS, describeElement, labelOf, targetOf } from "./describe";
-import { locate, regionElements, textRects, textTarget, togglePick } from "./targets";
+import { locate, quoteFinder, regionElements, textRects, textTarget, togglePick } from "./targets";
 
 // Annotate mode and the marks on the page. Everything the bridge draws (the hover outline and its
 // label, the pick being composed on, ⇧-picks waiting for ⇧'s release, the drag in progress, and
@@ -288,9 +288,13 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
 
   function click(el: Element, shift: boolean) {
     if (shift) {
-      // ⇧-clicking while the composer is open on picked elements adds to them.
-      if (!pending.length && picked?.kind === "element")
-        pending = picked.els.filter((p) => p.isConnected);
+      // ⇧-clicking while the composer is open on picked elements adds to them. ⇧-clicking its only
+      // element does nothing: taking it out would leave nothing to annotate.
+      if (!pending.length && picked?.kind === "element") {
+        const els = picked.els.filter((p) => p.isConnected);
+        if (els.length === 1 && els[0] === el) return;
+        pending = els;
+      }
       togglePick(pending, el);
       pendingChanged();
       return;
@@ -432,13 +436,19 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     return [{ ...p.rect, x: p.rect.x + now.x - a.rect.x, y: p.rect.y + now.y - a.rect.y }];
   }
 
+  // A mark's target where it is now. Its quote, for a text mark, is searched for once and reused
+  // while it stands: layout runs on every scroll frame.
+  const quotes = quoteFinder();
+  const locateMark = (m: UiMark) =>
+    locate(document, m.target, (holder, quote) => quotes.find(m.id, holder, quote));
+
   // Redraw the marks, the pick and the ⇧-picks where their targets are now, and tell the desk where
   // the pick went, so its composer follows.
   function layout() {
     if (!overlay) return;
     let html = "";
     for (const m of marks) {
-      const at = locate(document, m.target);
+      const at = locateMark(m);
       if (!at || !inView(at.boxes[0])) continue;
       const sel = m.id === selected;
       const q = m.question ? " q" : "";
@@ -544,6 +554,11 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
   };
   for (const type of ["keydown", "keyup", "keypress"] as const)
     addEventListener(type, keyGuard, true);
+  // ⇧ released while the page doesn't have focus (a click in the desk, another window) sends the
+  // page no keyup: losing focus picks the ⇧-picks as their release would.
+  addEventListener("blur", () => {
+    if (pending.length) commitPending();
+  });
 
   return {
     setMode(next: AppMode) {
@@ -558,9 +573,10 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     },
     setMarks(next: UiMark[], nextSelected: string | null, picking: boolean) {
       if (!picking) picked = null;
+      quotes.keep(new Set(next.map((m) => m.id)));
       if (nextSelected && nextSelected !== selected) {
-        const target = next.find((m) => m.id === nextSelected)?.target;
-        const at = target && locate(document, target);
+        const mark = next.find((m) => m.id === nextSelected);
+        const at = mark && locateMark(mark);
         const r = at?.boxes[0];
         if (at?.anchor && r && (r.y < 0 || r.y + r.height > innerHeight))
           at.anchor.scrollIntoView({ block: "center" });
