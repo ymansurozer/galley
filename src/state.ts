@@ -27,6 +27,7 @@ import type {
   ReviewResult,
   ReviewState,
   ReviewerSave,
+  SaveStamp,
   ThreadMessage,
   UiAnnotationRecord,
 } from "./types.js";
@@ -843,12 +844,17 @@ const REVIEWER_SAVE_KEYS = [
   "reviewedFileHashes",
   "decisionFiles",
 ] as const satisfies ReadonlyArray<keyof ReviewerSave>;
-export function mergeReviewerSave(state: ReviewState, body: unknown) {
+// `desk`: the live desk's own stamp (types.ts, SaveStamp), to tell a save the tab made before the
+// latest `galley reload` or restart. Without one, every save counts as current.
+export function mergeReviewerSave(state: ReviewState, body: unknown, desk?: SaveStamp) {
   if (!body || typeof body !== "object") return;
   const incoming = body as Record<string, unknown>;
   for (const key of REVIEWER_SAVE_KEYS) {
     if (incoming[key] !== undefined) (state as Record<string, unknown>)[key] = incoming[key];
   }
+  const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
+  const beforeReload =
+    !!desk && (seen?.token !== desk.token || seen?.reloadGeneration !== desk.reloadGeneration);
   // Annotations carry data the app page supplied, so they're validated and capped on the way in
   // (uiannotations.ts) rather than taken as sent.
   const annotations = readUiAnnotations(incoming.annotations, state.ui?.target);
@@ -860,6 +866,8 @@ export function mergeReviewerSave(state: ReviewState, body: unknown) {
       // Whether an annotation's screenshots are stored is the server's to say (the upload that
       // completes the pair sets it), so it carries over by id, whatever the tab sent.
       if (prev.screenshots) a.screenshots = true;
+      // A save from before the latest reload carries placements that reload reset.
+      if (beforeReload) a.placement = prev.placement;
       // An agent reply (`galley comment --ui`) lands here between the tab's polls, so a save from a
       // tab that hasn't seen it yet lacks it. The tab can't delete an agent message, so every one
       // the save lacks is kept, at the end of its thread.

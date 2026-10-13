@@ -38,6 +38,9 @@ function page(html: string) {
     positions.set(props, ["app/pages/files.vue", line, column - 1]);
     Object.assign(el, { __vnode: { props }, __vueParentComponent: component });
   }
+  // `data-in`: rendered by the component, at no place the tracer knows (its file only).
+  for (const el of doc.querySelectorAll("[data-in]"))
+    Object.assign(el, { __vueParentComponent: component });
   const $ = (sel: string) => {
     const el = doc.querySelector(sel);
     if (!el) throw new Error(`fixture has no ${sel}`);
@@ -93,17 +96,48 @@ test("a template place that renders several elements (a v-for) leaves the choice
   assert.equal(name(findElement(doc, edit)), "r2");
 });
 
-test("a template place or a selector that now renders other text is no match", () => {
-  // Moved within its template: line 20 and its old id now render Delete, and Save is at line 24.
-  const { doc, $ } = page(`
-    <button id="save" data-at="20:7">Delete</button>
-    <button id="moved" data-at="24:7">Save</button>`);
+test("an element moved within its template is found by its tag and text", () => {
+  // Line 20 renders nothing any more, and its old id is gone: Save is at line 24 now.
+  const { doc, $ } = page(`<div><button id="moved" data-at="24:7">Save</button></div>`);
   const save = rec({ selector: "#save", text: "Save", source: at(20, 7) });
-  assert.equal(name(findElement(doc, save)), "moved", "found by its tag and text");
-
-  // Deleted: nothing shows Save any more, and nothing is pinned to Delete in its place.
+  assert.equal(name(findElement(doc, save)), "moved");
   $("#moved").remove();
+  assert.equal(name(findElement(doc, save)), null, "deleted: unplaced");
+});
+
+test("a selector that now matches an element with other text is no match", () => {
+  const { doc, $ } = page(`<button id="save">Delete</button><button id="moved">Save</button>`);
+  const save = rec({ selector: "#save", text: "Save" });
+  assert.equal(name(findElement(doc, save)), "moved", "found by its tag and text instead");
+  $("#moved").remove();
+  assert.equal(name(findElement(doc, save)), null, "never pinned to Delete");
+});
+
+test("an element relabelled where it was rendered is unplaced, not pinned to the old text elsewhere", () => {
+  const { doc } = page(`
+    <button id="save" data-at="20:7">Submit</button>
+    <button id="other" data-at="40:7">Save</button>`);
+  const save = rec({ selector: "#gone", text: "Save", source: at(20, 7) });
   assert.equal(name(findElement(doc, save)), null);
+  assert.equal(
+    name(findElement(doc, { ...save, selector: "#other" })),
+    null,
+    "not by a selector that names the other one either",
+  );
+});
+
+test("a component's file without a line finds an element only by checking what it shows", () => {
+  // The component's icon button was deleted; its one remaining button is another one.
+  const component = { file: FILE, component: "files", via: "vue-file" as const };
+  const { doc } = page(`<button data-in id="other" aria-haspopup="menu"><svg></svg></button>`);
+  const icon = rec({ selector: "body > button:nth-of-type(2)", source: component });
+  assert.equal(name(findElement(doc, icon)), null);
+
+  // With text to check, the component's file tells two Saves apart.
+  const two = page(`<button data-in id="mine">Save</button><button id="theirs">Save</button>`);
+  const save = rec({ text: "Save", source: component });
+  assert.equal(name(findElement(two.doc, save)), "mine");
+  assert.equal(name(findElement(two.doc, { ...save, source: undefined })), null);
 });
 
 test("the selector it was captured with comes before its tag and text", () => {

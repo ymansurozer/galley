@@ -636,6 +636,9 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     navigated() {
       placer.navigated();
     },
+    relook() {
+      placer.relook();
+    },
     clearPicks() {
       pending = [];
       pendingChanged();

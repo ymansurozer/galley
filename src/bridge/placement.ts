@@ -70,18 +70,19 @@ export function marksPlacer(
     dueSince = null;
     const changed: Placement[] = [];
     for (const [id, e] of entries) {
-      if (e.state === "placed" && e.found && stands(e.found)) continue;
-      let found: Found | null = null;
-      try {
-        found = refind(doc, e.mark.target);
-      } catch {
-        // A target this page can't be searched for (a selector it can't parse) isn't on it.
-      }
-      e.found = found;
-      if (found) e.state = "placed";
-      else {
-        if (e.state === "placed") Object.assign(e, { state: "pending", since: now });
-        if (e.state === "pending" && now >= deadline(e)) e.state = "unplaced";
+      if (!(e.state === "placed" && e.found && stands(e.found))) {
+        let found: Found | null = null;
+        try {
+          found = refind(doc, e.mark.target);
+        } catch {
+          // A target this page can't be searched for (a selector it can't parse) isn't on it.
+        }
+        e.found = found;
+        if (found) e.state = "placed";
+        else {
+          if (e.state === "placed") Object.assign(e, { state: "pending", since: now });
+          if (e.state === "pending" && now >= deadline(e)) e.state = "unplaced";
+        }
       }
       if (e.state !== "pending" && e.state !== e.reported) {
         e.reported = e.state;
@@ -146,6 +147,12 @@ export function marksPlacer(
     ready() {
       readyAt ??= clock.now();
       arm();
+    },
+    // The desk forgot what it heard (it marked every annotation unvisited after `galley reload`):
+    // look again, and tell it every mark's answer, changed or not.
+    relook() {
+      for (const e of entries.values()) e.reported = undefined;
+      if (entries.size) due();
     },
     // The route changed in-page: what it renders next settles anew.
     navigated() {

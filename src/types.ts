@@ -260,6 +260,12 @@ export type ReviewerSave = Pick<
   | "lastAnnotationNumber"
 >;
 
+// What the tab had adopted of the desk when it saved (DeskStatus): the desk process, by its UI
+// token (null while no proxy runs), and that process's `galley reload` count. Rides every save and
+// Send beside the slice. A save stamped with anything else was made before the latest reload or
+// restart, which reset every annotation's placement, so the desk keeps its own placements.
+export type SaveStamp = { token: string | null; reloadGeneration: number };
+
 // Transient desk-liveness fields injected into the /api/state response alongside
 // ReviewState. Deliberately NOT on ReviewState: anything on state is persisted by
 // persistReview and echoed back by the UI via /api/save, while these only describe
@@ -388,6 +394,9 @@ export type DeskMessage =
   | { type: "mode"; token: string; mode: AppMode }
   // Drop the ⇧-clicked elements waiting for ⇧'s release (the Esc cascade's level for them).
   | { type: "clearPicks"; token: string }
+  // The desk marked every annotation unvisited: look for this page's marks again and report each
+  // one's placement, changed or not.
+  | { type: "relook"; token: string }
   // The pins for the current page, the selected annotation (outlined, scrolled into view once
   // found), and whether the composer is open on the last pick (its highlight stays until the
   // composer closes). The bridge looks for each new pin's target once the page settles, and reports

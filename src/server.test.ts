@@ -1601,10 +1601,20 @@ test("a desk started with a UI target serves it at once; proxy traffic never kee
   }
 });
 
-test("/api/reload leaves every annotation unvisited, whether or not the tree has a diff", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "galley-unvisited-"));
-  // HOME outside the repo, so the desk's own files leave its tree clean.
-  const home = await mkdtemp(path.join(tmpdir(), "galley-unvisited-home-"));
+// A desk on a real repo whose tree is clean (HOME outside it, so the desk's own files stay out),
+// with a UI target, and one page annotation for the tab to save.
+async function withUiRepoDesk(
+  run: (desk: {
+    url: string;
+    root: string;
+    reload: () => Promise<boolean>;
+    save: (placement: string, seen?: unknown) => Promise<Response>;
+    placement: () => Promise<string | undefined>;
+    stamp: () => Promise<{ token: string | null; reloadGeneration: number }>;
+  }) => Promise<void>,
+) {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-placement-"));
+  const home = await mkdtemp(path.join(tmpdir(), "galley-placement-home-"));
   const oldHome = process.env.HOME;
   process.env.HOME = home;
   const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
@@ -1617,15 +1627,9 @@ test("/api/reload leaves every annotation unvisited, whether or not the tree has
   const st = await buildReviewState(root, { session: "s", allowEmpty: true });
   st!.ui = { target: "http://localhost:3000/" };
   const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
-  const reload = async () =>
-    ((await (await post(handle.url, "api/reload", {})).json()) as { empty: boolean }).empty;
-  const placements = async () =>
-    ((await getPoll(handle.url)).annotations as Array<{ placement: string }>).map(
-      (a) => a.placement,
-    );
-  const annotation = (id: string, number: number, placement: string) => ({
-    id,
-    number,
+  const annotation = (placement: string) => ({
+    id: "a1",
+    number: 1,
     intent: "change",
     status: "open",
     placement,
@@ -1636,35 +1640,64 @@ test("/api/reload leaves every annotation unvisited, whether or not the tree has
     },
     target: { kind: "page" },
     comments: [
-      {
-        id: `${id}-m`,
-        role: "user",
-        intent: "action",
-        body: "Fix",
-        createdAt: "t",
-        updatedAt: "t",
-      },
+      { id: "m1", role: "user", intent: "action", body: "Fix", createdAt: "t", updatedAt: "t" },
     ],
   });
-  const save = () =>
-    post(handle.url, "api/save", {
-      annotations: [annotation("a1", 1, "placed"), annotation("a2", 2, "unplaced")],
-    });
   try {
-    await save();
-    assert.deepEqual(await placements(), ["placed", "unplaced"]);
-    assert.equal(await reload(), true, "a clean tree: the reload finds no diff");
-    assert.deepEqual(await placements(), ["unvisited", "unvisited"]);
-    await save();
-    await writeFile(path.join(root, "a.ts"), "two\n");
-    assert.equal(await reload(), false);
-    assert.deepEqual(await placements(), ["unvisited", "unvisited"]);
+    await run({
+      url: handle.url,
+      root,
+      reload: async () =>
+        ((await (await post(handle.url, "api/reload", {})).json()) as { empty: boolean }).empty,
+      save: (placement, seen) =>
+        post(handle.url, "api/save", { annotations: [annotation(placement)], seen }),
+      placement: async () =>
+        ((await getPoll(handle.url)) as unknown as { annotations: Array<{ placement: string }> })
+          .annotations[0]?.placement,
+      stamp: async () => {
+        const poll = await getPoll(handle.url);
+        return { token: poll.uiProxy?.token ?? null, reloadGeneration: poll.reloadGeneration };
+      },
+    });
   } finally {
     handle.server.close();
     process.env.HOME = oldHome;
     await rm(root, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });
   }
+}
+
+test("/api/reload leaves every annotation unvisited, whether or not the tree has a diff", async () => {
+  await withUiRepoDesk(async (desk) => {
+    await desk.save("placed", await desk.stamp());
+    assert.equal(await desk.placement(), "placed");
+    assert.equal(await desk.reload(), true, "a clean tree: the reload finds no diff");
+    assert.equal(await desk.placement(), "unvisited");
+    await desk.save("placed", await desk.stamp());
+    await writeFile(path.join(desk.root, "a.ts"), "two\n");
+    assert.equal(await desk.reload(), false);
+    assert.equal(await desk.placement(), "unvisited");
+  });
+});
+
+test("a save the tab stamped before the latest reload keeps the desk's placements", async () => {
+  await withUiRepoDesk(async (desk) => {
+    const before = await desk.stamp();
+    await desk.save("placed", before);
+    assert.equal(await desk.placement(), "placed");
+    await desk.reload();
+    assert.equal(await desk.placement(), "unvisited");
+    // The tab hasn't polled since the reload: its save still says placed.
+    await desk.save("placed", before);
+    assert.equal(await desk.placement(), "unvisited", "the reload's reset stands");
+    await desk.save("placed");
+    assert.equal(await desk.placement(), "unvisited", "an unstamped save counts as stale");
+    // Once it has adopted the reload, its placements count again.
+    await desk.save("placed", await desk.stamp());
+    assert.equal(await desk.placement(), "placed");
+    await desk.save("unplaced", { ...(await desk.stamp()), token: "an-earlier-desk-process" });
+    assert.equal(await desk.placement(), "placed", "a save from before a restart is stale too");
+  });
 });
 
 test("every /api/reload bumps reloadGeneration, even when the diff doesn't move", async () => {

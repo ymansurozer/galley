@@ -1487,6 +1487,38 @@ test("a reload or a restart leaves every annotation unvisited until its page loa
   assert.equal(saved.annotations![0]!.placement, "placed", "the saved review isn't touched");
 });
 
+test("a reviewer save stamped before the desk's latest reload keeps the desk's placements", () => {
+  const desk = { token: "t2", reloadGeneration: 3 };
+  const live = () =>
+    state({ ui: UI, annotations: [annotation({ id: "a1", placement: "unvisited" })] });
+  const sent = [
+    annotation({ id: "a1", placement: "placed" }),
+    annotation({ id: "a2", number: 2, placement: "placed" }),
+  ];
+  const placements = (s: ReviewState) => s.annotations!.map((a) => [a.id, a.placement]);
+  for (const seen of [
+    { token: "t2", reloadGeneration: 2 },
+    { token: "t1", reloadGeneration: 3 },
+  ]) {
+    const s = live();
+    mergeReviewerSave(s, { annotations: sent, seen }, desk);
+    assert.deepEqual(
+      placements(s),
+      [
+        ["a1", "unvisited"],
+        ["a2", "placed"],
+      ],
+      "the stored one keeps the desk's; a new one takes the tab's",
+    );
+  }
+  const current = live();
+  mergeReviewerSave(current, { annotations: sent, seen: desk }, desk);
+  assert.deepEqual(placements(current), [
+    ["a1", "placed"],
+    ["a2", "placed"],
+  ]);
+});
+
 test("each annotation's placement persists through a reviewer save and the saved review", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "galley-placement-"));
   const oldHome = process.env.HOME;

@@ -1,5 +1,5 @@
 import Alpine from "alpinejs";
-import type { Store, DiffHolder } from "./types";
+import type { DiffHolder, SaveStamp, Store } from "./types";
 import { loadSettings } from "./settings";
 import { createSaver, reviewerSlice } from "./save";
 
@@ -116,10 +116,15 @@ export async function openEditorAt(path: string, lineNumber: number) {
     toast("Could not open editor");
   }
 }
+// What this tab has adopted of the desk, stamped on every save and Send (types.ts, SaveStamp).
+export const saveStamp = (): SaveStamp => ({
+  token: S.uiProxy?.token ?? null,
+  reloadGeneration: S.reloadGeneration,
+});
 // Post only the reviewer-owned slice (see reviewerSlice in save.ts) — never the whole
 // (multi-MB) ReviewState. Saves coalesce so rapid approvals don't saturate connections.
 export const saver = createSaver(
-  () => reviewerSlice(S.state),
+  () => ({ ...reviewerSlice(S.state), seen: saveStamp() }),
   (payload) => api("/api/save", { method: "POST", body: JSON.stringify(payload) }),
 );
 // Instant auto-save: there is no manual Save button, so every state mutation

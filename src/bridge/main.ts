@@ -100,6 +100,7 @@ import { located, refind, type Located } from "./refind";
     else if (msg.type === "marks" && Array.isArray(msg.marks))
       annotate.setMarks(msg.marks, msg.selected ?? null, msg.picking === true);
     else if (msg.type === "clearPicks") annotate.clearPicks();
+    else if (msg.type === "relook") annotate.relook();
     else if (msg.type === "capture" && typeof msg.id === "number") {
       const id = msg.id;
       const number = msg.mark?.number;

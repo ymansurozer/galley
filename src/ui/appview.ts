@@ -239,8 +239,8 @@ export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): bo
     return true;
   }
   if (prev?.token !== proxy?.token) {
-    if (prev) annotationsUnvisited();
     S.app.connected = false;
+    if (prev) annotationsUnvisited();
     // A restarted desk normally gets its stable proxy port back; if not, follow it.
     if (prev && proxy && prev.port !== proxy.port && S.app.loaded) loadApp(S.app.route);
     // The UI view opened before the proxy was up: load now.

@@ -152,6 +152,24 @@ test("a mark whose element leaves the page is looked for again, and comes back w
   ]);
 });
 
+test("a relook tells the desk every mark's placement again, changed or not", () => {
+  const { placer, tick, reports } = setup(`<button id="save">Save</button>`);
+  placer.ready();
+  placer.set([mark("a", "#save", "Save"), mark("b", "#help", "Help")]);
+  tick(SETTLE.cap);
+  assert.deepEqual(reports, [
+    [{ id: "a", placement: "placed" }],
+    [{ id: "b", placement: "unplaced" }],
+  ]);
+  // The desk marked both unvisited after `galley reload`; the page didn't change.
+  placer.relook();
+  tick(SETTLE.quiet);
+  assert.deepEqual(reports.at(-1), [
+    { id: "a", placement: "placed" },
+    { id: "b", placement: "unplaced" },
+  ]);
+});
+
 test("a mark sent again keeps what was found for it, and an in-page route change settles anew", () => {
   const { placer, tick, reports } = setup(`<button id="save">Save</button>`);
   placer.ready();

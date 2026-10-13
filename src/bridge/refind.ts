@@ -104,25 +104,26 @@ export function findElement(
   innermost = false,
 ): Element | null {
   const sameTag = (el: Element) => el.localName === rec.tag;
-  // Every element of its tag that passes the check, rough text first.
-  const passing = () => {
-    const want = check?.text && bare(check.text);
-    const els = queryAll(doc, rec.tag).filter(
-      (el) =>
-        sameTag(el) &&
-        (!want || bare(el.textContent ?? "").includes(want)) &&
-        (!check || check.test(el)),
-    );
-    return innermost ? els.filter((el) => !els.some((o) => o !== el && el.contains(o))) : els;
-  };
-  let candidates: Element[] | null = null;
+  const tagged = () => queryAll(doc, rec.tag).filter(sameTag);
+  // Whether it shows what the element showed, rough text first.
+  const want = check?.text && bare(check.text);
+  const passes = (el: Element) =>
+    (!want || bare(el.textContent ?? "").includes(want)) && (!check || check.test(el));
+  const inner = (els: Element[]) =>
+    innermost ? els.filter((el) => !els.some((o) => o !== el && el.contains(o))) : els;
 
-  // 1. Where its source says it was rendered: an element of its tag rendered there.
+  // 1. Where its source says it was rendered: the one element of its tag rendered there that still
+  // shows what it showed. A component's file without a line names every element in the component,
+  // so it counts only with something to check. An exact place that still renders its tag but shows
+  // something else means the element was changed there, not moved: no answer, however unique
+  // another element still showing the old text is.
   const { source } = rec;
-  if (source) {
-    candidates = passing();
-    const there = candidates.filter((el) => sameSource(resolveSource(el), source));
+  const exact = source?.line !== undefined;
+  if (source && (exact || check)) {
+    const rendered = tagged().filter((el) => sameSource(resolveSource(el), source));
+    const there = inner(rendered.filter(passes));
     if (there.length === 1) return there[0]!;
+    if (exact && rendered.length && !there.length) return null;
   }
 
   // 2. The selector it was captured with, while it still matches one element of its tag showing
@@ -133,7 +134,7 @@ export function findElement(
 
   // 3. Its tag and text: the one element showing it, else narrowed by class, then position.
   if (!check) return null;
-  candidates ??= passing();
+  const candidates = inner(tagged().filter(passes));
   if (candidates.length === 1) return candidates[0]!;
   return candidates.length ? narrow(candidates, rec) : null;
 }

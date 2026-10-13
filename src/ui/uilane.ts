@@ -199,9 +199,18 @@ export function clearPendingPicks() {
 // The current page's page annotations, as pins in the address bar.
 export const pagePins = () => pageMarks(annotationsOf(), S.app.route, S.selectedAnnotation);
 
+// The page annotations of the page the app shows are placed: their target is the page, and here it
+// is. Whether any of them changed.
+function placePageAnnotations(): boolean {
+  const pages = annotationsOf().filter(
+    (a) => a.target.kind === "page" && a.page.route === S.app.route && a.placement !== "placed",
+  );
+  for (const a of pages) a.placement = "placed";
+  return pages.length > 0;
+}
+
 // The app loaded a page (`fresh`: a new document, whose bridge has drawn nothing) or moved to
-// another route in-page. The pick it was composing on is gone with the old page. The page's own
-// page annotations are placed: their target is the page, and here it is.
+// another route in-page. The pick it was composing on is gone with the old page.
 let sentMode = "";
 let sentMarks = "";
 export function appPageChanged(fresh: boolean) {
@@ -210,20 +219,17 @@ export function appPageChanged(fresh: boolean) {
     S.pendingPicks = 0;
   }
   pickDraft = null;
-  const pages = annotationsOf().filter(
-    (a) => a.target.kind === "page" && a.page.route === S.app.route && a.placement !== "placed",
-  );
-  for (const a of pages) a.placement = "placed";
+  const placed = placePageAnnotations();
   if (S.annotationDraft) closeComposer();
   else renderUiLane();
-  if (pages.length) persist();
+  if (placed) persist();
 }
 
 // Where the bridge found this page's marks: each one's first answer once the page settled, then
 // its changes. Only annotations on the page the app shows take an answer, so a late one from a page
 // the app has since left changes nothing.
 export function placedInApp(placements: ReadonlyArray<{ id: string; placement: UiPlacement }>) {
-  let changed = false;
+  let changed = placePageAnnotations();
   for (const { id, placement } of placements) {
     const a = find(id);
     if (!a || a.page.route !== S.app.route) continue;
@@ -241,11 +247,16 @@ export function placedInApp(placements: ReadonlyArray<{ id: string; placement: U
   persist();
 }
 
-// `galley reload` ran or the desk restarted: no annotation has been looked for since, until its
-// page loads again. The desk marked its own copy; this keeps the tab's in step, so its next save
-// doesn't undo it.
+// `galley reload` ran or the desk restarted: no annotation has been looked for since. The desk
+// marked its own copy; this keeps the tab's in step. The page on screen, while its bridge is still
+// trusted, is looked at again at once, so its own rows go back to placed or unplaced; the others
+// wait for their page to load.
 export function annotationsUnvisited() {
   for (const a of annotationsOf()) a.placement = "unvisited";
+  if (S.uiProxy && S.app.connected) {
+    placePageAnnotations();
+    postToApp({ type: "relook", token: S.uiProxy.token });
+  }
   renderUiLane();
 }
 
