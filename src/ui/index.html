@@ -3264,6 +3264,15 @@
       position: relative
     }
 
+    /* The code view keeps a loaded app laid out in the box the UI view shows it in (the centre
+       column beside the annotation sidebar, placed on .main), unseen and inert, so it warms in the
+       background at the stage's real size and the first switch re-lays out nothing. */
+    .app:not(.view-ui) .uiview {
+      position: absolute;
+      inset: 0 var(--annside-w) 0 0;
+      visibility: hidden
+    }
+
     /* Browser-chrome bar: sits in the guide bar's slot, same height and surface. */
     .chrome {
       flex: 0 0 auto;
@@ -3689,13 +3698,18 @@
        Calm by default: colour appears only where kind needs it. One axis (--ann-ax) carries page
        names, bodies and the resolved toggle; numbers hang in the gutter to its left like footnote
        marks. The thread inside an expanded row is the code lane's and isn't restyled here — only
-       the space around it is. */
-    .app.view-ui .main {
-      grid-template-columns: minmax(0, 1fr) 360px
+       the space around it is. The sidebar's column width is a variable: the code view lays a
+       warmed app out beside the same space. */
+    .app {
+      --annside-w: 360px
     }
 
-    .app.view-ui.annotations-closed .main {
-      grid-template-columns: minmax(0, 1fr) 40px
+    .app.annotations-closed {
+      --annside-w: 40px
+    }
+
+    .app.view-ui .main {
+      grid-template-columns: minmax(0, 1fr) var(--annside-w)
     }
 
     .annside {
@@ -3798,6 +3812,15 @@
       writing-mode: vertical-rl;
       font-size: var(--text-xs);
       letter-spacing: .03em
+    }
+
+    /* The rail runs the page's full height, so its tip can't open below it: there it would be out
+       of sight and make the page taller than the window. It opens to the left, by the icon. */
+    .ann-rail[data-tip]::after {
+      top: 6px;
+      left: auto;
+      right: calc(100% + 6px);
+      transform: none
     }
 
     .annotations-closed .ann-rail {
@@ -4317,9 +4340,8 @@
     /* Narrow widths: the rail stays in the flow and the list opens as a drawer over the app. */
     @media(max-width:1100px) {
 
-      .app.view-ui .main,
-      .app.view-ui.annotations-closed .main {
-        grid-template-columns: minmax(0, 1fr) 40px
+      .app {
+        --annside-w: 40px
       }
 
       .app.view-ui .ann-rail {
@@ -4559,8 +4581,9 @@
               x-text="$store.g.fabState && $store.g.fabState()==='changes' ? 'Mark Reviewed' : 'Approve'">Approve</span> <kbd>⇧A</kbd></button>
         </div>
         <!-- The UI view: the proxied app under a browser-chrome bar (in the guide bar's slot). The
-             iframe is created by appview.ts inside #appFrame and stays alive across view switches. -->
-        <div class="uiview" x-cloak x-show="$store.g.view==='ui'">
+             iframe is created by appview.ts inside #appFrame and stays alive across view switches;
+             the code view keeps it laid out, unseen and inert, once it has loaded. -->
+        <div class="uiview" x-cloak x-show="$store.g.view==='ui' || $store.g.app.loaded" :inert="$store.g.view!=='ui'">
           <div class="chrome">
             <div class="grp">
               <button class="sq" data-tip="Back" aria-label="Back" @click="$store.g.appBack()"
