@@ -54,6 +54,7 @@ import {
   appGo,
   appHost,
   appRefresh,
+  firstRenderDone,
   hasUi,
   installAppView,
   setView,
@@ -622,7 +623,7 @@ installAppView();
 installUiLane();
 installCaptureDebug();
 syncView(); // a UI-only desk opens straight on the app
-render();
+void render().finally(firstRenderDone);
 // Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,
 // so the lane chrome appears at once.
 requestAnimationFrame(() => (S.ready = true));
