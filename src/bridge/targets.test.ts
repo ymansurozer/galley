@@ -147,6 +147,18 @@ test("a text selection's quote is capped at 500 characters, and whitespace alone
   assert.equal(textTarget(blank), null);
 });
 
+test("a text selection running over a script or a style quotes only the page's text", () => {
+  // A drag ending on a layer the app appends to <body> (a dev tool's badge) runs over the
+  // scripts and styles between.
+  const { doc, $ } = page(`<span id="count">Showing 1 to 10</span>
+    <script>window.__NUXT__={config:{key:"secret"}}</script><style>.x{color:red}</style>
+    <span id="badge">1080 x 811</span>`);
+  const range = doc.createRange();
+  range.setStart($("#count").firstChild!, 8);
+  range.setEnd($("#badge").firstChild!, 4);
+  assert.equal(textTarget(range)?.quote, "1 to 10 1080");
+});
+
 test("a quote is found again in its element whatever its whitespace, and a cut one by its start", () => {
   const { $ } = page(`<p id="intro">Upload the <b>signed</b>
       copy, then open it.</p>`);

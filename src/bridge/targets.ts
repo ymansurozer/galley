@@ -78,7 +78,11 @@ export function regionElements(
 // element holding all of it, resolved as a click on it would be (the control it's in, else
 // itself). Null when only whitespace is selected.
 export function textTarget(range: Range): Extract<PickedTarget, { kind: "text" }> | null {
-  const quote = squash(range.toString());
+  const quote = squash(
+    textParts(range)
+      .map((part) => part.toString())
+      .join(""),
+  );
   const node = range.commonAncestorContainer;
   const holder = node.nodeType === 1 ? (node as Element) : node.parentElement;
   if (!quote || !holder) return null;
@@ -91,6 +95,33 @@ export function textTarget(range: Range): Extract<PickedTarget, { kind: "text" }
 
 // NodeFilter.SHOW_TEXT: the bridge's tests run where NodeFilter isn't a global.
 const SHOW_TEXT = 4;
+// Text nodes that aren't the page's text: the source of its scripts and styles.
+const pageText = (node: Node) => {
+  const parent = node.parentElement?.localName;
+  return parent !== "script" && parent !== "style" && parent !== "noscript";
+};
+
+// The page's text a range runs over, one range per text node, cut to the range's ends. Script and
+// style source between its ends isn't part of it: a drag that ends on a layer the app appends to
+// <body> runs over everything in between.
+function textParts(range: Range): Range[] {
+  const root = range.commonAncestorContainer;
+  const doc = root.ownerDocument;
+  if (!doc) return [];
+  const part = (node: Node) => {
+    const r = doc.createRange();
+    r.selectNodeContents(node);
+    if (node === range.startContainer) r.setStart(node, range.startOffset);
+    if (node === range.endContainer) r.setEnd(node, range.endOffset);
+    return r;
+  };
+  if (root.nodeType === 3) return pageText(root) ? [part(root)] : [];
+  const parts: Range[] = [];
+  const walker = doc.createTreeWalker(root, SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode())
+    if (pageText(n) && range.intersectsNode(n)) parts.push(part(n));
+  return parts;
+}
 
 // `quote` found again in `root`'s text: a range over its first occurrence, compared with whitespace
 // collapsed, as the quote was taken. A quote cut at its cap (ending in "…") is matched on what's
@@ -105,8 +136,7 @@ export function findQuote(root: Element, quote: string): Range | null {
   const walker = doc.createTreeWalker(root, SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const node = n as Text;
-    const parent = node.parentElement?.localName;
-    if (parent === "script" || parent === "style") continue;
+    if (!pageText(node)) continue;
     for (let i = 0; i < node.data.length; i++) {
       const c = node.data[i]!;
       if (/\s/.test(c)) {
@@ -129,25 +159,11 @@ export function findQuote(root: Element, quote: string): Range | null {
 // The boxes of the text a range runs over, one per line fragment: its text nodes' own rects, not
 // the boxes of the elements it wholly contains, which Range.getClientRects adds.
 export function textRects(range: Range): Rect[] {
-  const root = range.commonAncestorContainer;
-  const doc = root.ownerDocument;
-  if (!doc) return [];
-  const rects: Rect[] = [];
-  const add = (node: Node) => {
-    const part = doc.createRange();
-    part.selectNodeContents(node);
-    if (node === range.startContainer) part.setStart(node, range.startOffset);
-    if (node === range.endContainer) part.setEnd(node, range.endOffset);
-    for (const r of part.getClientRects())
-      if (r.width > 0 && r.height > 0)
-        rects.push({ x: r.x, y: r.y, width: r.width, height: r.height });
-  };
-  if (root.nodeType === 3) add(root);
-  else {
-    const walker = doc.createTreeWalker(root, SHOW_TEXT);
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (range.intersectsNode(n)) add(n);
-  }
-  return rects;
+  return textParts(range).flatMap((part) =>
+    [...part.getClientRects()]
+      .filter((r) => r.width > 0 && r.height > 0)
+      .map((r) => ({ x: r.x, y: r.y, width: r.width, height: r.height })),
+  );
 }
 
 const query = (doc: Document, selector: string) => {
