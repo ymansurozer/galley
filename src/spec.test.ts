@@ -12,6 +12,10 @@ const ANCHORS = [
   "repo (default)",
   "galley file <path>",
   "galley pr <ref>",
+  // desk starts don't open a browser, so the agent relays the URL; --open opts in
+  "opens no browser by default",
+  "hand the printed desk URL to the human once",
+  "`--open` on any desk start",
   // the loop + events
   "galley await",
   "galley comment",

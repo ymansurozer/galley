@@ -19,6 +19,9 @@ and re-diff your edits into the same tab. No model runs in the desk; the review 
 ## Review modes
 Pick one at start. await/comment/status/reload/ui auto-target the lone live desk and omit --session
 below; --session at start (and restart) names the desk — needed only for a stable id or a second desk.
+A desk start opens no browser by default: hand the printed desk URL to the human once, when you first
+start the desk. \`--open\` on any desk start opts in to opening it on a fresh start (reusing a live
+desk never opens one).
 - repo (default) — \`galley\`: working-tree diff; \`--diff staged\` for the index; \`--path <p>\`
   limits to a path. Untracked (new) files show as full-file additions. Approve stages the file
   (toggle); accept/reject are verdicts. A moved file stages both its old and new paths as a rename.
