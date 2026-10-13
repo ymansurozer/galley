@@ -572,18 +572,15 @@ setMarkdownTheme(S.settings.theme);
 S.state = adoptDeskStatus(state);
 S.projectFiles = tree.files || [];
 S.lastBaseDiffHash = S.state.baseDiffHash;
-// Tab title: name the session so multiple desks are distinguishable in the browser.
-// Repo mode → repo folder; file mode → file name; pr mode → the (truncated) ref.
+// Tab title: name the project and what of it is under review, so multiple desks are
+// distinguishable in the browser. Context: repo mode → the branch; pr mode → the (truncated) head
+// branch; file mode → the file name. A detached HEAD has no branch, so the title drops it.
 {
   const base = (p?: string) => p?.replace(/\/+$/, "").split("/").pop() || "";
-  const ref = S.state.target ?? S.state.session ?? "";
-  const name =
-    S.state.mode === "file"
-      ? base(S.state.target)
-      : S.state.mode === "pr"
-        ? ref.slice(0, 32) + (ref.length > 32 ? "…" : "")
-        : base(S.state.root);
-  if (name) document.title = `Galley — ${name}`;
+  const { mode, target, branch, project, root } = S.state;
+  const ref = (mode === "pr" ? target : branch) ?? "";
+  const context = mode === "file" ? base(target) : ref.slice(0, 32) + (ref.length > 32 ? "…" : "");
+  document.title = `Galley — ${project ?? base(root)}${context ? ` · ${context}` : ""}`;
   // progress.ts prefixes the title with the review % — hand it the base to prefix.
   setBaseTitle(document.title);
 }
