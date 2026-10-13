@@ -1,7 +1,7 @@
 import { S, $, toast } from "./store";
 import { render } from "./render";
-import { readBridgeMessage, routeFromInput } from "./appnav";
-import type { DeskMessage, ReviewState, UiProxyInfo, Viewport } from "./types";
+import { captureWaits, readBridgeMessage, routeFromInput } from "./appnav";
+import type { BridgeShot, DeskMessage, Rect, ReviewState, UiProxyInfo, Viewport } from "./types";
 
 // The UI lane: the agent's running app, served by the desk's UI proxy (a second port, so a
 // different origin from the desk) and shown in an iframe in the centre pane. The iframe is
@@ -108,6 +108,20 @@ export function appGo(input: string) {
   S.app.route = route;
 }
 
+const captures = captureWaits(30_000);
+let captureSeq = 0;
+
+// Screenshot the app page as the reviewer sees it: the viewport, plus a crop around `selector`'s
+// element (or `rect`) when one is given. The bridge renders both in the page.
+export function captureApp(target: { selector?: string; rect?: Rect } = {}): Promise<BridgeShot> {
+  if (!S.uiProxy || !S.app.connected)
+    return Promise.reject(new Error("No bridge is listening on the app page"));
+  const id = ++captureSeq;
+  const reply = captures.wait(id);
+  post({ type: "capture", token: S.uiProxy.token, id, ...target });
+  return reply;
+}
+
 export function setViewport(viewport: Viewport) {
   S.viewport = viewport;
   sizeFrame();
@@ -189,12 +203,19 @@ export function installAppView() {
     const msg = readBridgeMessage(e.data, S.uiProxy.token);
     if (!msg) return;
     // A page's farewell lands after it's gone, so its source is already null. Accepting it on the
-    // origin and token alone is safe, because all it can do is stop the desk trusting a bridge.
+    // origin and token alone is safe, because all it can do is stop the desk trusting a bridge and
+    // fail the captures that page will now never answer.
     if (msg.type === "leave") {
-      if (e.source === null || e.source === frame.contentWindow) S.app.connected = false;
+      if (e.source !== null && e.source !== frame.contentWindow) return;
+      S.app.connected = false;
+      captures.abandon("The app page navigated away during the capture");
       return;
     }
     if (e.source !== frame.contentWindow) return;
+    if (msg.type === "captured") {
+      captures.settle(msg.id, "shot" in msg ? msg.shot : new Error(msg.error));
+      return;
+    }
     Object.assign(S.app, {
       connected: true,
       route: msg.route,

@@ -1,6 +1,7 @@
 import type {
   BridgeMessage,
   BridgeNav,
+  BridgeShot,
   ReviewState,
   ReviewComment,
   ChangeState,
@@ -10,6 +11,7 @@ import type {
   FileContentsPayload,
   GuideFile,
   PollPayload,
+  Rect,
   ReviewFile,
   ReviewerSave,
   UiProxyInfo,
@@ -367,6 +369,7 @@ export type AppFrame = {
 export type {
   BridgeMessage,
   BridgeNav,
+  BridgeShot,
   ReviewState,
   ReviewComment,
   ChangeState,
@@ -376,6 +379,7 @@ export type {
   FileContentsPayload,
   GuideFile,
   PollPayload,
+  Rect,
   ReviewerSave,
   UiProxyInfo,
 };

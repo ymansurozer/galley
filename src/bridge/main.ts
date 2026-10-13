@@ -1,12 +1,13 @@
-import type { BridgeMessage, BridgeNav, DeskMessage } from "../types";
+import type { BridgeMessage, BridgeNav, DeskMessage, Rect } from "../types";
+import { capturePage } from "./capture";
 
 // The bridge: the desk's UI proxy injects it as the first script in every proxied HTML page. It is
 // the app page's only line to the desk, and the line is postMessage to the parent desk frame, never
 // the desk API (a different origin, which the desk's origin guard refuses). Its tag carries the
 // desk origin and the per-desk token. Every message it posts carries the token and targets exactly
 // the desk origin. It obeys only messages from that origin, sent by the parent frame, that carry the
-// token. It does the handshake, reports navigation, and runs the desk's back/forward/refresh/
-// address commands.
+// token. It does the handshake, reports navigation, runs the desk's back/forward/refresh/address
+// commands, and screenshots the page on request.
 (() => {
   const tag = document.currentScript;
   const deskOrigin = tag?.dataset.galleyDesk;
@@ -62,6 +63,22 @@ import type { BridgeMessage, BridgeNav, DeskMessage } from "../types";
   });
   addEventListener("pagehide", () => post({ type: "leave", token }));
 
+  // The crop's target: the selector's element, else the rect the desk sent. A selector that matches
+  // nothing (or doesn't parse) gives no crop rather than failing the capture.
+  const captureTarget = (
+    msg: Partial<Extract<DeskMessage, { type: "capture" }>>,
+  ): Element | Rect | null => {
+    if (typeof msg.selector === "string") {
+      try {
+        return document.querySelector(msg.selector);
+      } catch {
+        return null;
+      }
+    }
+    const r = msg.rect;
+    return r && [r.x, r.y, r.width, r.height].every(Number.isFinite) ? r : null;
+  };
+
   addEventListener("message", (e: MessageEvent) => {
     if (e.origin !== deskOrigin || e.source !== window.parent) return;
     const msg = e.data as Partial<DeskMessage> | null;
@@ -77,6 +94,19 @@ import type { BridgeMessage, BridgeNav, DeskMessage } from "../types";
       if (!nav) history.forward();
       else if (nav.canGoForward) settle(nav.forward());
     } else if (msg.type === "reload") location.reload();
+    else if (msg.type === "capture" && typeof msg.id === "number") {
+      const id = msg.id;
+      capturePage(captureTarget(msg)).then(
+        (shot) => post({ type: "captured", token, id, shot }),
+        (err: unknown) =>
+          post({
+            type: "captured",
+            token,
+            id,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+      );
+    }
   });
 
   report("ready");
