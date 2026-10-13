@@ -10,7 +10,7 @@ import {
 } from "./changes";
 import { approveCurrentFile } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
-import { applyActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
+import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
 import { render, deferRender } from "./render";
 import { cur, prefetchContents } from "./contents";
@@ -32,6 +32,7 @@ import {
   nextWrapIndex,
   prevWrapIndex,
   anyUnreviewed,
+  navOrder,
   walkthroughRows,
 } from "./guide";
 import { setBaseTitle, reviewStats } from "./progress";
@@ -144,7 +145,7 @@ S.selectFile = (i) => {
   // (the "active" class left the row models; see applyActiveRow in tree.ts).
   applyActiveRow();
   deferRender();
-  // Quietly warm the next file in review order (guide order when guided, else sequential — the
+  // Quietly warm the next file in review order (guide order when guided, else tree order — the
   // exact resolution keyboard nav uses) so the common next-file step never waits on the wire.
   const n = nextFileIndex(i);
   if (n !== null) prefetchContents(S.state.files[n]);
@@ -204,6 +205,14 @@ S.toggleTestDir = (key) => {
   else S.expandedDirs.add(key);
 };
 S.toggleSkimGroup = toggleSkimGroup;
+// Tree / Walkthrough tab (the tab buttons and `w`): the list it shows may not have been visible
+// when the active file last changed, so scroll it to the active row. A frame late: x-show reveals
+// on a timer queued in Alpine's flush, which the next frame can beat — the list must be laid out
+// before showActiveRow measures it.
+S.setSidebarTab = (tab) => {
+  S.sidebarTab = tab;
+  requestAnimationFrame(showActiveRow);
+};
 S.rowClick = (r) => {
   if (r.kind === "skimgrp") S.toggleSkimGroup?.();
   else if (r.kind === "dir") S.toggleDir?.(r.full, r.changed);
@@ -291,15 +300,15 @@ S.guidePrev = () => {
 // while unreviewed work remains, next/prev stay live because they now seek it.
 S.guideAtStart = () => !!S.overviewOpen && !anyUnreviewed();
 S.guideAtLast = () => !S.overviewOpen && nextFileIndex(S.fileIndex) === null && !anyUnreviewed();
-// Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else sequential.
+// Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else the
+// Files tree's top-to-bottom order (see nextFileIndex).
 S.nextFile = () => {
   if (hasGuide() || S.overviewOpen) {
     S.guideNext?.();
     return;
   }
-  const n = S.fileIndex + 1;
   // Off the last file, wrap to the first unreviewed file (else the first file).
-  const target = n < S.state.files.length ? n : nextWrapIndex();
+  const target = nextFileIndex(S.fileIndex) ?? nextWrapIndex();
   if (target !== null) S.selectFile?.(target);
 };
 S.prevFile = () => {
@@ -307,10 +316,9 @@ S.prevFile = () => {
     S.guidePrev?.();
     return;
   }
-  const p = S.fileIndex - 1;
   // Off the first file, wrap to the last unreviewed file (else the last file). Without a guide
   // there's no Overview to step back into, so the wrap applies straight from the first file.
-  const target = p >= 0 ? p : prevWrapIndex();
+  const target = prevFileIndex(S.fileIndex) ?? prevWrapIndex();
   if (target !== null) S.selectFile?.(target);
 };
 // Tree-order file stepping (⇧↑/⇧↓) — walk the file rows as shown in the tree (skip folders),
@@ -583,6 +591,10 @@ S.selected = {
   side: S.state.changes[0]?.side || "additions",
   lineNumber: S.state.changes[0]?.lineNumber || 1,
 };
+// Without a guide, open on the first file in review order — the Files tree's top row — not the
+// first in the diff's own order, which can sit near the tree's bottom and make the first approve
+// wrap to the top. (A guided desk opens on the Overview; a reload keeps the reviewer's file.)
+if (!hasGuide()) S.fileIndex = navOrder()[0] ?? 0;
 if (S.state.files[S.fileIndex]) S.fileView = defaultFileView(S.state.files[S.fileIndex]);
 // With a guide attached, land on the Overview page (the guided entry point) and open the
 // sidebar on the user's preferred pane (`w` toggles it per-session from there).

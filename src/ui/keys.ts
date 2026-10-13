@@ -381,7 +381,7 @@ const HOTKEYS: Hotkey[] = [
     group: "View",
     when: () => hasGuide() && inCode(),
     test: k("w"),
-    run: () => (S.sidebarTab = S.sidebarTab === "tree" ? "walkthrough" : "tree"),
+    run: () => S.setSidebarTab?.(S.sidebarTab === "tree" ? "walkthrough" : "tree"),
   },
   {
     combo: "⇧U",

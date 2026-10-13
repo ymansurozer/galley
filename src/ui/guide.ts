@@ -4,6 +4,7 @@ import type { FlowIndex } from "./flow-index";
 import { isGuideBaseStale } from "./guide-derive";
 import { navFileOrder, nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek";
 import { isSkimGroupExpanded } from "./skim";
+import { treeOrder } from "./tree";
 import { renderMarkdown } from "./markdown";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
 import type { WalkGroup, WalkRow } from "./walkthrough";
@@ -37,64 +38,59 @@ export function firstGuideIndex(): number {
 // skimmed band so the group's siblings stay reachable. `outOfBand(i)` is true for a file in the
 // opposite band from `cur`. Off either band's end returns null and the caller wraps (guideNext/
 // guidePrev), where the wrap seeks (navOrder) only ever target the in-flow band.
-function outOfBand(cur: number): (i: number) => boolean {
-  // The returned predicate runs per candidate file while stepping — one flow-index pass here
+function outOfBand(cur: number, ix: FlowIndex): (i: number) => boolean {
+  // The returned predicate runs per candidate file while stepping — one flow-index pass
   // instead of a per-candidate rescan (see flow-index.ts).
-  const outOfFlow = flowIndex().outOfFlow;
   const path = S.state?.files?.[cur]?.path;
-  const curSkimmed = !!path && outOfFlow.has(path);
+  const curSkimmed = !!path && ix.outOfFlow.has(path);
   return (i) => {
     const p = S.state?.files?.[i]?.path;
-    return (!!p && outOfFlow.has(p)) !== curSkimmed;
+    return (!!p && ix.outOfFlow.has(p)) !== curSkimmed;
   };
 }
 
-// The next file to review after `cur`: the next in-band file in guide order when a guide is
-// attached (and `cur` is in it), else the next in-band file sequentially. null when `cur` is the
-// last of its band.
+// The order plain stepping walks from `cur`: guide order when guided and `cur` is in it, the file
+// array for a file the guide didn't list, and without a guide the Files tree's top-to-bottom
+// order — so "next" is the row below.
+function stepOrder(cur: number, ix: FlowIndex): readonly number[] {
+  if (!hasGuide()) return treeOrder(ix);
+  const order = guideOrder();
+  return order.includes(cur) ? order : Array.from(S.state.files, (_, i) => i);
+}
+
+// The next file to review after `cur`: the next in-band file in step order. null when `cur` is
+// the last of its band.
 export function nextFileIndex(cur: number): number | null {
-  const skip = outOfBand(cur);
-  if (hasGuide()) {
-    const order = guideOrder();
-    const pos = order.indexOf(cur);
-    if (pos >= 0) {
-      for (let p = pos + 1; p < order.length; p++) if (!skip(order[p]!)) return order[p]!;
-      return null;
-    }
-  }
-  const n = S.state?.files?.length ?? 0;
-  for (let i = cur + 1; i < n; i++) if (!skip(i)) return i;
+  const ix = flowIndex();
+  const skip = outOfBand(cur, ix);
+  const order = stepOrder(cur, ix);
+  for (let p = order.indexOf(cur) + 1; p < order.length; p++)
+    if (!skip(order[p]!)) return order[p]!;
   return null;
 }
 
-// The previous in-band file before `cur` (guide order, else sequential). null at the first —
-// the caller treats that as "go back to the Overview page".
+// The previous in-band file before `cur` in step order. null at the first — the caller treats
+// that as "go back to the Overview page" (or, without a guide, wraps).
 export function prevFileIndex(cur: number): number | null {
-  const skip = outOfBand(cur);
-  if (hasGuide()) {
-    const order = guideOrder();
-    const pos = order.indexOf(cur);
-    if (pos >= 0) {
-      for (let p = pos - 1; p >= 0; p--) if (!skip(order[p]!)) return order[p]!;
-      return null;
-    }
-  }
-  for (let i = cur - 1; i >= 0; i--) if (!skip(i)) return i;
+  const ix = flowIndex();
+  const skip = outOfBand(cur, ix);
+  const order = stepOrder(cur, ix);
+  for (let p = order.indexOf(cur) - 1; p >= 0; p--) if (!skip(order[p]!)) return order[p]!;
   return null;
 }
 
-// The order file navigation walks and wraps around. Without a guide it's the file array; with
-// one it's the guide order followed by every changed file the guide DIDN'T list (the
-// walkthrough's "Other" group), in file-array order — so the seek reaches unlisted files and
-// never dead-ends on a partial guide. Fully-skimmed files are excluded (issue 07): this is the
-// single choke point that keeps the wrap/approve-advance seeks off files that left the flow.
-// Plain mid-list stepping (nextFileIndex) reads its own band order, not this; only the seek/wrap
-// helpers read this extended order.
+// The order file navigation walks and wraps around. Without a guide it's the Files tree's
+// top-to-bottom order; with one it's the guide order followed by every changed file the guide
+// DIDN'T list (the walkthrough's "Other" group), in file-array order — so the seek reaches
+// unlisted files and never dead-ends on a partial guide. Fully-skimmed files are excluded
+// (issue 07): this is the single choke point that keeps the wrap/approve-advance seeks off files
+// that left the flow. Plain mid-list stepping (nextFileIndex) reads its own band order, not this;
+// only the seek/wrap helpers read this extended order.
 // The seeks below classify every file per call, so each public entry builds ONE flow-index
 // pass and threads it through (per-file predicate rescans froze big desks — see flow-index.ts).
 function navOrderWith(ix: FlowIndex): number[] {
   const n = S.state?.files?.length ?? 0;
-  return navFileOrder(n, hasGuide() ? guideOrder() : null, (i) => {
+  return navFileOrder(n, hasGuide() ? guideOrder() : treeOrder(ix), (i) => {
     const p = S.state?.files?.[i]?.path;
     return !!p && !ix.outOfFlow.has(p);
   });

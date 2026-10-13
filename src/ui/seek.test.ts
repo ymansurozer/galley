@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { navFileOrder, nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek.js";
+import { fileTree, treeFileOrder } from "./tree-derive.js";
 
 // A finished predicate backed by a set of signed-off file indices. A file absent from the set
 // is unreviewed — this is how a hash-invalidated file (signed off, then edited by the agent)
@@ -79,10 +80,18 @@ test("wrapPrevTarget cycles to the last file when everything is reviewed", () =>
   assert.equal(wrapPrevTarget([3, 1, 4], finishedIn([3, 1, 4])), 4);
 });
 
-test("navFileOrder without a guide is the file array minus fully-skimmed files", () => {
-  // Files 1 and 3 are fully skimmed (out of flow) → excluded from the seek order entirely.
-  const order = navFileOrder(5, null, (i) => i !== 1 && i !== 3);
-  assert.deepEqual(order, [0, 2, 4]);
+test("without a guide, approve-advance and next follow the Files tree, not the file array", () => {
+  // git's byte order; the Files tab reads src/ → a/ → x.ts, a.ts, b.ts, then package.json, README.md.
+  const files = ["README.md", "package.json", "src/a.ts", "src/a/x.ts", "src/b.ts"];
+  const tree = treeFileOrder(fileTree(files, new Map(files.map((p, i) => [p, i])), []));
+  // File 1 (package.json) is out of flow → dropped, like any skimmed file.
+  const order = navFileOrder(files.length, tree, (i) => i !== 1);
+  assert.deepEqual(order, [3, 2, 4, 0]);
+  // Approving x.ts lands on the row below (a.ts), not the next array slot (b.ts)…
+  assert.equal(nextUnreviewed(order, 3, finishedIn([3])), 2);
+  // …and approving b.ts lands on README.md, the next in-flow row, not a wrap to the top.
+  assert.equal(nextUnreviewed(order, 4, finishedIn([3, 2, 4])), 0);
+  assert.equal(wrapNextTarget(order, finishedIn([])), 3, "the wrap starts at the top row");
 });
 
 test("navFileOrder with a guide keeps guide order, appends unlisted, drops skimmed", () => {
