@@ -52,9 +52,12 @@ import {
 import { installCaptureDebug } from "./capturedebug";
 import { composerInUi } from "./composer";
 import {
+  closeShot,
   installUiLane,
   openChanges,
   setAppMode,
+  shotSrc,
+  shotTitle,
   submitUiComposer,
   toggleAnnotations,
   uiSendSummary,
@@ -505,10 +508,14 @@ S.appForward = appForward;
 S.appRefresh = appRefresh;
 S.appGo = appGo;
 S.setViewport = setViewport;
-// Its annotations (uilane.ts): the mode toggle, the sidebar, and the header's open count.
+// Its annotations (uilane.ts): the mode toggle, the sidebar, the header's open count, and the
+// enlarged screenshot.
 S.setAppMode = setAppMode;
 S.toggleAnnotations = toggleAnnotations;
 S.openChanges = openChanges;
+S.closeShot = closeShot;
+S.shotSrc = shotSrc;
+S.shotTitle = shotTitle;
 
 // Alpine: register the reactive store, then start.
 (window as any).Alpine = Alpine;

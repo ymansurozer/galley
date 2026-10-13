@@ -1,4 +1,4 @@
-import { S, $, openEditorAt, toast, persist } from "./store";
+import { S, $, openEditorAt, toast, persist, saver } from "./store";
 import { buildCommentThread, type ThreadControls } from "./annotations";
 import {
   buildComposer,
@@ -8,7 +8,7 @@ import {
   openComposer,
   restoreComposerFocus,
 } from "./composer";
-import { appGo, fromAppViewport, postToApp } from "./appview";
+import { appGo, captureApp, fromAppViewport, postToApp } from "./appview";
 import {
   annotationSource,
   marksFor,
@@ -20,7 +20,14 @@ import {
   stepFrom,
   stepOrder,
 } from "./uilane-derive";
-import { composerHead, pageHead, rowLine, sourceLink } from "./uilane-dom";
+import {
+  composerHead,
+  pageHead,
+  rowLine,
+  shotLink,
+  sourceLink,
+  type ShotStatus,
+} from "./uilane-dom";
 import { uuid } from "./uuid";
 import type { AnnotationDraft, AppMode, Rect, UiAnnotationRecord, UiPage, UiTarget } from "./types";
 
@@ -170,6 +177,69 @@ export function syncBridge() {
   }
 }
 
+// Screenshots of new annotations still being captured or uploaded, and why a capture failed. Both
+// are this tab's alone: after a reload, an annotation without stored screenshots reads as failed.
+const capturing = new Set<string>();
+const captureErrors = new Map<string, string>();
+
+const shotStatus = (a: UiAnnotationRecord): ShotStatus =>
+  capturing.has(a.id) ? "capturing" : a.screenshots ? "stored" : "failed";
+
+// Screenshot the page for a new annotation, as the reviewer marked it: the bridge renders the
+// viewport and a crop around the target, with the annotation's mark drawn on, and the tab uploads
+// both once the annotation's save has landed (the desk takes screenshots only for a saved
+// annotation). Nothing waits on it. The row reads "capturing…" until both are stored, else
+// "capture failed", and the annotation stands either way: it's sent without screenshots.
+async function captureScreenshots(a: UiAnnotationRecord) {
+  capturing.add(a.id);
+  try {
+    // Two frames first, so the closed composer and the new row are painted before the render,
+    // which can keep the page busy for seconds.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const shot = await captureApp({
+      selector: a.target.elements[0]!.selector, // an annotation always has an element (readPicked)
+      mark: { number: a.number },
+    });
+    if (!shot.crop) throw new Error("the annotated element wasn't on screen");
+    await saver.settled();
+    for (const [kind, png] of [
+      ["crop", shot.crop],
+      ["viewport", shot.viewport],
+    ] as const) {
+      if (!find(a.id)) return; // deleted meanwhile, and its files with it
+      const res = await fetch(`/api/ui-shot?annotation=${encodeURIComponent(a.id)}&kind=${kind}`, {
+        method: "POST",
+        headers: { "content-type": "image/png" },
+        body: png,
+      });
+      if (!res.ok) throw new Error(`the desk didn't store the ${kind} (${res.status})`);
+    }
+    const stored = find(a.id);
+    if (stored) stored.screenshots = true;
+  } catch (err) {
+    captureErrors.set(a.id, err instanceof Error ? err.message : String(err));
+  } finally {
+    capturing.delete(a.id);
+    renderUiLane();
+  }
+}
+
+// The enlarged screenshot view: the stored crop or viewport of an annotation.
+export function openShot(id: string) {
+  S.shotView = { id, kind: "crop" };
+}
+export function closeShot() {
+  S.shotView = null;
+}
+export const shotSrc = () =>
+  S.shotView
+    ? `/api/ui-shot?annotation=${encodeURIComponent(S.shotView.id)}&kind=${S.shotView.kind}`
+    : "";
+export const shotTitle = () => {
+  const a = find(S.shotView?.id ?? null);
+  return a ? `#${a.number} · screenshot` : "Screenshot";
+};
+
 // Submit the UI lane's open composer (Request change): a new annotation from the floating
 // composer, a reply in a thread, or an edited message.
 export function submitUiComposer() {
@@ -178,6 +248,7 @@ export function submitUiComposer() {
   const now = new Date().toISOString();
   const draft = S.annotationDraft;
   const a = find(S.composerAnnotation);
+  let created: UiAnnotationRecord | null = null;
   if (S.editingCommentId) {
     const m = a?.comments.find((x) => x.id === S.editingCommentId);
     if (m) {
@@ -187,7 +258,7 @@ export function submitUiComposer() {
     toast("Comment updated");
   } else if (draft) {
     const list = (S.state.annotations ??= []);
-    const created: UiAnnotationRecord = {
+    created = {
       id: uuid(),
       number: upcomingNumber(),
       intent: "change",
@@ -215,6 +286,8 @@ export function submitUiComposer() {
     });
     toast("Comment saved");
   }
+  // Started before the composer closes, so the row it renders already reads "capturing…".
+  if (created) void captureScreenshots(created);
   closeComposer();
   persist();
 }
@@ -302,14 +375,20 @@ function row(a: UiAnnotationRecord): HTMLElement {
   const item = document.createElement("div");
   item.className = "ann-item";
   item.append(line);
-  // One muted line of context: where the element came from.
+  // One muted line of context: the screenshot, then where the element came from.
+  const ctx = document.createElement("div");
+  ctx.className = "ann-ctx";
+  ctx.append(shotLink(document, shotStatus(a), captureErrors.get(a.id), () => openShot(a.id)));
   const source = annotationSource(a.target);
   if (source) {
-    const ctx = document.createElement("div");
-    ctx.className = "ann-ctx";
-    ctx.append(sourceLink(document, sourcePlace(source, S.state.root), "ann-src", openEditorAt));
-    item.append(ctx);
+    const sep = document.createElement("span");
+    sep.textContent = "·";
+    ctx.append(
+      sep,
+      sourceLink(document, sourcePlace(source, S.state.root), "ann-src", openEditorAt),
+    );
   }
+  item.append(ctx);
   const thread = document.createElement("div");
   thread.className = `annotation md-thread${a.status === "resolved" ? " resolved" : ""}`;
   thread.append(buildCommentThread(a, threadControls(a)));

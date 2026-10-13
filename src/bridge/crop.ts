@@ -39,3 +39,19 @@ export function cropFrame(
   const y2 = Math.min(Math.ceil((bottom + pad) * dpr), Math.floor(view.height * dpr));
   return { x, y, width: x2 - x, height: y2 - y };
 }
+
+// A pin's half-height plus a pixel: how far its centre stays from the viewport's edges.
+const PIN_INSET = 11;
+
+// Where an annotation's mark goes on a viewport image, in CSS px: an outline just outside the
+// target's box, so the stroke doesn't cover the element's own edge, and the numbered pin on the
+// box's top-left corner, kept on screen the way the page's pins are (annotate.ts).
+export function markShape(box: Rect, view: { width: number; height: number }) {
+  return {
+    outline: { x: box.x - 2, y: box.y - 2, width: box.width + 4, height: box.height + 4 },
+    pin: {
+      x: Math.max(PIN_INSET, Math.min(view.width - PIN_INSET, box.x)),
+      y: Math.max(PIN_INSET, box.y),
+    },
+  };
+}

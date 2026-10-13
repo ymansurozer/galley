@@ -1,6 +1,6 @@
 import { domToCanvas } from "modern-screenshot";
 import type { BridgeShot, Rect } from "../types";
-import { atRenderScroll, cropFrame } from "./crop";
+import { atRenderScroll, cropFrame, markShape } from "./crop";
 
 // Marks the bridge's own overlay host (outline, markers, labels). A capture never includes it: an
 // annotation's mark is drawn onto the image, not rendered from the page.
@@ -12,8 +12,12 @@ const ASSET_TIMEOUT = 10_000;
 // Screenshots by re-rendering the live DOM (modern-screenshot clones the page with its computed
 // styles, input values and embedded fonts/images into an SVG and draws that), not by reading the
 // screen's pixels: tab capture needs a secure origin, which the devbox desk isn't. One render makes
-// the viewport image, and the crop is cut from it so both show the same instant.
-export async function capturePage(target: Element | Rect | null): Promise<BridgeShot> {
+// the viewport image, and the crop is cut from it so both show the same instant. With `mark`, the
+// annotation's mark is drawn around the target before the crop is cut, so both images carry it.
+export async function capturePage(
+  target: Element | Rect | null,
+  mark?: { number: number },
+): Promise<BridgeShot> {
   const start = performance.now();
   const dpr = window.devicePixelRatio || 1;
   const root = document.documentElement;
@@ -48,6 +52,7 @@ export async function capturePage(target: Element | Rect | null): Promise<Bridge
     },
   });
   const frame = box && cropFrame(box, view, dpr);
+  if (mark && frame && box) drawMark(canvas, markShape(box, view), dpr, mark.number);
   const [viewport, crop] = await Promise.all([
     toPng(canvas),
     frame ? toPng(cut(canvas, frame)) : null,
@@ -119,6 +124,54 @@ function formFields() {
       root.append(style);
     },
   };
+}
+
+// The annotation's mark as the page's selected pin looks (annotate.ts): an amber outline around the
+// target, and the numbered amber pin in a white ring with a soft shadow.
+const MARK = "#e0af68";
+
+function drawMark(
+  canvas: HTMLCanvasElement,
+  { outline, pin }: ReturnType<typeof markShape>,
+  dpr: number,
+  number: number,
+) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("No 2D canvas context for the mark");
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.strokeStyle = MARK;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(outline.x, outline.y, outline.width, outline.height, 4);
+  ctx.stroke();
+  const label = String(number);
+  ctx.font = "700 11px Geist, ui-sans-serif, system-ui, sans-serif";
+  const width = Math.max(20, ctx.measureText(label).width + 10);
+  const pill = (grow: number) => {
+    ctx.beginPath();
+    ctx.roundRect(
+      pin.x - width / 2 - grow,
+      pin.y - 10 - grow,
+      width + 2 * grow,
+      20 + 2 * grow,
+      10 + grow,
+    );
+    ctx.fill();
+  };
+  ctx.shadowColor = "rgba(0, 0, 0, .35)";
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 2;
+  ctx.fillStyle = "#fff";
+  pill(2);
+  ctx.shadowColor = "transparent";
+  ctx.fillStyle = MARK;
+  pill(0);
+  ctx.fillStyle = "#050608";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, pin.x, pin.y + 0.5);
+  ctx.restore();
 }
 
 function cut(source: HTMLCanvasElement, frame: Rect) {

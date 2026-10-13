@@ -102,7 +102,10 @@ import { capturePage } from "./capture";
       annotate.setMarks(msg.marks, msg.selected ?? null, msg.picking === true);
     else if (msg.type === "capture" && typeof msg.id === "number") {
       const id = msg.id;
-      capturePage(captureTarget(msg)).then(
+      const number = msg.mark?.number;
+      const mark =
+        typeof number === "number" && Number.isSafeInteger(number) ? { number } : undefined;
+      capturePage(captureTarget(msg), mark).then(
         (shot) => post({ type: "captured", token, id, shot }),
         (err: unknown) =>
           post({

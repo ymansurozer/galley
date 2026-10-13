@@ -154,3 +154,21 @@ test("createSaver: a trigger after quiescence starts a fresh send", async () => 
   assert.equal(calls.length, 2);
   assert.equal(saver.isBusy(), true);
 });
+
+test("createSaver: settled resolves once the in-flight and trailing saves are done", async () => {
+  const { send, calls } = fakeSend<number>();
+  const saver = createSaver(() => 1, send);
+  await saver.settled(); // nothing out: at once
+
+  saver.trigger();
+  saver.trigger(); // trailing queued
+  let settled = false;
+  void saver.settled().then(() => (settled = true));
+  calls[0]!.resolve();
+  await flush();
+  assert.equal(settled, false, "the trailing save is still out");
+
+  calls[1]!.reject(); // a failed save still settles: the wire is quiet
+  await flush();
+  assert.equal(settled, true);
+});

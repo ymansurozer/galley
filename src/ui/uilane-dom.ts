@@ -68,6 +68,33 @@ export function composerHead(
   return head;
 }
 
+// Where an annotation's screenshots stand: being captured and uploaded, stored, or not stored
+// (the capture failed, in this tab or before it was opened).
+export type ShotStatus = "capturing" | "stored" | "failed";
+
+// The screenshot part of an expanded row's context line: a quiet "capturing…", then a link that
+// enlarges the stored pair, or a quiet failure note whose tooltip says why when the tab knows. The
+// reason can come from the app page (the bridge's error), so it's only ever text.
+export function shotLink(
+  doc: Document,
+  status: ShotStatus,
+  reason: string | undefined,
+  open: () => void,
+): HTMLElement {
+  if (status === "stored") {
+    const link = node(doc, "button", "ann-shot", "Screenshot");
+    link.title = "Enlarge the screenshot";
+    link.onclick = open;
+    return link;
+  }
+  if (status === "capturing") return node(doc, "span", "ann-shot", "capturing…");
+  const note = node(doc, "span", "ann-shot", "capture failed");
+  note.title = reason
+    ? `No screenshot: ${reason}`
+    : "No screenshot was saved; the annotation is sent without one";
+  return note;
+}
+
 // A source's `file:line`, opening the editor there; plain text when the file isn't in the repo.
 // The tooltip names the component and the full place.
 export function sourceLink(
