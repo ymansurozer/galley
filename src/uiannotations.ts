@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import path from "node:path";
 
 import type {
   Rect,
@@ -8,6 +9,7 @@ import type {
   UiCaps,
   UiElement,
   UiPage,
+  UiSentElement,
   UiSource,
   UiTarget,
 } from "./types.js";
@@ -220,19 +222,28 @@ const slashed = (p: string) =>
   p.replace(/\\/g, "/").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
 const isAbsolutePath = (p: string) => p.startsWith("/") || /^[A-Za-z]:/.test(p);
 
-// A source file the agent can open from the repo: inside the repo `root`, repo-relative. A path
-// outside it, or one already relative, goes as it came.
-function repoRelative(file: string, root: string) {
+// A source file as the agent may be handed it: repo-relative, once `.` and `..` are resolved, when
+// it lies inside the repo `root` (a relative path counts from the root). Null for any other: the
+// path came from the page, which could otherwise point the agent at any file on the machine.
+function repoRelative(file: string, root: string): string | null {
+  const base = path.posix.normalize(slashed(root)).replace(/\/+$/, "");
   const f = slashed(file);
-  const base = slashed(root).replace(/\/+$/, "");
-  return isAbsolutePath(f) && f.startsWith(`${base}/`) ? f.slice(base.length + 1) : file;
+  const abs = path.posix.normalize(isAbsolutePath(f) ? f : `${base}/${f}`);
+  return abs.startsWith(`${base}/`) ? abs.slice(base.length + 1) : null;
 }
 
-const withRepoSource = (el: UiElement, root: string): UiElement =>
-  el.source ? { ...el, source: { ...el.source, file: repoRelative(el.source.file, root) } } : el;
+// An element as the agent gets it (UiSentElement): its source's file repo-relative, or, when the
+// file lies outside the repo, the source without its file, line and column.
+function withRepoSource(el: UiElement, root: string): UiSentElement {
+  if (!el.source) return el;
+  const file = repoRelative(el.source.file, root);
+  if (file !== null) return { ...el, source: { ...el.source, file } };
+  const { component, vendor, via } = el.source;
+  return { ...el, source: { ...(component && { component }), ...(vendor && { vendor }), via } };
+}
 
-// A target with its elements' source files repo-relative.
-function withRepoSources(target: UiTarget, root: string): UiTarget {
+// A target with its elements' sources as the agent gets them.
+function withRepoSources(target: UiTarget, root: string): UiTarget<UiSentElement> {
   if (target.kind === "page") return target;
   if (target.kind === "text") return { ...target, element: withRepoSource(target.element, root) };
   return { ...target, elements: target.elements.map((el) => withRepoSource(el, root)) };
@@ -241,7 +252,8 @@ function withRepoSources(target: UiTarget, root: string): UiTarget {
 // What a UI question points at, in one line for the agent. Elements are named by the first one's
 // role (else tag) and its accessible name (else its text), and how many more there are; a region
 // by its size first, a quote by its text and its holder's role, a page as the whole page. Then the
-// source's file:line (the first element's that has one, repo-relative) when the page resolved it.
+// source's file:line (the first element's that has one inside the repo, repo-relative) when the
+// page resolved it.
 export function questionTarget(target: UiTarget, root: string): string {
   if (target.kind === "page") return "the whole page";
   const elements = target.kind === "text" ? [target.element] : target.elements;
@@ -257,11 +269,8 @@ export function questionTarget(target: UiTarget, root: string): string {
           label && `"${cap(label, 80)}"`,
           more.length && `+${more.length} more`,
         ];
-  const source = elements.find((el) => el.source)?.source;
-  return [
-    ...named,
-    source && `${repoRelative(source.file, root)}${source.line ? `:${source.line}` : ""}`,
-  ]
+  const source = elements.map((el) => withRepoSource(el, root).source).find((s) => s?.file);
+  return [...named, source && `${source.file}${source.line ? `:${source.line}` : ""}`]
     .filter(Boolean)
     .join(" · ");
 }

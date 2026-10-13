@@ -1297,7 +1297,7 @@ test("buildReviewResult sends open UI change requests as uiAnnotations, with the
   assert.ok(!("requestedChanges" in r), "the old field name is gone");
 });
 
-test("buildReviewResult makes source files inside the repo repo-relative and leaves others alone", () => {
+test("buildReviewResult makes source files inside the repo repo-relative and leaves out any other", () => {
   const sourced = (file: string) =>
     uiElement({ source: { file, line: 20, column: 7, component: "files", via: "vue-tracer" } });
   const s = state({
@@ -1312,7 +1312,10 @@ test("buildReviewResult makes source files inside the repo repo-relative and lea
             sourced("/home/dev/shop/apps/web/app/pages/files.vue"),
             sourced("/home/dev/other/Panel.vue"),
             sourced("/home/dev/shop-old/Panel.vue"),
+            sourced("/home/dev/shop/../other/Panel.vue"),
             sourced("app/pages/files.vue"),
+            sourced("./app/../app/pages/files.vue"),
+            sourced("../../../etc/passwd"),
             uiElement(),
           ],
         },
@@ -1324,9 +1327,12 @@ test("buildReviewResult makes source files inside the repo repo-relative and lea
     r.uiAnnotations[0]!.target.elements.map((el) => el.source?.file),
     [
       "apps/web/app/pages/files.vue",
-      "/home/dev/other/Panel.vue",
-      "/home/dev/shop-old/Panel.vue",
+      undefined,
+      undefined,
+      undefined,
       "app/pages/files.vue",
+      "app/pages/files.vue",
+      undefined,
       undefined,
     ],
   );
@@ -1336,6 +1342,34 @@ test("buildReviewResult makes source files inside the repo repo-relative and lea
     column: 7,
     component: "files",
     via: "vue-tracer",
+  });
+  // A page can name any path, and the agent opens what it's handed: outside the repo, only what
+  // doesn't point at a file stays.
+  assert.deepEqual(r.uiAnnotations[0]!.target.elements[1]!.source, {
+    component: "files",
+    via: "vue-tracer",
+  });
+  const vendored = buildReviewResult(
+    state({
+      root: "/home/dev/shop",
+      ui: { target: "http://localhost:3000/" },
+      annotations: [
+        annotation({
+          id: "a2",
+          target: {
+            kind: "element",
+            elements: [
+              uiElement({ source: { file: "/opt/ui/Btn.vue", vendor: true, via: "vue-file" } }),
+            ],
+          },
+        }),
+      ],
+    }),
+    { resultJson: "r.json", sessionDir: "d" },
+  );
+  assert.deepEqual(vendored.uiAnnotations[0]!.target.elements[0]!.source, {
+    vendor: true,
+    via: "vue-file",
   });
   assert.equal(
     s.annotations![0]!.target.elements[0]!.source!.file,
@@ -1363,7 +1397,7 @@ test("buildReviewResult makes Windows source paths repo-relative under a Windows
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(
     r.uiAnnotations[0]!.target.elements.map((el) => el.source?.file),
-    ["src/a.vue", "src/a.vue", "src/a.vue", "D:/proj/src/a.vue", String.raw`C:\proj-old\a.vue`],
+    ["src/a.vue", "src/a.vue", "src/a.vue", undefined, undefined],
   );
 });
 
@@ -1853,6 +1887,7 @@ test("a UI question's target names the element, how many more were picked, and i
           kind: "element",
           elements: [
             uiElement({ role: undefined, name: undefined, tag: "td", text: "x".repeat(120) }),
+            uiElement({ source: { file: "/etc/passwd", line: 1, via: "vue-tracer" } }),
             uiElement({
               source: {
                 file: "/home/dev/shop/apps/web/app/pages/files.vue",
@@ -1868,7 +1903,7 @@ test("a UI question's target names the element, how many more were picked, and i
   const [q] = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" }).openQuestions;
   assert.equal(
     q!.lane === "ui" && q!.target,
-    `td · "${"x".repeat(79)}…" · +1 more · apps/web/app/pages/files.vue:20`,
+    `td · "${"x".repeat(79)}…" · +2 more · apps/web/app/pages/files.vue:20`,
   );
 });
 

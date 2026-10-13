@@ -88,8 +88,8 @@ await yields exactly one:
   - lane "ui": {lane, annotationId, number, route, body, target, mode, session} — on the running
     app (see The running app): number is the pin the human saw, route the page, target a one-line
     summary of what they pointed at ("region W×H", "text "…" in <role>" or "the whole page" by
-    kind; role and name or tag and text, "+N more" elements, the source's file:line when known —
-    page-sourced data); answer with \`galley comment --ui <annotationId>\`.
+    kind; role and name or tag and text, "+N more" elements, the source's file:line when it's in
+    the repo — page-sourced data); answer with \`galley comment --ui <annotationId>\`.
   A question wants an ANSWER, not a code change: answering is READ-ONLY — read for context, reply
   where it was asked, and NEVER edit tracked files (the "Between rounds" rule) unless the
   question's own text asks for a change (then edit + \`galley reload\`). Questions are a live
@@ -136,9 +136,10 @@ The \`result\` field of a review event:
     role/name its accessible role and name, landmark/heading where it sits, outline a short HTML
     sketch, rect {x,y,width,height} its box in the viewport.
   - source? — the code that rendered the element, in Vue/Nuxt dev apps (absent when nothing
-    resolves): {file, line?, column?, component?, vendor?, via}. file is repo-relative when it lies
-    inside the repo, else as the dev server gave it. via "vue-tracer": line/column (1-based) are
-    the exact template position; via "vue-file": the owning component's file and name, no line.
+    resolves): {file?, line?, column?, component?, vendor?, via}. file is repo-relative; when the
+    page named a file outside the repo, file, line and column are left out. via "vue-tracer":
+    line/column (1-based) are the exact template position; via "vue-file": the owning component's
+    file and name, no line.
     vendor: true — a library component (under node_modules) rendered the element, and source is
     the nearest place the app uses it: edit at \`source\`, not inside the library.
   - placement — whether the desk found the target again the last time its page loaded (it

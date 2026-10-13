@@ -433,7 +433,7 @@ export type UiElement = {
 // file and name only. `vendor`: the element was rendered inside a library component (under
 // node_modules), and the position is the nearest app-owned one — where the library component is
 // used. The bridge sends the path it was given (often absolute); the Send makes it repo-relative
-// when it lies inside the repo.
+// when it lies inside the repo, and leaves it out otherwise (UiSentElement).
 export type UiSource = {
   file: string;
   line?: number;
@@ -450,19 +450,26 @@ export type UiPage = {
   title?: string;
   viewport: { width: number; height: number; dpr: number };
 };
-// What an annotation points at.
-export type UiTarget =
+// What an annotation points at. The agent receives its elements as UiSentElement.
+export type UiTarget<E = UiElement> =
   // 1–16 elements: a click, or ⇧-clicks gathered until ⇧ is released.
-  | { kind: "element"; elements: UiElement[] }
+  | { kind: "element"; elements: E[] }
   // A dragged box (in the viewport, like an element's rect) over anything, canvas or empty space
   // included, and the meaningful elements wholly inside it: controls, landmarks, headings, media
   // and elements with text of their own, outermost first, 0–16. Best effort.
-  | { kind: "region"; rect: Rect; elements: UiElement[] }
+  | { kind: "region"; rect: Rect; elements: E[] }
   // Text dragged over: the quote, whitespace collapsed, and the element holding all of it, as a
   // click on it would pick it.
-  | { kind: "text"; quote: string; element: UiElement }
+  | { kind: "text"; quote: string; element: E }
   // The page itself (its route), with nothing on it singled out.
   | { kind: "page" };
+// An element as the agent receives it: its source's file repo-relative, and no file, line or
+// column when the file the page named lies outside the repo. The path is page-sourced, and the
+// agent opens what it's handed.
+export type UiSentElement = Omit<UiElement, "source"> & {
+  source?: Omit<UiSource, "file" | "line" | "column"> &
+    Partial<Pick<UiSource, "file" | "line" | "column">>;
+};
 // Caps on page-sourced data: string lengths, and the attrs and elements counts. The bridge, the tab
 // and the server each keep a runtime copy typed as UiCaps (the worlds share no runtime code), so a
 // copy that drifts fails the typecheck. `name` also caps role, landmark, heading and a source's
@@ -514,7 +521,7 @@ export type UiAnnotation = {
   status: UiAnnotationRecord["status"];
   placement: UiAnnotationRecord["placement"];
   page: UiPage;
-  target: UiTarget;
+  target: UiTarget<UiSentElement>;
   // Absolute paths to the PNGs, with the annotation's mark drawn on. `exact` is false: the bridge
   // re-renders the DOM rather than reading the screen's pixels. Absent when capture failed, or when
   // either file is no longer on disk at Send.

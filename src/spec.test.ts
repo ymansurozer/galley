@@ -71,7 +71,7 @@ const ANCHORS = [
   "source?",
   "vue-tracer",
   "vue-file",
-  "repo-relative when it lies",
+  "file is repo-relative; when the\n    page named a file outside the repo, file, line and column are left out",
   "vendor: true",
   "edit at `source`, not inside the library",
   // annotation screenshots (issue 06): absolute PNG paths, a re-render, with the mark drawn on
