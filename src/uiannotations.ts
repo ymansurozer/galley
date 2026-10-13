@@ -137,11 +137,12 @@ function readPage(v: unknown, app: string): UiPage | null {
 // page-sourced and keep the code comments' rule: no cap.
 function readMessage(v: unknown): ThreadMessage | null {
   if (!isObj(v)) return null;
-  const { id, body, createdAt, updatedAt, role, intent } = v;
+  const { id, body, createdAt, updatedAt, role, intent, askedAt } = v;
   if (!isId(id) || !nonEmpty(body) || !nonEmpty(createdAt) || !nonEmpty(updatedAt)) return null;
   if (role !== "user" && role !== "agent") return null;
   const m: ThreadMessage = { id, body, createdAt, updatedAt, role };
   if (intent === "note" || intent === "action" || intent === "question") m.intent = intent;
+  if (nonEmpty(askedAt)) m.askedAt = askedAt;
   return m;
 }
 

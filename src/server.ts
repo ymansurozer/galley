@@ -51,6 +51,7 @@ import type {
   QuestionPayload,
   ReviewState,
   SaveStamp,
+  ThreadMessage,
 } from "./types.js";
 import {
   SHOT_CAP,
@@ -356,6 +357,31 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     const waiter = eventWaiters.shift();
     if (waiter) waiter(ev);
     else eventQueue.push(ev);
+  };
+  // The reviewer's open questions, by message id: a code comment, or a message in an open UI
+  // annotation's thread. /api/ask builds each question event from the stored copy.
+  const isAsked = (m: ThreadMessage) => m.role !== "agent" && m.intent === "question";
+  const codeQuestion = (id: unknown) =>
+    state.comments.find((c) => c.id === id && c.status === "open" && isAsked(c));
+  const uiQuestion = (annotationId: unknown, id: unknown) => {
+    const a = state.annotations?.find((x) => x.id === annotationId && x.status === "open");
+    const m = a?.comments.find((x) => x.id === id && isAsked(x));
+    return a && m ? { a, m } : undefined;
+  };
+  // The message each question was asked in. A queued question whose message is no longer an open
+  // question (turned into a change request, resolved or deleted) has nothing left to answer, so
+  // it's withdrawn: after every save, and before the await drains the queue.
+  const askedIn = new WeakMap<QuestionPayload, string>();
+  const stillAsked = (q: QuestionPayload) => {
+    const id = askedIn.get(q);
+    if (id === undefined) return true;
+    return q.lane === "code" ? !!codeQuestion(id) : !!uiQuestion(q.annotationId, id);
+  };
+  const withdrawQuestions = () => {
+    for (let i = eventQueue.length - 1; i >= 0; i--) {
+      const ev = eventQueue[i];
+      if (ev.kind === "question" && !stillAsked(ev.question)) eventQueue.splice(i, 1);
+    }
   };
 
   // Ephemeral "what the agent is doing now" line (`galley status`). Lives only in
@@ -670,6 +696,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // tab still posting the old full-state body keeps working (extra fields ignored).
         return await serialize(async () => {
           mergeReviewerSave(state, JSON.parse(await readBody(req)), saveStamp());
+          withdrawQuestions();
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
           return json(res, 200, { ok: true, file });
@@ -706,6 +733,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (req.method === "POST" && url.pathname === "/api/ask") {
         // Reviewer clicked Ask: push a question to the agent now (out of band from Send).
         const b = JSON.parse(await readBody(req)) as {
+          id?: string;
           path?: string;
           lineNumber?: number;
           side?: string;
@@ -714,14 +742,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           messageId?: string;
         };
         let question: QuestionPayload;
+        let asked: string | undefined;
+        // A question the tab saved first names its message (a code comment, or a UI annotation and
+        // a message in its thread): the event is built from the stored copy, as openQuestions is.
         if (b.annotationId !== undefined) {
-          // A UI question names its annotation and message, which the tab saved first: the event
-          // is built from the stored copy, as openQuestions is.
-          const a = state.annotations?.find((x) => x.id === b.annotationId);
-          const m = a?.comments.find(
-            (x) => x.id === b.messageId && x.role !== "agent" && x.intent === "question",
-          );
-          if (!a || !m)
+          const found = uiQuestion(b.annotationId, b.messageId);
+          if (!found)
             return fail(
               res,
               404,
@@ -729,7 +755,20 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               `No question "${b.messageId}" on annotation "${b.annotationId}" in this review.`,
               "Save the annotation before asking.",
             );
-          question = uiQuestionPayload(state, a, m);
+          question = uiQuestionPayload(state, found.a, found.m);
+          asked = found.m.id;
+        } else if (b.id !== undefined) {
+          const c = codeQuestion(b.id);
+          if (!c)
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `No question "${b.id}" in this review.`,
+              "Save the comment before asking.",
+            );
+          question = questionPayload(state, c);
+          asked = c.id;
         } else {
           const text = (b.body ?? "").trim();
           if (!b.path || !text)
@@ -749,6 +788,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         }
         // Bake the singular into a one-element `questions` here so a question handed straight
         // to a parked waiter already carries the array — batching only has to merge on drain.
+        if (asked !== undefined) askedIn.set(question, asked);
         emitEvent({ kind: "question", question, questions: [question] });
         return json(res, 200, { ok: true });
       }
@@ -769,8 +809,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // `questions` holds them in arrival order. Safe because a Send flushes every queued
         // question before enqueuing its review (see /api/send), so a review can never sit
         // between two queued questions; draining all questions can't skip past a review.
-        // A UI question whose annotation was deleted or resolved while it sat queued has no thread
-        // left to answer in, so it's dropped; if none are left, the agent waits for the next event.
+        // Questions withdrawn while they sat queued go first; with none left, the agent gets the
+        // next event.
+        withdrawQuestions();
         if (eventQueue[0]?.kind === "question") {
           const batched: QuestionPayload[] = [];
           for (let i = eventQueue.length - 1; i >= 0; i--) {
@@ -780,12 +821,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               eventQueue.splice(i, 1);
             }
           }
-          const open = new Set(
-            state.annotations?.filter((a) => a.status === "open").map((a) => a.id),
-          );
-          const asked = batched.filter((q) => q.lane === "code" || open.has(q.annotationId));
-          if (asked.length)
-            return json(res, 200, { kind: "question", question: asked[0], questions: asked });
+          return json(res, 200, { kind: "question", question: batched[0], questions: batched });
         }
         const queued = eventQueue.shift();
         if (queued) return json(res, 200, queued);

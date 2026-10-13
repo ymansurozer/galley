@@ -668,6 +668,44 @@ test("buildReviewResult.openQuestions lists unanswered questions and drops answe
   ]);
 });
 
+test("a change request turned into a question counts as asked at the turn: earlier agent replies don't answer it", () => {
+  const thread = (line: number, askedAt: string, reply: string) => [
+    comment({
+      id: `q${line}`,
+      path: "a.ts",
+      lineNumber: line,
+      body: `rename ${line}`,
+      intent: "question",
+      role: "user",
+      createdAt: "2026-01-01T00:00:00Z",
+      askedAt,
+    }),
+    comment({
+      id: `r${line}`,
+      path: "a.ts",
+      lineNumber: line,
+      body: "done",
+      intent: "note",
+      role: "agent",
+      createdAt: reply,
+    }),
+  ];
+  const s = state({
+    comments: [
+      // Replied to at 00:01 as a change request, turned into a question at 00:05.
+      ...thread(4, "2026-01-01T00:05:00Z", "2026-01-01T00:01:00Z"),
+      // Turned at 00:05 and answered afresh at 00:06.
+      ...thread(7, "2026-01-01T00:05:00Z", "2026-01-01T00:06:00Z"),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.openQuestions.map((q) => q.body),
+    ["rename 4"],
+  );
+  assert.deepEqual(r.codeChangeRequests, []);
+});
+
 test("buildReviewResult carries mode/target/base", () => {
   const s = state({ mode: "pr", target: "feature-x", base: "abc123" });
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
@@ -1589,6 +1627,44 @@ test("mergeReviewerSave stores well-formed annotations as sent", () => {
   const live = state({ ui: UI });
   mergeReviewerSave(live, { annotations: [annotation({ id: "a1" })] });
   assert.deepEqual(live.annotations, [annotation({ id: "a1" })]);
+});
+
+test("a UI change request turned into a question is saved with its asked time, asked, and no longer sent", () => {
+  const live = state({ ui: UI });
+  const a = annotation({ id: "a1" });
+  a.comments.push({
+    id: "a1-r1",
+    role: "agent",
+    intent: "note",
+    body: "Done",
+    createdAt: "2026-10-13T10:01:00.000Z",
+    updatedAt: "2026-10-13T10:01:00.000Z",
+  });
+  const asked = {
+    ...a,
+    intent: "question" as const,
+    comments: [
+      { ...a.comments[0]!, intent: "question" as const, askedAt: "2026-10-13T10:05:00.000Z" },
+      a.comments[1]!,
+    ],
+  };
+  mergeReviewerSave(live, { annotations: [asked] });
+  assert.equal(live.annotations![0]!.comments[0]!.askedAt, "2026-10-13T10:05:00.000Z");
+  const r = buildReviewResult(live, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(r.uiAnnotations, []);
+  assert.deepEqual(
+    r.openQuestions.map((q) => q.lane === "ui" && q.annotationId),
+    ["a1"],
+    "the reply from before the turn doesn't answer it",
+  );
+  // Turned back, it's a change request again.
+  mergeReviewerSave(live, { annotations: [a] });
+  const back = buildReviewResult(live, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    back.uiAnnotations.map((x) => x.id),
+    ["a1"],
+  );
+  assert.deepEqual(back.openQuestions, []);
 });
 
 test("mergeReviewerSave truncates oversized page data to the caps", () => {

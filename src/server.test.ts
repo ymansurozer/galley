@@ -16,7 +16,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { AGENT_HEADER, resolveBinding, startServer } from "./server.js";
 import { buildReviewState, hash, reviewDir, writeGlobalSettings } from "./state.js";
-import type { ReviewState } from "./types.js";
+import type { ReviewComment, ReviewResult, ReviewState } from "./types.js";
 import { SHOT_CAP } from "./uishots.js";
 
 function state(root: string): ReviewState {
@@ -704,6 +704,122 @@ test("a UI ask on an annotation, or a question, the review doesn't have is a 404
     ]) {
       const res = await post(handle.url, "api/ask", body);
       assert.equal(res.status, 404, JSON.stringify(body));
+    }
+    assert.equal((await getState(handle.url)).queuedQuestions, 0, "nothing was asked");
+  });
+});
+
+// ── Turning a change request into a question, and back ──────────────────────────────────────────
+// A change request on a.ts:1 the agent replied to, as the tab saves it.
+const requested: ReviewComment = {
+  id: "c1",
+  path: "a.ts",
+  side: "additions",
+  lineNumber: 1,
+  body: "Rename this",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  status: "open",
+  intent: "action",
+  role: "user",
+};
+const replied: ReviewComment = {
+  ...requested,
+  id: "r1",
+  body: "Renamed",
+  createdAt: "2026-01-01T00:01:00.000Z",
+  updatedAt: "2026-01-01T00:01:00.000Z",
+  intent: "note",
+  role: "agent",
+};
+type ReviewEvent = { kind: string; result: ReviewResult };
+
+test("a Sent change request turned into a question reaches the parked await, and stays open until answered afresh", async () => {
+  await withServer(async (handle) => {
+    await post(handle.url, "api/send", { comments: [requested, replied] });
+    const first = (await awaitEvent(handle.url).then((r) => r.json())) as ReviewEvent;
+    assert.deepEqual(
+      first.result.codeChangeRequests.map((c) => c.body),
+      ["Rename this"],
+    );
+
+    const parked = awaitEvent(handle.url).then((r) => r.json());
+    for (let i = 0; i < 100 && !(await getState(handle.url)).agentListening; i++)
+      await new Promise((r) => setTimeout(r, 10));
+    // The tab saves the turn, then asks for it by id.
+    const asked = { ...requested, intent: "question", askedAt: "2026-01-01T00:05:00.000Z" };
+    await post(handle.url, "api/save", { comments: [asked, replied] });
+    assert.equal((await post(handle.url, "api/ask", { id: "c1" })).status, 200);
+    const question = {
+      lane: "code",
+      path: "a.ts",
+      lineNumber: 1,
+      side: "additions",
+      body: "Rename this",
+      mode: "repo",
+      session: "s",
+    };
+    assert.deepEqual(await parked, { kind: "question", question, questions: [question] });
+
+    // Sent before the agent answers: the reply from before the turn doesn't answer it.
+    await post(handle.url, "api/send", { comments: [asked, replied] });
+    const next = (await awaitEvent(handle.url).then((r) => r.json())) as ReviewEvent;
+    assert.deepEqual(next.result.codeChangeRequests, []);
+    assert.deepEqual(next.result.openQuestions, [question]);
+  });
+});
+
+test("a queued question turned into a change request, resolved or deleted is withdrawn; the change request goes with the next Send", async () => {
+  await withServer(async (handle) => {
+    const question = (id: string, lineNumber: number) => ({
+      ...requested,
+      id,
+      lineNumber,
+      body: `${id}?`,
+      intent: "question",
+    });
+    const [turned, resolved, deleted, kept] = [
+      question("c1", 1),
+      question("c2", 2),
+      question("c3", 3),
+      question("c4", 4),
+    ];
+    await post(handle.url, "api/save", { comments: [turned, resolved, deleted, kept] });
+    for (const id of ["c1", "c2", "c3", "c4"]) await post(handle.url, "api/ask", { id });
+    assert.equal((await getState(handle.url)).queuedQuestions, 4);
+    // No agent was listening; meanwhile the reviewer turns c1 into a change request, resolves c2
+    // and deletes c3.
+    await post(handle.url, "api/save", {
+      comments: [{ ...turned, intent: "action" }, { ...resolved, status: "resolved" }, kept],
+    });
+    assert.equal((await getState(handle.url)).queuedQuestions, 1, "withdrawn as the save lands");
+    const ev = (await awaitEvent(handle.url).then((r) => r.json())) as {
+      questions: Array<{ body: string }>;
+    };
+    assert.deepEqual(
+      ev.questions.map((q) => q.body),
+      ["c4?"],
+    );
+
+    await post(handle.url, "api/send", { comments: [{ ...turned, intent: "action" }] });
+    const review = (await awaitEvent(handle.url).then((r) => r.json())) as ReviewEvent;
+    assert.equal(review.kind, "review", "no question was left to deliver first");
+    assert.deepEqual(
+      review.result.codeChangeRequests.map((c) => c.body),
+      ["c1?"],
+    );
+    assert.deepEqual(review.result.openQuestions, []);
+  });
+});
+
+test("a code ask by id names a saved, open question of the reviewer's, or is a 404", async () => {
+  await withServer(async (handle) => {
+    await post(handle.url, "api/save", {
+      comments: [requested, replied, { ...requested, id: "c2", intent: "question", status: "resolved" }],
+    });
+    for (const id of ["nope", "c1", "r1", "c2"]) {
+      const res = await post(handle.url, "api/ask", { id });
+      assert.equal(res.status, 404, id);
     }
     assert.equal((await getState(handle.url)).queuedQuestions, 0, "nothing was asked");
   });

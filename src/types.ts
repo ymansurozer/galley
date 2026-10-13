@@ -35,6 +35,10 @@ export type ReviewComment = {
   // "action" = a change request (goes back to the agent on Send); "question" = a
   // just-in-time question answered live via the await stream; "note" = plain note.
   intent?: "note" | "action" | "question";
+  // Set when the reviewer turns a change request into a question: it counts as asked then, so an
+  // agent reply from before (to the change request) doesn't answer it. Absent, it was asked at
+  // createdAt. Every "answered" check reads `askedAt ?? createdAt`.
+  askedAt?: string;
   // "user" comments are the reviewer's; "agent" comments are replies posted
   // back by the coding agent via `galley comment` between sessions.
   role?: "user" | "agent";
@@ -50,7 +54,7 @@ export type ReviewComment = {
 // thread, so a single thread component renders both lanes.
 export type ThreadMessage = Pick<
   ReviewComment,
-  "id" | "body" | "createdAt" | "updatedAt" | "intent" | "role"
+  "id" | "body" | "createdAt" | "updatedAt" | "intent" | "askedAt" | "role"
 >;
 
 export type ChangeState = {
