@@ -1,6 +1,7 @@
 import { domToCanvas } from "modern-screenshot";
 import type { BridgeShot, Rect } from "../types";
 import { atRenderScroll, cropFrame, markShape, unionRect } from "./crop";
+import { CAPS } from "./describe";
 import type { Located } from "./refind";
 
 // Marks the bridge's own overlay host (outline, markers, labels). A capture never includes it: an
@@ -227,8 +228,15 @@ function cut(source: HTMLCanvasElement, frame: Rect) {
   return canvas;
 }
 
+// An image over the cap fails the capture here, with a reason, rather than being dropped unread by
+// the desk, which would leave the capture waiting until it times out.
 function toPng(canvas: HTMLCanvasElement) {
   return new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG encoding failed"))), "image/png"),
+    canvas.toBlob((b) => {
+      if (!b) reject(new Error("PNG encoding failed"));
+      else if (b.size > CAPS.shot)
+        reject(new Error(`The screenshot is over the desk's ${CAPS.shot / 1024 / 1024} MB cap`));
+      else resolve(b);
+    }, "image/png"),
   );
 }

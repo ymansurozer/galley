@@ -467,7 +467,9 @@ export type UiTarget =
 // and the server each keep a runtime copy typed as UiCaps (the worlds share no runtime code), so a
 // copy that drifts fails the typecheck. `name` also caps role, landmark, heading and a source's
 // component, and `elements` a target's elements. A selector or a source file over its cap is
-// refused rather than cut: cut short, it points at something else.
+// refused rather than cut: cut short, it points at something else. `shot` caps each screenshot
+// PNG's bytes, wherever it's rendered, carried or stored: 32 MiB, enough for a 3840 × 2160
+// device-pixel viewport even as raw RGBA (31.6 MiB).
 export type UiCaps = {
   selector: 512;
   file: 1024;
@@ -481,6 +483,7 @@ export type UiCaps = {
   title: 300;
   quote: 500;
   elements: 16;
+  shot: 33_554_432;
 };
 // An annotation as the desk keeps it. Its body is the opening message of `comments`, which the
 // code lane's thread component renders; later messages are replies.

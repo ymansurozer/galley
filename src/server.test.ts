@@ -437,6 +437,34 @@ test("screenshot upload takes a PNG up to the cap and refuses a bigger, non-PNG,
   });
 });
 
+test("the screenshot cap fits a 4K HiDPI viewport even as raw pixels", () => {
+  assert.ok(SHOT_CAP >= 3840 * 2160 * 4);
+});
+
+test("a refused second screenshot takes the stored first one with it, so no half pair is left", async () => {
+  await withShotDesk(async (handle, st, shots) => {
+    const over = Buffer.alloc(SHOT_CAP + 1);
+    PNG.copy(over);
+    for (const [id, viewport, status] of [
+      ["a1", over, 413],
+      ["a2", Buffer.from("not a png"), 415],
+    ] as const) {
+      assert.equal((await upload(handle.url, `annotation=${id}&kind=crop`, PNG)).status, 200);
+      assert.equal(
+        (await upload(handle.url, `annotation=${id}&kind=viewport`, viewport)).status,
+        status,
+      );
+    }
+    assert.deepEqual(await readdir(shots), []);
+    assert.ok(st.annotations!.every((a) => !a.screenshots));
+    // A complete pair stays whatever a later upload does.
+    for (const kind of ["crop", "viewport"])
+      await upload(handle.url, `annotation=a1&kind=${kind}`, PNG);
+    assert.equal((await upload(handle.url, "annotation=a1&kind=crop", over)).status, 413);
+    assert.deepEqual((await readdir(shots)).sort(), ["a1-crop.png", "a1-viewport.png"]);
+  });
+});
+
 test("screenshots are served only from the session's screenshot directory", async () => {
   const outside = await mkdtemp(path.join(tmpdir(), "galley-outside-"));
   try {

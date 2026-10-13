@@ -11,7 +11,7 @@ import type {
   UiSource,
   UiTarget,
 } from "./types.js";
-import { shotFile } from "./uishots.js";
+import { SHOT_CAP, shotFile } from "./uishots.js";
 
 // The UI lane's annotations at the trust boundary. An annotation's page and target came from the
 // app page (bridge → tab → reviewer save), so the desk re-validates every save before storing it:
@@ -30,6 +30,7 @@ const CAPS: UiCaps = {
   title: 300,
   quote: 500,
   elements: 16,
+  shot: SHOT_CAP,
 };
 
 type Obj = Record<string, unknown>;

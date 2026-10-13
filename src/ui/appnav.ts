@@ -29,17 +29,15 @@ const CAPS: UiCaps = {
   title: 300,
   quote: 500,
   elements: 16,
+  shot: 33_554_432,
 };
 const ERROR_CAP = 300;
 // Far past the annotations one page carries: a page posting more is posting junk.
 const PLACEMENTS_CAP = 1000;
 type Placements = Extract<BridgeMessage, { type: "placements" }>["placements"];
-// Far past any real viewport render (3840 × 2160 device px is ~33 MB of raw RGBA, and PNG packs UI
-// screens well below that), so only a page posting junk hits it.
-const SHOT_CAP = 32 * 1024 * 1024;
 
 const isPng = (v: unknown): v is Blob =>
-  v instanceof Blob && v.type === "image/png" && v.size <= SHOT_CAP;
+  v instanceof Blob && v.type === "image/png" && v.size <= CAPS.shot;
 
 // A message from the bridge, validated: the token must match, the shape must be one the bridge
 // sends, the route must be a path on the app's own origin, and screenshots must be PNG blobs

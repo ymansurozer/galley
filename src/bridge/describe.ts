@@ -22,6 +22,7 @@ export const CAPS: UiCaps = {
   title: 300,
   quote: 500,
   elements: 16,
+  shot: 33_554_432,
 };
 
 // Attributes worth an agent's grep. Never `value`: what someone typed into a field is theirs.

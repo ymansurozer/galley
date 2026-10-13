@@ -919,25 +919,35 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             "A screenshot needs an annotation id and a kind (crop or viewport).",
             "POST /api/ui-shot?annotation=<id>&kind=crop|viewport with the PNG as the body.",
           );
+        // A refused image leaves its annotation without screenshots, so the other one goes too if
+        // it was stored: nothing would ever complete the pair, or delete it before the annotation.
+        const refuse = (status: number, code: string, error: string, fix: string) =>
+          serialize(async () => {
+            if (!state.annotations?.find((x) => x.id === name.id)?.screenshots) {
+              const dir = shotDir(await reviewDir(state.root, state.session));
+              await Promise.all(
+                SHOT_KINDS.map((kind) => fs.rm(shotFile(dir, name.id, kind), { force: true })),
+              );
+            }
+            fail(res, status, code, error, fix);
+          });
         const tooLarge = () =>
-          fail(
-            res,
+          refuse(
             413,
             "SCREENSHOT_TOO_LARGE",
             `A screenshot is capped at ${SHOT_CAP / 1024 / 1024} MB.`,
             "Capture a smaller viewport.",
           );
         // A declared length over the cap is refused before a byte is read.
-        if (Number(req.headers["content-length"]) > SHOT_CAP) return tooLarge();
+        if (Number(req.headers["content-length"]) > SHOT_CAP) return await tooLarge();
         let bytes: Buffer;
         try {
           bytes = await readBytes(req, SHOT_CAP);
         } catch {
-          return tooLarge();
+          return await tooLarge();
         }
         if (!isPng(bytes))
-          return fail(
-            res,
+          return await refuse(
             415,
             "NOT_PNG",
             "A screenshot must be a PNG.",
