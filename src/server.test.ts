@@ -1166,6 +1166,45 @@ test("origin guard accepts a same-origin POST and a POST with no Origin", async 
   });
 });
 
+test("origin guard refuses another site's page even on a GET, so it never takes the agent's event", async () => {
+  await withServer(async (handle) => {
+    // The proxied app is same-site with the desk (another port on the same host); any other page
+    // is cross-site. An <img> pointed at the long-poll would otherwise park as the agent's waiter.
+    for (const site of ["same-site", "cross-site"]) {
+      const res = await rawRequest(`${handle.url}api/await-send?timeout=5`, {
+        headers: { "sec-fetch-site": site },
+      });
+      assert.equal(res.status, 403, site);
+      assert.equal((JSON.parse(res.body) as { code?: string }).code, "FORBIDDEN_SITE");
+    }
+    assert.equal((await getState(handle.url)).agentListening, false, "neither one is waiting");
+    // The desk tab (same-origin) and a typed or opened URL (none) still get through.
+    for (const site of ["same-origin", "none"]) {
+      const res = await rawRequest(`${handle.url}api/poll`, {
+        headers: { "sec-fetch-site": site },
+      });
+      assert.equal(res.status, 200, site);
+    }
+    // The agent's await, which sends no fetch metadata, gets the next event.
+    await post(handle.url, "api/ask", { path: "a.ts", lineNumber: 1, body: "why?" });
+    const ev = (await fetch(`${handle.url}api/await-send`).then((r) => r.json())) as {
+      question: { body: string };
+    };
+    assert.equal(ev.question.body, "why?");
+  });
+});
+
+test("the desk forbids framing, so no page can overlay it", async () => {
+  await withServer(async (handle) => {
+    for (const route of ["", "api/poll"]) {
+      const res = await rawRequest(`${handle.url}${route}`);
+      assert.equal(res.status, 200, route);
+      assert.equal(res.headers["x-frame-options"], "DENY", route);
+      assert.equal(res.headers["content-security-policy"], "frame-ancestors 'none'", route);
+    }
+  });
+});
+
 test("resolveBinding: the loopback default widens nothing and keeps both URLs on 127.0.0.1", () => {
   for (const h of ["127.0.0.1", "localhost", "::1", "[::1]"]) {
     const b = resolveBinding(h, "devbox", ["exotic.example"]);

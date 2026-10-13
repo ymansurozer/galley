@@ -181,7 +181,13 @@ export function resolveBinding(host: string, hostname: string, allowedHostsEnv: 
 // hostname / bound address / GALLEY_ALLOWED_HOSTS when bound beyond loopback (see resolveBinding),
 // never widened otherwise. The Origin check blocks cross-site POSTs; header-less callers (curl and
 // the `galley await`/`comment`/`reload`/`status` CLI, which target 127.0.0.1 and send no Origin) stay
-// allowed. Returns false once it has answered 403.
+// allowed. Fetch metadata closes what Origin leaves open: a GET carries no Origin, yet the
+// await-send long-poll hands whoever parks on it the agent's next event, and the proxied app knows
+// the desk's origin. The browser marks another page's requests `same-site` (the proxy is another
+// port on the same host) or `cross-site`, on every method; the desk tab's own are `same-origin`, a
+// typed or opened URL is `none`, and the CLI sends none at all. Browsers send it only to a secure
+// context (loopback counts), so over a plain-http `GALLEY_HOST` bind this check is absent. Returns
+// false once it has answered 403.
 function originAllowed(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -197,6 +203,17 @@ function originAllowed(
       "FORBIDDEN_HOST",
       `Host "${host ?? ""}" is not this desk.`,
       "Reach the desk at its 127.0.0.1 origin.",
+    );
+    return false;
+  }
+  const site = req.headers["sec-fetch-site"];
+  if (site === "same-site" || site === "cross-site") {
+    fail(
+      res,
+      403,
+      "FORBIDDEN_SITE",
+      `A ${site} request from another page is not allowed.`,
+      "Open the desk's URL directly.",
     );
     return false;
   }
@@ -431,6 +448,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       lastActivity = Date.now();
     });
     try {
+      // No page may frame the desk (the proxied app included) and dress it up to steer the
+      // reviewer's clicks. Set on every response: it only matters on the HTML, and is inert elsewhere.
+      res.setHeader("x-frame-options", "DENY");
+      res.setHeader("content-security-policy", "frame-ancestors 'none'");
       // Guard every route (current and future) before dispatch: the desk answers only its own
       // loopback origin.
       if (!originAllowed(req, res, boundPort(), binding.allowedHosts)) return;
