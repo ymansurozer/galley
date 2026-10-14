@@ -372,3 +372,134 @@
 :is(#files, #walk) .st-btn[data-act="reset"]:hover .ic {
   color: var(--ink-2);
 }
+
+/* ── Collapsing to a rail ──
+   The brand row closes with the collapse button. Collapsed (wide screens only; the drawer always
+   shows the sidebar whole), the sidebar is a rail of icons: the logo, the expand button, the
+   Overview, the change requests with their count, Review and Files on a guided desk, and Settings
+   at the foot. Each icon's tip sits to its right (tooltip.ts). */
+.side-collapse {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.side-collapse:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.side-collapse:active {
+  background: var(--fill-3);
+}
+
+.tree :is(.side-collapse, .rail-btn) .ic {
+  width: 16px;
+  height: 16px;
+}
+
+.side-rail {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.rail-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.rail-btn:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.rail-btn:active {
+  background: var(--fill-3);
+}
+
+.rail-btn.active {
+  background: var(--sel);
+  color: var(--ink);
+}
+
+.rail-btn .flag {
+  color: var(--orange);
+}
+
+/* The count rides the flag's corner. */
+.rail-btn .cr-count {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  min-width: 15px;
+  height: 14px;
+  padding: 0 3px;
+  font-size: var(--text-2xs);
+  line-height: 14px;
+}
+
+@media (min-width: 1101px) {
+  .app.side-collapsed .side-brand {
+    flex-direction: column;
+    height: auto;
+    padding: 14px 0 10px;
+    gap: 12px;
+  }
+
+  .app.side-collapsed .side-brand > span {
+    display: none;
+  }
+
+  .app.side-collapsed .side-collapse {
+    width: 32px;
+    height: 32px;
+    margin-left: 0;
+  }
+
+  .app.side-collapsed .side-rail {
+    display: flex;
+  }
+
+  /* !important: x-show writes an inline display when it shows them. */
+  .app.side-collapsed :is(.side-switch, .side-nav, .tree-title, #files, #walk) {
+    display: none !important;
+  }
+
+  .app.side-collapsed .tree-settings {
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin: 0 auto;
+    padding: 0;
+  }
+
+  .app.side-collapsed .tree-settings > :not(.ic) {
+    display: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .side-collapse {
+    display: none;
+  }
+}

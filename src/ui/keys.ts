@@ -459,12 +459,16 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "⇧B",
-    desc: "Files drawer (narrow screens)",
+    desc: "Collapse sidebar (the drawer on narrow screens)",
     group: "View",
-    when: inCode,
+    when: () => navigable() && !uiOnly(),
     test: shift("B"),
-    // Toggles the off-canvas file tree at narrow widths; inert on desktop (drawer is media-gated).
-    run: () => (S.treeDrawerOpen = !S.treeDrawerOpen),
+    // Collapses the sidebar to its rail on wide screens, in either view; at narrow widths, where
+    // the sidebar is the off-canvas drawer, it opens and closes that instead.
+    run: () => {
+      if (matchMedia("(max-width: 1100px)").matches) S.treeDrawerOpen = !S.treeDrawerOpen;
+      else S.sidebarCollapsed = !S.sidebarCollapsed;
+    },
   },
   {
     combo: "⇧E",

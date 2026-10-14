@@ -182,8 +182,8 @@
   }
 }
 
-/* The brand lives at the sidebar's top; a desk showing no sidebar (one file, file mode, the app)
-   keeps the logo here. */
+/* The brand lives at the sidebar's top; a desk showing no sidebar (one file, file mode, a UI-only
+   desk) keeps the logo here. */
 .top-logo {
   display: none;
   width: 20px;
@@ -193,7 +193,7 @@
 
 body.single .top-logo,
 body.file-mode .top-logo,
-.app.view-ui .top-logo {
+.app.ui-only .top-logo {
   display: block;
 }
 
@@ -469,35 +469,53 @@ body.file-mode .nav-toggle {
   display: none !important;
 }
 
+/* The sidebar's width: the one its resizer sets (--left-width), or the rail's while it's collapsed
+   (below), so the expanded width comes back as it was. */
+.app {
+  --side-w: var(--left-width, 280px);
+}
+
 .main {
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--left-width, 280px) 1px minmax(0, 1fr);
+  grid-template-columns: var(--side-w) 1px minmax(0, 1fr);
   position: relative;
 }
 
-/* Wide code view: the sidebar runs the window's full height with its brand row on top, and the
-   top bar covers the canvas only. .main spans both of the app's rows, so it stays the containing
-   block of the dialogs, toasts and the warming app, and the top bar sits over its first row, past
-   the sidebar. The drawer (≤1100px), tree-less desks and the App view keep the full-width bar. */
+/* Wide screens, in either view: the sidebar runs the window's full height with its brand row on
+   top, and the top bar (its progress edge with it) covers the canvas only. .main spans both of the
+   app's rows, so it stays the containing block of the dialogs, toasts and the warming app, and the
+   top bar sits over its first row, past the sidebar. The drawer (≤1100px) and sidebar-less desks
+   keep the full-width bar. */
 @media (min-width: 1101px) {
-  body:not(.single, .file-mode) .app:not(.view-ui) > .top {
+  .app.side-collapsed {
+    --side-w: 52px;
+  }
+
+  /* The rail keeps its width: its edge doesn't drag (main.ts). */
+  .app.side-collapsed .resizer,
+  .app.side-collapsed .resizer:hover {
+    background: var(--sep);
+    cursor: default;
+  }
+
+  body:not(.single, .file-mode) .app:not(.ui-only) > .top {
     grid-area: 1 / 1;
-    margin-left: calc(var(--left-width, 280px) + 1px);
+    margin-left: calc(var(--side-w) + 1px);
     /* Over .main, which overlaps it; under the dialogs (20) and the toasts (25). */
     z-index: 10;
   }
 
-  body:not(.single, .file-mode) .app:not(.view-ui) > .main {
+  body:not(.single, .file-mode) .app:not(.ui-only) > .main {
     grid-area: 1 / 1 / -1;
     grid-template-rows: 48px minmax(0, 1fr);
   }
 
-  body:not(.single, .file-mode) .app:not(.view-ui) :is(.tree, .resizer) {
+  body:not(.single, .file-mode) .app:not(.ui-only) :is(.tree, .resizer) {
     grid-row: 1 / -1;
   }
 
-  body:not(.single, .file-mode) .app:not(.view-ui) .center {
+  body:not(.single, .file-mode) .app:not(.ui-only) .center {
     grid-row: 2;
   }
 

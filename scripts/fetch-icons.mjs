@@ -44,6 +44,8 @@ const ICON_MAP = {
   "gly-annotate": "lucide:pin",
   // UI lane: the chrome bar's page-annotation button.
   "gly-page-note": "lucide:sticky-note",
+  // The sidebar's collapse / expand button.
+  "gly-sidebar": "lucide:panel-left",
 };
 
 // Hand-drawn glyphs with no good library equivalent (status primitives). 24-unit viewBox to

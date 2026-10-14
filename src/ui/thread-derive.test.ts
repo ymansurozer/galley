@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { ThreadMessage } from "./types";
 import { agentPresence } from "./topbar-derive.js";
 import {
+  cardLoc,
   intentPill,
   lineLabel,
   messageWaiting,
@@ -157,6 +158,16 @@ test("the held chip shows for a change request until the review is sent", () => 
   assert.equal(showsHeld(true, false), true);
   assert.equal(showsHeld(true, true), false);
   assert.equal(showsHeld(false, false), false);
+});
+
+test("a card names its line only where its place doesn't say it", () => {
+  // Under its own line, a one-line thread needs no label.
+  assert.equal(cardLoc(34, undefined, false), null);
+  assert.equal(cardLoc(34, 34, false), null);
+  // It sits under a range's last line, so the range is named.
+  assert.equal(cardLoc(42, 45, false), "L42–45");
+  // A lost thread keeps the line it had (struck through where it renders).
+  assert.equal(cardLoc(34, undefined, true), "L34");
 });
 
 test("a line label names the line, or the range", () => {

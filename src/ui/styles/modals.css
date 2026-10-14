@@ -24,13 +24,13 @@
   }
 }
 
-/* Wide code view: the top bar covers the canvas only and sits over .main's 48px first row
+/* Wide screens: the top bar covers the canvas only and sits over .main's 48px first row
    (shell.css). The scrim still spans all of .main, the sidebar's brand row included, but clips
    out the bar's own corner, so the bar the sheet hangs from stays lit and live. The sheet starts
    under the bar and centres on the canvas. */
 @media (min-width: 1101px) {
-  body:not(.single, .file-mode) .app:not(.view-ui) .modal-backdrop {
-    --bar-left: calc(var(--left-width, 280px) + 1px);
+  body:not(.single, .file-mode) .app:not(.ui-only) .modal-backdrop {
+    --bar-left: calc(var(--side-w) + 1px);
     padding: 48px 0 0 var(--bar-left);
     clip-path: polygon(0 0, var(--bar-left) 0, var(--bar-left) 48px, 100% 48px, 100% 100%, 0 100%);
   }

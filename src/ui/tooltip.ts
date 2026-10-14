@@ -4,7 +4,8 @@ import { keycapsNode } from "./keycaps";
 // label, and data-tip-keys, its shortcut (drawn as keycaps). One floating element serves every
 // tip, shown after a short delay: below its element (end-aligned with data-tip-align="end"),
 // above it when there's no room below, and beside an element too tall for either (the annotation
-// rail). A tip with no shortcut that would only repeat the element's visible text stays hidden —
+// rail). The collapsed sidebar's icons tip to their right (data-tip-align="right"), clear of the
+// icons under them. A tip with no shortcut that would only repeat the element's visible text stays hidden —
 // which is how a narrow thread's glyph-only "Turn into…" button gets its tip and the labelled
 // one doesn't. A re-render can replace the target under a resting pointer (the poll rebuilds the
 // diff header), so a showing tip checks that its target is still on the page.
@@ -41,10 +42,15 @@ export function installTooltips() {
     const h = tip.offsetHeight;
     let top = r.bottom + GAP;
     let left = el.dataset.tipAlign === "end" ? r.right - w : r.left + (r.width - w) / 2;
-    if (top + h > innerHeight - EDGE) top = r.top - GAP - h;
-    if (top < EDGE) {
-      top = r.top + GAP;
-      left = r.left - GAP - w;
+    if (el.dataset.tipAlign === "right") {
+      top = r.top + (r.height - h) / 2;
+      left = r.right + GAP;
+    } else {
+      if (top + h > innerHeight - EDGE) top = r.top - GAP - h;
+      if (top < EDGE) {
+        top = r.top + GAP;
+        left = r.left - GAP - w;
+      }
     }
     tip.style.left = `${Math.max(EDGE, Math.min(left, innerWidth - w - EDGE))}px`;
     tip.style.top = `${top}px`;
