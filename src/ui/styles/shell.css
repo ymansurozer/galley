@@ -9,13 +9,15 @@
 /* ── Top bar: what is under review and the hand-back ──
    [title] · [the agent's presence, centred in what's left] · [lane and file toggles] · [actions].
    The controls never wrap or shrink; the title gives way first (it truncates), then the pill down
-   to its floor. Each part names its column, so a hidden pill leaves its column empty. Laid out
-   the same across the window or across the canvas beside a full-height sidebar. */
+   to its floor. Each part names its column and spaces itself with a margin rather than the grid's
+   gap, so a hidden pill leaves an empty column and no gap. The bar compacts by its own width (the
+   @container rules below), not the window's: beside a full-height sidebar it covers only the
+   canvas, which a wide sidebar narrows. */
 .top {
   position: relative;
+  container: topbar / inline-size;
   display: grid;
   grid-template-columns: minmax(0, max-content) minmax(auto, 1fr) max-content max-content;
-  gap: 12px;
   align-items: center;
   padding: 0 12px 0 14px;
   background: var(--canvas);
@@ -127,8 +129,9 @@ body.file-mode .top-logo,
   display: flex;
   align-items: center;
   gap: 8px;
-  width: min(440px, 100%);
-  min-width: clamp(120px, 16vw, 180px);
+  /* The column's width less the pill's own margin. */
+  width: min(440px, 100% - 12px);
+  min-width: clamp(120px, 16cqi, 180px);
   height: 28px;
   padding: 0 12px 0 10px;
   overflow: hidden;
@@ -262,6 +265,12 @@ body.file-mode .top-logo,
   align-items: center;
 }
 
+.agent-pill,
+.toggles,
+.actions {
+  margin-left: 12px;
+}
+
 .lane-switch > button .ic {
   width: 13px;
   height: 13px;
@@ -302,14 +311,14 @@ body.file-mode .top-logo,
   background: var(--orange-wash);
 }
 
-@media (max-width: 1100px) {
+@container topbar (max-width: 1100px) {
   .actions .req-chip .req-label,
   .actions .req-chip .keycaps {
     display: none;
   }
 }
 
-@media (max-width: 760px) {
+@container topbar (max-width: 760px) {
   .actions .req-chip {
     display: none;
   }
@@ -369,26 +378,22 @@ body.file-mode .top-logo,
   display: none;
 }
 
-/* Phone widths: the top bar keeps every control but compacts them — the subtitle, the logo and
-   the percentage give way (the strip still shows progress), the pill keeps its glyph (its tooltip
-   carries the line), the lane switch keeps its icons, Reset review its glyph, and the buttons drop
-   their keycaps (their tooltips still carry them). A row, not the grid: the title takes what's
-   left, and a hidden pill leaves no empty column behind. */
+/* A narrow bar (a phone, or the canvas beside a wide sidebar) keeps every control but compacts
+   them: the subtitle, the logo and the percentage give way (the strip still shows progress), the
+   pill keeps its glyph at the controls' side (its tooltip carries the line), the lane switch keeps
+   its icons, Reset review its glyph, and the buttons drop their keycaps (their tooltips still
+   carry them). */
 @media (max-width: 760px) {
   .top {
-    display: flex;
-    gap: 8px;
     padding: 0 8px;
   }
+}
 
-  .top-title {
-    flex: 1 1 auto;
-  }
-
+@container topbar (max-width: 760px) {
   .agent-pill,
   .toggles,
   .actions {
-    flex: 0 0 auto;
+    margin-left: 8px;
   }
 
   .top-logo,
@@ -399,6 +404,7 @@ body.file-mode .top-logo,
   }
 
   .agent-pill {
+    justify-self: end;
     justify-content: center;
     width: 28px;
     min-width: 0;
