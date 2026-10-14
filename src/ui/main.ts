@@ -51,7 +51,7 @@ import {
   navOrder,
   walkthroughRows,
 } from "./guide";
-import { refreshBaseTitle, reviewStats } from "./progress";
+import { installProgress, refreshBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import { renderKeycaps } from "./keycaps";
 import { installTooltips } from "./tooltip";
@@ -156,6 +156,7 @@ matchMedia("(max-width: 1100px)").addEventListener("change", () => {
 installKeys();
 installTooltips();
 installBlockers();
+installProgress();
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
