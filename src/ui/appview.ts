@@ -162,7 +162,8 @@ function reclaimFocus() {
   restoreComposerFocus();
 }
 
-export function setView(view: "code" | "ui") {
+// Switching to the code view repaints the diff; the returned render settles once it has.
+export function setView(view: "code" | "ui"): Promise<void> | undefined {
   if (view === "ui" ? !hasUi() : uiOnly()) return;
   // A UI-lane composer can't stay open behind the code view (it would hold the code lane's keys
   // and the poll's diff adoption): it's set aside with its text and comes back with the UI view.
@@ -171,8 +172,7 @@ export function setView(view: "code" | "ui") {
   syncBridge();
   if (view === "code") {
     reclaimFocus();
-    render(); // the diff pane was hidden while the app showed — repaint it
-    return;
+    return render(); // the diff pane was hidden while the app showed — repaint it
   }
   if (!S.app.loaded) loadApp(targetRoute());
   shown = true;

@@ -6,6 +6,7 @@ import { cursorOn, cursorReset, cursorSelection } from "./cursor";
 import { hasGuide, reviewFileOrder } from "./guide";
 import { isFileSkimCollapsed, toggleFileSkim } from "./skim";
 import { selectAnnotation } from "./uilane";
+import { setView } from "./appview";
 import {
   openRequestList,
   requestRow,
@@ -103,18 +104,21 @@ export function openRequest(r: OpenRequest) {
   last = r;
   if (r.kind === "app") {
     S.treeDrawerOpen = false;
-    if (S.view !== "ui") S.setView?.("ui");
+    if (S.view !== "ui") setView("ui");
     selectAnnotation(r.id);
     return;
   }
-  if (S.view === "ui") S.setView?.("code");
-  void land(r);
+  void land(r, S.view === "ui" ? setView("code") : undefined);
 }
 
 // Open the request's file (a changed one, else as a preview), wait for it to render, then bring the
 // thread into view where it shows: a rendered markdown file's thread, the unanchored strip's, else
-// the cursor on its line.
-async function land(r: CodeRequest) {
+// the cursor on its line. Coming from the App view, the diff's repaint (`shown`) settles first, so
+// nothing draws over the landing and no second render races it.
+async function land(r: CodeRequest, shown?: Promise<void>) {
+  await shown;
+  // The reviewer may have moved on meanwhile.
+  if (last !== r) return;
   if (inOverview() || currentFile()?.path !== r.path) {
     const i = S.state.files.findIndex((f) => f.path === r.path);
     await (i >= 0 ? S.selectFile?.(i) : S.previewFile?.(r.path));
