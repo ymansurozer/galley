@@ -537,7 +537,7 @@ function renderPinCard() {
     loc: `#${a.number}`,
     held: isOpenChange(a),
   };
-  const card = buildCommentThread({ ...a, head }, threadControls(a));
+  const card = buildCommentThread({ ...a, head }, threadControls(a), "chrome");
   const details = annotationDetails(a);
   const top = card.querySelector(".tc-head, .thread-summary");
   if (top) top.after(details);
