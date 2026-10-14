@@ -407,17 +407,17 @@
 }
 
 .tc-band.held {
-  background: var(--orange-wash);
+  background: var(--orange-band);
   color: var(--orange-ink);
 }
 
 .tc-band.awaiting-answer {
-  background: var(--blue-wash);
+  background: var(--blue-band);
   color: var(--blue-ink);
 }
 
 .tc-band.awaiting-answer.queued {
-  background: var(--orange-wash);
+  background: var(--orange-band);
   color: var(--orange-ink);
 }
 
