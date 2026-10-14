@@ -1071,6 +1071,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
                 `Invalid guide: ${resolved.reason}.`,
                 "Run `galley spec` for the guided-review schema.",
               );
+            // The carry source's stamps index the old guide's entries: never carry them under this one.
+            stampSource = undefined;
           }
           if (merged.baseDiffHash !== state.baseDiffHash)
             priorDiff = {

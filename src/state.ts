@@ -980,9 +980,11 @@ const REVIEWER_SAVE_KEYS = [
 ] as const satisfies ReadonlyArray<keyof ReviewerSave>;
 // A save's comments, from a tab still on a diff from before the latest reload or restart, onto the
 // desk's. That reload re-anchored the desk's threads, which the tab never saw: a comment the desk
-// has keeps the desk's anchor (and a stale mark the reload gave it) and takes the rest, what the
-// reviewer can change on it, from the tab. One new in the tab was placed on the tab's diff, and
-// is carried onto the live one as a reload carries the desk's own.
+// has keeps the desk's anchor and takes the rest, what the reviewer can change on it, from the tab.
+// Its status too, except that a stale mark the reload gave it (its file left the diff) outlasts the
+// "open" the tab still shows; a resolution the reviewer made is theirs. One new in the tab was
+// placed on the tab's diff, and is carried onto the live one as a reload carries the desk's own. One
+// the tab deleted is gone.
 async function mergeStaleComments(desk: ReviewComment[], sent: ReviewComment[], live: ReviewState) {
   const own = new Map(desk.map((c) => [c.id, c]));
   const fresh = await carryComments(
@@ -994,7 +996,7 @@ async function mergeStaleComments(desk: ReviewComment[], sent: ReviewComment[], 
     const d = own.get(c.id);
     if (!d) return placed.get(c.id) ?? [];
     const { path, side, lineNumber, endLine, anchorText, unanchored } = d;
-    const status = d.status === "stale" ? d.status : c.status;
+    const status = d.status === "stale" && c.status === "open" ? d.status : c.status;
     return [{ ...c, path, side, lineNumber, endLine, anchorText, unanchored, status }];
   });
 }
@@ -1010,6 +1012,14 @@ export async function mergeReviewerSave(
 ) {
   if (!body || typeof body !== "object") return;
   const incoming = body as Record<string, unknown>;
+  const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
+  const stale = typeof seen?.baseDiffHash === "string" && seen.baseDiffHash !== state.baseDiffHash;
+  // Comments anchor by their line's text, not by block, so a save's from any older diff merge
+  // (mergeStaleComments) — before anything is written, so the poll never sees them half-placed.
+  const comments =
+    stale && Array.isArray(incoming.comments)
+      ? await mergeStaleComments(state.comments, incoming.comments, state)
+      : incoming.comments;
   const deskComments = state.comments;
   const deskVerdicts = {
     decisions: state.decisions,
@@ -1019,9 +1029,9 @@ export async function mergeReviewerSave(
     decisionFiles: state.decisionFiles,
   };
   for (const key of REVIEWER_SAVE_KEYS) {
-    if (incoming[key] !== undefined) (state as Record<string, unknown>)[key] = incoming[key];
+    const value = key === "comments" ? comments : incoming[key];
+    if (value !== undefined) (state as Record<string, unknown>)[key] = value;
   }
-  const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
   const beforeReload =
     !!desk && (seen?.token !== desk.token || seen?.reloadGeneration !== desk.reloadGeneration);
   // The tab adopts a reloaded diff only once no save is draining and no composer is open (poll.ts),
@@ -1033,9 +1043,8 @@ export async function mergeReviewerSave(
   // Verdicts made on anything older can't be placed safely, so the desk keeps all of its own:
   // decisions, block and file sign-offs, and which files were decided. Taking the tab's file
   // sign-offs without its decisions would sign off a file over a rejection the desk never got.
-  // Comments anchor by their line's text, not by block, so they merge from any older diff.
-  if (typeof seen?.baseDiffHash === "string" && seen.baseDiffHash !== state.baseDiffHash) {
-    const prior = seen.baseDiffHash === priorDiff?.baseDiffHash ? priorDiff : undefined;
+  if (stale) {
+    const prior = seen?.baseDiffHash === priorDiff?.baseDiffHash ? priorDiff : undefined;
     if (prior) {
       if (Array.isArray(incoming.decisions))
         state.decisions = carryDecisions(state, incoming.decisions, prior);
@@ -1047,8 +1056,6 @@ export async function mergeReviewerSave(
         );
       signOffCoveredFiles(state);
     } else Object.assign(state, deskVerdicts);
-    if (Array.isArray(incoming.comments))
-      state.comments = await mergeStaleComments(deskComments, incoming.comments, state);
   }
   // An agent reply (`galley comment`) lands between the tab's polls, so a save from a tab that
   // hasn't seen it yet lacks it. The tab can't delete an agent message, so every one the save

@@ -970,6 +970,35 @@ test("a save from a tab on the pre-reload diff keeps the desk's re-anchored comm
   });
 });
 
+test("a save from a tab on an older diff drops the comments it deleted and keeps the reload's stale marks it didn't resolve", async () => {
+  // The reload marked both gone.ts threads stale: their file left the diff. The tab never saw it.
+  const live = state({
+    baseDiffHash: "live",
+    files: [file("a.ts")],
+    comments: [
+      comment({ id: "kept", path: "a.ts", body: "keep me" }),
+      comment({ id: "deleted", path: "a.ts", body: "delete me" }),
+      comment({ id: "left", path: "gone.ts", intent: "action", status: "stale" }),
+      comment({ id: "settled", path: "gone.ts", intent: "action", status: "stale" }),
+    ],
+  });
+  const tab = live.comments
+    .filter((c) => c.id !== "deleted")
+    .map((c) => ({ ...c, status: c.id === "settled" ? ("resolved" as const) : ("open" as const) }));
+  await mergeReviewerSave(live, {
+    comments: tab,
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: "older" },
+  });
+  assert.deepEqual(
+    live.comments.map((c) => [c.id, c.status]),
+    [
+      ["kept", "open"],
+      ["left", "stale"],
+      ["settled", "resolved"],
+    ],
+  );
+});
+
 test("a working-mode file's contents follow a stage that moved its old side", async () => {
   await withShiftRepo(async (edit, stage) => {
     const lines = edited({ 3: "A", 11: "L11" });
