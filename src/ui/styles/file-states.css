@@ -268,7 +268,12 @@
 
 .oversized-card .ovsz-btn:hover,
 .oversized-card .ovsz-load:hover {
-  background-image: linear-gradient(var(--fill), var(--fill));
+  background-color: var(--raised-hover);
+}
+
+.oversized-card .ovsz-btn:active,
+.oversized-card .ovsz-load:active {
+  background-color: var(--raised-pressed);
 }
 
 .oversized-card .ovsz-btn.danger {
