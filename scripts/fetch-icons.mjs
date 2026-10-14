@@ -24,6 +24,8 @@ const ICON_MAP = {
   "gly-arrow-right": "lucide:arrow-right",
   "gly-warn": "lucide:triangle-alert",
   "gly-open-editor": "lucide:square-arrow-out-up-right",
+  // The guide card's mark.
+  "gly-book": "lucide:book-open",
   // Walkthrough per-file status trio (gly-check doubles as the approved state).
   "gly-circle": "lucide:circle",
   "gly-circle-alert": "lucide:circle-alert",

@@ -37,10 +37,10 @@ import type {
   ReviewComment,
 } from "./types";
 import { keycapsHtml } from "./keycaps";
+import { cursorChangeId } from "./cursor";
 
 export function annotations(): AnnotationInput[] {
   const threads: AnnotationInput[] = [];
-  const seen = new Set<string>();
   const groups = new Map<string, ReviewComment[]>();
   for (const c of currentComments()) {
     const key = `${c.side}:${c.lineNumber}`;
@@ -48,9 +48,6 @@ export function annotations(): AnnotationInput[] {
     groups.get(key)!.push(c);
   }
   const file = currentFile();
-  // With per-change verdicts off no change gets a decision bar: neither its own row nor the
-  // copy on a thread over its line.
-  const verdicts = S.settings.perChangeVerdicts;
   for (const comments of groups.values()) {
     comments.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
     const first = comments[0];
@@ -62,13 +59,6 @@ export function annotations(): AnnotationInput[] {
       comments.some((c) => isUnanchored(c, file))
     )
       continue;
-    const change = verdicts
-      ? currentChanges().find(
-          (ch) =>
-            ch.status === "pending" && ch.side === first.side && ch.lineNumber === first.lineNumber,
-        )
-      : undefined;
-    if (change) seen.add(change.id);
     // The annotation goes to @pierre in DISPLAY coordinates (it matches rendered gutter
     // numbers); the metadata keeps the raw line so thread actions filter comments correctly.
     threads.push({
@@ -81,12 +71,11 @@ export function annotations(): AnnotationInput[] {
         lineNumber: first.lineNumber,
         status: comments.some((c) => c.status === "open") ? "open" : "resolved",
         comments,
-        changeId: change?.id,
       },
     });
   }
   const changes: AnnotationInput[] = [];
-  for (const ch of currentChanges().filter((ch) => ch.status === "pending" && !seen.has(ch.id))) {
+  for (const ch of currentChanges().filter((ch) => ch.status === "pending")) {
     const anchor = ch.displayEndLine ?? toDisplayLine(ch.side, ch.endLine ?? ch.lineNumber);
     // A skimmable block gets a collapse/expand strip. While collapsed, skim.ts hides its rows
     // and the strip stands in for it — so suppress the decision bar (it returns on expand).
@@ -108,7 +97,8 @@ export function annotations(): AnnotationInput[] {
       });
       if (collapsed) continue;
     }
-    if (!verdicts) continue;
+    // With per-change verdicts off no change gets its Undo | Keep control.
+    if (!S.settings.perChangeVerdicts) continue;
     changes.push({
       side: ch.side,
       lineNumber: anchor,
@@ -144,7 +134,7 @@ export function annotations(): AnnotationInput[] {
         },
       });
   }
-  // When a thread and a change land on the same display line, the decision bar
+  // When a thread and a change land on the same display line, the change's control
   // must sit immediately under the hunk with the thread below it — annotations
   // render in array order, so changes go first, the composer last.
   return [...changes, ...threads, ...composers];
@@ -462,33 +452,35 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     (el.querySelector(".skim-toggle") as HTMLButtonElement).onclick = () => toggleSkimBlock(c.id);
     return el;
   }
-  const change =
-    c.type === "change"
-      ? S.state.changes.find((x) => x.id === c.id)
-      : c.changeId
-        ? S.state.changes.find((x) => x.id === c.changeId)
-        : null;
+  // A pending change's Undo | Keep, under its last changed line. Every control carries its
+  // keycaps; only the one the cursor marks shows them (cursor.ts markCursorChange).
+  if (c.type === "change") {
+    const el = document.createElement("div");
+    // Classic indicators draw +/− signs ahead of the code, so the code column sits further in.
+    el.className =
+      "annotation verdict-row" + (S.settings.diffIndicators === "classic" ? " signs" : "");
+    const control = document.createElement("div");
+    control.className = "verdict seg xs" + (c.id === cursorChangeId() ? " at-cursor" : "");
+    control.dataset.change = c.id;
+    control.setAttribute("role", "group");
+    control.setAttribute("aria-label", "Decide this change");
+    const decide = (cls: string, label: string, keys: string, status: "accepted" | "rejected") => {
+      const b = document.createElement("button");
+      b.className = cls;
+      b.innerHTML = `${label} ${keycapsHtml(keys)}`;
+      b.onclick = () => acceptChange(c.id, status);
+      return b;
+    };
+    control.append(
+      decide("reject", "Undo", "⇧N", "rejected"),
+      decide("accept", "Keep", "⇧Y", "accepted"),
+    );
+    el.appendChild(control);
+    return el;
+  }
   const el = document.createElement("div");
   el.className = "annotation";
-  if (c.type === "change") {
-    el.innerHTML = `<div class="change-actions"><button class="reject">Undo ${keycapsHtml("⇧N")}</button><button class="accept">Keep ${keycapsHtml("⇧Y")}</button></div>`;
-  } else {
-    el.dataset.thread = `${c.side}:${c.lineNumber}`; // the jump target (blockers.ts flashes it)
-    el.appendChild(threadCard(c));
-    // The change on the thread's line keeps its decision bar right under the hunk, above the
-    // thread, as when the two render as separate annotations.
-    if (change) {
-      const ca = document.createElement("div");
-      ca.className = "change-actions";
-      ca.innerHTML = `<button class="reject">Undo ${keycapsHtml("⇧N")}</button><button class="accept">Keep ${keycapsHtml("⇧Y")}</button>`;
-      el.prepend(ca);
-    }
-  }
-  const acceptButton = el.querySelector(".accept");
-  const rejectButton = el.querySelector(".reject");
-  if (change && acceptButton && rejectButton) {
-    (acceptButton as HTMLButtonElement).onclick = () => acceptChange(change.id, "accepted");
-    (rejectButton as HTMLButtonElement).onclick = () => acceptChange(change.id, "rejected");
-  }
+  el.dataset.thread = `${c.side}:${c.lineNumber}`; // the jump target (blockers.ts flashes it)
+  el.appendChild(threadCard(c));
   return el;
 }

@@ -253,8 +253,8 @@
   color: var(--orange-ink);
 }
 
-/* ── What reads before the diff: the guidance card, then the lost threads ──
-   Under the bar, scrolling with the code. */
+/* ── The lost threads, read before the diff ──
+   Under the bar and the guide card, scrolling with the code. */
 #diff > .file-lead {
   display: flex;
   flex-direction: column;
@@ -266,73 +266,4 @@
   font-family: var(--sans);
   font-size: var(--text-sm);
   line-height: normal;
-}
-
-/* The guide's note on this file: a quiet tinted block, read before the code. */
-.file-lead .ghdr-guide {
-  align-self: flex-start;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-bottom: 2px;
-  max-width: 78ch;
-  padding: 10px 14px 12px;
-  background: var(--fill);
-  border-radius: var(--radius-lg);
-}
-
-.file-lead .ghdr-cat {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-
-.file-lead .ghdr-cat.crit {
-  color: var(--orange-ink);
-}
-
-/* The guidance is the primary reading content of a guided review — ink, not muted,
-   one step above the header's text-sm. */
-.file-lead .ghdr-expl.md {
-  margin-top: 0;
-  max-width: 72ch;
-  color: var(--ink);
-  font-size: var(--text-md);
-  line-height: 1.6;
-}
-
-/* A skimmed file's reason, in the orientation's place when the guide omits one. */
-.file-lead .ghdr-skim {
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-}
-
-/* The flag is an orange callout (not a bare text row) — the one thing on the card that says
-   "decide this before approving". */
-.file-lead .ghdr-flag {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  max-width: 74ch;
-  margin-top: 5px;
-  padding: 9px 12px;
-  background: var(--orange-wash);
-  border-radius: var(--radius);
-  color: var(--orange-ink);
-}
-
-.file-lead .ghdr-flag > .ic {
-  width: 13px;
-  height: 13px;
-  margin-top: 3px;
-  fill: currentColor;
-}
-
-.file-lead .ghdr-flag .md {
-  margin-top: 0;
-  color: var(--orange-ink);
-  font-size: var(--text-md);
-  font-weight: 500;
-  line-height: 1.5;
 }
