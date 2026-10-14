@@ -5,10 +5,9 @@ import { unanchoredBlock } from "./annotations";
 import { unanchoredThreads } from "./unanchored";
 import { approveCurrentStep, resetStep } from "./decisions";
 import { blockersChip, currentBlockers } from "./blockers";
-import { currentGuideEntry, currentSlot, currentStep, nextStep } from "./guide";
-import type { Step } from "./steps";
+import { currentGuideEntry, currentSlot, currentStep } from "./guide";
 import { isFileSkim, isFileSkimCollapsed, movedFrom, toggleFileSkim } from "./skim";
-import { keycapsHtml, keycapsNode } from "./keycaps";
+import { keycapsHtml } from "./keycaps";
 import { fileBarActions, splitPath } from "./filebar-derive";
 import { guideMini, guideMiniElement, retrackGuideCard } from "./guidecard";
 
@@ -115,11 +114,10 @@ function openEditorButton(): HTMLElement {
 
 // The step's one filled button: Approve File, or Approve Part on a part or Rest step (clean,
 // green), or Mark Reviewed (it carries a rejected change or an open change request, orange).
-// Either signs off the step on screen and advances. The end row's copy (`filled` false) is a
-// neutral push button, so the code view keeps one filled button when both are on screen.
-function signOffButton(objections: boolean, part: boolean, filled = true): HTMLElement {
+// Either signs off the step on screen and advances.
+function signOffButton(objections: boolean, part: boolean): HTMLElement {
   const b = document.createElement("button");
-  b.className = filled ? "signoff fill" + (objections ? " warn" : "") : "btn";
+  b.className = "signoff fill" + (objections ? " warn" : "");
   const label = objections ? "Mark Reviewed" : part ? "Approve Part" : "Approve File";
   b.innerHTML = `${label} ${keycapsHtml("⇧A")}`;
   b.onclick = () => approveCurrentStep();
@@ -280,48 +278,6 @@ function mount(el: HTMLElement, kids: Node[], mini: HTMLElement | null) {
   for (const c of Array.from(el.childNodes)) if (c !== keep) c.remove();
   if (keep) keep.before(...kids);
   else el.append(...kids, ...(mini ? [mini] : []));
-}
-
-// A step as the end row names it: the file's name, then its part's title, or "Rest of <name>".
-function stepName(step: Step): Node[] {
-  const path = S.state.files[step.fileIndex]?.path ?? "";
-  const name = splitPath(path).name;
-  if (step.part === "rest") return [document.createTextNode(`Rest of ${name}`)];
-  const title =
-    typeof step.part === "number" ? S.state.guide?.files[step.part]?.part?.title : undefined;
-  if (!title) return [document.createTextNode(name)];
-  const part = document.createElement("span");
-  part.className = "fe-part";
-  part.textContent = title;
-  return [document.createTextNode(`${name} `), part];
-}
-
-// The row after the step's last line: "End of <step> · next: <step> ⇧→" and the step's sign-off,
-// so a reviewer who read to the bottom acts there instead of scrolling back to the bar. Next is
-// the step ⇧→ opens in review order (a part, a Rest, or a file), left out on the last one (⇧→ only
-// wraps from there). A finished step shows its quiet state in the button's place; Reset stays in
-// the bar.
-export function fileEnd(): HTMLElement {
-  const path = currentFile().path;
-  const row = document.createElement("div");
-  row.className = "file-end";
-  const text = document.createElement("span");
-  text.className = "fe-text";
-  const name = document.createElement("b");
-  name.append(...stepName(currentStep()));
-  text.append("End of ", name);
-  const next = nextStep(currentStep());
-  if (next && S.state.files[next.fileIndex]) {
-    const go = document.createElement("button");
-    go.className = "fe-next";
-    go.append(...stepName(next));
-    go.title = S.state.files[next.fileIndex]!.path;
-    go.onclick = () => S.nextFile?.();
-    text.append(" · next: ", go, keycapsNode(document, "⇧→"));
-  }
-  const { part, finished, objections } = stepStand(path);
-  row.append(text, finished ? signedOffState(objections) : signOffButton(objections, part, false));
-  return row;
 }
 
 // The open threads whose anchor line no longer renders, read before the diff (under the bar and

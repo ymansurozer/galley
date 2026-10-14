@@ -33,7 +33,7 @@ import {
 import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
 import { applyHunkFolds } from "./fold";
 import { diffShadowRoot } from "./diff-dom";
-import { fileEnd, fileLead, renderFileBar } from "./filebar";
+import { fileLead, renderFileBar } from "./filebar";
 import { guideCard, trackGuideCard } from "./guidecard";
 import { codeScheme } from "./shiki-curated";
 
@@ -292,7 +292,6 @@ async function renderCenter() {
     page();
     renderMarkdownFile();
     withBar();
-    host.append(fileEnd());
     return;
   }
   // A pure rename (identical content, distinct paths) has no diff to show — render the muted
@@ -463,20 +462,18 @@ async function renderCenter() {
   }
   D.diffCache.set(key, entry);
   D.instance = entry.inst;
-  // Mount this file's wrapper between its bar + guide card + lead and its end row (replaceChildren
-  // detaches the previously-active wrapper — it lives on in the Map — and removes any
-  // overview/markdown content). A same-file re-render leaves the wrapper attached and swaps only
-  // what surrounds it, so the diff isn't detached/reattached and the scroll stays put. A preview
-  // has no guide card, lead or end row: it isn't in the review.
+  // Mount this file's wrapper under its bar + guide card + lead (replaceChildren detaches the
+  // previously-active wrapper — it lives on in the Map — and removes any overview/markdown
+  // content). A same-file re-render leaves the wrapper attached and swaps only what sits above it,
+  // so the diff isn't detached/reattached and the scroll stays put. A preview has no guide card or
+  // lead: it isn't in the review.
   const bar = renderFileBar(fd);
   const above = [guideCard(), previewing ? null : fileLead()].filter((x) => x !== null);
-  const end = previewing ? null : fileEnd();
   const mountedNew = entry.wrapper.parentNode !== host;
-  if (mountedNew) host.replaceChildren(bar, ...above, entry.wrapper, ...(end ? [end] : []));
+  if (mountedNew) host.replaceChildren(bar, ...above, entry.wrapper);
   else {
     for (const el of Array.from(host.children)) if (el !== bar && el !== entry.wrapper) el.remove();
     entry.wrapper.before(...above);
-    if (end) entry.wrapper.after(end);
   }
   entry.inst.setLineAnnotations?.(anns());
   await entry.inst.render({

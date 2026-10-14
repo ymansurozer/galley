@@ -156,6 +156,7 @@
   }
 }
 
+/* The whole line opens the note, so it reads as one control. */
 .gm-line {
   display: flex;
   align-items: center;
@@ -165,6 +166,11 @@
   padding: 0 12px 0 16px;
   white-space: nowrap;
   font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.gm-line:hover {
+  background: var(--fill);
 }
 
 .gm-line .gc-icon {
@@ -179,15 +185,12 @@
   height: 12px;
 }
 
-.gm-line .gc-skim-mark {
-  flex: 0 0 auto;
-  margin-left: 0;
-}
-
 /* The orientation clamped to what fits; its markdown flattens to one line of text. */
+/* Just the start: about half the bar, so the line stays a reminder, not a second reading. */
 .gm-orient {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 50%;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--ink);
@@ -213,47 +216,6 @@
   color: var(--ink-2);
 }
 
-.gm-flag {
-  flex: 0 1 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  max-width: 42%;
-  overflow: hidden;
-  color: var(--orange-ink);
-  font-weight: 500;
-}
-
-.gm-flag > .ic {
-  flex: 0 0 auto;
-  width: 12px;
-  height: 12px;
-}
-
-.gm-flag > .md {
-  margin-top: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: inherit;
-  font-size: var(--text-sm);
-  line-height: normal;
-}
-
-.gm-flag > .md > * {
-  display: inline;
-  margin: 0;
-}
-
-.gm-stale {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-}
-
 .gm-toggle {
   flex: 0 0 auto;
   width: 24px;
@@ -272,7 +234,7 @@
   transform: rotate(90deg);
 }
 
-.guide-mini.open :is(.gm-orient, .gm-flag, .gm-stale) {
+.guide-mini.open .gm-orient {
   visibility: hidden;
 }
 
@@ -298,8 +260,7 @@
   display: none;
 }
 
-/* Phone widths: a tighter card, and the pinned line's flag shrinks to its glyph (the full note
-   keeps the text). */
+/* Phone widths: a tighter card and pinned line. */
 @media (max-width: 760px) {
   #diff > .guide-card {
     gap: 10px;
@@ -308,15 +269,6 @@
 
   .gm-line {
     padding: 0 8px 0 12px;
-  }
-
-  .gm-flag {
-    flex: 0 0 auto;
-    max-width: none;
-  }
-
-  .gm-flag > .md {
-    display: none;
   }
 
   .gm-full {
