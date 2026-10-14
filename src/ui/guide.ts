@@ -220,22 +220,12 @@ export function progressDetail() {
   };
 }
 
-// The guide entry for the file currently shown (or null) — drives the top guide bar.
+// The guide entry for the file currently shown (or null) — drives its guide card.
 export function currentGuideEntry() {
   if (!hasGuide()) return null;
   const f = S.state.files[S.fileIndex];
   if (!f) return null;
   return S.state.guide!.files.find((g) => g.path === f.path) ?? null;
-}
-
-export function currentFileName(): string {
-  return S.state?.files?.[S.fileIndex]?.path.split("/").pop() ?? "";
-}
-
-// Show the top guide bar whenever a guide is attached — including on the Overview page
-// (where the overview is treated as the position before the first file).
-export function showGuideBar(): boolean {
-  return hasGuide();
 }
 
 // The guide was generated against an older diff than the one now loaded (e.g. the agent
@@ -246,7 +236,7 @@ export function guideStale(): boolean {
 
 // Render the Overview page into #diff: overview → optional PR description → Start. No file
 // list — the sidebar (tree/walkthrough, including the Skimmed group) already lists every file,
-// so repeating them here was redundant; per-file orientation renders in each file's header.
+// so repeating them here was redundant; per-file orientation renders in each file's guide card.
 // Called by render() when overviewOpen && hasGuide().
 export function renderOverview() {
   const g = S.state.guide!;

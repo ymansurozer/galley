@@ -371,16 +371,10 @@ export interface Store {
   openSettings?: () => void;
   closeSettings?: () => void;
   hasGuide?: () => boolean;
-  guideStale?: () => boolean;
   openOverview?: () => void;
   startGuided?: () => void;
-  showGuideBar?: () => boolean;
-  curGuide?: () => GuideFile | null;
-  curFileName?: () => string;
   guideNext?: () => void;
   guidePrev?: () => void;
-  guideAtStart?: () => boolean;
-  guideAtLast?: () => boolean;
   walkthroughRows?: () => WalkRow[];
   saveComment?: () => void;
   ask?: () => void;

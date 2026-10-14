@@ -2,8 +2,7 @@ import { S, $, esc } from "./store";
 import { currentFile, fileFinished } from "./changes";
 import { rejectFile } from "./decisions";
 import { deferRender } from "./render";
-import { currentGuideEntry } from "./guide";
-import { isFileSkim, fileSkimReason, movedFrom } from "./skim";
+import { movedFrom } from "./skim";
 import type { ReviewState } from "./types";
 import { keycapsHtml } from "./keycaps";
 
@@ -12,10 +11,10 @@ type ReviewFile = ReviewState["files"][number];
 // ── Oversized-file placeholder card (issue 05) ───────────────────────────────
 // A file whose diff would freeze the tab (server-stamped `oversized`, see state.ts) renders as a
 // verdict-capable summary card INSTEAD of fetching + rendering its diff — so opening it never
-// blocks on a multi-MB tokenization pass. The card carries the file's stats, its guide badges,
-// Reject file, and a "Load diff anyway" escape hatch; the sign-off sits in the file bar above it,
-// as for any file. Once loaded, the file behaves like any rendered file for the rest of the session
-// (S.loadedOversized).
+// blocks on a multi-MB tokenization pass. The card carries the file's stats, Reject file, and a
+// "Load diff anyway" escape hatch; the sign-off sits in the file bar above it and the guide's note
+// in the guide card, as for any file. Once loaded, the file behaves like any rendered file for the
+// rest of the session (S.loadedOversized).
 
 // Whether `f` (default: the current file) should paint the placeholder card right now: it's stamped
 // oversized and the reviewer hasn't chosen to load its real diff this session.
@@ -78,7 +77,6 @@ function rejectControl(path: string): HTMLElement | null {
 export function renderOversizedCard() {
   const file = currentFile();
   const path = file.path;
-  const entry = currentGuideEntry();
   const from = movedFrom(path);
 
   const card = document.createElement("div");
@@ -104,26 +102,6 @@ export function renderOversizedCard() {
   head.appendChild(kind);
   card.appendChild(head);
 
-  // Guide badges the file would normally show: category chip, skim note, flag callout.
-  if (entry || isFileSkim(path)) {
-    const badges = document.createElement("div");
-    badges.className = "ovsz-badges";
-    if (entry) {
-      const cat = document.createElement("span");
-      cat.className = "ovsz-cat" + (entry.flag ? " crit" : "");
-      cat.textContent = entry.category;
-      badges.appendChild(cat);
-    }
-    if (isFileSkim(path)) {
-      const skim = document.createElement("span");
-      skim.className = "ovsz-skim";
-      const reason = fileSkimReason(path);
-      skim.innerHTML = `<svg class="ic"><use href="#gly-collapse-all"></use></svg><span>${reason ? `skimmed · ${esc(reason)}` : "skimmed"}</span>`;
-      badges.appendChild(skim);
-    }
-    card.appendChild(badges);
-  }
-
   // Stats: byte size is the focal number (why this is a card), with the churn counts beside it.
   const stats = document.createElement("div");
   stats.className = "ovsz-stats";
@@ -143,14 +121,6 @@ export function renderOversizedCard() {
   note.className = "ovsz-note";
   note.textContent = "This file is large. Its diff is hidden to keep the desk responsive.";
   card.appendChild(note);
-
-  // The flag reads as a callout below the note (same orange-box idiom as the guide header's flag).
-  if (entry?.flag) {
-    const flag = document.createElement("div");
-    flag.className = "ovsz-flag";
-    flag.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><div>${esc(entry.flag)}</div>`;
-    card.appendChild(flag);
-  }
 
   // Actions: Reject file (when it applies) + Load diff anyway.
   const actions = document.createElement("div");
