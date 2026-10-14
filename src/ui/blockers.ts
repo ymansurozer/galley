@@ -149,16 +149,25 @@ let openPop: { wrap: HTMLElement; close: () => void } | null = null;
 // bar may have dropped it from the page, and then Esc belongs to the next layer.
 export function closeBlockers(): boolean {
   if (!openPop) return false;
-  const shown = openPop.wrap.isConnected;
+  // Hidden behind the App view it closes too, but leaves that Esc to the app's own layers.
+  const shown = openPop.wrap.isConnected && S.view === "code";
   openPop.close();
   return shown;
 }
 
 // A dialog or go-to-line takes the keyboard, Esc included, so the popover closes as one opens:
-// left open behind a dialog, it would linger after the dialog's Esc.
+// left open behind a dialog, it would linger after the dialog's Esc. Leaving the code view closes
+// it too.
 export function installBlockers() {
   Alpine.effect(() => {
-    if (S.confirmMsg || S.sendOpen || S.settingsOpen || S.shotView || S.golineBuffer)
+    if (
+      S.confirmMsg ||
+      S.sendOpen ||
+      S.settingsOpen ||
+      S.shotView ||
+      S.golineBuffer ||
+      S.view !== "code"
+    )
       closeBlockers();
   });
 }
