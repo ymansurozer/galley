@@ -36,6 +36,8 @@ const ANCHORS = [
   ".questions[]",
   // result + acting
   "ReviewResult",
+  // baseDiffHash moves with untracked files too, and is opaque to the agent
+  "untracked files included; only ever compare it",
   "approvedFiles",
   "overallNote",
   // unanswered questions fold into the Send (issue 05)

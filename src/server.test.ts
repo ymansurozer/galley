@@ -17,6 +17,7 @@ import path from "node:path";
 import { AGENT_HEADER, resolveBinding, startServer } from "./server.js";
 import { buildReviewState, hash, reviewDir, writeGlobalSettings } from "./state.js";
 import type { ReviewComment, ReviewResult, ReviewState } from "./types.js";
+import { isGuideBaseStale } from "./ui/guide-derive.js";
 import { SHOT_CAP } from "./uishots.js";
 
 function state(root: string): ReviewState {
@@ -1633,8 +1634,9 @@ test("GALLEY_ALLOWED_HOSTS entries pass the guard; a non-member 403s", async () 
 
 test("concurrent /api/reload and /api/save leave the desk internally consistent (issue 05)", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "galley-mutex-"));
+  const home = await mkdtemp(path.join(tmpdir(), "galley-mutex-home-"));
   const oldHome = process.env.HOME;
-  process.env.HOME = root;
+  process.env.HOME = home; // outside the repo, so the desk's own files aren't untracked in it
   const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
   g(["init", "-q"]);
   g(["config", "user.email", "t@t.co"]);
@@ -1671,6 +1673,7 @@ test("concurrent /api/reload and /api/save leave the desk internally consistent 
     handle.server.close();
     process.env.HOME = oldHome;
     await rm(root, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   }
 });
 
@@ -2116,5 +2119,52 @@ test("/api/reload on a clean tree still refreshes the branch the desk names", as
     handle.server.close();
     process.env.HOME = oldHome;
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("/api/reload after only an untracked add moves the poll's baseDiffHash and stales an older guide", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-untracked-"));
+  const home = await mkdtemp(path.join(tmpdir(), "galley-untracked-home-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = home; // outside the repo, so the desk's own files aren't untracked in it
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  await writeFile(path.join(root, "a.ts"), "one\n");
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  await writeFile(path.join(root, "a.ts"), "two\n");
+  const st = (await buildReviewState(root, { session: "s" }))!;
+  st.guide = {
+    overview: "o",
+    files: [{ path: "a.ts", orientation: "x", order: 0, category: "Changes" }],
+    baseDiffHash: st.baseDiffHash,
+  };
+  const handle = await startServer({ state: st, open: false, idleTimeoutMs: 0 });
+  type Poll = { baseDiffHash: string; guide?: { baseDiffHash?: string } };
+  const poll = () => getPoll(handle.url) as unknown as Promise<Poll>;
+  const guideStale = (p: Poll) => isGuideBaseStale(p.baseDiffHash, p.guide?.baseDiffHash);
+  try {
+    const before = await poll();
+    assert.equal(guideStale(before), false);
+    await writeFile(path.join(root, "new.ts"), "fresh\n");
+    assert.equal((await post(handle.url, "api/reload", {})).status, 200);
+    const after = await poll();
+    assert.notEqual(after.baseDiffHash, before.baseDiffHash, "the tab's poll sees the reload");
+    assert.ok((await getState(handle.url)).files.some((f) => f.path === "new.ts"));
+    assert.equal(guideStale(after), true, "the guide predates new.ts");
+    // A guide sent with the reload is stamped against the rebuilt hash, so it's never born stale.
+    await writeFile(path.join(root, "new.ts"), "fresher\n");
+    const guide = { overview: "o", files: [{ path: "new.ts", orientation: "x" }] };
+    assert.equal((await post(handle.url, "api/reload", { guide })).status, 200);
+    const guided = await poll();
+    assert.notEqual(guided.baseDiffHash, after.baseDiffHash, "editing new.ts moves it again");
+    assert.equal(guideStale(guided), false);
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   }
 });
