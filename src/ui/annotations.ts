@@ -21,12 +21,12 @@ import {
 import { render } from "./render";
 import { isBlockSkimCollapsed, skimStripLabel, toggleSkimBlock } from "./skim";
 import { firstLine, turnsInto } from "./uilane-derive";
-import { agentPresence } from "./topbar-derive";
 import { asksChange } from "./requests-derive";
 import {
   intentPill,
   lineLabel,
   messageWaiting,
+  questionStatus,
   questionWaiting,
   showsHeld,
   threadKind,
@@ -148,24 +148,15 @@ export function annotations(): AnnotationInput[] {
   return [...changes, ...threads, ...composers];
 }
 
-// The status line under an unanswered question has three states, derived per poll tick from
-// the desk-liveness fields: queued (the question never reached an agent — nothing is awaiting),
-// active (delivered, and the agent posted a `galley status` line), or plain waiting. It's the top
-// bar's presence rule (topbar-derive) asked about this one question, sent review or not, so the
-// two never disagree. Desk-global by design: one desk, one agent.
-export function awaitingParts() {
-  const presence = agentPresence({
-    awaitingAgent: false,
-    queuedReviews: 0,
+// The status line under an unanswered question, from the desk-liveness fields each poll tick
+// (thread-derive questionStatus).
+export const awaitingParts = () =>
+  questionStatus({
+    awaitingAgent: S.awaitingAgent,
+    queuedReviews: S.queuedReviews,
     queuedQuestions: S.queuedQuestions,
     activity: S.agentActivity,
-    unansweredAsks: 1,
   });
-  // "Working · <activity>" splits into its label and the activity, which reads brighter.
-  const [label = "Working", ...activity] =
-    presence.kind === "hidden" ? [] : presence.line.split(" · ");
-  return { queued: presence.kind === "notAttached", label, activity: activity.join(" · ") };
-}
 
 // Patch every mounted question status in place, and show or hide the held chips. Called from the
 // 1.5s poll and on Send: activity/presence changes alone must not trigger a full render() (it

@@ -1,5 +1,6 @@
 import type { ThreadMessage } from "./types";
 import { answered } from "./uilane-derive";
+import { agentPresence, type PresenceSignals } from "./topbar-derive";
 
 // Pure derivations for a thread's card (store-free, so they unit-test): what its header names it,
 // whether it's held for Send, which messages are labelled and which wait on the agent.
@@ -29,6 +30,17 @@ export const messageWaiting = (m: ThreadMessage, comments: readonly ThreadMessag
 // A thread waits on the agent while one of its questions does.
 export const questionWaiting = (comments: readonly ThreadMessage[]) =>
   comments.some((m) => messageWaiting(m, comments));
+
+// A waiting question's status line: the top bar's presence rule (topbar-derive) read from the same
+// signals, this question counted as unanswered, so the two never disagree. Amber with the top
+// bar's words when nothing picked the review or the question up; else "Working", and what the
+// agent says it's doing once it says. Desk-global by design: one desk, one agent.
+export function questionStatus(s: Omit<PresenceSignals, "unansweredAsks">) {
+  const presence = agentPresence({ ...s, unansweredAsks: 1 });
+  return presence.kind === "notAttached"
+    ? { queued: true, label: presence.line, activity: "" }
+    : { queued: false, label: "Working", activity: s.activity ?? "" };
+}
 
 // "Held for Send" chips a change request's header until the review is sent. While the agent has
 // it (awaitingAgent), it isn't held any more; once the agent replies it goes with the next Send.

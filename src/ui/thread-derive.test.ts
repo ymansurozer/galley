@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ThreadMessage } from "./types";
+import { agentPresence } from "./topbar-derive.js";
 import {
   intentPill,
   lineLabel,
   messageWaiting,
+  questionStatus,
   questionWaiting,
   showsHeld,
   threadKind,
@@ -117,6 +119,38 @@ test("a message wears its intent where the thread's kind doesn't say it", () => 
   );
   // A resolved card's header no longer names the kind, so its opener says it.
   assert.deepEqual(pills("resolved", [msg({ intent: "action" })]), ["change"]);
+});
+
+test("a question's status reads the top bar's signals, so the two never disagree", () => {
+  const idle = { awaitingAgent: false, queuedReviews: 0, queuedQuestions: 0, activity: null };
+  // Delivered, and the agent hasn't said what it's doing yet.
+  assert.deepEqual(questionStatus(idle), { queued: false, label: "Working", activity: "" });
+  assert.deepEqual(questionStatus({ ...idle, activity: "Reading quota.ts" }), {
+    queued: false,
+    label: "Working",
+    activity: "Reading quota.ts",
+  });
+  // Nothing picked the question up.
+  assert.deepEqual(questionStatus({ ...idle, queuedQuestions: 1 }), {
+    queued: true,
+    label: "No agent attached — question queued",
+    activity: "",
+  });
+  // Sent with no agent attached: the review sits queued, and the question's line says so as the
+  // top bar does, not "Working".
+  const sent = { ...idle, awaitingAgent: true, queuedReviews: 1 };
+  assert.deepEqual(questionStatus(sent), {
+    queued: true,
+    label: "No agent attached — review queued",
+    activity: "",
+  });
+  assert.equal(questionStatus(sent).label, agentPresence({ ...sent, unansweredAsks: 1 }).line);
+  // Sent, and the agent is on it.
+  assert.deepEqual(questionStatus({ ...idle, awaitingAgent: true, activity: "Editing quota.ts" }), {
+    queued: false,
+    label: "Working",
+    activity: "Editing quota.ts",
+  });
 });
 
 test("the held chip shows for a change request until the review is sent", () => {
