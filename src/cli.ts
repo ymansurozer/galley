@@ -682,6 +682,7 @@ async function runDesk(
     .filter(Boolean);
   const { url, lockUrl } = await startServer({
     state,
+    priorDiff: saved ? { baseDiffHash: saved.baseDiffHash, changes: saved.changes } : undefined,
     port: typeof args.port === "string" ? Number(args.port) : stablePort(state.root, state.session),
     host,
     allowedHosts,

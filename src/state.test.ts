@@ -401,7 +401,10 @@ test("mergeReviewState migrates a decision + open comment + sign-off across a re
 // over a real repo: app.ts holds l1..l14 committed, and each test writes the working tree.
 const committedLines = Array.from({ length: 14 }, (_, i) => `l${i + 1}`);
 async function withShiftRepo(
-  run: (edit: (lines: string[]) => Promise<ReviewState>) => Promise<void>,
+  run: (
+    edit: (lines: string[]) => Promise<ReviewState>,
+    stage: (lines: string[]) => Promise<void>,
+  ) => Promise<void>,
 ) {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-shift-")));
   const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
@@ -412,11 +415,20 @@ async function withShiftRepo(
     await fs.writeFile(path.join(dir, "app.ts"), committedLines.join("\n") + "\n");
     gitq("add", "-A");
     gitq("commit", "-q", "-m", "init");
-    // Write the working tree and build the desk on it, as `galley reload` rebuilds.
-    await run(async (lines) => {
-      await fs.writeFile(path.join(dir, "app.ts"), lines.join("\n") + "\n");
-      return (await buildReviewState(dir, { session: "s" }))!;
-    });
+    const write = (lines: string[]) =>
+      fs.writeFile(path.join(dir, "app.ts"), lines.join("\n") + "\n");
+    await run(
+      // Write the working tree and build the desk on it, as `galley reload` rebuilds.
+      async (lines) => {
+        await write(lines);
+        return (await buildReviewState(dir, { session: "s" }))!;
+      },
+      // Put `lines` in the index, as accepting a block stages it out of the working-tree diff.
+      async (lines) => {
+        await write(lines);
+        gitq("add", "app.ts");
+      },
+    );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -442,6 +454,11 @@ const statusOf = (st: ReviewState, key: string) =>
   st.changes.find((c) => `${c.path}:${c.stableKey}` === key)?.status;
 const decided = (st: ReviewState) =>
   (st.decisions ?? []).map((d) => [d.key, d.status, d.lineNumber]).sort();
+// The same line added after l3 and after l8: two blocks with identical content.
+const twinLines = () => {
+  const lines = [...committedLines.slice(0, 3), "x", ...committedLines.slice(3, 8), "x"];
+  return [...lines, ...committedLines.slice(8)];
+};
 
 test("an accepted block keeps its decision, under its new key, when lines are inserted above it", async () => {
   await withShiftRepo(async (edit) => {
@@ -466,9 +483,7 @@ test("a rejected block keeps its decision, under its new key, when lines are ins
 
 test("identical blocks shifted together keep their own decisions, paired in document order", async () => {
   await withShiftRepo(async (edit) => {
-    // The same line added after l3 and after l8: two blocks with identical content.
-    const twins = [...committedLines.slice(0, 3), "x", ...committedLines.slice(3, 8), "x"];
-    twins.push(...committedLines.slice(8));
+    const twins = twinLines();
     const before = await edit(twins);
     const first = before.changes.find((c) => c.stableKey === "additions:4:0:1")!;
     const second = before.changes.find((c) => c.stableKey === "additions:10:0:1")!;
@@ -488,6 +503,40 @@ test("identical blocks shifted together keep their own decisions, paired in docu
       ["app.ts:additions:12:0:1", "rejected", 12],
       ["app.ts:additions:6:0:1", "accepted", 6],
     ]);
+  });
+});
+
+test("an undecided twin left in place doesn't take the decision of an accepted twin staged out", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    const before = await edit(twinLines());
+    const accepted = decide(before, "app.ts:additions:4:0:1", "accepted");
+    // Stage the first twin only: the working-tree diff keeps the second, at the same line.
+    await stage([...committedLines.slice(0, 3), "x", ...committedLines.slice(3)]);
+    const merged = await mergeReviewState(await edit(twinLines()), {
+      ...before,
+      decisions: [accepted],
+    });
+    assert.deepEqual(
+      merged.changes.map((c) => [c.stableKey, c.status]),
+      [["additions:10:0:1", "pending"]],
+    );
+    assert.deepEqual(decided(merged), [["app.ts:additions:4:0:1", "accepted", 4]]);
+  });
+});
+
+test("an undecided twin left in place doesn't take the decision of a twin rewritten in place", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(twinLines());
+    const accepted = decide(before, "app.ts:additions:4:0:1", "accepted");
+    const rewritten = twinLines();
+    rewritten[3] = "y";
+    const merged = await mergeReviewState(await edit(rewritten), {
+      ...before,
+      decisions: [accepted],
+    });
+    assert.equal(statusOf(merged, "app.ts:additions:4:0:1"), "pending");
+    assert.equal(statusOf(merged, "app.ts:additions:10:0:1"), "pending");
+    assert.deepEqual(decided(merged), []);
   });
 });
 
@@ -535,19 +584,29 @@ test("a save from a tab still on the pre-reload diff lands on the reloaded block
     const rejected = decide(live, "app.ts:additions:11:1:1", "rejected");
     const seen = (baseDiffHash: string) => ({ token: null, reloadGeneration: 0, baseDiffHash });
     mergeReviewerSave(live, { decisions: [accepted], seen: seen(oldDiff) });
+    // The desk remembers the diff it reloads away from (server.ts, /api/reload).
+    const prior = { baseDiffHash: live.baseDiffHash, changes: live.changes };
     Object.assign(
       live,
       await mergeReviewState(await edit(insertAbove(edited({ 8: "L8", 11: "L11" }))), live),
     );
     assert.deepEqual(decided(live), [["app.ts:additions:10:1:1", "accepted", 10]]);
     // Before the tab adopts the reloaded diff, the reviewer rejects the l11 block on the old one.
-    mergeReviewerSave(live, { decisions: [accepted, rejected], seen: seen(oldDiff) });
+    mergeReviewerSave(
+      live,
+      { decisions: [accepted, rejected], seen: seen(oldDiff) },
+      undefined,
+      prior,
+    );
     assert.deepEqual(decided(live), [
       ["app.ts:additions:10:1:1", "accepted", 10],
       ["app.ts:additions:13:1:1", "rejected", 13],
     ]);
     assert.equal(statusOf(live, "app.ts:additions:10:1:1"), "accepted");
     assert.equal(statusOf(live, "app.ts:additions:13:1:1"), "rejected");
+    // A save from further back than the desk remembers can't be placed: the desk keeps its own.
+    mergeReviewerSave(live, { decisions: [], seen: seen("two diffs back") }, undefined, prior);
+    assert.equal(decided(live).length, 2);
     // Once the tab has adopted the reloaded diff, its save is taken as sent.
     const current = live.decisions!.filter((d) => d.status === "accepted");
     mergeReviewerSave(live, { decisions: current, seen: seen(live.baseDiffHash) });
