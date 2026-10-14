@@ -42,6 +42,7 @@ import {
 } from "./skim";
 import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
 import { diffShadowRoot } from "./diff-dom";
+import { keycapsHtml } from "./keycaps";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
@@ -138,14 +139,14 @@ function ctColor(type: string | undefined): string {
     case "new":
       return "var(--green)";
     case "change":
-      return "var(--cyan)";
+      return "var(--blue)";
     case "deleted":
       return "var(--red)";
     case "rename-pure":
     case "rename-changed":
-      return "var(--amber)";
+      return "var(--orange)";
     default:
-      return "var(--muted)";
+      return "var(--ink-2)";
   }
 }
 // @pierre's change-type icon as light-DOM SVG (the lib's createIconElement returns HAST).
@@ -169,8 +170,9 @@ function changeIcon(type: string | undefined): SVGElement {
 // which rebuilds this control with the new active state.
 function layoutToggle(): HTMLElement {
   const wrap = document.createElement("span");
-  wrap.className = "ghdr-layout";
-  wrap.setAttribute("data-tip", "Split / Stacked (v)");
+  wrap.className = "ghdr-layout seg xs";
+  wrap.dataset.tip = "Split / Stacked";
+  wrap.dataset.tipKeys = "v";
   const mk = (label: string, style: "split" | "unified") => {
     const b = document.createElement("button");
     b.textContent = label;
@@ -188,7 +190,8 @@ function layoutToggle(): HTMLElement {
 function openEditorButton(): HTMLElement {
   const b = document.createElement("button");
   b.className = "ghdr-open";
-  b.setAttribute("data-tip", "Open in editor (⇧E)");
+  b.dataset.tip = "Open in editor";
+  b.dataset.tipKeys = "⇧E";
   b.innerHTML = `<svg class="ic"><use href="#gly-open-editor"></use></svg>`;
   b.onclick = () => S.openInEditor?.();
   return b;
@@ -455,8 +458,8 @@ async function renderCenter() {
       if (S.state.decisionFiles?.includes(filePath)) wrap.appendChild(reset());
       if (chip) wrap.appendChild(chip);
       const button = document.createElement("button");
-      button.className = "diff-header-action" + (objections ? " warn" : "");
-      button.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} <kbd>⇧A</kbd>`;
+      button.className = "diff-header-action fill" + (objections ? " warn" : "");
+      button.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} ${keycapsHtml("⇧A")}`;
       button.onclick = () => approveCurrentFile();
       wrap.appendChild(button);
     }

@@ -6,22 +6,18 @@
   grid-template-rows: 48px 1fr;
 }
 
-.top,
-.bottom {
-  display: grid;
-  align-items: center;
-  padding: 0 12px;
-  background: var(--panel);
-  border-color: var(--line);
-  color: var(--muted);
-  font-size: var(--text-sm);
-}
-
+/* ── Top bar: what is under review and the hand-back ── */
 .top {
   position: relative;
+  display: grid;
   grid-template-columns: 1fr auto 1fr;
   gap: 12px;
-  border-bottom: 1px solid var(--line);
+  align-items: center;
+  padding: 0 12px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--sep);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }
 
 /* Review progress: a fill strip riding the topbar's bottom edge (covers the border as it
@@ -41,16 +37,16 @@
   width: 0;
   background: var(--green);
   border-radius: 0 2px 2px 0;
-  transition: width 0.45s cubic-bezier(0.22, 0.9, 0.34, 1);
+  transition: width 0.45s var(--ease);
 }
 
 .top-progress.pulse > i {
-  animation: prog-pulse 0.8s ease-out;
+  animation: prog-pulse 0.8s var(--ease);
 }
 
 @keyframes prog-pulse {
   0% {
-    filter: brightness(1.7);
+    filter: brightness(1.4);
     box-shadow: 0 0 10px 0 var(--green);
   }
 
@@ -61,16 +57,10 @@
 }
 
 .top-pct {
-  color: var(--muted);
+  color: var(--ink-2);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.bottom {
-  grid-template-columns: 1fr auto;
-  gap: 12px;
-  border-top: 1px solid var(--line);
 }
 
 .brand {
@@ -82,7 +72,9 @@
 
 .brand span {
   color: var(--ink);
-  font-weight: 700;
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.005em;
 }
 
 /* The project under review (the main worktree's folder): a filesystem name, so mono like the
@@ -91,11 +83,11 @@
 .brand .brand-project {
   min-width: 0;
   padding-left: 9px;
-  border-left: 1px solid var(--line-strong);
+  border-left: 1px solid var(--sep-strong);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--muted);
+  color: var(--ink-2);
   font-family: var(--mono);
   font-size: var(--text-xs);
   font-weight: 400;
@@ -103,8 +95,8 @@
 }
 
 .brand-logo {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   flex: 0 0 auto;
   border-radius: var(--radius-sm);
 }
@@ -116,19 +108,19 @@
   display: none;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   margin-left: -4px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   background: transparent;
-  color: var(--muted);
+  color: var(--ink-2);
   cursor: pointer;
 }
 
 .nav-toggle:hover {
-  background: var(--surface-raised);
+  background: var(--fill-2);
   color: var(--ink);
 }
 
@@ -137,95 +129,146 @@
   display: none;
 }
 
-.actions {
-  justify-self: end;
+.toggles {
   display: flex;
   gap: 8px;
   align-items: center;
+  justify-content: center;
 }
 
-.actions .btn {
+.actions {
+  justify-self: end;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.lane-switch > button .ic {
+  width: 13px;
+  height: 13px;
+}
+
+/* The review's open change requests, in the top bar: a click (or ]) walks to the next one.
+   Quiet beside Send; orange is the change-request color the tree's flag badge wears. Narrow,
+   it keeps the flag and the count; narrower still it would push the actions onto two lines, so
+   it leaves the bar to them (] still walks). */
+.actions .req-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-}
-
-.toggle {
-  display: flex;
-  gap: 3px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--bg);
-  margin: 0;
-}
-
-.toggle button,
-.btn {
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
+  gap: 6px;
+  height: 28px;
+  border: 0;
   border-radius: var(--radius);
-  padding: 5px 8px;
+  background: transparent;
+  padding: 0 8px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-.toggle button.active {
-  background: var(--panel3);
+.actions .req-chip .ic {
+  color: var(--orange);
+}
+
+.actions .req-chip b {
+  margin-right: -2px;
+  color: var(--orange-ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions .req-chip:hover {
   color: var(--ink);
+  background: var(--orange-wash);
 }
 
-.toggle button:disabled {
-  opacity: 0.4;
-  cursor: default;
+@media (max-width: 1100px) {
+  .actions .req-chip .req-label,
+  .actions .req-chip .keycaps {
+    display: none;
+  }
 }
 
-.toggle button:disabled.active {
-  opacity: 0.6;
+@media (max-width: 760px) {
+  .actions .req-chip {
+    display: none;
+  }
 }
 
-.btn {
-  border-color: var(--line);
-  background: var(--panel);
-  color: var(--ink);
+/* Reset Review's glyph stands in for its label on a phone. */
+.reset-review > .ic {
+  display: none;
 }
 
-.btn:hover {
-  border-color: var(--line-strong);
-  background: var(--surface-raised);
+/* Phone widths: the top bar keeps every control but compacts them — the wordmark gives way, the
+   lane switch keeps its icons, Reset Review its glyph, and the buttons drop their keycaps (their
+   tooltips still carry them). */
+@media (max-width: 760px) {
+  .top {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .brand-logo,
+  .brand > span {
+    display: none !important;
+  }
+
+  .lane-switch > button > span,
+  .reset-review > span,
+  .top .btn .keycaps {
+    display: none;
+  }
+
+  .lane-switch > button {
+    padding: 0 9px;
+  }
+
+  .reset-review > .ic {
+    display: block;
+  }
+
+  .top .btn {
+    padding: 0 10px;
+    font-size: var(--text-sm);
+  }
+
+  .top .reset-review {
+    width: 28px;
+    padding: 0;
+  }
 }
 
-.btn.primary {
-  color: var(--cyan);
-  border-color: var(--cyan-line);
-  background: var(--cyan-bg);
+.actions .agent-status {
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--blue-ink);
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.btn.primary:hover {
-  background: var(--cyan-bg-strong);
-  border-color: var(--cyan-line-strong);
+.actions .agent-status.queued {
+  color: var(--orange-ink);
 }
 
-/* Icon-only button (settings gear): no border, so it reads apart from the bordered actions. */
-.btn.icon,
-.btn.icon:hover {
-  border-color: transparent;
+.actions .top-settings {
+  display: none;
 }
 
-.btn.icon:hover {
-  background: var(--surface-raised);
+body.single .actions .top-settings,
+body.file-mode .actions .top-settings {
+  display: inline-flex;
 }
 
-/* Destructive action (Reset Review): hint danger on hover. */
-.btn.danger:hover {
-  color: var(--red);
-  border-color: color-mix(in srgb, var(--red) 55%, transparent);
-  background: color-mix(in srgb, var(--red) 12%, transparent);
-}
-
-.btn.green {
-  color: var(--green);
-  border-color: var(--green-line);
-  background: var(--green-bg);
+/* No tree exists in these modes (tree is display:none below), so suppress the drawer toggle. */
+body.single .nav-toggle,
+body.file-mode .nav-toggle {
+  display: none !important;
 }
 
 .main {
@@ -235,20 +278,14 @@
   position: relative;
 }
 
-.tree,
-.right {
-  min-width: 0;
-  overflow: auto;
-  background: var(--panel);
-  padding: 10px;
-}
-
+/* ── Sidebar: navigation, on the window's material ── */
 .tree {
-  border-right: 1px solid var(--line);
-  padding-top: 8px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 8px 10px 10px;
+  background: var(--sidebar-material);
 }
 
 #files,
@@ -268,46 +305,28 @@
   margin: auto -10px -10px;
   padding: 10px 14px;
   border: 0;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--sep);
   background: none;
-  color: var(--muted);
+  color: var(--ink-2);
   font-size: var(--text-sm);
   text-align: left;
 }
 
 .tree-settings:hover {
   color: var(--ink);
-  background: var(--surface-raised);
+  background: var(--fill);
 }
 
-.tree-settings kbd {
+.tree-settings .keycaps {
   margin-left: auto;
 }
 
-.actions .top-settings {
-  display: none;
-}
-
-body.single .actions .top-settings,
-body.file-mode .actions .top-settings {
-  display: inline-flex;
-}
-
-/* No tree exists in these modes (tree is display:none below), so suppress the drawer toggle. */
-body.single .nav-toggle,
-body.file-mode .nav-toggle {
-  display: none !important;
-}
-
-.right {
-  border-left: 1px solid var(--line);
-}
-
 .resizer {
-  background: var(--line);
+  background: var(--sep);
   cursor: col-resize;
   min-width: 1px;
   position: relative;
+  transition: background-color 0.15s;
 }
 
 .resizer:before {
@@ -321,7 +340,7 @@ body.file-mode .nav-toggle {
 
 .resizer:hover,
 .resizer.dragging {
-  background: var(--cyan);
+  background: var(--blue);
 }
 
 .center {
@@ -330,10 +349,6 @@ body.file-mode .nav-toggle {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.bar {
-  display: none;
 }
 
 [x-cloak] {
@@ -349,6 +364,7 @@ body.file-mode .nav-toggle {
   visibility: hidden;
 }
 
+/* ── Guide bar: Overview and file stepping, above the diff ── */
 .guidebar {
   flex: 0 0 auto;
   display: flex;
@@ -356,8 +372,8 @@ body.file-mode .nav-toggle {
   gap: 10px;
   padding: 0 12px;
   height: var(--subbar-h);
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--sep);
   font-size: var(--text-sm);
 }
 
@@ -365,29 +381,28 @@ body.file-mode .nav-toggle {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .guidebar .gb-home,
 .guidebar .gb-nav {
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   padding: 0;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius);
-  background: var(--panel);
-  color: var(--muted);
+  background: transparent;
+  color: var(--ink-2);
   font-size: var(--text-lg);
 }
 
 .guidebar .gb-home:hover,
 .guidebar .gb-nav:not(:disabled):hover {
-  border-color: var(--line-strong);
   color: var(--ink);
-  background: var(--surface-raised);
+  background: var(--fill-2);
 }
 
 .guidebar .gb-nav:disabled {
@@ -401,24 +416,6 @@ body.file-mode .nav-toggle {
 
 .guidebar .gb-stale {
   flex: 0 0 auto;
-  color: var(--amber);
+  color: var(--orange-ink);
   font-size: var(--text-xs);
-}
-
-.guide-overview .go-stale {
-  margin: 12px 0 18px;
-  padding: 8px 11px;
-  border: 1px solid rgba(224, 175, 104, 0.5);
-  border-radius: var(--radius);
-  background: rgba(224, 175, 104, 0.05);
-  color: var(--amber);
-  font-size: var(--text-sm);
-  line-height: 1.45;
-}
-
-.guide-overview .go-stale code {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 0 4px;
 }

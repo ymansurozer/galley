@@ -8,6 +8,7 @@ import {
   type PageGroup,
   type SourcePlace,
 } from "./uilane-derive";
+import { keycapsNode } from "./keycaps";
 
 // The UI lane's nodes that carry page-sourced text: a page group's head (route, title), a row,
 // the floating composer's head (the picked target's selectors and label) and its quote, and source
@@ -80,7 +81,7 @@ export function composerHead(
           .join("\n");
   const close = node(doc, "button", "uc-close");
   close.title = "Cancel (Esc)";
-  close.append(node(doc, "kbd", "", "Esc"));
+  close.append(keycapsNode(doc, "Esc"));
   close.onclick = cancel;
   head.append(num, target);
   if (picked.kind === "element" && picked.elements.length > 1)

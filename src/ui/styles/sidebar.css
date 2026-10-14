@@ -1,8 +1,7 @@
 .label {
-  color: var(--ghost);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: var(--text-2xs);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
   margin: 8px 0 7px;
 }
 
@@ -24,13 +23,12 @@
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--ghost);
+  color: var(--ink-3);
 }
 
 .tree-toggle:hover {
   color: var(--ink);
-  border-color: var(--line);
-  background: var(--surface-raised);
+  background: var(--fill-2);
 }
 
 .node {
@@ -43,15 +41,16 @@
      deeper files sit flush with their folder. Guides are 1px lines every 14px,
      clipped to the indent width via background-size. */
   padding: 3px 6px 3px calc(6px + var(--depth, 0) * 14px);
+  border-radius: var(--radius-sm);
   background-image: repeating-linear-gradient(
     to right,
     transparent 0 12px,
-    var(--guide) 12px 13px,
+    var(--sep) 12px 13px,
     transparent 13px 14px
   );
   background-size: calc(var(--depth, 0) * 14px) 100%;
   background-repeat: no-repeat;
-  color: var(--muted);
+  color: var(--ink-2);
   font-size: var(--text-sm);
   line-height: 1.6;
   white-space: nowrap;
@@ -66,23 +65,13 @@
 
 /* background-color (not the shorthand) so the --depth guide image survives hover/active */
 .node:hover {
-  background-color: var(--surface-raised);
+  background-color: var(--fill);
   color: var(--ink);
 }
 
 .node.active {
   color: var(--ink);
-  background-color: var(--panel3);
-}
-
-.node.active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--cyan);
+  background-color: var(--sel);
 }
 
 .node.changed {
@@ -98,7 +87,7 @@
 
 .tree .chev {
   width: 12px;
-  color: var(--ghost);
+  color: var(--ink-3);
   transition: transform 0.12s ease;
 }
 
@@ -112,11 +101,11 @@
 }
 
 .tree .folder {
-  color: var(--muted);
+  color: var(--ink-2);
 }
 
 .tree .file {
-  color: var(--ghost);
+  color: var(--ink-3);
 }
 
 .tree .file.new {
@@ -124,7 +113,7 @@
 }
 
 .tree .file.modified {
-  color: var(--cyan);
+  color: var(--blue);
 }
 
 .tree .file.deleted {
@@ -132,7 +121,7 @@
 }
 
 .node .testcaret {
-  color: var(--ghost);
+  color: var(--ink-3);
   font-size: var(--text-xs);
   cursor: pointer;
 }
@@ -150,7 +139,7 @@
 }
 
 .node .badge.pending {
-  color: var(--cyan);
+  color: var(--blue);
 }
 
 .node .badge.approved {
@@ -158,61 +147,31 @@
 }
 
 .node .badge.changes {
-  color: var(--amber);
+  color: var(--orange);
 }
 
 .node.test {
-  color: var(--ghost);
+  color: var(--ink-3);
 }
 
-/* Sidebar Tree/Walkthrough tabs (guided desks only) — the settings tabs, sized down. */
+/* Sidebar Tree/Walkthrough switch (guided desks only): a full-width segmented control; the w
+   hint rides on the tab that w switches to. */
 .tree-tabs {
-  flex: 0 0 auto;
   display: flex;
-  align-items: stretch;
-  gap: 2px;
-  height: var(--subbar-h);
-  margin: -8px -10px 8px;
-  padding: 0 4px;
-  border-bottom: 1px solid var(--line);
+  margin: 0 0 10px;
 }
 
-.tree-tabs button {
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--text-sm);
-  display: inline-flex;
-  align-items: center;
-  padding: 0 8px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-
-.tree-tabs button:hover {
-  color: var(--ink);
-}
-
-.tree-tabs button.active {
-  color: var(--ink-bright);
-  border-bottom-color: var(--cyan);
-}
-
-.tree-tabs button kbd {
-  margin-left: 2px;
+.tree-tabs > button {
+  flex: 1 1 0;
 }
 
 /* Walkthrough rows: category headers read like the FILES label but are jump targets;
    file rows reuse the .node treatment (active/hover/badges) with a one-level indent. */
 .node.walk-cat {
   margin-top: 8px;
-  color: var(--ghost);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: var(--text-2xs);
-  font-weight: 700;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
 }
 
 .node.walk-cat:first-child {
@@ -230,21 +189,21 @@
 }
 
 #walk .status-pack .add {
-  color: var(--green);
+  color: var(--green-ink);
 }
 
 #walk .status-pack .del {
-  color: var(--red);
+  color: var(--red-ink);
 }
 
 #walk .crit {
-  color: var(--amber);
+  color: var(--orange);
   width: 12px;
   height: 12px;
 }
 
 /* Per-file review state leads the row: empty circle = to do, green check-circle =
-   approved, amber alert-circle = changes requested. */
+   approved, orange alert-circle = changes requested. */
 #walk .st {
   width: 13px;
   height: 13px;
@@ -252,7 +211,7 @@
 }
 
 #walk .st.pending {
-  color: var(--ghost);
+  color: var(--ink-3);
 }
 
 #walk .st.approved {
@@ -260,7 +219,7 @@
 }
 
 #walk .st.changes {
-  color: var(--amber);
+  color: var(--orange);
 }
 
 /* The status icon is the file's sign-off control in both tabs: a click approves (or marks
@@ -281,12 +240,8 @@
 }
 
 .st-btn:hover {
-  background: var(--panel3);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
-}
-
-.st-btn:focus-visible {
-  outline: 1px solid var(--cyan);
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
 }
 
 :is(#files, #walk) .st-btn[data-act="approve"]:hover .ic {
@@ -294,9 +249,9 @@
 }
 
 :is(#files, #walk) .st-btn[data-act="mark"]:hover .ic {
-  color: var(--amber);
+  color: var(--orange);
 }
 
 :is(#files, #walk) .st-btn[data-act="reset"]:hover .ic {
-  color: var(--muted);
+  color: var(--ink-2);
 }

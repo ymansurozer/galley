@@ -2,10 +2,10 @@
    dist/ui.css (served at /ui.css). Order is cascade order. */
 @import "./tokens.css";
 @import "./base.css";
+@import "./controls.css";
 @import "./shell.css";
 @import "./diff.css";
 @import "./sidebar.css";
-@import "./controls.css";
 @import "./file-states.css";
 @import "./threads.css";
 @import "./markdown.css";

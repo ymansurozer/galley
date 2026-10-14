@@ -44,9 +44,9 @@
     right: 0;
     bottom: 0;
     width: min(92vw, 360px);
-    background: var(--panel);
-    border-left: 1px solid var(--line);
-    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+    background: var(--sidebar);
+    border-left: 1px solid var(--sep);
+    box-shadow: var(--shadow-float);
   }
 
   .app.view-ui .annside-backdrop {
@@ -54,7 +54,7 @@
     position: fixed;
     inset: 48px 0 0 0;
     z-index: 29;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--scrim);
   }
 }
 
@@ -82,14 +82,16 @@
     bottom: 0;
     width: min(86vw, 300px);
     z-index: 30;
-    border-right: 1px solid var(--line);
-    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.35);
-    transform: translateX(-100%);
-    transition: transform 0.18s ease;
+    border-right: 1px solid var(--sep);
+    transform: translateX(-102%);
+    transition:
+      transform 0.36s var(--ease),
+      box-shadow 0.3s;
   }
 
   .tree.drawer-open {
     transform: translateX(0);
+    box-shadow: var(--shadow-float);
   }
 
   .tree-backdrop.open {
@@ -97,7 +99,7 @@
     position: fixed;
     inset: 48px 0 0 0;
     z-index: 29;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--scrim);
   }
 
   /* Float the comment surfaces over the diff rather than in-flow — an in-flow element would

@@ -1,73 +1,101 @@
+/* ── Design tokens ─────────────────────────────────────────────────────────────────────────
+   The one semantic layer every surface styles through: name what a colour is for, never what it
+   looks like. The palette is a calm, Mac-like one — surfaces that recede, ink in alpha tiers,
+   hairline separators, translucent fills, and four system hues that keep the desk's meanings:
+     blue   — question, agent, pending, focus
+     green  — approved, added
+     orange — change request, flag, rename
+     red    — deleted, destructive
+   Each hue has a solid (fills, rails, icons), an -ink (text on the page) and a -wash (a tinted
+   ground). Dark is the default (:root); Settings → Appearance sets data-theme="light" on <html>
+   (applyAppearance in settings.ts), which swaps the colour tokens below and nothing else. The code
+   theme is a separate setting and does not follow the appearance. */
 :root {
   color-scheme: dark;
 
-  /* ── Surfaces (dark → light) ── */
-  --bg: #070909;
-  /* page / diff / overview canvas */
-  --surface: #0b0e0f;
-  /* recessed: inputs, headers, scroll track */
-  --panel: #101415;
-  /* panels: sidebar, guide bar, modal */
-  --surface-raised: #151a1c;
-  /* hover / active rows */
-  --panel3: #1d2426;
-  /* strongest raised: selected, chips */
+  /* ── Surfaces ── */
+  /* The document: diff, pages, and the bars that sit on them. pierre-dark's own background, so
+     the default code theme and the desk read as one sheet. */
+  --canvas: #0a0a0a;
+  /* Navigation material (the sidebar): a solid for anything that must cover, and the material
+     itself — the solid over a faint tint, the way a Mac sidebar picks up the desktop. */
+  --sidebar: #151517;
+  --sidebar-material:
+    linear-gradient(rgb(21 21 23 / 0.86), rgb(21 21 23 / 0.86)),
+    radial-gradient(80% 50% at 0% 0%, #1d3359 0%, transparent 70%),
+    radial-gradient(70% 45% at 0% 100%, #3c2440 0%, transparent 70%), #151517;
+  /* Floating: popovers, menus, dialogs, toasts, tooltips. */
+  --window: #1c1c1f;
+  /* Controls and cards resting on a surface. */
+  --raised: #222225;
+  /* The selected segment of a segmented control. */
+  --thumb: #3b3b40;
+  /* Text fields and selects. */
+  --field: rgb(255 255 255 / 0.05);
+  /* A keycap's face. */
+  --cap: #3a3a40;
 
-  /* ── Lines ── */
-  --line: #222a2d;
-  /* default border */
-  --line-strong: #354146;
-  /* emphasized / hover border */
+  /* ── Ink ── */
+  --ink: rgb(255 255 255 / 0.88);
+  --ink-2: rgb(235 235 245 / 0.58);
+  --ink-3: rgb(235 235 245 / 0.32);
+  /* Text on a filled hue (a filled button, a numbered pin). */
+  --on-fill: #fff;
 
-  /* ── Text ── */
-  --ink: #d9d9d4;
-  /* primary text */
-  --ink-bright: #fafafa;
-  /* highest-contrast text */
-  --muted: #8a9396;
-  /* secondary text */
-  --ghost: #4b5558;
-  /* faint text / icons */
-  --on-accent: #050608;
-  /* near-black text on a bright accent fill */
+  /* ── Separators ── */
+  --sep: rgb(255 255 255 / 0.08);
+  --sep-strong: rgb(255 255 255 / 0.14);
 
-  /* ── Accents (hue + bg/line/fg tints) ── */
-  --cyan: #00a8ff;
-  --cyan-bg: #081923;
-  --cyan-bg-strong: #0c2533;
-  /* hover fill for cyan tinted buttons */
-  --cyan-line: #17394a;
-  --cyan-line-strong: #25617a;
-  /* hover border + comment-thread rail */
-  --cyan-fg: #8fc4d4;
-  --green: #00d084;
-  --green-bg: #071811;
-  --green-line: #163b2b;
-  --green-fg: #9af0b2;
+  /* ── Fills: resting tint, hover / track, pressed, selected row ── */
+  --fill: rgb(255 255 255 / 0.045);
+  --fill-2: rgb(255 255 255 / 0.075);
+  --fill-3: rgb(255 255 255 / 0.12);
+  --sel: rgb(255 255 255 / 0.09);
 
-  /* Verdict action buttons (Keep / Undo) — shared by per-hunk + header */
-  --accept: rgba(34, 197, 94, 0.72);
-  --accept-hover: rgba(34, 197, 94, 0.9);
-  --reject: rgba(63, 63, 70, 0.82);
-  --reject-hover: rgba(82, 82, 91, 0.92);
-  --amber: #e0af68;
-  --amber-fg: #f0c783;
-  --red: #ff4d6d;
-  --red-fg: #ff8095;
-  --guide: #1b2226;
-  /* file-tree nesting rails */
+  /* ── Hues ── */
+  --blue: #0a84ff;
+  --blue-ink: #5eaeff;
+  --blue-wash: rgb(10 132 255 / 0.15);
+  --green: #30d158;
+  --green-ink: #4fdc74;
+  --green-wash: rgb(48 209 88 / 0.13);
+  --orange: #ff9f0a;
+  --orange-ink: #ffb340;
+  --orange-wash: rgb(255 159 10 / 0.13);
+  --red: #ff453a;
+  --red-ink: #ff6b62;
+  --red-wash: rgb(255 69 58 / 0.13);
 
-  /* ── Radius scale ── */
+  /* ── Elevation ── */
+  /* A control's hairline edge and its contact shadow. */
+  --shadow-control: 0 0 0 0.5px var(--sep-strong), 0 1px 1.5px rgb(0 0 0 / 0.3);
+  /* Anything floating over the desk. */
+  --shadow-float:
+    0 0 0 0.5px rgb(255 255 255 / 0.1), 0 12px 34px rgb(0 0 0 / 0.5), 0 2px 6px rgb(0 0 0 / 0.3);
+  /* A segmented control's chosen segment. */
+  --shadow-thumb: inset 0 0.5px 0 rgb(255 255 255 / 0.12), 0 1px 2px rgb(0 0 0 / 0.35);
+  /* A keycap's edge. */
+  --shadow-cap: inset 0 0.5px 0 rgb(255 255 255 / 0.1), 0 1px 0 rgb(0 0 0 / 0.45);
+  /* Behind a dialog or a drawer. */
+  --scrim: rgb(0 0 0 / 0.45);
+
+  /* ── Radii ── */
   --radius-xs: 3px;
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-lg: 8px;
+  --radius-sm: 5px;
+  --radius: 7px;
+  --radius-lg: 9px;
   --radius-xl: 12px;
   --radius-pill: 999px;
 
-  /* Height of the secondary bar directly under the top header — shared by the sidebar
-     Tree/Walkthrough tab strip (.tree-tabs) and the guide bar (.guidebar) so their bottom
-     borders form one continuous line across the column seam. Keep both in sync. */
+  /* ── Motion ── */
+  /* Settling: things that arrive and stop. */
+  --ease: cubic-bezier(0.22, 0.8, 0.26, 1);
+  /* A slight overshoot, for things that move into place (a segment thumb, a sheet). */
+  --spring: cubic-bezier(0.32, 1.36, 0.56, 1);
+
+  /* Height of the secondary bar directly under the top header — shared by the guide bar
+     (.guidebar), the app view's browser chrome and the annotation sidebar's head, so their
+     bottom borders form one line. */
   --subbar-h: 40px;
 
   /* Gap between the +added / −removed (and state badge) churn indicators, kept in sync
@@ -90,59 +118,52 @@
   font-family: var(--sans);
 }
 
-/* ── Light mode ──────────────────────────────────────────────────────────
-   Overrides only the semantic color tokens; every other token (radius, type
-   scale, fonts) is mode-agnostic and inherits from :root above. Toggled by
-   Settings → Appearance, which sets data-theme="light" on <html> (see
-   applyAppearance in settings.ts). The attribute selector outranks :root, so
-   these win. Structural surfaces/lines/text flip wholesale; the saturated
-   accents (accept/cyan/green fills) keep their alpha so they blend to a light
-   tint over the white canvas and still read with the near-black --on-accent.
-   The diff/comment code theme is a separate, freely-mixable setting (the Code
-   theme picker groups Dark and Light shiki themes) — it does not flip here. */
+/* ── Light ── the same character, in daylight. The attribute selector outranks :root. */
 :root[data-theme="light"] {
   color-scheme: light;
 
-  /* ── Surfaces (light → dark) ── */
-  --bg: #ffffff;
-  --surface: #f2f4f5;
-  --panel: #f7f8f9;
-  --surface-raised: #eceff1;
-  --panel3: #dfe4e7;
+  --canvas: #fff;
+  --sidebar: #ececf1;
+  --sidebar-material:
+    linear-gradient(rgb(240 240 244 / 0.74), rgb(240 240 244 / 0.74)),
+    radial-gradient(80% 50% at 0% 0%, #c9dcff 0%, transparent 70%),
+    radial-gradient(70% 45% at 0% 100%, #f1d7e8 0%, transparent 70%), #e9e9ef;
+  --window: #f7f7f9;
+  --raised: #fff;
+  --thumb: #fff;
+  --field: #fff;
+  --cap: #fff;
 
-  /* ── Lines ── */
-  --line: #d6dcdf;
-  --line-strong: #b6c0c4;
+  --ink: rgb(0 0 0 / 0.86);
+  --ink-2: rgb(0 0 0 / 0.54);
+  --ink-3: rgb(0 0 0 / 0.32);
 
-  /* ── Text ── */
-  --ink: #1b1f21;
-  --ink-bright: #05080a;
-  --muted: #5a6469;
-  --ghost: #9aa4a8;
-  /* near-black text still reads on the light-tinted accent fills below */
-  --on-accent: #050608;
+  --sep: rgb(0 0 0 / 0.09);
+  --sep-strong: rgb(0 0 0 / 0.14);
 
-  /* ── Accents (hue kept, darkened so text/rails read on white) ── */
-  --cyan: #0067c0;
-  --cyan-bg: #e8f2fb;
-  --cyan-bg-strong: #d7e9f8;
-  --cyan-line: #bcdaf0;
-  --cyan-line-strong: #7fb4de;
-  --cyan-fg: #1d5f86;
-  --green: #16a34a;
-  --green-bg: #e7f6ee;
-  --green-line: #b3e0c6;
-  --green-fg: #147a45;
+  --fill: rgb(0 0 0 / 0.04);
+  --fill-2: rgb(0 0 0 / 0.065);
+  --fill-3: rgb(0 0 0 / 0.1);
+  --sel: rgb(0 0 0 / 0.075);
 
-  /* Keep/Undo: accept keeps its alpha (blends to a readable light green); reject
-     flips from a dark neutral to a light one so --ink text reads on it. */
-  --accept: rgba(34, 197, 94, 0.72);
-  --accept-hover: rgba(34, 197, 94, 0.9);
-  --reject: rgba(0, 0, 0, 0.055);
-  --reject-hover: rgba(0, 0, 0, 0.1);
-  --amber: #b46f18;
-  --amber-fg: #8f5711;
-  --red: #d81f43;
-  --red-fg: #b3163a;
-  --guide: #ece7db;
+  --blue: #007aff;
+  --blue-ink: #0063d1;
+  --blue-wash: rgb(0 122 255 / 0.08);
+  --green: #34c759;
+  --green-ink: #1d7d36;
+  --green-wash: rgb(52 199 89 / 0.1);
+  --orange: #ff9500;
+  --orange-ink: #ad5a00;
+  --orange-wash: rgb(255 149 0 / 0.1);
+  --red: #ff3b30;
+  --red-ink: #c22a20;
+  --red-wash: rgb(255 59 48 / 0.08);
+
+  --shadow-control: 0 0 0 0.5px var(--sep-strong), 0 1px 1.5px rgb(0 0 0 / 0.07);
+  --shadow-float:
+    0 0 0 0.5px rgb(0 0 0 / 0.12), 0 10px 30px rgb(0 0 0 / 0.14), 0 2px 6px rgb(0 0 0 / 0.06);
+  --shadow-thumb:
+    0 0 0 0.5px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.1), 0 2px 6px rgb(0 0 0 / 0.05);
+  --shadow-cap: 0 0 0 0.5px rgb(0 0 0 / 0.16), 0 1px 0 rgb(0 0 0 / 0.14);
+  --scrim: rgb(0 0 0 / 0.18);
 }

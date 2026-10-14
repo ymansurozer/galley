@@ -27,6 +27,7 @@ import type {
   ThreadMessage,
   ReviewComment,
 } from "./types";
+import { keycapsHtml } from "./keycaps";
 
 export function annotations(): AnnotationInput[] {
   const threads: AnnotationInput[] = [];
@@ -344,7 +345,7 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   const el = document.createElement("div");
   el.className = `annotation ${c.type === "thread" && c.status === "resolved" ? "resolved" : ""}`;
   if (c.type === "change") {
-    el.innerHTML = `<div class="change-actions"><button class="reject">Undo <kbd>⇧N</kbd></button><button class="accept">Keep <kbd>⇧Y</kbd></button></div>`;
+    el.innerHTML = `<div class="change-actions"><button class="reject">Undo ${keycapsHtml("⇧N")}</button><button class="accept">Keep ${keycapsHtml("⇧Y")}</button></div>`;
   } else {
     el.appendChild(buildCommentThread(c, lineThread(c)));
     // The change on the thread's line keeps its decision bar right under the hunk, above the
@@ -352,7 +353,7 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     if (change) {
       const ca = document.createElement("div");
       ca.className = "change-actions";
-      ca.innerHTML = `<button class="reject">Undo <kbd>⇧N</kbd></button><button class="accept">Keep <kbd>⇧Y</kbd></button>`;
+      ca.innerHTML = `<button class="reject">Undo ${keycapsHtml("⇧N")}</button><button class="accept">Keep ${keycapsHtml("⇧Y")}</button>`;
       el.prepend(ca);
     }
   }

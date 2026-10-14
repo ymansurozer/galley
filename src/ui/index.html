@@ -17,39 +17,39 @@
 <body>
   <div class="app booting" x-data :class="{booting: !$store.g.ready, 'view-ui': $store.g.view==='ui', 'ui-only': $store.g.uiOnly(), 'annotations-closed': !$store.g.annotationsOpen}">
     <header class="top">
-      <div class="brand"><button class="nav-toggle" data-tip="Files (⇧B)" aria-label="Toggle file tree"
+      <div class="brand"><button class="nav-toggle" data-tip="Files" data-tip-keys="⇧B" aria-label="Toggle file tree"
           @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="brand-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#hb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#hb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#hb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="hb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span><span class="brand-project" x-cloak
           x-show="$store.g.state?.project" x-text="$store.g.state?.project" :title="$store.g.state?.project"></span></div>
       <div class="toggles">
         <!-- Code / UI lane switch: only when the desk has a UI target and a diff. A single-lane desk
              shows no lane label. -->
-        <div class="toggle lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / UI (⇧U)"><button
-            :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg>Code</button><button
-            :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg>UI</button></div>
-        <div class="toggle" x-show="$store.g.view==='code' && $store.g.isMarkdownFile()" data-tip="Rendered / source (m)"><button :class="{active: $store.g.fileView==='rendered'}"
+        <div class="seg lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / UI" data-tip-keys="⇧U"><button
+            :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg><span>Code</span></button><button
+            :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg><span>UI</span></button></div>
+        <div class="seg" x-show="$store.g.view==='code' && $store.g.isMarkdownFile()" data-tip="Rendered / source" data-tip-keys="m"><button :class="{active: $store.g.fileView==='rendered'}"
             @click="$store.g.setFileView('rendered')">Rendered</button><button
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
         </div>
       </div>
       <div class="actions"><button class="req-chip" x-cloak x-show="$store.g.view==='code' && $store.g.openRequests()"
-          data-tip="Next open change request (])" :aria-label="'Next open change request, ' + $store.g.openRequests() + ' open'"
+          data-tip="Next open change request" data-tip-keys="]" :aria-label="'Next open change request, ' + $store.g.openRequests() + ' open'"
           @click="$store.g.nextRequest()"><svg class="ic"><use href="#gly-flag"></use></svg><b
             x-text="$store.g.openRequests()"></b><span class="req-label"
-            x-text="$store.g.openRequests() === 1 ? 'open request' : 'open requests'"></span><kbd>]</kbd></button><span class="agent-status" x-cloak
+            x-text="$store.g.openRequests() === 1 ? 'open request' : 'open requests'"></span><kbd x-keys>]</kbd></button><span class="agent-status" x-cloak
           :class="{queued: $store.g.queuedReviews > 0}"
           x-show="$store.g.awaitingAgent && ($store.g.queuedReviews > 0 || $store.g.agentActivity)"
-          x-text="$store.g.queuedReviews > 0 ? 'No agent attached — review queued' : $store.g.agentActivity"></span><span class="top-pct" id="progressPct" style="display:none"></span><button class="btn icon top-settings" data-tip="Settings (⇧,)" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
-          class="btn danger" data-tip="Reset review (⇧R)" @click="$store.g.reset()">Reset Review</button><button class="btn primary"
+          x-text="$store.g.queuedReviews > 0 ? 'No agent attached — review queued' : $store.g.agentActivity"></span><span class="top-pct" id="progressPct" style="display:none"></span><button class="btn icon top-settings" data-tip="Settings" data-tip-keys="⇧," @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
+          class="btn quiet danger reset-review" data-tip="Reset review" data-tip-keys="⇧R" aria-label="Reset review" @click="$store.g.reset()"><svg class="ic"><use href="#gly-refresh"></use></svg><span>Reset Review</span></button><button class="btn"
           :disabled="$store.g.awaitingAgent" @click="$store.g.confirmSend()"><span
-            x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send to Agent'">Send to Agent</span> <kbd>⇧S</kbd></button></div>
+            x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send to Agent'">Send to Agent</span> <kbd x-keys>⇧S</kbd></button></div>
       <div class="top-progress" id="progressStrip" style="display:none"><i id="progressFill"></i></div>
     </header>
     <main class="main">
       <aside class="tree" :class="{'drawer-open': $store.g.treeDrawerOpen}">
-        <div class="tree-tabs" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak>
+        <div class="tree-tabs seg" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak>
           <!-- The w hint sits on the INACTIVE tab — the one pressing w switches to. -->
-          <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.setSidebarTab('tree')">Tree <kbd x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
-          <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.setSidebarTab('walkthrough')">Walkthrough <kbd x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
+          <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.setSidebarTab('tree')">Tree <kbd x-keys x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
+          <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.setSidebarTab('walkthrough')">Walkthrough <kbd x-keys x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
         </div>
         <div class="label tree-title" x-show="!($store.g.hasGuide && $store.g.hasGuide()) || $store.g.sidebarTab==='tree'"><span>Files</span>
           <button class="tree-toggle" @click="$store.g.toggleAllDirs()"
@@ -110,7 +110,7 @@
             </div>
           </template>
         </div>
-        <button class="tree-settings" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg><span>Settings</span><kbd>⇧,</kbd></button>
+        <button class="tree-settings" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg><span>Settings</span><kbd x-keys>⇧,</kbd></button>
       </aside>
       <!-- Narrow-width only (CSS-gated): dims the diff behind the open file drawer; tap to close. -->
       <div class="tree-backdrop" :class="{open: $store.g.treeDrawerOpen}" @click="$store.g.treeDrawerOpen=false"></div>
@@ -118,11 +118,11 @@
       <section class="center">
         <div class="guidebar" x-show="$store.g.showGuideBar && $store.g.showGuideBar()" x-cloak>
           <div class="gb-acts">
-            <button class="gb-home" @click="$store.g.openOverview()" data-tip="Overview (o)"><svg class="ic"><use href="#gly-home"></use></svg></button>
+            <button class="gb-home" @click="$store.g.openOverview()" data-tip="Overview" data-tip-keys="o"><svg class="ic"><use href="#gly-home"></use></svg></button>
             <button class="gb-nav" @click="$store.g.guidePrev()"
-              :disabled="$store.g.guideAtStart && $store.g.guideAtStart()" data-tip="Previous file (⇧←)"><svg class="ic"><use href="#gly-arrow-left"></use></svg></button>
+              :disabled="$store.g.guideAtStart && $store.g.guideAtStart()" data-tip="Previous file" data-tip-keys="⇧←"><svg class="ic"><use href="#gly-arrow-left"></use></svg></button>
             <button class="gb-nav" @click="$store.g.guideNext()"
-              :disabled="$store.g.guideAtLast && $store.g.guideAtLast()" data-tip="Next file (⇧→)"><svg class="ic"><use href="#gly-arrow-right"></use></svg></button>
+              :disabled="$store.g.guideAtLast && $store.g.guideAtLast()" data-tip="Next file" data-tip-keys="⇧→"><svg class="ic"><use href="#gly-arrow-right"></use></svg></button>
           </div>
           <span class="gb-stale" x-show="$store.g.guideStale && $store.g.guideStale()"
             title="Guide generated for an earlier diff — regenerate and restart with --guide to refresh"><svg class="ic"><use href="#gly-warn"></use></svg> Guide Stale</span>
@@ -132,11 +132,11 @@
           <div id="diff" x-ignore></div>
           <div class="ovr" id="ovr" x-ignore></div>
           <div class="diff-rendering" x-show="$store.g.rendering" x-cloak><span>Rendering…</span></div>
-          <button class="diff-fab" x-cloak
+          <button class="diff-fab fill" x-cloak
             x-show="$store.g.fabState && $store.g.diffScrolled && $store.g.fabState()"
             :class="{warn: $store.g.fabState && $store.g.fabState()==='changes'}"
             @click="$store.g.approveFile && $store.g.approveFile()"><span
-              x-text="$store.g.fabState && $store.g.fabState()==='changes' ? 'Mark Reviewed' : 'Approve'">Approve</span> <kbd>⇧A</kbd></button>
+              x-text="$store.g.fabState && $store.g.fabState()==='changes' ? 'Mark Reviewed' : 'Approve'">Approve</span> <kbd x-keys>⇧A</kbd></button>
         </div>
         <!-- The UI view: the proxied app under a browser-chrome bar (in the guide bar's slot). The
              iframe is created by appview.ts inside #appFrame and stays alive across view switches;
@@ -167,23 +167,23 @@
               <button data-tip="Fit to pane" data-tip-align="end" aria-label="Fit to pane" :class="{active: $store.g.viewport==='fit'}" @click="$store.g.setViewport('fit')"><svg class="ic"><use href="#gly-fit"></use></svg></button>
             </div>
             <span class="vpsize" x-text="$store.g.frameLabel"></span>
-            <button class="sq" data-tip="Annotate this page (⌥P)" data-tip-align="end" aria-label="Annotate this page"
+            <button class="sq" data-tip="Annotate this page" data-tip-keys="⌥P" data-tip-align="end" aria-label="Annotate this page"
               :disabled="!$store.g.app.connected" @click="$store.g.annotatePage()"><svg class="ic"><use href="#gly-page-note"></use></svg></button>
-            <div class="mode" role="group" aria-label="Mode" data-tip="Interact / Annotate (⌥A)" data-tip-align="end">
+            <div class="mode seg" role="group" aria-label="Mode" data-tip="Interact / Annotate" data-tip-keys="⌥A" data-tip-align="end">
               <button :class="{active: $store.g.appMode==='interact'}" @click="$store.g.setAppMode('interact')"><svg class="ic"><use href="#gly-pointer"></use></svg><span>Interact</span></button><button
-                class="ann" :class="{active: $store.g.appMode==='annotate'}" @click="$store.g.setAppMode('annotate')"><svg class="ic"><use href="#gly-annotate"></use></svg><span>Annotate</span><kbd>⌥A</kbd></button>
+                class="ann" :class="{active: $store.g.appMode==='annotate'}" @click="$store.g.setAppMode('annotate')"><svg class="ic"><use href="#gly-annotate"></use></svg><span>Annotate</span><kbd x-keys>⌥A</kbd></button>
             </div>
           </div>
           <div class="stage" id="appStage" :class="[$store.g.viewport==='fit' ? '' : 'preset ' + $store.g.viewport, $store.g.appMode==='annotate' ? 'annotate' : '']">
             <div class="frame" id="appFrame" x-ignore></div>
             <div class="stage-note" x-show="!$store.g.uiProxy">Starting the app proxy…</div>
             <div class="mode-hint" x-cloak x-show="$store.g.appMode==='annotate'"><b>Annotate</b><span
-                class="tip"><kbd>Click</kbd>element</span><span
-                class="tip t-add"><kbd>⇧ Click</kbd>select several</span><span
-                class="tip t-region"><kbd>Drag</kbd>region</span><span
-                class="tip t-quote"><kbd>Drag text</kbd>quote</span><span
-                class="tip t-page"><kbd>⌥P</kbd>page</span><button
-                class="tip" @click="$store.g.setAppMode('interact')"><kbd>Esc</kbd>interact</button></div>
+                class="tip"><kbd x-keys>Click</kbd>element</span><span
+                class="tip t-add"><kbd x-keys>⇧ Click</kbd>select several</span><span
+                class="tip t-region"><kbd x-keys>Drag</kbd>region</span><span
+                class="tip t-quote"><kbd x-keys>Drag text</kbd>quote</span><span
+                class="tip t-page"><kbd x-keys>⌥P</kbd>page</span><button
+                class="tip" @click="$store.g.setAppMode('interact')"><kbd x-keys>Esc</kbd>interact</button></div>
           </div>
         </div>
       </section>
@@ -197,11 +197,11 @@
                 x-text="$store.g.openChanges() + ' open'"></span><span x-show="$store.g.waitingQuestions()"> · <span
                   class="waiting" title="Questions waiting for the agent"
                   x-text="$store.g.waitingQuestions() + ' waiting'"></span></span></span><span
-              class="grow"></span><button class="sq" data-tip="Collapse (⇧L)" data-tip-align="end" aria-label="Collapse annotations"
+              class="grow"></span><button class="sq" data-tip="Collapse" data-tip-keys="⇧L" data-tip-align="end" aria-label="Collapse annotations"
               @click="$store.g.toggleAnnotations()"><svg class="ic"><use href="#gly-panel-close"></use></svg></button></div>
           <div class="ann-list" id="annotationList" x-ignore></div>
         </div>
-        <button class="ann-rail" aria-label="Show annotations (⇧L)" data-tip="Annotations (⇧L)" data-tip-align="end"
+        <button class="ann-rail" aria-label="Show annotations (⇧L)" data-tip="Annotations" data-tip-keys="⇧L" data-tip-align="end"
           @click="$store.g.toggleAnnotations()"><svg class="ic"><use href="#gly-panel-open"></use></svg><span class="lane-count"
             :class="{zero: !$store.g.openChanges()}" title="Open change requests" x-text="$store.g.openChanges()"></span><span
             class="lane-count waiting" x-show="$store.g.waitingQuestions()" title="Questions waiting for the agent"
@@ -214,7 +214,7 @@
       <div class="modal-backdrop" id="settingsModal" :class="{show: $store.g.settingsOpen}"
         @click.self="$store.g.closeSettings()">
         <div class="modal settings">
-          <div class="set-tabs">
+          <div class="set-tabs seg">
             <button :class="{active: $store.g.settingsTab==='settings'}" @click="$store.g.settingsTab='settings'">Settings</button>
             <button :class="{active: $store.g.settingsTab==='shortcuts'}" @click="$store.g.settingsTab='shortcuts'">Shortcuts</button>
           </div>
@@ -338,7 +338,7 @@
               <div class="help-col">
                 <div class="help-h" x-text="grp.group"></div>
                 <template x-for="it in grp.items" :key="it.combo">
-                  <div class="help-row"><kbd x-text="it.combo"></kbd><span x-text="it.desc"></span></div>
+                  <div class="help-row"><kbd x-keys="it.combo"></kbd><span x-text="it.desc"></span></div>
                 </template>
               </div>
             </template>
@@ -349,8 +349,8 @@
       <div class="modal-backdrop" id="confirmModal" :class="{show: $store.g.confirmMsg}" @click.self="$store.g.confirmNo()">
         <div class="modal confirm">
           <p x-text="$store.g.confirmMsg"></p>
-          <div class="modal-actions"><button class="btn" @click="$store.g.confirmNo()">Cancel <kbd>Esc</kbd></button><button
-              class="btn primary" @click="$store.g.confirmYes()">Confirm <kbd>↵</kbd></button></div>
+          <div class="modal-actions"><button class="btn" @click="$store.g.confirmNo()">Cancel <kbd x-keys>Esc</kbd></button><button
+              class="btn primary" @click="$store.g.confirmYes()">Confirm <kbd x-keys>↵</kbd></button></div>
         </div>
       </div>
       <div class="modal-backdrop" id="sendModal" :class="{show: $store.g.sendOpen}" @click.self="$store.g.sendCancel()">
@@ -363,9 +363,9 @@
           </div>
           <textarea id="sendNote" x-model="$store.g.sendNote"
             placeholder="Overall note (optional) — an overall remark, or what to do after applying"></textarea>
-          <div class="modal-actions"><button class="btn" @click="$store.g.sendCancel()">Cancel <kbd>Esc</kbd></button><button
+          <div class="modal-actions"><button class="btn" @click="$store.g.sendCancel()">Cancel <kbd x-keys>Esc</kbd></button><button
               class="btn primary" :disabled="$store.g.sendFinishing" @click="$store.g.sendConfirm()"><span
-                x-text="$store.g.sendFinishing ? 'Finishing screenshots…' : 'Send'">Send</span> <kbd>⌘↵</kbd></button></div>
+                x-text="$store.g.sendFinishing ? 'Finishing screenshots…' : 'Send'">Send</span> <kbd x-keys>⌘↵</kbd></button></div>
         </div>
       </div>
       <!-- An annotation's screenshot, enlarged from its row's context line (uilane.ts): the crop or
@@ -376,14 +376,14 @@
                 :class="{active: $store.g.shotView?.kind==='crop'}" @click="$store.g.shotView.kind='crop'">Crop</button><button
                 :class="{active: $store.g.shotView?.kind==='viewport'}" @click="$store.g.shotView.kind='viewport'">Viewport</button></span></h3>
           <div class="shot-frame"><template x-if="$store.g.shotView"><img :src="$store.g.shotSrc()" :alt="$store.g.shotTitle()"></template></div>
-          <div class="modal-actions"><button class="btn" @click="$store.g.closeShot()">Close <kbd>Esc</kbd></button></div>
+          <div class="modal-actions"><button class="btn" @click="$store.g.closeShot()">Close <kbd x-keys>Esc</kbd></button></div>
         </div>
       </div>
       <div class="toast" id="toast" :class="{show: $store.g.toastMsg}"><span x-text="$store.g.toastMsg">saved</span><button
           type="button" class="toast-action" x-show="$store.g.toastAction" x-text="$store.g.toastAction"
           @click="$store.g.runToastAction()"></button></div>
       <div class="goline" :class="{show: $store.g.golineBuffer}">Go to line&nbsp;<b
-          x-text="$store.g.golineBuffer"></b><span class="goline-hint"><kbd>↵</kbd> Jump · <kbd>esc</kbd>
+          x-text="$store.g.golineBuffer"></b><span class="goline-hint"><kbd x-keys>↵</kbd> Jump · <kbd x-keys>Esc</kbd>
           Cancel</span></div>
     </main>
   </div>

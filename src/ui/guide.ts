@@ -8,6 +8,7 @@ import { treeOrder } from "./tree";
 import { renderMarkdown } from "./markdown";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
 import type { WalkGroup, WalkRow } from "./walkthrough";
+import { keycapsHtml } from "./keycaps";
 
 // Whether the current review carries an agent-attached guide with at least one file.
 export function hasGuide(): boolean {
@@ -237,7 +238,7 @@ export function renderOverview() {
     ${guideStale() ? `<div class="go-stale"><svg class="ic"><use href="#gly-warn"></use></svg> This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
     <div class="go-overview md">${renderMarkdown(g.overview)}</div>
     ${g.prDescription ? `<div class="go-pr"><b>PR description</b><div class="md">${renderMarkdown(g.prDescription)}</div></div>` : ""}
-    <div class="go-actions"><button class="btn primary" id="guideStart">Start Review <kbd>↵</kbd></button></div>
+    <div class="go-actions"><button class="btn primary" id="guideStart">Start Review ${keycapsHtml("↵")}</button></div>
   </div></div>`;
   const start = $("diff").querySelector("#guideStart") as HTMLButtonElement | null;
   if (start) start.onclick = () => S.startGuided?.();

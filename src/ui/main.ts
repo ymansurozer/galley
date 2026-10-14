@@ -49,6 +49,8 @@ import {
 } from "./guide";
 import { refreshBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
+import { renderKeycaps } from "./keycaps";
+import { installTooltips } from "./tooltip";
 import {
   appBack,
   appForward,
@@ -137,6 +139,7 @@ document.querySelectorAll<HTMLElement>("[data-resize]").forEach((handle) => {
 
 // Keyboard shortcuts: a central scope-aware dispatcher (keys.ts) is the single source of truth.
 installKeys();
+installTooltips();
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
@@ -583,6 +586,12 @@ S.shotTitle = shotTitle;
 
 // Alpine: register the reactive store, then start.
 (window as any).Alpine = Alpine;
+// x-keys draws a shortcut as keycaps: the expression's combo, or else the element's own text.
+Alpine.directive("keys", (el, { expression }, { evaluateLater, effect }) => {
+  if (!expression) return renderKeycaps(el, el.textContent ?? "");
+  const combo = evaluateLater<string>(expression);
+  effect(() => combo((c) => renderKeycaps(el, String(c ?? ""))));
+});
 Alpine.store("g", S);
 Alpine.start();
 

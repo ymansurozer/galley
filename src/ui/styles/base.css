@@ -19,9 +19,10 @@ svg.ic {
   box-sizing: border-box;
 }
 
+/* Overlay-style scrollbars: a thin rounded thumb in the ink's own tint, no track. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+  scrollbar-color: color-mix(in srgb, var(--ink) 22%, transparent) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -34,14 +35,14 @@ svg.ic {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--line);
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
   border: 2px solid transparent;
   border-radius: var(--radius-pill);
   background-clip: content-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--line-strong);
+  background: color-mix(in srgb, var(--ink) 36%, transparent);
   background-clip: content-box;
 }
 
@@ -56,9 +57,15 @@ body {
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--canvas);
   color: var(--ink);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--blue) 30%, transparent);
 }
 
 button,
@@ -70,4 +77,19 @@ textarea {
 button {
   color: inherit;
   cursor: pointer;
+}
+
+/* Keyboard focus: the system's soft blue ring, on anything reached by Tab. */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--blue) 60%, transparent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

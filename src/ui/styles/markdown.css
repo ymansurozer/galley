@@ -1,10 +1,3 @@
-.toggles {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: center;
-}
-
 /* Rendered markdown reads as a document, not a full-bleed diff pane: a centered, capped
    reading column (~68ch) with symmetric gutters instead of the old left-aligned 880px. */
 .md-file {
@@ -24,6 +17,22 @@
 .md-file.md h3 {
   line-height: 1.3;
   margin-top: 1.4em;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.md-file.md h1 {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.md-file.md h2 {
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.md-file.md h3 {
+  font-size: var(--text-lg);
 }
 
 .md-file.md h1:first-child,
@@ -46,15 +55,15 @@
 }
 
 .md-anchor:hover {
-  background: rgba(0, 168, 255, 0.09);
-  box-shadow: 0 0 0 4px rgba(0, 168, 255, 0.09);
+  background: var(--blue-wash);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 9%, transparent);
 }
 
 .md-thread {
   margin: 6px 0 14px;
-  border-left: 2px solid var(--cyan-line-strong);
+  border-left: 2px solid color-mix(in srgb, var(--blue) 40%, transparent);
   border-radius: 0 var(--radius) var(--radius) 0;
-  background: var(--surface);
+  background: var(--fill);
   cursor: default;
 }
 

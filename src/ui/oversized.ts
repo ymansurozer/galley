@@ -5,6 +5,7 @@ import { deferRender } from "./render";
 import { currentGuideEntry } from "./guide";
 import { isFileSkim, fileSkimReason, movedFrom } from "./skim";
 import type { ReviewState } from "./types";
+import { keycapsHtml } from "./keycaps";
 
 type ReviewFile = ReviewState["files"][number];
 
@@ -90,8 +91,8 @@ function verdictControls(path: string): HTMLElement {
   }
   const objections = fileObjections(path);
   const approve = document.createElement("button");
-  approve.className = "ovsz-btn primary" + (objections ? " warn" : "");
-  approve.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} <kbd>⇧A</kbd>`;
+  approve.className = "ovsz-btn primary fill" + (objections ? " warn" : "");
+  approve.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} ${keycapsHtml("⇧A")}`;
   approve.onclick = () => approveCurrentFile();
   wrap.appendChild(approve);
   return wrap;
@@ -168,7 +169,7 @@ export function renderOversizedCard() {
   note.textContent = "This file is large. Its diff is hidden to keep the desk responsive.";
   card.appendChild(note);
 
-  // The flag reads as a callout below the note (same amber-box idiom as the guide header's flag).
+  // The flag reads as a callout below the note (same orange-box idiom as the guide header's flag).
   if (entry?.flag) {
     const flag = document.createElement("div");
     flag.className = "ovsz-flag";
@@ -182,7 +183,7 @@ export function renderOversizedCard() {
   actions.appendChild(verdictControls(path));
   const load = document.createElement("button");
   load.className = "ovsz-load";
-  load.innerHTML = `Load diff anyway <kbd>↵</kbd>`;
+  load.innerHTML = `Load diff anyway ${keycapsHtml("↵")}`;
   load.onclick = () => loadOversizedDiff();
   actions.appendChild(load);
   card.appendChild(actions);
