@@ -382,7 +382,7 @@ const HOTKEYS: Hotkey[] = [
   // View
   {
     combo: "v",
-    desc: "Split / Stacked",
+    desc: "Unified / Split",
     group: "View",
     test: k("v"),
     when: inDiff,

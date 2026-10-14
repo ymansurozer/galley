@@ -23,8 +23,7 @@
 }
 
 /* Undo | Keep: a quiet pair — neutral until the pointer says which way it leans. */
-.change-actions button,
-.diff-header-action {
+.change-actions button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -67,38 +66,21 @@
   color: var(--green-ink);
 }
 
-/* The file's own actions in its header. Reset and Collapse are quiet text buttons. */
-.diff-header-action {
-  height: 24px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  padding: 0 9px;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  background: transparent;
-  color: var(--ink-2);
-  margin-left: 4px;
-}
-
-.diff-header-action:hover {
-  background: var(--fill-2);
-  color: var(--ink);
-}
-
-/* Approve / Mark Reviewed — the open file's sign-off, and the only filled button in the code
-   view: green when the file is clean, orange when it carries objections. The floating copy and
-   the oversized card's verdict wear the same fill. */
-.diff-header-action.fill,
-.diff-fab,
-.oversized-card .ovsz-btn.primary {
+/* Approve File / Mark Reviewed — the open file's sign-off (filebar.ts), and the only filled
+   button in the code view: green when the file is clean, orange when it carries objections. The
+   floating copy wears the same fill. */
+.signoff,
+.diff-fab {
   --btn-bg: var(--green-fill);
   --btn-bg-hover: var(--green-fill-hover);
   --btn-bg-pressed: var(--green-fill-pressed);
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
   height: 24px;
   padding: 0 6px 0 10px;
+  white-space: nowrap;
   border: 0;
   border-radius: var(--radius-sm);
   background: var(--btn-bg);
@@ -113,17 +95,15 @@
     box-shadow 0.15s;
 }
 
-.diff-header-action.fill.warn,
-.diff-fab.warn,
-.oversized-card .ovsz-btn.primary.warn {
+.signoff.warn,
+.diff-fab.warn {
   --btn-bg: var(--orange-fill);
   --btn-bg-hover: var(--orange-fill-hover);
   --btn-bg-pressed: var(--orange-fill-pressed);
 }
 
-.diff-header-action.fill:hover,
-.diff-fab:hover,
-.oversized-card .ovsz-btn.primary:hover {
+.signoff:hover,
+.diff-fab:hover {
   background: var(--btn-bg-hover);
   color: var(--on-fill);
   box-shadow:
@@ -131,9 +111,8 @@
     0 0 0 3px color-mix(in srgb, var(--btn-bg-hover) 28%, transparent);
 }
 
-.diff-header-action.fill:active,
-.diff-fab:active,
-.oversized-card .ovsz-btn.primary:active {
+.signoff:active,
+.diff-fab:active {
   background: var(--btn-bg-pressed);
   box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
 }

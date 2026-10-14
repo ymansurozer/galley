@@ -26,10 +26,6 @@
         <div class="seg lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / UI" data-tip-keys="⇧U"><button
             :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg><span>Code</span></button><button
             :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg><span>UI</span></button></div>
-        <div class="seg" x-show="$store.g.view==='code' && $store.g.isMarkdownFile()" data-tip="Rendered / source" data-tip-keys="m"><button :class="{active: $store.g.fileView==='rendered'}"
-            @click="$store.g.setFileView('rendered')">Rendered</button><button
-            :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
-        </div>
       </div>
       <div class="actions"><button class="req-chip" x-cloak x-show="$store.g.view==='code' && $store.g.openRequests()"
           data-tip="Next open change request" data-tip-keys="]" :aria-label="'Next open change request, ' + $store.g.openRequests() + ' open'"

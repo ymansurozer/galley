@@ -1,15 +1,15 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
-import { getIconForType, SVGSpriteSheet } from "@pierre/diffs";
 import { S, $ } from "./store";
 import { currentFile, currentSplittable, fileFinished, fileObjections } from "./changes";
 import { buildCommentThread, lineThread } from "./annotations";
 import { unanchoredThreads } from "./unanchored";
 import { approveCurrentFile, resetReview } from "./decisions";
-import { blockersChip } from "./blockers";
+import { blockersChip, fileBlockers } from "./blockers";
 import { renderMarkdown } from "./markdown";
 import { currentGuideEntry } from "./guide";
 import { isFileSkim, isFileSkimCollapsed, movedFrom, toggleFileSkim } from "./skim";
 import { keycapsHtml } from "./keycaps";
+import { fileBarActions, splitPath } from "./filebar-derive";
 
 // ── The open file's bar ──────────────────────────────────────────────────────
 // One Galley-DOM header serves every file view (diff, skim strip, pure rename, oversized card,
@@ -31,172 +31,180 @@ function barElement(): HTMLElement {
   return el;
 }
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-// @pierre mounts its icon sprite into each diff's shadow root, so a light-DOM `<use>` can't
-// reach it. Inject the same sprite into the document once so the bar can reuse @pierre's exact
-// change-type icons.
-let spriteInjected = false;
-function ensureSprite() {
-  if (spriteInjected) return;
-  const holder = document.createElement("div");
-  holder.innerHTML = SVGSpriteSheet;
-  const svg = holder.firstElementChild;
-  // Out of the flow, like icons.ts's sprite: an inline svg after .app adds a line box below the
-  // full-height layout, and a jump scrolling a row into view would scroll the page by that much.
-  svg?.setAttribute("style", "position:absolute");
-  if (svg) document.body.appendChild(svg);
-  spriteInjected = true;
-}
-// Change-type accent color for the bar's icon.
-function ctColor(type: string | undefined): string {
-  switch (type) {
-    case "new":
-      return "var(--green)";
-    case "change":
-      return "var(--blue)";
-    case "deleted":
-      return "var(--red)";
-    case "rename-pure":
-    case "rename-changed":
-      return "var(--orange)";
-    default:
-      return "var(--ink-2)";
-  }
-}
-// @pierre's change-type icon as light-DOM SVG (the lib's createIconElement returns HAST).
-function changeIcon(type: string | undefined): SVGElement {
-  ensureSprite();
-  const t = type ?? "file";
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("width", "16");
-  svg.setAttribute("height", "16");
-  svg.setAttribute("viewBox", "0 0 16 16");
-  svg.setAttribute("class", "ghdr-icon");
-  svg.setAttribute("data-change-icon", t);
-  const use = document.createElementNS(SVG_NS, "use");
-  use.setAttribute("href", "#" + (getIconForType(t as never) || "diffs-icon-file-code"));
-  svg.appendChild(use);
-  return svg;
+function button(className: string, label: string, run: () => unknown): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.className = className;
+  b.textContent = label;
+  b.onclick = () => void run();
+  return b;
 }
 
-// Subtle Split/Stacked segmented control right of the filename. Kept low-contrast so it doesn't
-// compete with the filename; clicking re-renders the diff, which rebuilds this control with the
-// new active state.
-function layoutToggle(): HTMLElement {
+// A two-way segmented control (Rendered | Source, Unified | Split). Clicking re-renders, which
+// rebuilds the bar with the new choice active.
+function segmented<T extends string>(
+  tip: string,
+  keys: string,
+  options: [T, string][],
+  value: T,
+  pick: (v: T) => void,
+): HTMLElement {
   const wrap = document.createElement("span");
-  wrap.className = "ghdr-layout seg xs";
-  wrap.dataset.tip = "Split / Stacked";
-  wrap.dataset.tipKeys = "v";
-  const mk = (label: string, style: "split" | "unified") => {
-    const b = document.createElement("button");
-    b.textContent = label;
-    if (S.diffStyle === style) b.className = "active";
-    b.onclick = () => S.setStyle?.(style);
-    wrap.appendChild(b);
-  };
-  mk("Split", "split");
-  mk("Stacked", "unified");
+  wrap.className = "seg xs";
+  wrap.dataset.tip = tip;
+  wrap.dataset.tipKeys = keys;
+  for (const [v, label] of options)
+    wrap.appendChild(button(v === value ? "active" : "", label, () => pick(v)));
   return wrap;
+}
+
+// The path, its folder muted and its filename in ink. When the bar runs short the folder gives
+// way from the left ("…storage/uploads.ts"), so the filename stays readable: the folder is laid
+// out right-to-left to put its ellipsis at the start, and <bdi> keeps the path itself reading
+// left-to-right inside it.
+function pathLabel(path: string): HTMLElement {
+  const { dir, name } = splitPath(path);
+  const el = document.createElement("span");
+  el.className = "fb-path";
+  el.title = path;
+  if (dir) {
+    const d = document.createElement("span");
+    d.className = "fb-dir";
+    const bdi = document.createElement("bdi");
+    bdi.textContent = dir;
+    d.appendChild(bdi);
+    el.appendChild(d);
+  }
+  const n = document.createElement("span");
+  n.className = "fb-name";
+  n.textContent = name;
+  el.appendChild(n);
+  return el;
 }
 
 // Icon-only "jump to this file in the local editor" button — file-scoped, so it lives in the
 // file's bar rather than the app chrome (the top bar is for review-final actions).
 function openEditorButton(): HTMLElement {
   const b = document.createElement("button");
-  b.className = "ghdr-open";
+  b.className = "btn icon sm fb-open";
   b.dataset.tip = "Open in editor";
   b.dataset.tipKeys = "⇧E";
+  b.setAttribute("aria-label", "Open in editor");
   b.innerHTML = `<svg class="ic"><use href="#gly-open-editor"></use></svg>`;
   b.onclick = () => S.openInEditor?.();
   return b;
 }
 
-// The per-file sign-off actions. Unfinished → one context button: "Approve" (clean) or "Mark
-// reviewed" (has a rejected hunk / open requested-change), which accepts pending hunks, signs off,
-// and advances. Finished → a quiet Reset to undo.
-function fileActions(): HTMLElement {
+// The file's one filled button: Approve File (clean, green) or Mark Reviewed (it carries a
+// rejected change or an open change request, orange). Either signs off and advances.
+export function signOffButton(objections: boolean): HTMLElement {
+  const b = document.createElement("button");
+  b.className = "signoff fill" + (objections ? " warn" : "");
+  b.innerHTML = `${objections ? "Mark Reviewed" : "Approve File"} ${keycapsHtml("⇧A")}`;
+  b.onclick = () => approveCurrentFile();
+  return b;
+}
+
+// A finished file's quiet state, in place of the button that signed it off.
+export function signedOffState(objections: boolean): HTMLElement {
+  const el = document.createElement("span");
+  el.className = "fb-state " + (objections ? "warn" : "ok");
+  el.innerHTML = objections
+    ? `<svg class="ic"><use href="#gly-circle-alert"></use></svg>Reviewed with requests`
+    : `<svg class="ic"><use href="#gly-check"></use></svg>Approved`;
+  return el;
+}
+
+// The open file's actions, in fileBarActions' order. Every handler is the one the header has
+// always had: the per-file reset (its toast offers Undo), the blockers jump list, the skim
+// re-collapse, and the ⇧A sign-off.
+function fileActions(path: string): HTMLElement {
   const wrap = document.createElement("span");
-  wrap.className = "ghdr-actions";
-  const filePath = currentFile().path;
-  const reset = () => {
-    const b = document.createElement("button");
-    b.className = "diff-header-action undo";
-    b.textContent = "Reset";
-    b.onclick = () => resetReview(filePath);
-    return b;
-  };
-  // The chip lists what keeps the file from Approved (rejected hunks, open change
-  // requests) with jump-to actions — rendered whenever objections exist, finished or not.
+  wrap.className = "fb-actions";
+  const finished = fileFinished(path);
+  const objections = fileObjections(path);
   const chip = blockersChip();
-  // A skim-flagged file that's been expanded gets a quiet re-collapse control (the counterpart
-  // to the collapsed strip's Expand), so the reviewer can fold it back after a look.
-  if (isFileSkim(filePath) && !isFileSkimCollapsed(filePath)) {
-    const collapse = document.createElement("button");
-    collapse.className = "diff-header-action skim-collapse";
-    collapse.textContent = "Collapse";
-    collapse.title = "Collapse this skimmed file";
-    collapse.onclick = () => toggleFileSkim(filePath);
-    wrap.appendChild(collapse);
-  }
-  if (fileFinished(filePath)) {
-    // The file-tree badge carries the approved / changes-requested state; the bar just
-    // offers a quiet Reset to undo the sign-off (plus the blockers chip when relevant).
-    if (chip) wrap.appendChild(chip);
-    wrap.appendChild(reset());
-  } else {
-    const objections = fileObjections(filePath);
-    // Reset (clear in-progress hunk decisions) sits on the left; Approve is always far right.
-    if (S.state.decisionFiles?.includes(filePath)) wrap.appendChild(reset());
-    if (chip) wrap.appendChild(chip);
-    const button = document.createElement("button");
-    button.className = "diff-header-action fill" + (objections ? " warn" : "");
-    button.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} ${keycapsHtml("⇧A")}`;
-    button.onclick = () => approveCurrentFile();
-    wrap.appendChild(button);
+  const actions = fileBarActions({
+    finished,
+    objections,
+    blockers: chip ? fileBlockers(path).length : 0,
+    hasDecisions: !!S.state.decisionFiles?.includes(path),
+    skimExpanded: isFileSkim(path) && !isFileSkimCollapsed(path),
+  });
+  for (const a of actions) {
+    if (a === "collapse") {
+      const b = button("btn quiet sm", "Collapse", () => toggleFileSkim(path));
+      b.dataset.tip = "Fold this skimmed file back";
+      wrap.appendChild(b);
+    } else if (a === "reset") {
+      const b = button("btn quiet sm", "Reset", () => resetReview(path));
+      b.dataset.tip = finished
+        ? "Undo the sign-off and clear this file's decisions"
+        : "Clear this file's Keep / Undo decisions";
+      wrap.appendChild(b);
+    } else if (a === "blockers") {
+      if (chip) wrap.appendChild(chip);
+    } else if (a === "approve" || a === "mark") wrap.appendChild(signOffButton(a === "mark"));
+    else wrap.appendChild(signedOffState(a === "reviewed"));
   }
   return wrap;
 }
 
-// Fill the bar for the current file and return it for render() to mount. `fd` is the rendered
-// (decision-replayed) diff when the view is @pierre's, so +/− track what's still on screen; the
-// other views count from the file's own stats. A preview gets a minimal bar: a neutral file icon,
-// the path and an "Unchanged" tag — no counts, change-type icon or actions, all of which would
-// mislabel an unchanged file rendered as one-sided content.
+// Fill the bar for the current file and return it for render() to mount. Left to right: the path,
+// where it moved from, the view toggles that apply (Rendered | Source for a markdown file, Unified
+// | Split for a two-sided diff), open in editor, +/−, and the file's actions. `fd` is the
+// rendered (decision-replayed) diff when the view is @pierre's, so +/− track what's still on
+// screen; the other views count from the file's own stats. A preview bar is the path and an
+// "Unchanged" tag: an unchanged file isn't in the review, so it has no counts and no actions.
 export function renderFileBar(fd?: FileDiffMetadata): HTMLElement {
   const el = barElement();
   const f = currentFile();
-  const previewing = !!S.preview;
-  const row = document.createElement("div");
-  row.className = "ghdr-row1";
-  row.appendChild(changeIcon(previewing ? "file" : fd?.type));
-  el.style.setProperty("--ct-color", ctColor(previewing ? undefined : fd?.type));
-  const name = document.createElement("span");
-  name.className = "ghdr-file";
-  name.textContent = f.path;
-  row.appendChild(name);
-  // Rename+edit files (git -M): note where the file moved from, right of the new path.
-  const from = previewing ? "" : movedFrom(f.path);
-  if (from) {
-    const moved = document.createElement("span");
-    moved.className = "ghdr-moved";
-    moved.title = `moved from ${from}`;
-    moved.textContent = `moved from ${from}`;
-    row.appendChild(moved);
-  }
-  // Layout toggle right of the filename — only when Split actually applies (a two-sided diff).
-  if (!previewing && fd && currentSplittable()) row.appendChild(layoutToggle());
-  row.appendChild(openEditorButton());
+  const lead: Node[] = [pathLabel(f.path)];
   const grow = document.createElement("span");
-  grow.className = "ghdr-grow";
-  row.appendChild(grow);
-  if (previewing) {
+  grow.className = "fb-grow";
+  if (S.preview) {
     const tag = document.createElement("span");
-    tag.className = "ghdr-readonly";
+    tag.className = "fb-tag";
     tag.textContent = "Unchanged";
-    row.appendChild(tag);
-    el.replaceChildren(row);
+    el.replaceChildren(...lead, openEditorButton(), grow, tag);
     return el;
   }
+  // Rename+edit files (git -M): where the file moved from, right of the new path.
+  const from = movedFrom(f.path);
+  if (from) {
+    const moved = document.createElement("span");
+    moved.className = "fb-moved";
+    moved.title = `moved from ${from}`;
+    moved.textContent = `moved from ${from}`;
+    lead.push(moved);
+  }
+  if (S.isMarkdownFile?.())
+    lead.push(
+      segmented(
+        "Rendered / Source",
+        "m",
+        [
+          ["rendered", "Rendered"],
+          ["source", "Source"],
+        ],
+        S.fileView,
+        (v) => S.setFileView?.(v),
+      ),
+    );
+  // Split only applies to a two-sided diff on screen. It's the Settings dialog's Layout, so the
+  // two always agree.
+  if (fd && currentSplittable())
+    lead.push(
+      segmented(
+        "Unified / Split",
+        "v",
+        [
+          ["unified", "Unified"],
+          ["split", "Split"],
+        ],
+        S.diffStyle,
+        (v) => S.setStyle?.(v),
+      ),
+    );
   let add = f.added ?? 0,
     del = f.removed ?? 0;
   if (fd) {
@@ -207,11 +215,11 @@ export function renderFileBar(fd?: FileDiffMetadata): HTMLElement {
     }
   }
   const counts = document.createElement("span");
-  counts.className = "ghdr-counts";
+  counts.className = "fb-counts";
   counts.innerHTML = `<span class="a">+${add}</span><span class="d">−${del}</span>`;
-  row.appendChild(counts);
-  row.appendChild(fileActions());
-  el.replaceChildren(row);
+  const sep = document.createElement("span");
+  sep.className = "fb-sep";
+  el.replaceChildren(...lead, openEditorButton(), grow, counts, sep, fileActions(f.path));
   return el;
 }
 
