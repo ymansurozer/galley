@@ -19,6 +19,7 @@ import {
   pendingChange,
   spliceLines,
   stagedChange,
+  worktreeAnchor,
   writeBlob,
 } from "./git.js";
 import { validateGuide } from "./guide.js";
@@ -308,9 +309,10 @@ async function html() {
 // exactly that block's lines in or out (spliceLines). A stage places the block of the reviewed
 // working-tree diff off a fresh diff of the file (pendingChange): the index may have moved since
 // the review's diff was taken, as blocks staged above this one shift its lines. An unstage finds
-// the block by its content among what is staged (stagedChange), whatever diff the tab keyed it on,
-// and puts HEAD's lines back. "skipped": the index already had it that way. Throws, writing
-// nothing, when the file moved on from the block, or its index entry changed meanwhile.
+// the block among what is staged by its content and place (stagedChange), whatever diff the tab
+// keyed it on, and puts HEAD's lines back. "skipped": the index already had it that way. Throws,
+// writing nothing, when the file moved on from the block, when a staged block can't be told
+// apart in the index, or when the index entry changed meanwhile.
 async function moveChangeInIndex(
   state: ReviewState,
   filePath: string,
@@ -340,10 +342,20 @@ async function moveChangeInIndex(
     if (!head) throw new Error(`${filePath} isn't in HEAD, so it unstages only as a whole file`);
     const cached = await git(["diff", "--cached", "--no-ext-diff", "--", filePath], root);
     const isBlock = (block: DiffLine[]) => hash(changeBlockContent(block)) === change.contentHash;
-    const found = stagedChange(cached, fresh, filePath, change.stableKey, isBlock);
-    if (found === null) return "skipped";
-    if (found === "ambiguous")
-      throw new Error(`More than one staged block of ${filePath} could be ${change.stableKey}`);
+    // The reviewed diff places the block while it holds it; a reload drops a staged block from it.
+    const reviewed = state.changes.some(
+      (c) =>
+        c.path === filePath &&
+        c.stableKey === change.stableKey &&
+        c.contentHash === change.contentHash,
+    );
+    const anchor = worktreeAnchor(reviewed ? state.rawDiff : null, filePath, change.stableKey);
+    const found = stagedChange(cached, fresh, filePath, isBlock, anchor);
+    if (found === "unstaged") return "skipped";
+    if (found === "unlocatable")
+      throw new Error(
+        `Couldn't find ${filePath}:${change.stableKey} on its own in the index; unstage it with git`,
+      );
     const { indexBefore, added, headBefore, deleted } = found;
     next = spliceLines(index, indexBefore, added, head, headBefore, deleted);
   }
@@ -359,10 +371,16 @@ async function moveChangeInIndex(
 }
 
 // The working tree's bytes as `git add` would stage them: line-ending conversion applies (git's own
-// hash-object runs the file's clean filters), except to a file whose index blob already has CRLF
-// lines, which git leaves as they are rather than normalize a file committed with them.
+// hash-object runs the file's clean filters). The exception is automatic conversion (core.autocrlf
+// or `text=auto`) of a file whose index blob already has CRLF lines: git leaves those as they are
+// rather than normalize a file committed with them. An explicit `text` or `eol` attribute still
+// normalizes it.
 async function worktreeToStage(root: string, filePath: string, index: Buffer): Promise<Buffer> {
-  if (index.includes("\r\n")) return fs.readFile(path.join(root, filePath));
+  const attrs = await git(["check-attr", "text", "eol", "--", filePath], root);
+  const attr = (name: string) => new RegExp(`: ${name}: (.*)$`, "m").exec(attrs)?.[1];
+  const auto =
+    attr("text") === "auto" || (attr("text") === "unspecified" && attr("eol") === "unspecified");
+  if (auto && index.includes("\r\n")) return fs.readFile(path.join(root, filePath));
   const cleaned = await git(["hash-object", "-w", "--", filePath], root);
   return gitBytes(["cat-file", "blob", cleaned], root);
 }

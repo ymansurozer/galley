@@ -443,7 +443,7 @@ async function renderCenter() {
       const b = document.createElement("button");
       b.className = "diff-header-action undo";
       b.textContent = "Reset";
-      b.onclick = () => (blocks ? resetStep(step) : resetReview(filePath));
+      b.onclick = () => (blocks ? void resetStep(step) : resetReview(filePath));
       return b;
     };
     // The chip lists what keeps the file from Approved (rejected hunks, open change

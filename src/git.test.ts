@@ -112,6 +112,9 @@ test("spliceLines puts in the source's bytes, line endings included", () => {
   // A last line gains its ending, and loses it again.
   assert.equal(spliceLines(blob("a\nb"), 1, ["b"], blob("a\nb\n"), 1, ["b"])?.toString(), "a\nb\n");
   assert.equal(spliceLines(blob("a\nb\n"), 1, ["b"], blob("a\nb"), 1, ["b"])?.toString(), "a\nb");
+  // Every line rewritten with another ending leaves one kind throughout.
+  const all = spliceLines(blob("a\r\nb\r\n"), 0, ["a", "b"], blob("a\nB\n"), 0, ["a", "B"]);
+  assert.equal(all?.toString(), "a\nB\n");
 });
 
 test("spliceLines writes nothing that isn't the block's edit", () => {

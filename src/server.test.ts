@@ -1170,7 +1170,8 @@ test("/api/unstage reports the index entry it replaced and /api/restage puts exa
 });
 
 // A desk on a temp repo whose f.txt was committed as `committed` (only staged, with `notInHead`)
-// and is now `edited` in the working tree; `autocrlf` turns core.autocrlf on after the commit.
+// and is now `edited` in the working tree; `autocrlf` turns core.autocrlf on after the commit, and
+// `attributes` writes a .gitattributes then.
 // `move` posts a block route for a block of the desk's diff, by default with the content hash the
 // desk has for it; `index` is f.txt as the index holds it.
 async function withBlockDesk(
@@ -1188,7 +1189,7 @@ async function withBlockDesk(
     ) => Promise<{ status: number; ok?: boolean; skipped?: boolean; code?: string }>;
     index: () => string;
   }) => Promise<void>,
-  { notInHead = false, autocrlf = false } = {},
+  { notInHead = false, autocrlf = false, attributes = "" } = {},
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "galley-blocks-"));
   const oldHome = process.env.HOME;
@@ -1206,6 +1207,7 @@ async function withBlockDesk(
     g(["add", "f.txt"]);
   }
   if (autocrlf) g(["config", "core.autocrlf", "true"]);
+  if (attributes) await writeFile(path.join(root, ".gitattributes"), attributes);
   await writeFile(path.join(root, "f.txt"), edited);
   const st = await buildReviewState(root, { session: "s" });
   assert.ok(st, "built a review state for the working diff");
@@ -1410,6 +1412,74 @@ test("an unstage tells identical staged blocks apart by the line its key names",
     assert.equal((await move("api/unstage-change", first)).skipped, false);
     assert.equal(index(), committed);
   });
+});
+
+test("an unstage refuses a block merged with another staged change, and keeps its record", async () => {
+  const committed = edit30({});
+  const lines = (ten: boolean, eleven: boolean) =>
+    lines30
+      .map((l) => (l === "l10" && ten ? "TEN" : l === "l11" && eleven ? "ELEVEN" : l))
+      .join("\n") + "\n";
+  await withBlockDesk(committed, lines(true, false), async ({ st, root, url, move, index }) => {
+    const ten = st.changes[0]!;
+    assert.equal((await move("api/stage-change", ten.stableKey!)).skipped, false);
+    // The agent edits the next line and reloads; staging it merges both in the index.
+    await writeFile(path.join(root, "f.txt"), lines(true, true));
+    assert.equal((await post(url, "api/reload", {})).status, 200);
+    const [eleven] = st.changes.map((c) => c.stableKey) as [string];
+    assert.equal((await move("api/stage-change", eleven)).skipped, false);
+    assert.equal(index(), lines(true, true));
+    for (const [key, hash] of [
+      [eleven, undefined],
+      [ten.stableKey!, ten.contentHash],
+    ] as const) {
+      const res = await move("api/unstage-change", key, hash);
+      assert.deepEqual([res.status, res.code], [409, "PATCH_CONFLICT"], key);
+    }
+    assert.equal(index(), lines(true, true));
+    assert.ok(st.stagedChangeKeys?.includes(`f.txt:${eleven}`), "still staged, still recorded");
+  });
+});
+
+test("an unstage leaves alone an identical block the user staged elsewhere", async () => {
+  const committed = edit30({});
+  const dup = (at: string[]) =>
+    lines30.flatMap((l) => (at.includes(l) ? [l, "dup"] : [l])).join("\n") + "\n";
+  await withBlockDesk(committed, dup(["l5", "l15"]), async ({ st, root, g, move, index }) => {
+    // The user stages the first dup themselves; the desk never staged the second.
+    const oid = execFileSync("git", ["hash-object", "-w", "--stdin"], {
+      cwd: root,
+      input: dup(["l5"]),
+    })
+      .toString()
+      .trim();
+    g(["update-index", "--cacheinfo", `100644,${oid},f.txt`]);
+    const second = st.changes[1]!.stableKey!;
+    assert.equal((await move("api/unstage-change", second)).skipped, true);
+    assert.equal(index(), dup(["l5"]));
+  });
+});
+
+test("block staging normalizes line endings as an explicit text attribute does", async () => {
+  const crlf = "\r\n";
+  const committed = edit30({}, crlf);
+  await withBlockDesk(
+    committed,
+    edit30({ ten: "TEN" }, crlf),
+    async ({ st, g, move, index }) => {
+      // `* text` renormalizes the CRLF file: every line is a change, and staging writes LF.
+      const [all] = st.changes.map((c) => c.stableKey) as [string];
+      assert.equal((await move("api/stage-change", all)).skipped, false);
+      assert.equal(index(), edit30({ ten: "TEN" }));
+      assert.equal(
+        g(["ls-files", "-s", "f.txt"]).split(/\s+/)[1],
+        g(["hash-object", "f.txt"]).trim(),
+      );
+      assert.equal((await move("api/unstage-change", all)).skipped, false);
+      assert.equal(index(), committed);
+    },
+    { attributes: "* text\n" },
+  );
 });
 
 test("a file new to the index unstages only whole", async () => {
