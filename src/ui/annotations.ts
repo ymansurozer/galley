@@ -1,4 +1,4 @@
-import { S, esc, toast, persist } from "./store";
+import { S, D, esc, toast, persist } from "./store";
 import {
   currentComments,
   currentChanges,
@@ -38,9 +38,11 @@ import type {
 } from "./types";
 import { keycapsHtml } from "./keycaps";
 import { cursorChangeId } from "./cursor";
+import { changeBlocks, threadGroups } from "./thread-groups";
+import { threadGroupElement, threadKey, threadSlot } from "./rests";
 
 export function annotations(): AnnotationInput[] {
-  const threads: AnnotationInput[] = [];
+  const lineThreads: (ThreadMeta & { line: number })[] = [];
   const groups = new Map<string, ReviewComment[]>();
   for (const c of currentComments()) {
     const key = `${c.side}:${c.lineNumber}`;
@@ -59,21 +61,35 @@ export function annotations(): AnnotationInput[] {
       comments.some((c) => isUnanchored(c, file))
     )
       continue;
-    // The annotation goes to @pierre in DISPLAY coordinates (it matches rendered gutter
-    // numbers); the metadata keeps the raw line so thread actions filter comments correctly.
-    threads.push({
+    const t: ThreadMeta = {
+      type: "thread",
+      path: first.path,
       side: first.side,
-      lineNumber: toDisplayLine(first.side, first.lineNumber),
-      metadata: {
-        type: "thread",
-        path: first.path,
-        side: first.side,
-        lineNumber: first.lineNumber,
-        status: comments.some((c) => c.status === "open") ? "open" : "resolved",
-        comments,
-      },
-    });
+      lineNumber: first.lineNumber,
+      status: comments.some((c) => c.status === "open") ? "open" : "resolved",
+      comments,
+    };
+    lineThreads.push({ ...t, line: t.lineNumber });
   }
+  // A reply or an edit happens in its thread's card, so that thread is the open one.
+  const editing = S.editingCommentId
+    ? S.state.comments.find((c) => c.id === S.editingCommentId && c.path === file?.path)
+    : undefined;
+  const replying =
+    S.composerOpen && !editing && !composerInUi()
+      ? lineThreads.find((t) => t.status === "open" && composerTargets(t.side, t.lineNumber))
+      : undefined;
+  const composing = editing ? threadKey(editing) : replying && threadKey(replying);
+  if (composing) S.openThread = composing;
+  // One annotation per group of nearby threads, at its last line. It goes to @pierre in DISPLAY
+  // coordinates (it matches rendered gutter numbers); the threads keep their raw lines so thread
+  // actions filter comments correctly.
+  const blocks = D.fileDiff ? changeBlocks(D.fileDiff) : [];
+  const threads: AnnotationInput[] = threadGroups(lineThreads, toDisplayLine, blocks).map((g) => ({
+    side: g.side,
+    lineNumber: g.line,
+    metadata: { type: "group", side: g.side, lineNumber: g.line, threads: g.threads },
+  }));
   const changes: AnnotationInput[] = [];
   for (const ch of currentChanges().filter((ch) => ch.status === "pending")) {
     const anchor = ch.displayEndLine ?? toDisplayLine(ch.side, ch.endLine ?? ch.lineNumber);
@@ -113,16 +129,12 @@ export function annotations(): AnnotationInput[] {
     });
   }
   // A new line comment (not a reply, not an edit) opens as its own composer annotation
-  // under the selected line. Suppressed only when an OPEN thread already sits there — that
-  // thread hosts the reply composer itself (in the diff, or in the unanchored strip). A
-  // resolved thread renders as a collapsed summary and never hosts a composer, so the new
-  // comment still needs its own row. S.selected is display space; groups are keyed raw.
+  // under the selected line. Suppressed only when it's a reply: an OPEN thread sits there and
+  // hosts the composer in its card. A resolved thread never hosts one, so a new comment on its
+  // line still needs its own row.
   const composers: AnnotationInput[] = [];
   if (file && S.composerOpen && !S.editingCommentId && !composerInUi()) {
-    const rawSel = fromDisplayLine(S.selected.side, S.selected.lineNumber);
-    const group = groups.get(`${S.selected.side}:${rawSel}`);
-    const openThreadHere = !!group && group.some((c) => c.status === "open");
-    if (!openThreadHere)
+    if (!replying)
       composers.push({
         side: S.selected.side,
         lineNumber: S.selected.lineNumber,
@@ -249,7 +261,7 @@ const AVATAR = {
     '<span class="av agent"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.2 3 4.4 5 2.2 7M5.6 7.4h2.4"/></svg></span>',
 };
 const sprite = (id: string) => `<svg class="ic"><use href="#gly-${id}"></use></svg>`;
-const KINDS: Record<ThreadKind, { label: string; glyph: string }> = {
+export const KINDS: Record<ThreadKind, { label: string; glyph: string }> = {
   change: { label: "Change request", glyph: sprite("flag") },
   question: { label: "Question", glyph: BUBBLE },
   note: { label: "Note", glyph: sprite("page-note") },
@@ -294,7 +306,8 @@ export function buildCommentThread(c: ThreadView, controls: ThreadControls): HTM
   const box = document.createElement("div");
   box.className = `comment-box thread-card${c.head ? ` k-${c.head.kind}` : ""}`;
   const replyOpen = controls.replying;
-  if (c.status === "resolved") {
+  // The UI lane's resolved row rests as one line; a code thread's card opens on the whole thread.
+  if (c.status === "resolved" && !c.head) {
     box.classList.add("resolved");
     const n = c.comments.length;
     const first = firstLine(c.comments[0]?.body ?? "");
@@ -335,13 +348,16 @@ export function buildCommentThread(c: ThreadView, controls: ThreadControls): HTM
     .join("");
   // The bands: waiting on the agent (live-patched by updateAwaitingDom), then held for Send. A
   // held band hides once the review is sent: the agent has it then.
-  const waiting = questionWaiting(c.comments) ? awaitingHtml() : "";
+  const resolved = c.status === "resolved";
+  const waiting = !resolved && questionWaiting(c.comments) ? awaitingHtml() : "";
   const held = c.head?.held
     ? `<div class="tc-band held"${showsHeld(c.head.held, S.awaitingAgent) ? "" : " hidden"}>${sprite("flag")}<span>Held — goes with Send</span></div>`
     : "";
   // Reply… hides while its own composer is open (only Resolve stays); the composer sits between
-  // the bands and the actions.
-  const foot = `<div class="thread-actions">${replyOpen ? "" : '<button class="reply-thread">Reply…</button>'}<button class="resolve-thread">Resolve</button></div>`;
+  // the bands and the actions. A resolved thread's card offers Reopen instead.
+  const foot = resolved
+    ? '<div class="thread-actions"><span class="tc-kept">Resolved — kept here for reference</span><button class="reopen-inline">Reopen</button></div>'
+    : `<div class="thread-actions">${replyOpen ? "" : '<button class="reply-thread">Reply…</button>'}<button class="resolve-thread">Resolve</button></div>`;
   box.innerHTML = `${c.head ? headHtml(c, c.head) : ""}${messages}${waiting}${held}${foot}`;
   // Mount the in-place editor into the message being edited.
   if (S.editingCommentId) {
@@ -376,9 +392,9 @@ export function buildCommentThread(c: ThreadView, controls: ThreadControls): HTM
       (b) =>
         ((b as HTMLButtonElement).onclick = () => controls.remove((b as HTMLElement).dataset.id!)),
     );
-  // The footer always carries Resolve on an open thread.
-  const resolve = box.querySelector(".resolve-thread") as HTMLButtonElement;
-  resolve.onclick = () => controls.setStatus("resolved");
+  // The footer carries Resolve on an open thread, Reopen on a resolved one.
+  const act = box.querySelector(".resolve-thread, .reopen-inline") as HTMLButtonElement;
+  act.onclick = () => controls.setStatus(resolved ? "open" : "resolved");
   return box;
 }
 
@@ -411,8 +427,9 @@ export function composerCard(): HTMLElement {
 }
 
 // Open threads whose anchor line no longer renders, as a block at the top of the diff: their
-// cards, the old line struck through, so they stay actionable (they block approval until
-// resolved). Each keeps `data-thread`, the target `]` / `[` and the blockers list jump to.
+// rests, which open in place like any thread, the old line struck through, so they stay
+// actionable (they block approval until resolved). Each slot keeps `data-thread`, the target
+// `]` / `[` and the blockers list jump to.
 export function unanchoredBlock(orphans: ThreadMeta[]): HTMLElement {
   const block = document.createElement("div");
   block.className = "unanchored-strip";
@@ -423,8 +440,7 @@ export function unanchoredBlock(orphans: ThreadMeta[]): HTMLElement {
   for (const t of orphans) {
     const box = document.createElement("div");
     box.className = "annotation";
-    box.dataset.thread = `${t.side}:${t.lineNumber}`;
-    box.appendChild(threadCard(t, true));
+    box.appendChild(threadSlot(t, true));
     block.appendChild(box);
   }
   return block;
@@ -478,9 +494,5 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     el.appendChild(control);
     return el;
   }
-  const el = document.createElement("div");
-  el.className = "annotation";
-  el.dataset.thread = `${c.side}:${c.lineNumber}`; // the jump target (blockers.ts flashes it)
-  el.appendChild(threadCard(c));
-  return el;
+  return threadGroupElement(c);
 }

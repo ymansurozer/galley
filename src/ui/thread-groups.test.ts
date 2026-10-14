@@ -1,11 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Side } from "./types";
-import { threadGroups, type ChangeBlock } from "./thread-groups.js";
+import { changeBlocks, threadGroups, type ChangeBlock } from "./thread-groups.js";
 
-type T = { key: string; side: Side; line: number; status?: "open" | "resolved" };
+type T = { side: Side; line: number; status?: "open" | "resolved" };
 const t = (line: number, over: Partial<T> = {}): T => ({
-  key: `${over.side ?? "additions"}:${line}`,
   side: "additions",
   line,
   ...over,
@@ -23,28 +22,26 @@ const shape = (groups: ReturnType<typeof threadGroups<T>>) =>
 
 test("threads within 2 lines of each other in one change gather under the last", () => {
   const blocks = [block("c1", [8, 12])];
-  assert.deepEqual(shape(threadGroups([t(15), t(10), t(12)], same, blocks, null)), [
+  assert.deepEqual(shape(threadGroups([t(15), t(10), t(12)], same, blocks)), [
     "12:[10,12]",
     "15:[15]",
   ]);
   // Each step counts from the previous anchor, so a run of close anchors stays one group.
-  assert.deepEqual(shape(threadGroups([t(10), t(12), t(14)], same, blocks, null)), [
-    "14:[10,12,14]",
-  ]);
+  assert.deepEqual(shape(threadGroups([t(10), t(12), t(14)], same, blocks)), ["14:[10,12,14]"]);
 });
 
 test("nothing gathers across changes, or between a change and the code around it", () => {
   const blocks = [block("c1", [8, 4]), block("c2", [12, 3])];
-  assert.deepEqual(shape(threadGroups([t(11), t(12)], same, blocks, null)), ["11:[11]", "12:[12]"]);
+  assert.deepEqual(shape(threadGroups([t(11), t(12)], same, blocks)), ["11:[11]", "12:[12]"]);
   // Line 7 is context just above c1; line 8 is c1's first line.
-  assert.deepEqual(shape(threadGroups([t(7), t(8)], same, blocks, null)), ["7:[7]", "8:[8]"]);
+  assert.deepEqual(shape(threadGroups([t(7), t(8)], same, blocks)), ["7:[7]", "8:[8]"]);
 });
 
 test("context lines gather within one unchanged run; a deletion between them splits it", () => {
   // A pure deletion sits before new line 21: no additions-side lines, but it splits the run.
   const blocks = [block("del", [21, 0], [20, 3])];
-  assert.deepEqual(shape(threadGroups([t(3), t(5)], same, blocks, null)), ["5:[3,5]"]);
-  assert.deepEqual(shape(threadGroups([t(20), t(22)], same, blocks, null)), ["20:[20]", "22:[22]"]);
+  assert.deepEqual(shape(threadGroups([t(3), t(5)], same, blocks)), ["5:[3,5]"]);
+  assert.deepEqual(shape(threadGroups([t(20), t(22)], same, blocks)), ["20:[20]", "22:[22]"]);
 });
 
 test("the two sides never gather: their numbers count different files", () => {
@@ -52,7 +49,6 @@ test("the two sides never gather: their numbers count different files", () => {
     [t(10, { side: "deletions" }), t(11, { side: "additions" })],
     same,
     [],
-    null,
   );
   assert.deepEqual(
     groups.map((g) => `${g.side}:${g.line}`),
@@ -60,19 +56,12 @@ test("the two sides never gather: their numbers count different files", () => {
   );
 });
 
-test("resolved threads rest in their groups like open ones; only the open key is open", () => {
-  const groups = threadGroups(
-    [t(10, { status: "resolved" }), t(11), t(30)],
-    same,
-    [],
-    "additions:11",
-  );
+test("resolved threads rest in their groups like open ones", () => {
+  const groups = threadGroups([t(10, { status: "resolved" }), t(11), t(30)], same, []);
   assert.deepEqual(shape(groups), ["11:[10,11]", "30:[30]"]);
   assert.deepEqual(
-    groups.flatMap((g) =>
-      g.threads.map((x) => `${x.line}${x.status === "resolved" ? "✓" : ""}:${x.open}`),
-    ),
-    ["10✓:false", "11:true", "30:false"],
+    groups.flatMap((g) => g.threads.map((x) => `${x.line}${x.status === "resolved" ? "✓" : ""}`)),
+    ["10✓", "11", "30"],
   );
 });
 
@@ -80,7 +69,7 @@ test("anchors gather by where they render after Keep / Undo renumbered the lines
   // Undoing an 8-line addition above line 32 pulls every later new-side line up by 8: raw 40
   // renders at 32, two lines under raw 30. By raw numbers they'd be 10 apart.
   const undone = (_side: Side, line: number) => (line > 31 ? line - 8 : line);
-  const groups = threadGroups([t(30), t(40)], undone, [], null);
+  const groups = threadGroups([t(30), t(40)], undone, []);
   assert.deepEqual(shape(groups), ["32:[30,40]"]);
   assert.deepEqual(
     groups[0]!.threads.map((x) => x.display),
@@ -90,6 +79,38 @@ test("anchors gather by where they render after Keep / Undo renumbered the lines
 
 test("a range thread anchors at its first line, where it mounts", () => {
   const range = { ...t(10), endLine: 14 };
-  assert.deepEqual(shape(threadGroups([range, t(12)], same, [], null)), ["12:[10,12]"]);
-  assert.deepEqual(shape(threadGroups([range, t(15)], same, [], null)), ["10:[10]", "15:[15]"]);
+  assert.deepEqual(shape(threadGroups([range, t(12)], same, [])), ["12:[10,12]"]);
+  assert.deepEqual(shape(threadGroups([range, t(15)], same, [])), ["10:[10]", "15:[15]"]);
+});
+
+test("the rendered diff's change parts become blocks; context parts don't", () => {
+  const rendered = {
+    hunks: [
+      {
+        hunkContent: [
+          { type: "context", lines: 3, additionLineIndex: 0, deletionLineIndex: 0 },
+          {
+            type: "change",
+            additions: 2,
+            additionLineIndex: 3,
+            deletions: 1,
+            deletionLineIndex: 3,
+          },
+          { type: "context", lines: 2, additionLineIndex: 5, deletionLineIndex: 4 },
+          // A pure deletion: no added lines, so it sits before new line 8.
+          {
+            type: "change",
+            additions: 0,
+            additionLineIndex: 7,
+            deletions: 2,
+            deletionLineIndex: 6,
+          },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof changeBlocks>[0];
+  assert.deepEqual(changeBlocks(rendered), [
+    { id: "0:1", additions: { from: 4, count: 2 }, deletions: { from: 4, count: 1 } },
+    { id: "0:3", additions: { from: 8, count: 0 }, deletions: { from: 7, count: 2 } },
+  ]);
 });

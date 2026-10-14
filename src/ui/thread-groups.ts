@@ -1,3 +1,4 @@
+import type { FileDiffMetadata } from "@pierre/diffs";
 import type { Side } from "./types";
 
 // Pure grouping of a file's threads into the rests the diff mounts (store-free, so it unit-tests):
@@ -7,11 +8,29 @@ import type { Side } from "./types";
 // has. With none on a side (a pure deletion's additions side), `from` is the line it sits before.
 export type ChangeBlock = { id: string } & Record<Side, { from: number; count: number }>;
 
+// The blocks of the rendered (decision-replayed) diff: its change parts, keyed by hunk and part.
+// A decided change has folded into plain lines there, so it's no block.
+export function changeBlocks(rendered: Pick<FileDiffMetadata, "hunks">): ChangeBlock[] {
+  return rendered.hunks.flatMap((h, hi) =>
+    h.hunkContent.flatMap((p, pi) =>
+      p.type === "change"
+        ? [
+            {
+              id: `${hi}:${pi}`,
+              additions: { from: p.additionLineIndex + 1, count: p.additions },
+              deletions: { from: p.deletionLineIndex + 1, count: p.deletions },
+            },
+          ]
+        : [],
+    ),
+  );
+}
+
 export type ThreadGroup<T> = {
   side: Side;
   // The display line the group mounts under: its last thread's.
   line: number;
-  threads: (T & { display: number; open: boolean })[];
+  threads: (T & { display: number })[];
 };
 
 // Where a display line sits: inside a change block, or in the unchanged run between two. A run
@@ -30,15 +49,14 @@ function region(blocks: readonly ChangeBlock[], side: Side, line: number): strin
 // The groups, top to bottom. A thread anchors at its first line (a range thread too, where it
 // mounts), converted to where it renders (`toDisplay`: decisions renumber lines). Threads gather
 // on the same side, in the same change block or unchanged run, each within 2 lines of the one
-// before it. `openKey` marks the one thread open as a card.
-export function threadGroups<T extends { key: string; side: Side; line: number }>(
+// before it.
+export function threadGroups<T extends { side: Side; line: number }>(
   threads: readonly T[],
   toDisplay: (side: Side, line: number) => number,
   blocks: readonly ChangeBlock[],
-  openKey: string | null,
 ): ThreadGroup<T>[] {
   const placed = threads
-    .map((t) => ({ ...t, display: toDisplay(t.side, t.line), open: t.key === openKey }))
+    .map((t) => ({ ...t, display: toDisplay(t.side, t.line) }))
     .sort(
       (a, b) => a.display - b.display || (a.side === b.side ? 0 : a.side === "deletions" ? -1 : 1),
     );
