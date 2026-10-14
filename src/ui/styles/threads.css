@@ -424,6 +424,14 @@
   background-image: linear-gradient(var(--fill-3), var(--fill-3));
 }
 
+/* While replying, Resolve leads the composer's action row, at its buttons' size. */
+.thread-card .crow .resolve-thread {
+  height: 24px;
+  margin-left: 0;
+  padding: 0 9px;
+  font-size: var(--text-xs);
+}
+
 /* A resolved thread rests as one muted line: what it was about, its line, and Reopen. */
 .thread-card.resolved {
   padding: 4px 6px 4px 10px;

@@ -354,8 +354,14 @@ export function buildCommentThread(c: ThreadView, controls: ThreadControls): HTM
     const msgEl = box.querySelector(`.msg[data-id="${S.editingCommentId}"]`);
     msgEl?.appendChild(buildEditor());
   }
-  // Mount the reply composer above the action bar.
-  if (replyOpen) box.querySelector(".thread-actions")?.before(buildComposer());
+  // The reply composer takes the footer's place, and Resolve leads its action row, so the card
+  // still ends in one row.
+  if (replyOpen) {
+    const composer = buildComposer();
+    const actions = box.querySelector(".thread-actions") as HTMLElement; // written just above
+    composer.querySelector(".crow")?.prepend(...actions.children);
+    actions.replaceWith(composer);
+  }
   const reply = box.querySelector(".reply-thread") as HTMLButtonElement | null;
   if (reply) reply.onclick = controls.reply;
   box
