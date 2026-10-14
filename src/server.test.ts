@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import { AGENT_HEADER, resolveBinding, startServer } from "./server.js";
+import { AGENT_HEADER, resolveBinding, startServer, swapIndexEntry } from "./server.js";
 import { buildReviewState, hash, reviewDir, writeGlobalSettings } from "./state.js";
 import type { ReviewComment, ReviewResult, ReviewState } from "./types.js";
 import { isGuideBaseStale } from "./ui/guide-derive.js";
@@ -1166,6 +1166,375 @@ test("/api/unstage reports the index entry it replaced and /api/restage puts exa
     const bad = await restage("a.ts", { mode: "100644", oid: "v1; rm -rf" });
     assert.equal(bad.status, 422);
     assert.equal(g(["show", ":a.ts"]), "v2\n");
+  });
+});
+
+// A desk on a temp repo whose f.txt was committed as `committed` (only staged, with `notInHead`)
+// and is now `edited` in the working tree; `autocrlf` turns core.autocrlf on after the commit, and
+// `attributes` writes a .gitattributes then.
+// `move` posts a block route for a block of the desk's diff, by default with the content hash the
+// desk has for it; `index` is f.txt as the index holds it.
+async function withBlockDesk(
+  committed: string,
+  edited: string,
+  run: (desk: {
+    st: ReviewState;
+    root: string;
+    url: string;
+    g: (args: string[]) => string;
+    move: (
+      route: string,
+      stableKey: string,
+      contentHash?: string,
+    ) => Promise<{ status: number; ok?: boolean; skipped?: boolean; code?: string }>;
+    index: () => string;
+  }) => Promise<void>,
+  { notInHead = false, autocrlf = false, attributes = "" } = {},
+) {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-blocks-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  g(["config", "core.autocrlf", "false"]);
+  await writeFile(path.join(root, notInHead ? "other.txt" : "f.txt"), committed);
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  if (notInHead) {
+    await writeFile(path.join(root, "f.txt"), committed);
+    g(["add", "f.txt"]);
+  }
+  if (autocrlf) g(["config", "core.autocrlf", "true"]);
+  if (attributes) await writeFile(path.join(root, ".gitattributes"), attributes);
+  await writeFile(path.join(root, "f.txt"), edited);
+  const st = await buildReviewState(root, { session: "s" });
+  assert.ok(st, "built a review state for the working diff");
+  const handle = await startServer({ state: st, open: false, idleTimeoutMs: 0 });
+  const move = async (route: string, stableKey: string, contentHash?: string) => {
+    const hash = contentHash ?? st.changes.find((c) => c.stableKey === stableKey)?.contentHash;
+    const res = await post(handle.url, route, { path: "f.txt", stableKey, contentHash: hash });
+    return { status: res.status, ...((await res.json()) as { skipped?: boolean; code?: string }) };
+  };
+  try {
+    await run({ st, root, url: handle.url, g, move, index: () => g(["show", ":f.txt"]) });
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+const lines30 = Array.from({ length: 30 }, (_, i) => `l${i + 1}`);
+// lines30 with the given edits made: lines inserted after a line, a line replaced, a line gone.
+const edit30 = (edits: { a?: true; ten?: string; x?: true; d?: true }, eol = "\n") =>
+  lines30
+    .flatMap((l) => {
+      if (l === "l3" && edits.a) return [l, "A1", "A2"];
+      if (l === "l10" && edits.ten) return [edits.ten];
+      if (l === "l20" && edits.x) return [l, "X1"];
+      if (l === "l25" && edits.d) return [];
+      return [l];
+    })
+    .join(eol) + eol;
+const [A, TEN, X, D] = [
+  "additions:4:0:2",
+  "additions:12:1:1",
+  "additions:23:0:1",
+  "deletions:25:1:0",
+];
+
+test("/api/stage-change and /api/unstage-change put exactly one block in or out of the index as it stands", async () => {
+  const all = { a: true, ten: "TEN", x: true, d: true } as const;
+  await withBlockDesk(edit30({}), edit30(all), async ({ st, root, url, move, index }) => {
+    assert.deepEqual(
+      st.changes.map((c) => c.stableKey),
+      [A, TEN, X, D],
+    );
+    // Every block below another pending one: each lands at its own place, whatever is staged above.
+    assert.deepEqual(await move("api/stage-change", X), { status: 200, ok: true, skipped: false });
+    assert.equal(index(), edit30({ x: true }), "X1 goes after l20, not two lines lower");
+    assert.equal((await move("api/stage-change", A)).skipped, false);
+    assert.equal(index(), edit30({ a: true, x: true }));
+    assert.equal((await move("api/stage-change", D)).skipped, false);
+    assert.equal(index(), edit30({ a: true, x: true, d: true }), "a pure deletion is staged");
+    assert.equal((await move("api/stage-change", A)).skipped, true, "already staged");
+    assert.equal(index(), edit30({ a: true, x: true, d: true }));
+    assert.deepEqual(st.stagedChangeKeys, [`f.txt:${X}`, `f.txt:${A}`, `f.txt:${D}`]);
+
+    // Out again below a staged addition, and back in.
+    assert.equal((await move("api/unstage-change", X)).skipped, false);
+    assert.equal(index(), edit30({ a: true, d: true }));
+    assert.equal((await move("api/unstage-change", D)).skipped, false);
+    assert.equal(index(), edit30({ a: true }), "the deleted line is back at l25");
+    assert.equal((await move("api/unstage-change", TEN)).skipped, true, "never staged");
+    assert.deepEqual(st.stagedChangeKeys, [`f.txt:${A}`]);
+    assert.equal((await move("api/stage-change", D)).skipped, false);
+    assert.equal((await move("api/stage-change", X)).skipped, false);
+    assert.equal(index(), edit30({ a: true, x: true, d: true }));
+
+    // The working tree moved on at a block: no index write, a conflict.
+    await writeFile(path.join(root, "f.txt"), edit30({ ...all, ten: "TEN!" }));
+    const conflict = await move("api/stage-change", TEN);
+    assert.deepEqual([conflict.status, conflict.code], [409, "PATCH_CONFLICT"]);
+    assert.equal(index(), edit30({ a: true, x: true, d: true }));
+
+    const elsewhere = await post(url, "api/stage-change", {
+      path: "../f.txt",
+      stableKey: A,
+      contentHash: "h",
+    });
+    assert.equal(elsewhere.status, 404);
+    // A staged desk's blocks are in the index already; pr mode has no index to stage into.
+    st.staged = true;
+    assert.equal((await move("api/stage-change", TEN)).skipped, true);
+    assert.equal((await move("api/unstage-change", A)).status, 409);
+    st.staged = false;
+    st.mode = "pr";
+    assert.equal((await move("api/stage-change", TEN)).status, 409);
+    assert.equal((await move("api/unstage-change", A)).status, 409);
+    assert.equal(index(), edit30({ a: true, x: true, d: true }));
+  });
+});
+
+test("a block route refuses a block the desk's diff has moved on from, writing nothing", async () => {
+  const committed = lines30.join("\n") + "\n";
+  const withNew = (first: boolean) =>
+    lines30.flatMap((l) => (l === "l3" && first ? [l, "N1"] : l === "l20" ? [l, "N2"] : [l]));
+  const edited = (first: boolean) => withNew(first).join("\n") + "\n";
+  await withBlockDesk(committed, edited(true), async ({ st, root, url, move, index }) => {
+    const hashOf = (key: string) => st.changes.find((c) => c.stableKey === key)?.contentHash;
+    const [n1, n2] = [hashOf("additions:4:0:1"), hashOf("additions:22:0:1")];
+    // The agent drops N1 and the desk reloads: N2 moves up to line 21.
+    await writeFile(path.join(root, "f.txt"), edited(false));
+    assert.equal((await post(url, "api/reload", {})).status, 200);
+    assert.deepEqual(
+      st.changes.map((c) => c.stableKey),
+      ["additions:21:0:1"],
+    );
+    for (const [key, hash] of [
+      ["additions:4:0:1", n1],
+      ["additions:22:0:1", n2],
+      ["additions:21:0:1", "another content"],
+      ["additions:21:0:1", undefined],
+    ] as const) {
+      const res = await move("api/stage-change", key, hash ?? "");
+      assert.deepEqual([res.status, res.code], [409, "STALE_CHANGE"], key);
+      // Nothing of that content is staged: a clean no-op.
+      assert.equal((await move("api/unstage-change", key, hash ?? "")).skipped, true);
+    }
+    assert.equal(index(), committed, "nothing staged");
+    assert.deepEqual(st.stagedChangeKeys ?? [], []);
+    assert.equal((await move("api/stage-change", "additions:21:0:1", n2)).skipped, false);
+    assert.equal(index(), edited(false));
+  });
+});
+
+test("block staging keeps CRLF line endings, both ways", async () => {
+  const crlf = "\r\n";
+  await withBlockDesk(
+    edit30({}, crlf),
+    edit30({ a: true, ten: "TEN" }, crlf),
+    async ({ st, move, index }) => {
+      const [a, ten] = st.changes.map((c) => c.stableKey) as [string, string];
+      assert.equal((await move("api/stage-change", ten)).skipped, false);
+      assert.equal((await move("api/stage-change", a)).skipped, false);
+      assert.equal(index(), edit30({ a: true, ten: "TEN" }, crlf));
+      assert.equal((await move("api/unstage-change", ten)).skipped, false);
+      assert.equal(index(), edit30({ a: true }, crlf));
+      assert.equal((await move("api/unstage-change", a)).skipped, false);
+      assert.equal(index(), edit30({}, crlf));
+    },
+  );
+});
+
+test("block staging keeps a last line without a line ending, both ways", async () => {
+  // Appending after a last line without one changes that line too: it gains the line ending.
+  await withBlockDesk("l1\nl2\nl3", "l1\nl2\nl3\nl4", async ({ st, move, index }) => {
+    const [append] = st.changes.map((c) => c.stableKey) as [string];
+    assert.equal((await move("api/stage-change", append)).skipped, false);
+    assert.equal(index(), "l1\nl2\nl3\nl4");
+    assert.equal((await move("api/unstage-change", append)).skipped, false);
+    assert.equal(index(), "l1\nl2\nl3");
+  });
+  await withBlockDesk("l1\nl2\nl3", "l1\nL2\nl3", async ({ st, move, index }) => {
+    const [edit] = st.changes.map((c) => c.stableKey) as [string];
+    assert.equal((await move("api/stage-change", edit)).skipped, false);
+    assert.equal(index(), "l1\nL2\nl3");
+  });
+  // A block that only adds the missing line ending is a real stage, not a no-op.
+  await withBlockDesk("a\nb", "a\nb\n", async ({ st, move, index }) => {
+    const [ending] = st.changes.map((c) => c.stableKey) as [string];
+    assert.equal((await move("api/stage-change", ending)).skipped, false);
+    assert.equal(index(), "a\nb\n");
+    assert.equal((await move("api/stage-change", ending)).skipped, true);
+    assert.equal((await move("api/unstage-change", ending)).skipped, false);
+    assert.equal(index(), "a\nb");
+  });
+});
+
+test("an unstage finds its block among what is staged, after other stages and a reload", async () => {
+  const committed = edit30({});
+  await withBlockDesk(committed, edit30({ a: true, ten: "TEN", x: true }), async (desk) => {
+    const { st, url, move, index } = desk;
+    const hashA = st.changes.find((c) => c.stableKey === A)!.contentHash!;
+    assert.equal((await move("api/stage-change", A)).skipped, false);
+    // The reload drops A from the working-tree diff: it's staged.
+    assert.equal((await post(url, "api/reload", {})).status, 200);
+    assert.deepEqual(
+      st.changes.map((c) => c.stableKey),
+      [TEN, "additions:23:0:1"],
+    );
+    assert.equal((await move("api/stage-change", TEN)).skipped, false);
+    assert.equal(index(), edit30({ a: true, ten: "TEN" }));
+    // TEN's old line comes back from HEAD at its place below A's staged lines.
+    assert.equal((await move("api/unstage-change", TEN)).skipped, false);
+    assert.equal(index(), edit30({ a: true }));
+    // A is no block of the desk's diff any more, but it is staged: found by its content.
+    assert.equal((await move("api/unstage-change", A, hashA)).skipped, false);
+    assert.equal(index(), committed);
+    assert.equal((await move("api/unstage-change", A, hashA)).skipped, true);
+  });
+});
+
+test("an unstage tells identical staged blocks apart by the line its key names", async () => {
+  const committed = edit30({});
+  const dup = (at: string[]) =>
+    lines30.flatMap((l) => (at.includes(l) ? [l, "dup"] : [l])).join("\n") + "\n";
+  await withBlockDesk(committed, dup(["l5", "l15"]), async ({ st, move, index }) => {
+    const [first, second] = st.changes.map((c) => c.stableKey) as [string, string];
+    assert.deepEqual([first, second], ["additions:6:0:1", "additions:17:0:1"]);
+    assert.equal((await move("api/stage-change", first)).skipped, false);
+    assert.equal((await move("api/stage-change", second)).skipped, false);
+    assert.equal((await move("api/unstage-change", second)).skipped, false);
+    assert.equal(index(), dup(["l5"]));
+    assert.equal((await move("api/unstage-change", first)).skipped, false);
+    assert.equal(index(), committed);
+  });
+});
+
+test("an unstage refuses a block merged with another staged change, and keeps its record", async () => {
+  const committed = edit30({});
+  const lines = (ten: boolean, eleven: boolean) =>
+    lines30
+      .map((l) => (l === "l10" && ten ? "TEN" : l === "l11" && eleven ? "ELEVEN" : l))
+      .join("\n") + "\n";
+  await withBlockDesk(committed, lines(true, false), async ({ st, root, url, move, index }) => {
+    const ten = st.changes[0]!;
+    assert.equal((await move("api/stage-change", ten.stableKey!)).skipped, false);
+    // The agent edits the next line and reloads; staging it merges both in the index.
+    await writeFile(path.join(root, "f.txt"), lines(true, true));
+    assert.equal((await post(url, "api/reload", {})).status, 200);
+    const [eleven] = st.changes.map((c) => c.stableKey) as [string];
+    assert.equal((await move("api/stage-change", eleven)).skipped, false);
+    assert.equal(index(), lines(true, true));
+    for (const [key, hash] of [
+      [eleven, undefined],
+      [ten.stableKey!, ten.contentHash],
+    ] as const) {
+      const res = await move("api/unstage-change", key, hash);
+      assert.deepEqual([res.status, res.code], [409, "PATCH_CONFLICT"], key);
+    }
+    assert.equal(index(), lines(true, true));
+    assert.ok(st.stagedChangeKeys?.includes(`f.txt:${eleven}`), "still staged, still recorded");
+  });
+});
+
+test("an unstage leaves alone an identical block the user staged elsewhere", async () => {
+  const committed = edit30({});
+  const dup = (at: string[]) =>
+    lines30.flatMap((l) => (at.includes(l) ? [l, "dup"] : [l])).join("\n") + "\n";
+  await withBlockDesk(committed, dup(["l5", "l15"]), async ({ st, root, g, move, index }) => {
+    // The user stages the first dup themselves; the desk never staged the second.
+    const oid = execFileSync("git", ["hash-object", "-w", "--stdin"], {
+      cwd: root,
+      input: dup(["l5"]),
+    })
+      .toString()
+      .trim();
+    g(["update-index", "--cacheinfo", `100644,${oid},f.txt`]);
+    const second = st.changes[1]!.stableKey!;
+    assert.equal((await move("api/unstage-change", second)).skipped, true);
+    assert.equal(index(), dup(["l5"]));
+  });
+});
+
+test("block staging normalizes line endings as an explicit text attribute does", async () => {
+  const crlf = "\r\n";
+  const committed = edit30({}, crlf);
+  await withBlockDesk(
+    committed,
+    edit30({ ten: "TEN" }, crlf),
+    async ({ st, g, move, index }) => {
+      // `* text` renormalizes the CRLF file: every line is a change, and staging writes LF.
+      const [all] = st.changes.map((c) => c.stableKey) as [string];
+      assert.equal((await move("api/stage-change", all)).skipped, false);
+      assert.equal(index(), edit30({ ten: "TEN" }));
+      assert.equal(
+        g(["ls-files", "-s", "f.txt"]).split(/\s+/)[1],
+        g(["hash-object", "f.txt"]).trim(),
+      );
+      assert.equal((await move("api/unstage-change", all)).skipped, false);
+      assert.equal(index(), committed);
+    },
+    { attributes: "* text\n" },
+  );
+});
+
+test("a file new to the index unstages only whole", async () => {
+  const committed = "a\nb\nc\n";
+  const edited = "a\nB\nc\n";
+  await withBlockDesk(
+    committed,
+    edited,
+    async ({ st, move, index }) => {
+      const [edit] = st.changes.map((c) => c.stableKey) as [string];
+      assert.equal((await move("api/stage-change", edit)).skipped, false);
+      assert.equal(index(), edited);
+      const res = await move("api/unstage-change", edit);
+      assert.deepEqual([res.status, res.code], [409, "PATCH_CONFLICT"]);
+      assert.equal(index(), edited);
+    },
+    { notInHead: true },
+  );
+});
+
+test("block staging keeps a CRLF file's line endings under core.autocrlf", async () => {
+  const crlf = "\r\n";
+  const committed = edit30({}, crlf);
+  const edited = edit30({ ten: "TEN" }, crlf);
+  await withBlockDesk(
+    committed,
+    edited,
+    async ({ st, g, move, index }) => {
+      const [ten] = st.changes.map((c) => c.stableKey) as [string];
+      assert.equal((await move("api/stage-change", ten)).skipped, false);
+      assert.equal(index(), edited);
+      assert.equal(g(["status", "--porcelain", "--", "f.txt"]), "M  f.txt\n");
+      assert.equal((await move("api/unstage-change", ten)).skipped, false);
+      assert.equal(index(), committed);
+      assert.equal(g(["status", "--porcelain", "--", "f.txt"]), " M f.txt\n");
+    },
+    { autocrlf: true },
+  );
+});
+
+test("swapIndexEntry leaves an index entry another writer changed meanwhile", async () => {
+  await withBlockDesk(edit30({}), edit30({ ten: "TEN" }), async ({ root, g }) => {
+    const entry = () => {
+      const [mode, oid] = g(["ls-files", "-s", "f.txt"]).split(/\s+/) as [string, string];
+      return { mode, oid };
+    };
+    const prior = entry();
+    const mine = { mode: prior.mode, oid: g(["hash-object", "-w", "--stdin"]).trim() };
+    // Someone stages the file before the desk writes its entry.
+    g(["add", "f.txt"]);
+    const theirs = entry();
+    assert.equal(await swapIndexEntry(root, "f.txt", prior, mine), false);
+    assert.deepEqual(entry(), theirs);
+    assert.equal(await swapIndexEntry(root, "f.txt", theirs, mine), true);
+    assert.deepEqual(entry(), mine);
   });
 });
 

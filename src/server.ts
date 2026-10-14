@@ -10,11 +10,17 @@ import { promisify } from "node:util";
 import { resolveEditorCommand } from "./editor.js";
 import {
   blobOid,
+  changeBlockContent,
   getCheckedOutBranch,
   getProjectName,
   git,
+  gitBytes,
   listProjectTree,
-  patchForChange,
+  pendingChange,
+  spliceLines,
+  stagedChange,
+  worktreeAnchor,
+  writeBlob,
 } from "./git.js";
 import { validateGuide } from "./guide.js";
 import { createSerializer } from "./mutex.js";
@@ -35,6 +41,7 @@ import {
   readGlobalSettings,
   replyToAnnotation,
   resolveMovedFrom,
+  resolveGuide,
   resolveSkim,
   reviewDir,
   syncGitState,
@@ -47,6 +54,7 @@ import type {
   AgentActivity,
   AwaitEvent,
   DeskStatus,
+  DiffLine,
   IndexEntry,
   PollPayload,
   QuestionPayload,
@@ -77,6 +85,9 @@ export const AGENT_HEADER = "x-galley-agent";
 
 export type ServerOptions = {
   state: ReviewState;
+  // The diff of the review this desk resumed, which a tab left open across the restart is still on
+  // (mergeReviewerSave). Absent for a fresh review.
+  priorDiff?: Pick<ReviewState, "baseDiffHash" | "changes" | "files" | "stagedChangeKeys">;
   port?: number;
   // Bind address. Defaults to 127.0.0.1 (loopback-only) — the desk stays local unless explicitly
   // opted into a broader bind (--host / GALLEY_HOST). See resolveBinding for how this shapes the
@@ -296,26 +307,98 @@ async function html() {
   return fs.readFile(file, "utf8");
 }
 
-async function applyPatchToIndex(root: string, patch: string) {
-  const tmp = path.join(
-    // os.tmpdir(), not $TMPDIR-or-/tmp: Windows sets TEMP/TMP instead, so the old fallback
-    // resolved to a nonexistent C:\tmp and mkdtemp ENOENT'd — hunk staging failed there.
-    await fs.mkdtemp(path.join(os.tmpdir(), "galley-")),
-    `${crypto.randomUUID()}.diff`,
-  );
-  await fs.writeFile(tmp, patch, "utf8");
-  try {
-    const baseArgs = ["apply", "--cached", "--unidiff-zero"];
-    const alreadyApplied = await git([...baseArgs, "--reverse", "--check", tmp], root).then(
-      () => true,
-      () => false,
+// Stage (or, with `stage` false, unstage) one change block, rewriting the file's index entry with
+// exactly that block's lines in or out (spliceLines). A stage places the block of the reviewed
+// working-tree diff off a fresh diff of the file (pendingChange): the index may have moved since
+// the review's diff was taken, as blocks staged above this one shift its lines. An unstage finds
+// the block among what is staged by its content and place (stagedChange), whatever diff the tab
+// keyed it on, and puts HEAD's lines back. "skipped": the index already had it that way. Throws,
+// writing nothing, when the file moved on from the block, when a staged block can't be told
+// apart in the index, or when the index entry changed meanwhile.
+async function moveChangeInIndex(
+  state: ReviewState,
+  filePath: string,
+  change: { stableKey: string; contentHash: string },
+  stage: boolean,
+): Promise<"applied" | "skipped"> {
+  const { root } = state;
+  const entry = await readIndexEntry(root, filePath);
+  // Only a regular file's lines can be edited one block at a time.
+  if (!entry || !/^100(644|755)$/.test(entry.mode))
+    throw new Error(`${filePath} is not a regular file in the index`);
+  const [index, fresh] = await Promise.all([
+    gitBytes(["cat-file", "blob", entry.oid], root),
+    git(["diff", "--no-ext-diff", "--", filePath], root),
+  ]);
+  let next: Buffer | null;
+  if (stage) {
+    const worktree = await worktreeToStage(root, filePath, index);
+    const text = worktree.toString("utf8");
+    const place = pendingChange(state.rawDiff, fresh, text, filePath, change.stableKey);
+    if (!place) throw new Error(`${filePath} changed since the desk loaded its diff`);
+    if (place === "staged") return "skipped";
+    next = spliceLines(index, place.at, place.deleted, worktree, place.before, place.added);
+  } else {
+    // A file new to the index has no HEAD lines to put back, and unstages only as a whole file.
+    const head = await gitBytes(["show", `HEAD:${filePath}`], root).catch(() => null);
+    if (!head) throw new Error(`${filePath} isn't in HEAD, so it unstages only as a whole file`);
+    const cached = await git(["diff", "--cached", "--no-ext-diff", "--", filePath], root);
+    const isBlock = (block: DiffLine[]) => hash(changeBlockContent(block)) === change.contentHash;
+    // The reviewed diff places the block while it holds it; a reload drops a staged block from it.
+    const reviewed = state.changes.some(
+      (c) =>
+        c.path === filePath &&
+        c.stableKey === change.stableKey &&
+        c.contentHash === change.contentHash,
     );
-    if (alreadyApplied) return "skipped" as const;
-    await git([...baseArgs, tmp], root);
-    return "applied" as const;
-  } finally {
-    await fs.rm(path.dirname(tmp), { recursive: true, force: true }).catch(() => undefined);
+    const anchor = worktreeAnchor(reviewed ? state.rawDiff : null, filePath, change.stableKey);
+    const found = stagedChange(cached, fresh, filePath, isBlock, anchor);
+    if (found === "unstaged") return "skipped";
+    if (found === "unlocatable")
+      throw new Error(
+        `Couldn't find ${filePath}:${change.stableKey} on its own in the index; unstage it with git`,
+      );
+    const { indexBefore, added, headBefore, deleted } = found;
+    next = spliceLines(index, indexBefore, added, head, headBefore, deleted);
   }
+  if (!next) throw new Error(`${filePath} doesn't hold the block as the desk's diff has it`);
+  if (
+    !(await swapIndexEntry(root, filePath, entry, {
+      mode: entry.mode,
+      oid: await writeBlob(next, root),
+    }))
+  )
+    throw new Error(`${filePath}'s index entry changed while the desk was writing it`);
+  return "applied";
+}
+
+// The working tree's bytes as `git add` would stage them: line-ending conversion applies (git's own
+// hash-object runs the file's clean filters). The exception is automatic conversion (core.autocrlf
+// or `text=auto`) of a file whose index blob already has CRLF lines: git leaves those as they are
+// rather than normalize a file committed with them. An explicit `text` or `eol` attribute still
+// normalizes it.
+async function worktreeToStage(root: string, filePath: string, index: Buffer): Promise<Buffer> {
+  const attrs = await git(["check-attr", "text", "eol", "--", filePath], root);
+  const attr = (name: string) => new RegExp(`: ${name}: (.*)$`, "m").exec(attrs)?.[1];
+  const auto =
+    attr("text") === "auto" || (attr("text") === "unspecified" && attr("eol") === "unspecified");
+  if (auto && index.includes("\r\n")) return fs.readFile(path.join(root, filePath));
+  const cleaned = await git(["hash-object", "-w", "--", filePath], root);
+  return gitBytes(["cat-file", "blob", cleaned], root);
+}
+
+// Replace a path's index entry with `next` only while it is still `prior`: a write since (a
+// `git add -p`, say) is left alone rather than undone. Resolves to whether it replaced it.
+export async function swapIndexEntry(
+  root: string,
+  filePath: string,
+  prior: { mode: string; oid: string },
+  next: { mode: string; oid: string },
+): Promise<boolean> {
+  const now = await readIndexEntry(root, filePath);
+  if (now?.oid !== prior.oid || now.mode !== prior.mode) return false;
+  await writeIndexEntry(root, filePath, next);
+  return true;
 }
 
 // A path's index entry as an unstage found it, so a Reset's Undo puts back exactly what was staged:
@@ -445,6 +528,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       },
     ));
   let reloadGeneration = 0;
+  // The diff before the latest reload or restart that moved it, for saves from a tab still on it.
+  // Held in memory only; one diff back is as far as a tab's saves are carried (mergeReviewerSave).
+  let priorDiff = options.priorDiff;
 
   const deskStatus = (): DeskStatus => ({
     agentActivity: liveActivity(),
@@ -724,7 +810,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return await serialize(async () => {
           const body: unknown = JSON.parse(await readBody(req));
           const asked = askedQuestions();
-          mergeReviewerSave(state, body, saveStamp());
+          mergeReviewerSave(state, body, saveStamp(), priorDiff);
           withdrawQuestions(asked);
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
@@ -740,7 +826,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
           // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
           // full ReviewState keeps working because everything else in the body is ignored.
-          mergeReviewerSave(state, body, saveStamp());
+          mergeReviewerSave(state, body, saveStamp(), priorDiff);
           await syncGitState(state);
           const file = await persistReview(state);
           const sessionDir = path.dirname(file);
@@ -957,35 +1043,37 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
                 "Run `galley spec` for the guided-review schema.",
               );
           }
-          // The merge carries the old guide forward; a provided guide replaces it, stamped
-          // against the just-rebuilt diff so it isn't born stale. Resolve skim spans + reject a
-          // bad NEW guide (strict) BEFORE committing the merge onto the live state, so a rejected
-          // reload leaves the desk untouched. A guide carried forward re-resolves leniently —
-          // stale spans drop, they never fail a reload (see resolveSkim's strict/lenient split).
+          // The merge carries the old guide forward, and its parts by content (carryParts); a
+          // provided guide replaces it, stamped against the just-rebuilt diff so it isn't born
+          // stale. Resolve skim + part spans and reject a bad NEW guide (strict) BEFORE committing
+          // the merge onto the live state, so a rejected reload leaves the desk untouched. A guide
+          // carried forward re-resolves only its skims, leniently — stale spans drop, they never
+          // fail a reload (see resolveSkim).
           const merged = await mergeReviewState(base, state);
           // merged.rawDiff shares identity with base.rawDiff, so the parse seeded on `base` (via
-          // buildReviewState) is the one resolveSkim needs — pass it so the reload parses once (06).
+          // buildReviewState) is the one resolveGuide needs — pass it so the reload parses once (06).
           const parsed = parsedDiffOf(base);
           if (validatedGuide) {
             merged.guide = { ...validatedGuide, baseDiffHash: merged.baseDiffHash };
-            const skim = resolveSkim(
-              merged.rawDiff,
-              merged.changes,
-              merged.guide,
-              { strict: true },
-              parsed,
-            );
-            if (!skim.ok)
+            const resolved = resolveGuide(merged, merged.guide, parsed);
+            if (!resolved.ok)
               return fail(
                 res,
                 422,
                 "INVALID_GUIDE",
-                `Invalid guide: ${skim.reason}.`,
+                `Invalid guide: ${resolved.reason}.`,
                 "Run `galley spec` for the guided-review schema.",
               );
           } else if (merged.guide) {
             resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: false }, parsed);
           }
+          if (merged.baseDiffHash !== state.baseDiffHash)
+            priorDiff = {
+              baseDiffHash: state.baseDiffHash,
+              changes: state.changes,
+              files: state.files,
+              stagedChangeKeys: state.stagedChangeKeys,
+            };
           Object.assign(state, merged);
           await syncGitState(state);
           await persistReview(state);
@@ -1248,6 +1336,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           state.lastAnnotationNumber = 0;
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
+          state.signedOffBlocks = {};
           state.stagedFiles = [];
           state.stagedChangeKeys = [];
           state.decisionFiles = [];
@@ -1285,7 +1374,14 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           return json(res, 200, { ok: true });
         });
       }
-      if (req.method === "POST" && url.pathname === "/api/stage-change") {
+      // One change block into or out of the index: approving a guide part stages its blocks, and
+      // resetting the part unstages the ones that approval staged (stagedChangeKeys records only a
+      // stage this desk made), which the Reset's Undo stages again. The tab names the block by key
+      // and content hash.
+      const blockRoute =
+        url.pathname === "/api/stage-change" || url.pathname === "/api/unstage-change";
+      if (req.method === "POST" && blockRoute) {
+        const stage = url.pathname === "/api/stage-change";
         if (state.mode === "pr")
           return fail(
             res,
@@ -1295,20 +1391,64 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             "PR changes are committed; accept/reject are approve/request-changes verdicts.",
           );
         return await serialize(async () => {
-          const { path: filePath, stableKey } = JSON.parse(await readBody(req)) as {
-            path: string;
-            stableKey: string;
+          const {
+            path: filePath,
+            stableKey,
+            contentHash,
+          } = JSON.parse(await readBody(req)) as {
+            path?: unknown;
+            stableKey?: unknown;
+            contentHash?: unknown;
           };
-          const key = `${filePath}:${stableKey}`;
-          state.stagedChangeKeys ??= [];
-          if (state.stagedChangeKeys.includes(key))
-            return json(res, 200, { ok: true, skipped: true });
+          if (
+            typeof filePath !== "string" ||
+            typeof stableKey !== "string" ||
+            typeof contentHash !== "string"
+          )
+            return fail(
+              res,
+              422,
+              "INVALID_CHANGE",
+              "a block route requires the file's path and the block's stableKey and contentHash",
+              "Send { path, stableKey, contentHash } as JSON.",
+            );
+          if (!state.files.some((f) => f.path === filePath))
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `"${filePath}" is not part of this review.`,
+              "Reload the desk (GET /api/state) if the diff changed.",
+            );
+          // A stage takes the block as the tab saw it, by key and content, or nothing: a key from a
+          // diff the desk has since reloaded may name another block now. An unstage looks among
+          // what is staged, which a reload drops from the diff.
+          const change = state.changes.find(
+            (c) => c.path === filePath && c.stableKey === stableKey,
+          );
+          if (stage && (!change?.contentHash || change.contentHash !== contentHash))
+            return fail(
+              res,
+              409,
+              "STALE_CHANGE",
+              `${filePath}:${stableKey} is not in the desk's diff with that content.`,
+              "Reload the desk (GET /api/state) and retry with the block's contentHash.",
+            );
+          // A staged desk reviews the index itself: its blocks are staged already, and taking one
+          // out would drop it from the review.
+          if (state.staged) {
+            if (stage) return json(res, 200, { ok: true, skipped: true });
+            return fail(
+              res,
+              409,
+              "STAGING_DISABLED",
+              "A staged review's blocks can't be unstaged from the desk.",
+              "Unstage with git if you mean to drop the block from the review.",
+            );
+          }
           let result: "applied" | "skipped";
           try {
-            result = await applyPatchToIndex(
-              state.root,
-              patchForChange(state.rawDiff, filePath, stableKey),
-            );
+            result = await moveChangeInIndex(state, filePath, { stableKey, contentHash }, stage);
           } catch (error) {
             return fail(
               res,
@@ -1318,7 +1458,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               "The working tree changed since the desk loaded. Reload it (GET /api/state) and retry.",
             );
           }
-          state.stagedChangeKeys.push(key);
+          const key = `${filePath}:${stableKey}`;
+          state.stagedChangeKeys ??= [];
+          if (!stage) state.stagedChangeKeys = state.stagedChangeKeys.filter((k) => k !== key);
+          else if (result === "applied" && !state.stagedChangeKeys.includes(key))
+            state.stagedChangeKeys.push(key);
           await persistReview(state);
           return json(res, 200, { ok: true, skipped: result === "skipped" });
         });

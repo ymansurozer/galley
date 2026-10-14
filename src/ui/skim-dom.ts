@@ -23,6 +23,21 @@ export function diffColumns(root: ParentNode): DiffColumn[] {
 // reuses its row elements across renders).
 export const SKIM_HIDDEN = "data-skim-hidden";
 
+// Hide a rendered row for a collapse, tagged with that collapse's marker (SKIM_HIDDEN, or the hunk
+// fold's), so each pass clears only its own hides.
+export function hideRow(row: HTMLElement, marker: string) {
+  row.style.display = "none";
+  row.setAttribute(marker, "1");
+}
+
+// Show again every row a collapse hid under `root` — the first step of each pass.
+export function clearHidden(root: ParentNode, marker: string) {
+  for (const el of root.querySelectorAll<HTMLElement>(`[${marker}]`)) {
+    el.style.display = "";
+    el.removeAttribute(marker);
+  }
+}
+
 const isAnnotationRow = (el: Element) =>
   el.hasAttribute("data-line-annotation") || el.getAttribute("data-gutter-buffer") === "annotation";
 
@@ -54,8 +69,7 @@ export function hideBetween(
       for (let j = start + 1; j < end; j++) {
         const kid = kids[j]!;
         if (isAnnotationRow(kid)) continue;
-        kid.style.display = "none";
-        kid.setAttribute(SKIM_HIDDEN, "1");
+        hideRow(kid, SKIM_HIDDEN);
         hidden++;
       }
     }

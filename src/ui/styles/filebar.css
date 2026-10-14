@@ -51,6 +51,19 @@
   font-weight: 600;
 }
 
+/* The part of a split file a step shows (or "Rest"), beside the path: ink-2, so the path leads
+   and the part still reads as what's on screen. */
+.file-bar .fb-part {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
 /* "moved from <old>" beside a renamed file's new path (git -M). */
 .file-bar .fb-moved {
   flex: 0 1 auto;
@@ -210,6 +223,12 @@
   color: var(--ink);
   font-family: var(--mono);
   font-size: var(--text-sm);
+}
+
+/* A next step's part title, after its file's name. */
+.file-end .fe-part {
+  font-family: var(--sans);
+  color: var(--ink-2);
 }
 
 .file-end .fe-next:hover {

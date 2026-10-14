@@ -289,3 +289,20 @@
   font-size: var(--text-2xs);
   color: var(--ink-3);
 }
+
+/* A split file's Review rows: the part's title after the file's name, and "Rest of" before it for
+   the changes no part claims. Muted, so the name still leads the row. */
+.node .walk-part {
+  min-width: 0;
+  margin-left: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.node .walk-rest {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  color: var(--ink-2);
+}

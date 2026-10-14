@@ -69,6 +69,13 @@
   line-height: 1.55;
 }
 
+/* A split file's Rest or whole-file view: what the view holds, in the orientation's place, muted
+   so it never reads as the agent's guidance. */
+.gc-note {
+  color: var(--ink-2);
+  font-size: var(--text-md);
+}
+
 /* A skimmed file's reason, in the orientation's place when the guide gives none. */
 .gc-skim {
   color: var(--ink-2);
@@ -200,6 +207,10 @@
 .gm-orient.skim {
   color: var(--ink-2);
   font-style: italic;
+}
+
+.gm-orient.note {
+  color: var(--ink-2);
 }
 
 .gm-flag {

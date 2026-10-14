@@ -64,11 +64,12 @@ const rank = (path: string) => {
   const i = order.indexOf(path);
   return i < 0 ? Infinity : i;
 };
+const place = (c: { path: string }) => ({ rank: rank(c.path) });
 const flagged = (c: ReviewComment) => c.unanchored === true;
 const where = (r: RequestPlace) =>
   r.kind === "app" ? `#${r.number}` : `${r.path}:${r.unanchored ? "strip" : r.lineNumber}`;
 const list = (comments: ReviewComment[], annotations: UiAnnotationRecord[] = []) =>
-  openRequestList(comments, rank, flagged, annotations);
+  openRequestList(comments, place, flagged, annotations);
 
 // Open change requests in three files, plus one ask, one resolved request, an agent note, a stale
 // thread whose file left the diff, and an unanchored one in a.ts.
@@ -181,6 +182,20 @@ test("a row names its place: file:line, file · lost in the strip, #n for the ap
   assert.equal(new Set(rows.map((r) => r.key)).size, 3);
 });
 
+test("a split file's requests come by the step each is attributed to", () => {
+  // a.ts is split: lines past 30 belong to a part that comes after c.ts in review order.
+  const byStep = (c: { path: string; lineNumber: number }) => ({
+    rank: c.path === "a.ts" && c.lineNumber > 30 ? 3 : rank(c.path),
+  });
+  assert.deepEqual(openRequestList(review, byStep, flagged, []).map(where), [
+    "b.ts:20",
+    "a.ts:12",
+    "c.ts:3",
+    "a.ts:strip",
+    "a.ts:40",
+  ]);
+});
+
 const requests = list(review, app);
 const at = (path: string, lineNumber: number, unanchored = false): RequestPlace => ({
   kind: "code",
@@ -188,10 +203,11 @@ const at = (path: string, lineNumber: number, unanchored = false): RequestPlace 
   side: "additions",
   lineNumber,
   unanchored,
+  rank: rank(path),
 });
 const atApp = (number: number): RequestPlace => ({ kind: "app", number });
 const step = (from: RequestPlace | null, dir: 1 | -1) => {
-  const s = stepRequest(requests, rank, from, dir);
+  const s = stepRequest(requests, from, dir);
   return s && `${where(s.request)}${s.wrapped ? " (wrapped)" : ""}`;
 };
 
@@ -199,7 +215,7 @@ test("] visits every request once, code then app, then wraps", () => {
   const seen: string[] = [];
   let from: OpenRequest | null = null;
   for (let i = 0; i < requests.length + 1; i++) {
-    const s = stepRequest(requests, rank, from, 1)!;
+    const s = stepRequest(requests, from, 1)!;
     seen.push(`${where(s.request)}${s.wrapped ? " (wrapped)" : ""}`);
     from = s.request;
   }
@@ -253,6 +269,6 @@ test("with no place to step from, ] starts at the first request and [ at the las
 
 test("a lone request wraps onto itself; no requests, no step", () => {
   const one = list([], [annotation(7)]);
-  assert.deepEqual(stepRequest(one, rank, one[0]!, 1), { request: one[0], wrapped: true });
-  assert.equal(stepRequest([], rank, null, 1), null);
+  assert.deepEqual(stepRequest(one, one[0]!, 1), { request: one[0], wrapped: true });
+  assert.equal(stepRequest([], null, 1), null);
 });

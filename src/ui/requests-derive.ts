@@ -1,3 +1,4 @@
+import type { Step } from "./steps";
 import type { ReviewComment, Side, UiAnnotationRecord } from "./types";
 import { firstLine, isOpenChange } from "./uilane-derive";
 
@@ -6,14 +7,18 @@ import { firstLine, isOpenChange } from "./uilane-derive";
 // requests.ts is the store-reading side.
 
 // A code request is a thread (a path's comments on one side and line) on its line, or in the strip
-// above its file's diff when it lost its anchor. An app request is an annotation. `text` is the
-// first line of the message that asks for the change.
+// above its file's diff when it lost its anchor. `step` is the review step the thread is attributed
+// to (absent for a file outside the review, such as a preview) and `rank` that step's place in
+// review order. An app request is an annotation. `text` is the first line of the message that asks
+// for the change.
 export type CodeRequest = {
   kind: "code";
   path: string;
   side: Side;
   lineNumber: number;
   unanchored: boolean;
+  step?: Step;
+  rank: number;
   text: string;
 };
 export type AppRequest = { kind: "app"; id: string; number: number; text: string };
@@ -32,31 +37,30 @@ export const asksChange = (c: ReviewComment) =>
 
 const threadKey = (c: ReviewComment) => `${c.path}\n${c.side}:${c.lineNumber}`;
 
-// List order: the code requests, then the app's. Code goes by the file's place in review order
-// (`rank`; a file outside it, such as a preview, ranks Infinity and those go by path), then the
-// strip (it sits above the diff), then by line, the deleted line before the added one on the same
-// number. App requests go by number.
-function compare(rank: (path: string) => number) {
-  return (a: RequestPlace, b: RequestPlace) => {
-    if (a.kind === "app" && b.kind === "app") return a.number - b.number;
-    if (a.kind === "code" && b.kind === "code")
-      return (
-        rank(a.path) - rank(b.path) ||
-        (a.path < b.path ? -1 : a.path > b.path ? 1 : 0) ||
-        +b.unanchored - +a.unanchored ||
-        a.lineNumber - b.lineNumber ||
-        +(a.side === "additions") - +(b.side === "additions")
-      );
-    return a.kind === "code" ? -1 : 1;
-  };
+// List order: the code requests, then the app's. Code goes by the step's place in review order
+// (`rank`; a file outside it, such as a preview, ranks Infinity and those go by path), so a split
+// file's requests come part by part, then the strip (it sits above the diff), then by line, the
+// deleted line before the added one on the same number. App requests go by number.
+function compare(a: RequestPlace, b: RequestPlace) {
+  if (a.kind === "app" && b.kind === "app") return a.number - b.number;
+  if (a.kind === "code" && b.kind === "code")
+    return (
+      a.rank - b.rank ||
+      (a.path < b.path ? -1 : a.path > b.path ? 1 : 0) ||
+      +b.unanchored - +a.unanchored ||
+      a.lineNumber - b.lineNumber ||
+      +(a.side === "additions") - +(b.side === "additions")
+    );
+  return a.kind === "code" ? -1 : 1;
 }
 
-// The open change requests in list order. A thread sits in the strip when any of its comments lost
-// its anchor (`unanchored`), as annotations.ts places it. App questions and resolved annotations
-// aren't requests; a question the reviewer followed with Request change is.
+// The open change requests in list order. `place` attributes a code thread (by the comment asking
+// for the change) to its step. A thread sits in the strip when any of its comments lost its anchor
+// (`unanchored`), as annotations.ts places it. App questions and resolved annotations aren't
+// requests; a question the reviewer followed with Request change is.
 export function openRequestList(
   comments: readonly ReviewComment[],
-  rank: (path: string) => number,
+  place: (c: ReviewComment) => Pick<CodeRequest, "step" | "rank">,
   unanchored: (c: ReviewComment) => boolean,
   annotations: readonly UiAnnotationRecord[],
 ): OpenRequest[] {
@@ -77,6 +81,7 @@ export function openRequestList(
       side,
       lineNumber,
       unanchored: thread.some(unanchored),
+      ...place(ask),
       text: firstLine(ask.body),
     });
   }
@@ -87,7 +92,7 @@ export function openRequestList(
       a.comments.find((m) => m.role !== "agent" && m.intent === "action") ?? a.comments[0];
     list.push({ kind: "app", id: a.id, number: a.number, text: firstLine(ask?.body ?? "") });
   }
-  return list.sort(compare(rank));
+  return list.sort(compare);
 }
 
 // The sidebar row: a key for the x-for, and the request's place as the row names it — the file's
@@ -107,19 +112,17 @@ export type RequestRow = ReturnType<typeof requestRow>;
 // off either end. With no place, the walk starts at its first request, or its last going back.
 export function stepRequest(
   list: readonly OpenRequest[],
-  rank: (path: string) => number,
   at: RequestPlace | null,
   dir: 1 | -1,
 ): { request: OpenRequest; wrapped: boolean } | null {
   const end = dir > 0 ? list[0] : list[list.length - 1];
   if (!end) return null;
   if (!at) return { request: end, wrapped: false };
-  const cmp = compare(rank);
   if (dir > 0) {
-    const next = list.find((r) => cmp(r, at) > 0);
+    const next = list.find((r) => compare(r, at) > 0);
     if (next) return { request: next, wrapped: false };
   } else
     for (let i = list.length - 1; i >= 0; i--)
-      if (cmp(list[i]!, at) < 0) return { request: list[i]!, wrapped: false };
+      if (compare(list[i]!, at) < 0) return { request: list[i]!, wrapped: false };
   return { request: end, wrapped: true };
 }

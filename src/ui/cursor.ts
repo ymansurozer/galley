@@ -1,6 +1,6 @@
 import { S, D, $, toast, persist } from "./store";
 import type { ChangeState, Side } from "./types";
-import { currentChanges, fromDisplayLine } from "./changes";
+import { currentChanges, fromDisplayLine, inCurrentStep } from "./changes";
 import { acceptChange } from "./decisions";
 import { changeSpan, pendingChangeAt, spanHolds } from "./decisions-derive";
 import { openCommentComposer } from "./selection";
@@ -356,10 +356,11 @@ function revealCursorChange() {
 
 // ── The change at the cursor ─────────────────────────────────────────────────
 // The pending change whose rows hold the cursor line, on either side: ⇧Y / ⇧N act on it. The cursor
-// reads rendered gutter numbers (display space), so the rows come from the rendered diff.
+// reads rendered gutter numbers (display space), so the rows come from the rendered diff. Only the
+// step's own blocks: in a part view another step's block is plain code a verdict must not reach.
 function cursorChange() {
   if (!cur || !D.fileDiff) return null;
-  return pendingChangeAt(currentChanges(), D.fileDiff, cur.side, cur.line);
+  return pendingChangeAt(currentChanges().filter(inCurrentStep), D.fileDiff, cur.side, cur.line);
 }
 
 // The change the cursor marks, for a control drawn mid-render (annotations.ts) before the

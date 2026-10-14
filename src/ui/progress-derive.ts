@@ -4,7 +4,7 @@
 
 export type Progress = { done: number; total: number; pct: number };
 
-// The open file as progress sees it: its weight (changed lines, or 1 counting files), whether it
+// The open step as progress sees it: its weight (changed lines, or 1 counting files), whether it
 // left the flow (fully skimmed or a pure rename), and its review state.
 export type OpenFile = {
   weight: number;
@@ -34,8 +34,9 @@ export function progressSummary(
   pct: number,
   files: { done: number; total: number },
   lines: { done: number; total: number } | null,
+  unit: "files" | "steps" = "files",
 ) {
-  const detail = `${files.done}/${files.total} files`;
+  const detail = `${files.done}/${files.total} ${unit}`;
   return {
     pct: `${pct}%`,
     detail: lines ? `${detail} · ${lines.done}/${lines.total} lines` : detail,

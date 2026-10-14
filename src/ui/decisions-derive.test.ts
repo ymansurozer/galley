@@ -5,7 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { diffAcceptRejectHunk, parseDiffFromFile } from "@pierre/diffs";
-import { buildReviewResult, buildReviewState, readFileContents } from "../state.js";
+import {
+  buildReviewResult,
+  buildReviewState,
+  mergeReviewerSave,
+  readFileContents,
+} from "../state.js";
 import type { ChangeState, ReviewState } from "../types.js";
 import {
   acceptSignedOffBlocks,
@@ -14,10 +19,13 @@ import {
   changeStableKey,
   clearFileReview,
   pendingChangeAt,
+  recordDecision,
   restoreFileReview,
   signOff,
+  signOffStep,
 } from "./decisions-derive.js";
 import { deriveFlowIndex } from "./flow-index.js";
+import { reviewerSlice } from "./save.js";
 
 // The sidebar signs off files the reviewer never opened, so the decisions it records key off the
 // SERVER's change blocks, while opening a file re-derives its blocks client-side (changes.ts). These
@@ -279,4 +287,152 @@ test("a change not yet re-derived against the diff answers on its own side's lin
   assert.equal(pendingChangeAt(changes, diff, "additions", 3), insert, "its raw range");
   assert.equal(pendingChangeAt(changes, diff, "additions", 6), replace, "its display anchors");
   assert.equal(pendingChangeAt(changes, diff, "deletions", 4), null, "only its own side");
+});
+
+// a.ts split in two: part 1 is its first block, part 2 the other two.
+const parts = (state: ReviewState) => {
+  const blocks = state.changes.filter((c) => c.path === "a.ts");
+  return [blocks.slice(0, 1), blocks.slice(1)] as const;
+};
+// What `galley await` hands the agent once the tab's save lands on the desk.
+const delivered = (desk: ReviewState, tab: ReviewState) => {
+  mergeReviewerSave(desk, reviewerSlice(tab));
+  return result(desk).approvedFiles;
+};
+
+test("approving every part of a split file signs the file off, and await reports it approved", async () => {
+  await withRepo(async (state) => {
+    const desk = structuredClone(state);
+    const a = fileOf(state, "a.ts");
+    const [part1, part2] = parts(state);
+    signOffStep(state, a, part1);
+    let ix = deriveFlowIndex(state);
+    assert.deepEqual(
+      [
+        ix.stepState({ path: "a.ts", blocks: part1 }),
+        ix.stepState({ path: "a.ts", blocks: part2 }),
+      ],
+      ["approved", "pending"],
+    );
+    assert.equal(ix.reviewState("a.ts"), "pending", "a part alone doesn't sign the file off");
+    assert.deepEqual(delivered(desk, state), []);
+    signOffStep(state, a, part2);
+    ix = deriveFlowIndex(state);
+    assert.equal(ix.reviewState("a.ts"), "approved");
+    assert.deepEqual(delivered(desk, state), ["a.ts"]);
+  });
+});
+
+test("a split file with one part changes-requested is signed off but not approved", async () => {
+  await withRepo(async (state) => {
+    const desk = structuredClone(state);
+    const a = fileOf(state, "a.ts");
+    const [part1, part2] = parts(state);
+    const rejected = part2[1]!;
+    rejected.status = "rejected";
+    rejected.reviewedHash = rejected.contentHash;
+    recordDecision(state, rejected, "rejected");
+    signOffStep(state, a, part1);
+    signOffStep(state, a, part2);
+    const ix = deriveFlowIndex(state);
+    assert.deepEqual(
+      [
+        ix.stepState({ path: "a.ts", blocks: part1 }),
+        ix.stepState({ path: "a.ts", blocks: part2 }),
+      ],
+      ["approved", "changes-requested"],
+    );
+    assert.equal(ix.reviewState("a.ts"), "changes-requested");
+    assert.equal(rejected.status, "rejected", "a part's sign-off keeps its rejected block");
+    assert.deepEqual(delivered(desk, state), []);
+  });
+});
+
+test("resetting a part clears its blocks and the file's sign-off, and restores exactly", async () => {
+  await withRepo(async (state) => {
+    const a = fileOf(state, "a.ts");
+    const [part1, part2] = parts(state);
+    signOffStep(state, a, part1);
+    signOffStep(state, a, part2);
+    state.stagedFiles = ["a.ts"];
+    state.stagedChangeKeys = part2.map((c) => c.id);
+    const slice = () =>
+      structuredClone({
+        changes: state.changes.map((c) => ({ id: c.id, status: c.status, h: c.reviewedHash })),
+        decisions: [...(state.decisions ?? [])].sort((x, y) => x.key.localeCompare(y.key)),
+        signedOffBlocks: state.signedOffBlocks,
+        decisionFiles: [...(state.decisionFiles ?? [])].sort(),
+        reviewedFiles: [...state.reviewedFiles].sort(),
+        reviewedFileHashes: state.reviewedFileHashes,
+      });
+    const before = slice();
+
+    const prior = captureFileReview(state, "a.ts", part2);
+    clearFileReview(state, "a.ts", part2);
+    const ix = deriveFlowIndex(state);
+    assert.deepEqual(
+      [
+        ix.stepState({ path: "a.ts", blocks: part1 }),
+        ix.stepState({ path: "a.ts", blocks: part2 }),
+      ],
+      ["approved", "pending"],
+    );
+    assert.equal(ix.reviewState("a.ts"), "pending");
+    assert.deepEqual(
+      state.decisions?.map((d) => d.key),
+      part1.map((c) => c.id),
+    );
+    assert.ok(part2.every((c) => c.status === "pending"));
+    assert.deepEqual(state.decisionFiles, ["a.ts"], "part 1's decision keeps the file decided");
+    assert.deepEqual(state.stagedChangeKeys, []);
+    assert.deepEqual(state.stagedFiles, ["a.ts"], "the file's staging record is the file's");
+    assert.deepEqual(
+      prior.stagedChangeKeys,
+      part2.map((c) => c.id),
+    );
+    assert.equal(prior.staged, false);
+
+    restoreFileReview(state, prior);
+    assert.deepEqual(slice(), before);
+    assert.equal(deriveFlowIndex(state).reviewState("a.ts"), "approved");
+  });
+});
+
+test("a whole-file sign-off signs off every block, and the file's Reset clears them", async () => {
+  await withRepo(async (state) => {
+    const [part1, part2] = parts(state);
+    signOff(state, fileOf(state, "a.ts"));
+    assert.ok([...part1, ...part2].every((c) => state.signedOffBlocks?.[c.id] === c.contentHash));
+    clearFileReview(state, "a.ts");
+    assert.deepEqual(state.signedOffBlocks, {});
+    assert.equal(deriveFlowIndex(state).stepState({ path: "a.ts", blocks: part1 }), "pending");
+  });
+});
+
+test("the last in-flow part's sign-off signs off a fully skimmed part too, and the file", async () => {
+  await withRepo(async (state) => {
+    const desk = structuredClone(state);
+    const a = fileOf(state, "a.ts");
+    // Part 2 is fully skimmed: out of the flow, never put to the reviewer.
+    const [part1, part2] = parts(state);
+    signOffStep(state, a, part1, part2);
+    assert.ok(part2.every((c) => c.status === "accepted" && state.signedOffBlocks?.[c.id]));
+    const ix = deriveFlowIndex(state);
+    assert.equal(ix.stepState({ path: "a.ts", blocks: part2 }), "approved");
+    assert.equal(ix.reviewState("a.ts"), "approved");
+    assert.deepEqual(delivered(desk, state), ["a.ts"]);
+  });
+});
+
+test("a split file with every part skimmed signs off only the part approved", async () => {
+  await withRepo(async (state) => {
+    const a = fileOf(state, "a.ts");
+    const [part1, part2] = parts(state);
+    signOffStep(state, a, part1, [...part1, ...part2]);
+    assert.ok(part2.every((c) => c.status === "pending" && !state.signedOffBlocks?.[c.id]));
+    assert.equal(deriveFlowIndex(state).reviewState("a.ts"), "pending");
+    // Once its last block is signed off, the file is too.
+    signOffStep(state, a, part2, [...part1, ...part2]);
+    assert.equal(deriveFlowIndex(state).reviewState("a.ts"), "approved");
+  });
 });

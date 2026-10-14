@@ -1,5 +1,6 @@
 import { S, $ } from "./store";
-import { progressDetail } from "./guide";
+import { currentSlot, progressDetail } from "./guide";
+import { slotOutOfFlow } from "./steps";
 import { flowIndex } from "./changes";
 import { approvePreview, approveTag, progressSummary } from "./progress-derive";
 
@@ -64,11 +65,12 @@ function hideTag() {
 const hovered = () =>
   $("progressStrip").matches(":hover") || !!document.querySelector(".top-name:hover");
 
-// The hover tag: where progress stands, with the files (and lines) behind it, all guideProgress's.
+// The hover tag: where progress stands, with the steps (and lines) behind it, all guideProgress's.
 function showSummary(d = progressDetail()) {
   if (!S.state?.files?.length || S.view === "ui") return hideTag();
   const p = d.progress;
-  const s = progressSummary(p.pct, d.files, d.byLines ? { done: p.done, total: p.total } : null);
+  const lines = d.byLines ? { done: p.done, total: p.total } : null;
+  const s = progressSummary(p.pct, d.steps, lines, d.steps.unit);
   showTag(s.pct, ` · ${s.detail}`, false);
 }
 
@@ -116,16 +118,17 @@ export function updateProgress() {
   const d = progressDetail();
   const { pct } = d.progress;
   document.title = pct >= 100 ? `✓ ${baseTitle}` : pct > 0 ? `(${pct}%) ${baseTitle}` : baseTitle;
-  // The ⇧A tail: what approving the file open in the diff would add (not a preview, which isn't
-  // in the review). CSS transitions glide the fill and the tail from where they stood.
-  const file = S.view === "code" && !S.overviewOpen && !S.preview && S.state.files[S.fileIndex];
+  // The ⇧A tail: what approving the step open in the diff would add (a part, a Rest, or the file
+  // whole; not a preview, which isn't in the review). CSS transitions glide the fill and the tail
+  // from where they stood.
+  const slot = S.view === "code" && !S.overviewOpen ? currentSlot() : null;
   const ahead = approvePreview(
     d.progress,
-    file
+    slot
       ? {
-          weight: d.weight(file.path),
-          outOfFlow: d.ix.outOfFlow.has(file.path),
-          state: d.ix.reviewState(file.path),
+          weight: d.weight(slot),
+          outOfFlow: slotOutOfFlow(slot, (p) => d.ix.outOfFlow.has(p)),
+          state: d.ix.stepState(slot),
         }
       : null,
   );
