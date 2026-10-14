@@ -10,11 +10,12 @@ import { promisify } from "node:util";
 import { resolveEditorCommand } from "./editor.js";
 import {
   blobOid,
+  changeInIndex,
   getCheckedOutBranch,
   getProjectName,
   git,
+  indexPatch,
   listProjectTree,
-  patchForChange,
 } from "./git.js";
 import { validateGuide } from "./guide.js";
 import { createSerializer } from "./mutex.js";
@@ -307,17 +308,33 @@ async function applyPatchToIndex(root: string, patch: string) {
   );
   await fs.writeFile(tmp, patch, "utf8");
   try {
-    const baseArgs = ["apply", "--cached", "--unidiff-zero"];
-    const alreadyApplied = await git([...baseArgs, "--reverse", "--check", tmp], root).then(
-      () => true,
-      () => false,
-    );
-    if (alreadyApplied) return "skipped" as const;
-    await git([...baseArgs, tmp], root);
-    return "applied" as const;
+    await git(["apply", "--cached", "--unidiff-zero", tmp], root);
   } finally {
     await fs.rm(path.dirname(tmp), { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+// Stage (or, with `stage` false, unstage) one change block of the reviewed working-tree diff. The
+// index may have moved since that diff was taken (blocks staged above this one shift its lines), so
+// the block is placed off a fresh diff of its file (changeInIndex). "skipped": the index already
+// had it that way. Throws when the file moved on since the review's diff was taken.
+async function moveChangeInIndex(
+  state: ReviewState,
+  filePath: string,
+  stableKey: string,
+  stage: boolean,
+): Promise<"applied" | "skipped"> {
+  const fresh = await git(["diff", "--no-ext-diff", "--", filePath], state.root);
+  const worktree = await fs.readFile(path.join(state.root, filePath), "utf8");
+  const place = changeInIndex(state.rawDiff, fresh, worktree, filePath, stableKey);
+  if (!place) throw new Error(`${filePath} changed since the desk loaded its diff`);
+  if (place.staged === stage) return "skipped";
+  const { at, deleted, added } = place;
+  await applyPatchToIndex(
+    state.root,
+    stage ? indexPatch(filePath, at, deleted, added) : indexPatch(filePath, at, added, deleted),
+  );
+  return "applied";
 }
 
 // A path's index entry as an unstage found it, so a Reset's Undo puts back exactly what was staged:
@@ -1285,7 +1302,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           return json(res, 200, { ok: true });
         });
       }
-      if (req.method === "POST" && url.pathname === "/api/stage-change") {
+      // One change block into or out of the index: approving a guide part stages its blocks, and
+      // resetting the part unstages the ones that approval staged (stagedChangeKeys records only a
+      // stage this desk made), which the Reset's Undo stages again.
+      const blockRoute =
+        url.pathname === "/api/stage-change" || url.pathname === "/api/unstage-change";
+      if (req.method === "POST" && blockRoute) {
+        const stage = url.pathname === "/api/stage-change";
         if (state.mode === "pr")
           return fail(
             res,
@@ -1296,19 +1319,40 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           );
         return await serialize(async () => {
           const { path: filePath, stableKey } = JSON.parse(await readBody(req)) as {
-            path: string;
-            stableKey: string;
+            path?: unknown;
+            stableKey?: unknown;
           };
-          const key = `${filePath}:${stableKey}`;
-          state.stagedChangeKeys ??= [];
-          if (state.stagedChangeKeys.includes(key))
-            return json(res, 200, { ok: true, skipped: true });
+          if (typeof filePath !== "string" || typeof stableKey !== "string")
+            return fail(
+              res,
+              422,
+              "INVALID_CHANGE",
+              "a block route requires the file's path and the block's stableKey",
+              "Send { path, stableKey } as JSON.",
+            );
+          if (!state.files.some((f) => f.path === filePath))
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `"${filePath}" is not part of this review.`,
+              "Reload the desk (GET /api/state) if the diff changed.",
+            );
+          // A staged desk reviews the index itself: its blocks are staged already, and taking one
+          // out would drop it from the review.
+          if (state.staged) {
+            if (stage) return json(res, 200, { ok: true, skipped: true });
+            return fail(
+              res,
+              409,
+              "STAGING_DISABLED",
+              "A staged review's blocks can't be unstaged from the desk.",
+              "Unstage with git if you mean to drop the block from the review.",
+            );
+          }
           let result: "applied" | "skipped";
           try {
-            result = await applyPatchToIndex(
-              state.root,
-              patchForChange(state.rawDiff, filePath, stableKey),
-            );
+            result = await moveChangeInIndex(state, filePath, stableKey, stage);
           } catch (error) {
             return fail(
               res,
@@ -1318,7 +1362,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               "The working tree changed since the desk loaded. Reload it (GET /api/state) and retry.",
             );
           }
-          state.stagedChangeKeys.push(key);
+          const key = `${filePath}:${stableKey}`;
+          state.stagedChangeKeys ??= [];
+          if (!stage) state.stagedChangeKeys = state.stagedChangeKeys.filter((k) => k !== key);
+          else if (result === "applied" && !state.stagedChangeKeys.includes(key))
+            state.stagedChangeKeys.push(key);
           await persistReview(state);
           return json(res, 200, { ok: true, skipped: result === "skipped" });
         });

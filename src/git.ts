@@ -315,9 +315,9 @@ function formatRange(start: number, count: number) {
   return count === 1 ? String(start) : `${start},${count}`;
 }
 
-export function patchForChange(rawDiff: string, filePath: string, stableKey: string) {
-  const file = parseUnifiedDiff(rawDiff).find((f) => (f.newPath ?? f.oldPath) === filePath);
-  if (!file) throw new Error(`No diff found for ${filePath}`);
+// The change block of a diff file a stableKey names: the block whose key it is, else the nearest
+// one of the same side and shape.
+function findChangeBlock(file: DiffFile, stableKey: string) {
   const requested = stableKey.match(/^(additions|deletions):(\d+):(\d+):(\d+)$/);
   const requestedSide = requested?.[1];
   const requestedLine = Number(requested?.[2] ?? 0);
@@ -343,29 +343,98 @@ export function patchForChange(rawDiff: string, filePath: string, stableKey: str
     }
   }
   const match = candidates.sort((a, b) => a.score - b.score)[0];
-  if (!match) throw new Error(`No matching change found for ${filePath}:${stableKey}`);
-  const { hunk, block } = match;
-  const deletes = block.filter((l) => l.kind === "delete");
-  const adds = block.filter((l) => l.kind === "add");
-  const firstIndex = hunk.lines.indexOf(block[0]);
-  const prevContext = hunk.lines
-    .slice(0, firstIndex)
-    .reverse()
-    .find((l) => l.kind === "context");
-  const oldStart =
-    deletes[0]?.oldLine ??
-    prevContext?.oldLine ??
-    Math.max(0, (adds[0]?.newLine ?? hunk.newStart) - 1);
-  const newStart =
-    adds[0]?.newLine ??
-    prevContext?.newLine ??
-    Math.max(0, (deletes[0]?.oldLine ?? hunk.oldStart) - 1);
+  if (!match) throw new Error(`No matching change found for ${file.newPath}:${stableKey}`);
+  return match;
+}
+
+// Each change block of a diff file's hunks with the line just before it on each side (0 at the
+// top of the file): where the block sits. A hunk header whose count is 0 names the line before.
+function placedBlocks(hunks: DiffHunk[]) {
+  const placed: Array<{ block: DiffLine[]; oldBefore: number; newBefore: number }> = [];
+  for (const hunk of hunks) {
+    let oldLine = hunk.oldCount ? hunk.oldStart - 1 : hunk.oldStart;
+    let newLine = hunk.newCount ? hunk.newStart - 1 : hunk.newStart;
+    let block: DiffLine[] | null = null;
+    for (const l of hunk.lines) {
+      if (l.kind === "context") block = null;
+      else if (!block) {
+        block = [];
+        placed.push({ block, oldBefore: oldLine, newBefore: newLine });
+      }
+      block?.push(l);
+      if (l.kind !== "add") oldLine++;
+      if (l.kind !== "delete") newLine++;
+    }
+  }
+  return placed;
+}
+
+const textsOf = (block: DiffLine[], kind: DiffLine["kind"]) =>
+  block.filter((l) => l.kind === kind).map((l) => l.text);
+const sameTexts = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((t, i) => t === b[i]);
+
+// Where one change block of the reviewed diff (`rawDiff`, the working tree against the index it was
+// taken on) stands in the index now, read off `fresh`: the file's working-tree-vs-index diff taken
+// now. Staging only edits the index, so the block keeps its place in the working tree. Still
+// pending, `fresh` shows the same edit after the same working-tree line. Staged, `fresh` shows
+// nothing there, and its index line follows from the edits `fresh` still shows above it. `at` is
+// the index line the block's edit goes after. null when the file moved on since the review's diff
+// was taken, so no index write would be the reviewed one: the working tree (`worktree`) no longer
+// holds the block's hunk, or `fresh` shows another edit on or beside the block.
+export function changeInIndex(
+  rawDiff: string,
+  fresh: string,
+  worktree: string,
+  filePath: string,
+  stableKey: string,
+): { staged: boolean; at: number; deleted: string[]; added: string[] } | null {
+  const ofPath = (f: DiffFile) => (f.newPath ?? f.oldPath) === filePath;
+  const reviewed = parseUnifiedDiff(rawDiff).find(ofPath);
+  if (!reviewed) throw new Error(`No diff found for ${filePath}`);
+  // A file added or deleted whole has no index lines around it to place an edit by.
+  if (!reviewed.oldPath || !reviewed.newPath)
+    throw new Error(`${filePath} is added or deleted whole, so it stages only as a whole file`);
+  const { hunk, block } = findChangeBlock(reviewed, stableKey);
+  const lines = worktree.split(/\r?\n/);
+  if (hunk.lines.some((l) => l.newLine !== undefined && lines[l.newLine - 1] !== l.text))
+    return null;
+  // findChangeBlock returns one of the hunk's own blocks, so it is placed.
+  const before = placedBlocks([hunk]).find((p) => p.block[0] === block[0])!.newBefore;
+  const deleted = textsOf(block, "delete");
+  const added = textsOf(block, "add");
+  const edits = placedBlocks(parseUnifiedDiff(fresh).find(ofPath)?.hunks ?? []);
+  const pending = edits.find(
+    (e) =>
+      e.newBefore === before &&
+      sameTexts(textsOf(e.block, "delete"), deleted) &&
+      sameTexts(textsOf(e.block, "add"), added),
+  );
+  if (pending) return { staged: false, at: pending.oldBefore, deleted, added };
+  let at = before;
+  for (const e of edits) {
+    // Past the block's last working-tree line: no bearing on where it sits.
+    if (e.newBefore > before + added.length) continue;
+    const adds = textsOf(e.block, "add").length;
+    // On the block, or on the line before it.
+    if (e.newBefore + adds >= before) return null;
+    at += e.block.length - 2 * adds;
+  }
+  return { staged: true, at, deleted, added };
+}
+
+// A zero-context patch that replaces the index lines `from`, right after index line `at`, with
+// `to`. git apply starts its search for a hunk at the hunk's + side start, so both sides name `at`:
+// an empty `from` (a pure insertion) lands exactly there, and a non-empty one must match the lines
+// found there.
+export function indexPatch(filePath: string, at: number, from: string[], to: string[]) {
   return [
     `diff --git a/${filePath} b/${filePath}`,
     `--- a/${filePath}`,
     `+++ b/${filePath}`,
-    `@@ -${formatRange(oldStart, deletes.length)} +${formatRange(newStart, adds.length)} @@`,
-    ...block.map((l) => `${l.kind === "add" ? "+" : "-"}${l.text}`),
+    `@@ -${formatRange(from.length ? at + 1 : at, from.length)} +${formatRange(at + 1, to.length)} @@`,
+    ...from.map((t) => `-${t}`),
+    ...to.map((t) => `+${t}`),
     "",
   ].join("\n");
 }

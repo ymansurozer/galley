@@ -1169,6 +1169,98 @@ test("/api/unstage reports the index entry it replaced and /api/restage puts exa
   });
 });
 
+test("/api/stage-change and /api/unstage-change put exactly one block in or out of the index as it stands", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-blocks-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+  g(["init", "-q"]);
+  g(["config", "user.email", "t@t.co"]);
+  g(["config", "user.name", "tester"]);
+  const base = Array.from({ length: 30 }, (_, i) => `l${i + 1}`);
+  // The file with the given edits made: lines inserted after a line, a line replaced, a line gone.
+  const text = (edits: { a?: true; ten?: string; x?: true; d?: true }) =>
+    base
+      .flatMap((l) => {
+        if (l === "l3" && edits.a) return [l, "A1", "A2"];
+        if (l === "l10" && edits.ten) return [edits.ten];
+        if (l === "l20" && edits.x) return [l, "X1"];
+        if (l === "l25" && edits.d) return [];
+        return [l];
+      })
+      .join("\n") + "\n";
+  await writeFile(path.join(root, "f.txt"), text({}));
+  g(["add", "."]);
+  g(["commit", "-qm", "init"]);
+  await writeFile(path.join(root, "f.txt"), text({ a: true, ten: "TEN", x: true, d: true }));
+  const st = await buildReviewState(root, { session: "s" });
+  assert.ok(st, "built a review state for the working diff");
+  assert.deepEqual(
+    st!.changes.map((c) => c.stableKey),
+    ["additions:4:0:2", "additions:12:1:1", "additions:23:0:1", "deletions:25:1:0"],
+  );
+  const [A, TEN, X, D] = [
+    "additions:4:0:2",
+    "additions:12:1:1",
+    "additions:23:0:1",
+    "deletions:25:1:0",
+  ];
+  const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
+  const move = async (route: string, stableKey: string) => {
+    const res = await post(handle.url, route, { path: "f.txt", stableKey });
+    return { status: res.status, ...((await res.json()) as { skipped?: boolean }) };
+  };
+  const index = () => g(["show", ":f.txt"]);
+  try {
+    // Every block below another pending one: each lands at its own place, whatever is staged above.
+    assert.deepEqual(await move("api/stage-change", X), { status: 200, ok: true, skipped: false });
+    assert.equal(index(), text({ x: true }), "X1 goes after l20, not two lines lower");
+    assert.equal((await move("api/stage-change", A)).skipped, false);
+    assert.equal(index(), text({ a: true, x: true }));
+    assert.equal((await move("api/stage-change", D)).skipped, false);
+    assert.equal(index(), text({ a: true, x: true, d: true }), "a pure deletion is staged");
+    assert.equal((await move("api/stage-change", A)).skipped, true, "already staged");
+    assert.equal(index(), text({ a: true, x: true, d: true }));
+    assert.deepEqual(st!.stagedChangeKeys, [`f.txt:${X}`, `f.txt:${A}`, `f.txt:${D}`]);
+
+    // Out again below a staged addition, and back in.
+    assert.equal((await move("api/unstage-change", X)).skipped, false);
+    assert.equal(index(), text({ a: true, d: true }));
+    assert.equal((await move("api/unstage-change", D)).skipped, false);
+    assert.equal(index(), text({ a: true }), "the deleted line is back at l25");
+    assert.equal((await move("api/unstage-change", TEN)).skipped, true, "never staged");
+    assert.deepEqual(st!.stagedChangeKeys, [`f.txt:${A}`]);
+    assert.equal((await move("api/stage-change", D)).skipped, false);
+    assert.equal((await move("api/stage-change", X)).skipped, false);
+    assert.equal(index(), text({ a: true, x: true, d: true }));
+
+    // The working tree moved on at a block: no index write, a conflict.
+    await writeFile(path.join(root, "f.txt"), text({ a: true, ten: "TEN!", x: true, d: true }));
+    const conflict = await post(handle.url, "api/stage-change", { path: "f.txt", stableKey: TEN });
+    assert.equal(conflict.status, 409);
+    assert.equal(((await conflict.json()) as { code?: string }).code, "PATCH_CONFLICT");
+    assert.equal(index(), text({ a: true, x: true, d: true }));
+
+    assert.equal(
+      (await post(handle.url, "api/stage-change", { path: "../f.txt", stableKey: A })).status,
+      404,
+    );
+    // A staged desk's blocks are in the index already; pr mode has no index to stage into.
+    st!.staged = true;
+    assert.equal((await move("api/stage-change", TEN)).skipped, true);
+    assert.equal((await move("api/unstage-change", A)).status, 409);
+    st!.staged = false;
+    st!.mode = "pr";
+    assert.equal((await move("api/stage-change", TEN)).status, 409);
+    assert.equal((await move("api/unstage-change", A)).status, 409);
+    assert.equal(index(), text({ a: true, x: true, d: true }));
+  } finally {
+    handle.server.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("/api/file-contents returns contents equal to the embedded copies; rejects escapes + unknown paths (issue 02)", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "galley-fc-"));
   const oldHome = process.env.HOME;
