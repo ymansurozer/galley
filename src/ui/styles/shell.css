@@ -131,8 +131,7 @@
 }
 
 /* The progress tag beside the title. There's no resting percentage, so it speaks only when asked
-   (hover the bar or the title: "N% · a/b files · x/y lines") or when a sign-off raises progress
-   ("+X% → Y%", for about 2s), then fades. progress.ts fills it. */
+   (hover the bar or the title: "N% · a/b files · x/y lines"), then fades. progress.ts fills it. */
 .top-tag {
   display: none;
   flex: 0 0 auto;
@@ -159,14 +158,6 @@
 .top-tag > b {
   color: var(--ink);
   font-weight: 600;
-}
-
-.top-tag.up {
-  background-image: linear-gradient(var(--green-wash), var(--green-wash));
-}
-
-.top-tag.up > b {
-  color: var(--green-ink);
 }
 
 @keyframes tag-in {

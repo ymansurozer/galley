@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { approvePreview, approveTag, progressSummary } from "./progress-derive.js";
+import { approvePreview, progressSummary } from "./progress-derive.js";
 
 const pending = { outOfFlow: false, state: "pending" } as const;
 
@@ -49,15 +49,6 @@ test("approvePreview: a file already signed off has no tail", () => {
 
 test("approvePreview: no open file, no tail", () => {
   assert.equal(approvePreview({ done: 40, total: 200, pct: 20 }, null), null);
-});
-
-test("approveTag: a rise reads its gain and where the bar now stands", () => {
-  assert.deepEqual(approveTag(20, 50), { gain: 30, to: 50 });
-});
-
-test("approveTag: a drop or no movement shows no tag", () => {
-  assert.equal(approveTag(50, 20), null);
-  assert.equal(approveTag(50, 50), null);
 });
 
 test("progressSummary: lines mode names files and lines", () => {
