@@ -125,10 +125,6 @@
   padding: 0 8px;
 }
 
-.modal.shot .seg {
-  font-size: var(--text-xs);
-}
-
 .chrome .vpsize {
   color: var(--ink-3);
   font-family: var(--mono);
