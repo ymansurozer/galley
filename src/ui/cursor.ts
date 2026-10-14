@@ -321,7 +321,9 @@ function markCursorChange() {
 
 // The rail is an overlay in #diff's scrolled content, so it moves with the rows and never shifts
 // the code, in either layout. It runs from the change's first row to the bottom of its last row
-// or its control's row, whichever is lower. The cursor's row list says which rows are the
+// or its control's row, whichever is lower, down the left edge of the pane the change lives in:
+// in split, its deletions' pane (the left one) when it has any, else its additions'. Unified has
+// one pane, flush with #diff. The cursor's row list says which rows are the
 // change's (a split row holds both sides); their edges are measured now, since the list's cached
 // tops can lag a reflow it wasn't invalidated for. A change whose rows are hidden — a skimmed
 // block collapsed under a cursor that sat in it — has no rows on the list, so no rail.
@@ -343,7 +345,12 @@ function placeRail(diff: HTMLElement, change?: ChangeState, control?: HTMLElemen
     rail?.remove();
     return;
   }
-  const origin = diff.getBoundingClientRect().top - diff.scrollTop;
+  const box = diff.getBoundingClientRect();
+  const origin = box.top - diff.scrollTop;
+  const pane = diffShadowRoot()?.querySelector<HTMLElement>(
+    `code[data-${span.deletions ? "deletions" : "additions"}] [data-gutter]`,
+  );
+  const left = pane ? pane.getBoundingClientRect().left - box.left + diff.scrollLeft : 0;
   const row = control?.closest(".annotation");
   const top = held[0].el.getBoundingClientRect().top - origin;
   const bottom =
@@ -352,6 +359,7 @@ function placeRail(diff: HTMLElement, change?: ChangeState, control?: HTMLElemen
       row?.getBoundingClientRect().bottom ?? 0,
     ) - origin;
   rail ??= Object.assign(document.createElement("div"), { className: "change-rail" });
+  rail.style.left = `${left}px`;
   rail.style.top = `${top}px`;
   rail.style.height = `${bottom - top}px`;
   if (rail.parentElement !== diff) diff.append(rail);
