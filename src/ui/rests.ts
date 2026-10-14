@@ -66,7 +66,9 @@ function rest(t: ThreadMeta, lost: boolean, key: string): HTMLElement {
 // The annotation for a group of threads gathered under its last line.
 export function threadGroupElement(g: GroupMeta): HTMLElement {
   const el = document.createElement("div");
-  el.className = "annotation thread-group";
+  // Classic indicators draw +/− signs ahead of the code, so the code column sits further in.
+  el.className =
+    "annotation thread-group" + (S.settings.diffIndicators === "classic" ? " signs" : "");
   el.dataset.side = g.side;
   for (const t of g.threads) {
     const slot = threadSlot(t);

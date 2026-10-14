@@ -17,14 +17,23 @@
 
 /* Room around the rests and cards in the code column. A group stacks its threads: rests, and
    the one open card in its place. */
+/* Their left edge is the code text's, as the Undo | Keep control's is (decisions.css): @pierre
+   insets each line by its gap, or by 2ch of the code font where it draws classic +/− signs. The
+   row is set in the code's face so `ch` measures the same; the rests and cards set their own. */
 .annotation:is(.thread-group, .composer-annotation) {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 4px 16px 6px 4px;
+  padding: 4px 16px 6px var(--diffs-gap-inline, 8px);
+  font-family: var(--mono);
+  font-size: var(--code-size, 12.5px);
   /* Sized by the code column, never the other way: a card's or a rest's own width (up to
      680px) would otherwise widen the column past a narrow window. */
   contain: inline-size;
+}
+
+.annotation:is(.thread-group, .composer-annotation).signs {
+  padding-left: 2ch;
 }
 
 .thread-group:has(.thread-card) {
@@ -193,6 +202,7 @@
   box-shadow:
     0 0 0 0.5px var(--sep-strong),
     0 2px 8px rgb(0 0 0 / 0.12);
+  font-family: var(--sans);
   font-size: var(--text-sm);
   line-height: 1.45;
 }
