@@ -234,8 +234,39 @@
   transform: rotate(90deg);
 }
 
+/* Open, the line is the full card's header row: the card's tile and "Guide" (with its skim mark)
+   in place of the clipped orientation, which the note below spells out. */
+.gm-line .gm-head {
+  display: none;
+}
+
+/* One card: no hairline between its header row and the body below. */
+.file-bar > .guide-mini.open {
+  border-bottom-color: transparent;
+}
+
+.guide-mini.open .gm-line {
+  gap: 12px;
+}
+
+.guide-mini.open .gm-line .gm-head {
+  display: inline-flex;
+  align-items: center;
+}
+
 .guide-mini.open .gm-orient {
-  visibility: hidden;
+  display: none;
+}
+
+.guide-mini.open .gm-line .gc-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+}
+
+.guide-mini.open .gm-line .gc-icon .ic {
+  width: 14px;
+  height: 14px;
 }
 
 .gm-full {
@@ -246,7 +277,8 @@
   right: 0;
   max-height: 60vh;
   overflow: auto;
-  padding: 2px 20px 16px 44px;
+  /* The body starts where the header's "Guide" does: the line's 16px, the 26px tile, 12px. */
+  padding: 0 20px 16px 54px;
   background: var(--note);
   border-bottom: 1px solid var(--sep);
   box-shadow: var(--shadow-float);
@@ -271,7 +303,11 @@
     padding: 0 8px 0 12px;
   }
 
+  .guide-mini.open .gm-line {
+    gap: 10px;
+  }
+
   .gm-full {
-    padding: 2px 12px 14px;
+    padding: 0 12px 14px 48px;
   }
 }
