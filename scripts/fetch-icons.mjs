@@ -15,6 +15,8 @@ const ICON_MAP = {
   "gly-file": "lucide:file",
   "gly-check": "lucide:circle-check",
   "gly-flag": "lucide:flag",
+  // A question: the app pins' message bubble.
+  "gly-message": "lucide:message-circle",
   "gly-collapse-all": "lucide:chevrons-up",
   "gly-expand-all": "lucide:chevrons-down",
   // Chrome buttons + markers (were unicode/emoji).

@@ -291,7 +291,8 @@ export function markTarget(target: UiTarget): UiMarkTarget | null {
     : { kind: "region", rect: { ...target.rect }, elements };
 }
 
-// The pins the bridge draws on one page: all its annotations, the resolved ones dimmed.
+// The pins the bridge draws on one page: all its annotations, the resolved ones dimmed and the
+// waiting questions pulsing.
 export function marksFor(list: readonly UiAnnotationRecord[], route: string): UiMark[] {
   return list.flatMap((a) => {
     const target = a.page.route === route && markTarget(a.target);
@@ -303,6 +304,7 @@ export function marksFor(list: readonly UiAnnotationRecord[], route: string): Ui
             target,
             resolved: a.status === "resolved",
             question: a.intent === "question",
+            waiting: isWaiting(a),
           },
         ]
       : [];
@@ -310,12 +312,14 @@ export function marksFor(list: readonly UiAnnotationRecord[], route: string): Ui
 }
 
 // A pin the desk draws itself: in the address bar for a page annotation, and in the stage's tray
-// for one whose target couldn't be found on its page. Dimmed once resolved, like the page's pins.
+// for one whose target couldn't be found on its page. The same bubble as the page's pins: dimmed
+// once resolved, pulsing while its question waits.
 const deskPin = (a: UiAnnotationRecord, selected: string | null) => ({
   id: a.id,
   number: a.number,
   question: a.intent === "question",
   resolved: a.status === "resolved",
+  waiting: isWaiting(a),
   selected: a.id === selected,
 });
 export type DeskPin = ReturnType<typeof deskPin>;
