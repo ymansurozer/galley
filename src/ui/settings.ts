@@ -1,4 +1,5 @@
 import type { Settings } from "./types";
+import { codeScheme } from "./shiki-curated";
 
 export const DEFAULT_SETTINGS: Settings = {
   appearance: "dark",
@@ -132,7 +133,7 @@ export function applyAppearance(s: Settings) {
   ensureFont(s.font, f.google);
   ensureFont(s.uiFont, sf.google);
   // Swap the whole CSS custom-property palette (and native color-scheme) by tagging <html>.
-  // The light overrides live under :root[data-theme="light"] in index.html; dark is the :root
+  // The light overrides live under :root[data-theme="light"] in styles/tokens.css; dark is the :root
   // default, so setting "dark" simply falls through to it. Also flips native form controls.
   const light = s.appearance === "light";
   document.documentElement.dataset.theme = light ? "light" : "dark";
@@ -149,8 +150,9 @@ export function applyAppearance(s: Settings) {
   // mix target is the bright "modified" blue, which reads as distracting on a review surface —
   // override it with a muted steel so a selected/cursored row is a calm, low-saturation tint.
   // @pierre registers these as @property <color>, so they must be concrete colors set at :root.
-  // Light mode needs a lighter steel so the wash reads over a white canvas rather than muddying it.
-  const steel = light ? "rgb(150,180,210)" : "rgb(96,120,155)";
+  // A light code theme needs a lighter steel so the wash reads over its light rows rather than
+  // muddying them; it follows the code's scheme, as the canvas does, not the appearance.
+  const steel = codeScheme(s.theme) === "light" ? "rgb(150,180,210)" : "rgb(96,120,155)";
   root.setProperty("--diffs-bg-selection-override", steel);
   root.setProperty("--diffs-bg-selection-number-override", steel);
 }

@@ -24,12 +24,16 @@ export const S: Store = Alpine.reactive<Store>({
   agentListening: false,
   queuedQuestions: 0,
   queuedReviews: 0,
+  presence: { kind: "hidden", line: "" },
+  reviewDone: false,
+  requests: [],
   lastBaseDiffHash: null,
   selected: { side: "additions", lineNumber: 1 },
   // chrome UI flags (templates bind to these)
   composerOpen: false,
   toastMsg: "",
   toastAction: "",
+  toastKeys: "",
   golineBuffer: "",
   composerBody: "",
   editingCommentId: null,
@@ -43,9 +47,11 @@ export const S: Store = Alpine.reactive<Store>({
   sendFinishing: false,
   overviewOpen: false,
   sidebarTab: "tree",
+  requestsOpen: false,
+  openThread: null,
   treeDrawerOpen: false,
+  sidebarCollapsed: false,
   fileView: "rendered",
-  diffScrolled: false,
   skimExpanded: new Set<string>(),
   loadedOversized: new Set<string>(),
   view: "code",
@@ -65,9 +71,8 @@ export const S: Store = Alpine.reactive<Store>({
   frameLabel: "",
   appMode: "interact",
   pendingPicks: 0,
-  annotationsOpen: !matchMedia("(max-width: 1100px)").matches,
   selectedAnnotation: null,
-  shownResolved: new Set<string>(),
+  lookedFor: new Set<string>(),
   annotationDraft: null,
   composerAnnotation: null,
   sendLanes: null,
@@ -100,16 +105,18 @@ export function hide(e: Element) {
 let toastTimer: ReturnType<typeof setTimeout>;
 let toastRun: (() => void) | null = null;
 // An action toast ("Reset review · Undo") stays up long enough to reach its button. The next toast
-// replaces it, action and all, so an action never outlives the moment it answers.
-export function toast(t: string, action?: { label: string; run: () => void }) {
+// replaces it, action and all, so an action never outlives the moment it answers. A toast that
+// names a shortcut passes it as keys, drawn as keycaps after the text.
+export function toast(t: string, action?: { label: string; run: () => void }, keys = "") {
   S.toastMsg = t;
+  S.toastKeys = keys;
   S.toastAction = action?.label ?? "";
   toastRun = action?.run ?? null;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(clearToast, action ? 6000 : 2800);
 }
 function clearToast() {
-  S.toastMsg = S.toastAction = "";
+  S.toastMsg = S.toastAction = S.toastKeys = "";
   toastRun = null;
 }
 export function runToastAction() {

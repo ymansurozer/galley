@@ -22,6 +22,7 @@ import { treeOrder } from "./tree";
 import { renderMarkdown } from "./markdown";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
 import type { WalkGroup, WalkRow } from "./walkthrough";
+import { keycapsHtml } from "./keycaps";
 import type { ChangeState, GuideFile } from "./types";
 
 // Whether the current review carries an agent-attached guide with at least one file.
@@ -260,36 +261,69 @@ export function walkthroughRows(): WalkRow[] {
   return walkRows(walkGroups(), null, isSkimGroupExpanded());
 }
 
-// Overall review progress for the guide-bar indicator, over in-flow steps weighted by their
+// Overall review progress for the progress edge, over in-flow steps weighted by their
 // changed lines (LOC) rather than counted, so finishing a big file or part advances the bar more
 // than a tiny one: "done" sums the LOC of steps the reviewer finished (approved OR
 // changes-requested), "approved" the clean-signoff LOC.
 export function guideProgress(): { done: number; approved: number; total: number; pct: number } {
+  return progressDetail().progress;
+}
+
+// guideProgress with what it was built from, for the progress edge: the flow index (a step's
+// state, whether it left the flow), a step's weight, and the in-flow step counts. One pass each,
+// so the edge reads the open step and the hover numbers without rebuilding them.
+export function progressDetail() {
   const byFiles = S.settings.progressBy === "files";
   const stats = lineStats(S.state?.files ?? []);
+  const weight = (slot: Pick<StepSlot, "path" | "blocks">) => {
+    const s = stats.get(slot.path);
+    return stepWeight(slot, s ? s.added + s.removed : 0, byFiles);
+  };
   // One flow-index pass for the whole loop (see flow-index.ts).
   const ix = flowIndex();
   let total = 0,
     done = 0,
-    approved = 0;
+    approved = 0,
+    steps = 0,
+    stepsDone = 0,
+    parts = false;
+  const slots = flowSlots(ix);
   // Fully-skimmed steps carry no progress weight — they left the flow (issue 07).
-  for (const slot of flowSlots(ix)) {
-    const s = stats.get(slot.path);
-    const w = stepWeight(slot, s ? s.added + s.removed : 0, byFiles);
+  for (const slot of slots) {
+    const w = weight(slot);
     total += w;
+    steps++;
+    if (slot.blocks) parts = true;
     const st = ix.stepState(slot);
-    if (st !== "pending") done += w;
+    if (st !== "pending") {
+      done += w;
+      stepsDone++;
+    }
     if (st === "approved") approved += w;
   }
   // total === 0 means every changed file is fully skimmed (a desk always has ≥1 file, and the
   // strip is hidden when there are none): nothing needs review, so the bar reads complete rather
   // than a misleading 0%.
-  return { done, approved, total, pct: total ? Math.round((done / total) * 100) : 100 };
+  return {
+    progress: { done, approved, total, pct: total ? Math.round((done / total) * 100) : 100 },
+    // In steps, which are files unless the guide splits one into parts (the approve toast's rule).
+    steps: { done: stepsDone, total: steps, unit: parts ? ("steps" as const) : ("files" as const) },
+    byLines: !byFiles,
+    ix,
+    weight,
+    // What ⇧A on the open step would add. A file the guide splits, opened whole, signs off its
+    // still-pending parts — those are what progress counts, not the file's own line count.
+    aheadWeight(slot: Pick<StepSlot, "path" | "blocks">) {
+      const parts = slot.blocks ? [] : slots.filter((s) => s.path === slot.path && s.blocks);
+      if (!parts.length) return weight(slot);
+      return parts.reduce((n, s) => n + (ix.stepState(s) === "pending" ? weight(s) : 0), 0);
+    },
+  };
 }
 
-// The guide entry for the step currently shown (or null) — drives the diff header's guidance: a
-// part step's own entry, an unsplit file's entry, none for a Rest step or a split file opened
-// whole (see stepEntry).
+// The guide entry for the step currently shown (or null) — drives its guide card: a part step's
+// own entry, an unsplit file's entry, none for a Rest step or a split file opened whole (see
+// stepEntry).
 export function currentGuideEntry(): GuideFile | null {
   if (!hasGuide()) return null;
   const f = S.state.files[S.fileIndex];
@@ -306,16 +340,6 @@ export function currentFileParts(): string[] {
   );
 }
 
-export function currentFileName(): string {
-  return S.state?.files?.[S.fileIndex]?.path.split("/").pop() ?? "";
-}
-
-// Show the top guide bar whenever a guide is attached — including on the Overview page
-// (where the overview is treated as the position before the first file).
-export function showGuideBar(): boolean {
-  return hasGuide();
-}
-
 // The guide was generated against an older diff than the one now loaded (e.g. the agent
 // edited code and the desk reloaded). Advisory only — the guide still renders.
 export function guideStale(): boolean {
@@ -324,7 +348,7 @@ export function guideStale(): boolean {
 
 // Render the Overview page into #diff: overview → optional PR description → Start. No file
 // list — the sidebar (tree/walkthrough, including the Skimmed group) already lists every file,
-// so repeating them here was redundant; per-file orientation renders in each file's header.
+// so repeating them here was redundant; per-file orientation renders in each file's guide card.
 // Called by render() when overviewOpen && hasGuide().
 export function renderOverview() {
   const g = S.state.guide!;
@@ -336,7 +360,7 @@ export function renderOverview() {
     ${guideStale() ? `<div class="go-stale"><svg class="ic"><use href="#gly-warn"></use></svg> This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
     <div class="go-overview md">${renderMarkdown(g.overview)}</div>
     ${g.prDescription ? `<div class="go-pr"><b>PR description</b><div class="md">${renderMarkdown(g.prDescription)}</div></div>` : ""}
-    <div class="go-actions"><button class="btn primary" id="guideStart">Start Review <kbd>↵</kbd></button></div>
+    <div class="go-actions"><button class="btn primary" id="guideStart">Start Review ${keycapsHtml("↵")}</button></div>
   </div></div>`;
   const start = $("diff").querySelector("#guideStart") as HTMLButtonElement | null;
   if (start) start.onclick = () => S.startGuided?.();

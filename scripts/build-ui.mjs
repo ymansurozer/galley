@@ -9,7 +9,10 @@ import { fileURLToPath } from "node:url";
 // regression is +9 MB) or the oniguruma wasm (+600 KB). Reaching "hundreds of KB" would require
 // lazy-loading grammar chunks (a code-split + a server route to serve them) — out of scope here.
 // 3.2 → 3.3 MB when light mode added six curated light themes (~170 KB of theme JSON).
-const SIZE_LIMIT = 3_300_000;
+// 3.3 → 3.35 MB when the desk redesign met guide parts (#97): the redesign's surfaces plus #97's
+// step UI (steps, folds, replay) pushed ui.js just past 3.3 MB. The gate stays a tripwire for
+// accidental bloat, not a budget to fill.
+const SIZE_LIMIT = 3_350_000;
 
 const shimPath = fileURLToPath(new URL("../src/ui/shiki-shim.ts", import.meta.url));
 const emptyModule = "export default {}; export {};";
@@ -37,6 +40,8 @@ const shikiShimPlugin = {
   },
 };
 
+// main.ts imports the stylesheet (src/ui/styles/index.css), so esbuild emits it beside the
+// script as dist/ui.css — kept out of ui.js and its size gate.
 const options = {
   entryPoints: ["src/ui/main.ts"],
   bundle: true,
@@ -64,7 +69,7 @@ const bridgeOptions = {
 
 if (process.argv.includes("--watch")) {
   for (const opts of [options, bridgeOptions]) await (await esbuild.context(opts)).watch();
-  console.error("esbuild: watching src/ui → dist/ui.js, src/bridge → dist/bridge.js");
+  console.error("esbuild: watching src/ui → dist/ui.js + dist/ui.css, src/bridge → dist/bridge.js");
 } else {
   await esbuild.build(bridgeOptions);
   await esbuild.build(options);

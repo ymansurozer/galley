@@ -321,7 +321,7 @@ export async function acceptChange(id: string, status: Decision["status"]) {
   // No need to apply the decision to D.fileDiff here: renderCenter unconditionally rebuilds
   // D.fileDiff from the raw diff (parse → ensureChanges → replayDecisions) every render, so a
   // pre-render mutation is thrown away — the replay below picks the new status up from the record.
-  toast(status === "rejected" ? "Rejected" : "Accepted");
+  toast(status === "rejected" ? "Undone" : "Kept");
   render();
   persist();
 }

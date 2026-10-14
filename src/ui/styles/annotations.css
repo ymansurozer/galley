@@ -1,0 +1,232 @@
+/* ── The UI lane's cards over the app ───────────────────────────────────────────────────────
+   The selected annotation's card beside its pin, and the floating composer on a pick: the code
+   lane's cards, lifted over the app. Nothing sits beside the app: it fills the canvas. */
+
+/* The pin card's muted line of detail under its header, its parts text links. */
+.ann-ctx {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  min-width: 0;
+  margin: 1px 0 4px;
+  font-size: var(--text-xs);
+  line-height: 16px;
+  color: var(--ink-3);
+}
+
+.ann-target {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.ann-src {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  text-underline-offset: 2px;
+}
+
+button.ann-src {
+  cursor: pointer;
+}
+
+button.ann-src:hover {
+  color: var(--ink);
+}
+
+/* The screenshot's part of the line: "capturing…" and "capture failed" stay ghost text; the
+   stored pair is a link like the source's. */
+.ann-shot {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-underline-offset: 2px;
+}
+
+button.ann-shot {
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+button.ann-shot:hover {
+  color: var(--ink);
+}
+
+/* Its target wasn't found on the page: the line's last word, text like the rest. */
+.ann-unplaced {
+  flex: 0 0 auto;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* The floating composer beside the picked element, and the selected annotation's card beside its
+   pin: the code lane's cards, lifted over the app. */
+.ucomposer {
+  position: fixed;
+  z-index: 40;
+  display: none;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+}
+
+.ucomposer.show {
+  display: block;
+}
+
+/* The pin card rests over the app but under the dialogs (20) it opens, such as the screenshot. It
+   takes focus from the app when its pin opens it, so Esc reaches the desk; it draws no ring for
+   that. */
+#pinCard {
+  z-index: 15;
+}
+
+#pinCard:focus {
+  outline: none;
+}
+
+.ucomposer > .annotation {
+  padding: 0;
+}
+
+.ucomposer .thread-card {
+  max-width: none;
+  /* A resolved thread rests transparent in the code column; over the app it keeps its ground. */
+  background: var(--raised);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  box-shadow:
+    0 0 0 0.5px var(--sep-strong),
+    var(--shadow-float);
+}
+
+.ucomposer .composer-card {
+  margin: 0;
+  max-width: none;
+}
+
+.uc-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin: 0 2px 8px;
+}
+
+.uc-num {
+  flex: 0 0 auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  display: inline-grid;
+  place-items: center;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  background: var(--fill-3);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--sep-strong);
+}
+
+.uc-target {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+
+.uc-more {
+  flex: 0 0 auto;
+  color: var(--ink-2);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
+.uc-close {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.uc-close:hover {
+  color: var(--ink);
+}
+
+.uc-src {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 2px 8px;
+}
+
+/* A text annotation's quote, under the composer's head: three lines at most. */
+.uc-quote {
+  margin: 0 2px 8px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--orange);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in oklab, var(--orange) 6%, transparent);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+.src-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--fill-2);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+button.src-chip {
+  cursor: pointer;
+}
+
+button.src-chip:hover {
+  color: var(--ink);
+  background: var(--fill-3);
+}
+
+.src-chip .ic {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  color: var(--blue);
+}

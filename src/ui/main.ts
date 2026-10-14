@@ -1,3 +1,4 @@
+import "./styles/index.css";
 import Alpine from "alpinejs";
 import {
   S,
@@ -21,7 +22,9 @@ import {
   fileObjections,
   flowIndex,
 } from "./changes";
-import { approveCurrentStep, toggleSignOff } from "./decisions";
+import { agentPresence, deskSubtitle, deskTitle, unansweredAsks } from "./topbar-derive";
+import { toggleSignOff } from "./decisions";
+import { installBlockers } from "./blockers";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
@@ -37,23 +40,20 @@ import { ensureIcons } from "./icons";
 import {
   hasGuide,
   firstGuideStep,
-  currentGuideEntry,
-  currentFileName,
-  currentSlot,
+  navSteps,
   currentStep,
-  showGuideBar,
-  guideStale,
   nextStep,
   prevStep,
   nextWrapStep,
   prevWrapStep,
-  anyUnreviewed,
-  navSteps,
+  reviewTally,
   stepSlot,
   walkthroughRows,
 } from "./guide";
-import { refreshBaseTitle, reviewStats } from "./progress";
+import { installProgress, refreshBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
+import { renderKeycaps } from "./keycaps";
+import { installTooltips } from "./tooltip";
 import {
   appBack,
   appForward,
@@ -75,7 +75,6 @@ import {
   annotatePage,
   closeShot,
   installUiLane,
-  openChanges,
   pagePins,
   screenshotsInFlight,
   screenshotsSettled,
@@ -84,12 +83,12 @@ import {
   shotSrc,
   shotTitle,
   submitUiComposer,
-  toggleAnnotations,
   uiSendSummary,
-  waitingQuestions,
+  unplacedPins,
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
-import { openRequests, stepOpenRequest } from "./requests";
+import { updateAwaitingDom } from "./annotations";
+import { openRequest, requestRows } from "./requests";
 import { uuid } from "./uuid";
 import type { Step } from "./steps";
 import type { ChangeState, ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
@@ -101,7 +100,7 @@ document.addEventListener(
   (e) => {
     if (!S.composerOpen) return;
     const target = e.target as HTMLElement;
-    if (target.closest?.(".composer-card, .msg-edit")) return;
+    if (target.closest?.(".composer-card, .msg-edit, .thread-card.k-new")) return;
     // Defer the closing render: this fires on pointerdown, before the click reaches a diff
     // control (Keep/Undo/Reply). Rendering now rebuilds the diff and destroys that control,
     // so the browser drops the pending click and the user's press is swallowed.
@@ -114,8 +113,10 @@ document.addEventListener(
 document.querySelectorAll<HTMLElement>("[data-resize]").forEach((handle) => {
   handle.onpointerdown = (e: PointerEvent) => {
     e.preventDefault();
-    handle.classList.add("dragging");
     const side = handle.dataset.resize;
+    // The collapsed rail keeps its width; --left-width stays as it was for the expand.
+    if (side === "left" && S.sidebarCollapsed) return;
+    handle.classList.add("dragging");
     const startX = e.clientX;
     const styles = getComputedStyle(document.documentElement);
     const startLeft = parseInt(styles.getPropertyValue("--left-width")) || 280;
@@ -141,12 +142,26 @@ document.querySelectorAll<HTMLElement>("[data-resize]").forEach((handle) => {
   };
 });
 
+// Crossing the drawer breakpoint moves the tree between its docked column and the off-canvas
+// drawer (styles/responsive.css). That isn't the drawer opening or closing, so it mustn't play the
+// drawer's slide: the docked tree would sweep out across the canvas for a beat.
+matchMedia("(max-width: 1100px)").addEventListener("change", () => {
+  const tree = document.querySelector<HTMLElement>(".tree");
+  if (!tree) return;
+  tree.classList.add("no-slide");
+  void tree.offsetWidth; // commit the move with transitions off
+  tree.classList.remove("no-slide");
+});
+
 // Keyboard shortcuts: a central scope-aware dispatcher (keys.ts) is the single source of truth.
 installKeys();
+installTooltips();
+installBlockers();
+installProgress();
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
-// Update the lightweight state synchronously (so the tree active-row + guide bar repaint
+// Update the lightweight state synchronously (so the tree's active row repaints
 // immediately — the click feels instant), then run the heavier diff render via deferRender,
 // which shows the "Rendering…" indicator only for a cold open of a big file. A step is a file, or
 // one part of a file the guide splits (steps.ts); the Files tree opens files whole (selectFile).
@@ -158,7 +173,6 @@ const selectStep = async ({ fileIndex: i, part }: Step) => {
   S.overviewOpen = false;
   S.view = "code"; // like the Overview, the UI view is an alternate centre a file selection leaves
   S.preview = null;
-  S.diffScrolled = false; // the new file renders at the top (see render.ts) — hide the floating action
   S.fileIndex = i;
   S.stepPart = part;
   S.fileView = defaultFileView(S.state.files[i]);
@@ -232,7 +246,7 @@ S.toggleTestDir = (key) => {
   else S.expandedDirs.add(key);
 };
 S.toggleSkimGroup = toggleSkimGroup;
-// Tree / Walkthrough tab (the tab buttons and `w`): the list it shows may not have been visible
+// Review / Files tab (the tab buttons and `w`): the list it shows may not have been visible
 // when the active file last changed, so scroll it to the active row. A frame late: x-show reveals
 // on a timer queued in Alpine's flush, which the next frame can beat — the list must be laid out
 // before showActiveRow measures it.
@@ -254,29 +268,17 @@ S.setStyle = (style) => {
 S.setFileView = (view) => {
   S.fileView = view;
   D.fileDiff = D.rawFileDiff = null;
-  render();
+  return render();
 };
-// Where a step's sign-off stands, for the floating button and the status icons: finished, else
-// with objections ("changes") or without ("clean"). A whole file (`blocks` null) reads the
-// one-file predicates; a part or Rest step its own blocks (flow-index stepFinished/stepObjections).
+// Where a step's sign-off stands, for the status icons: finished, else with objections
+// ("changes") or without ("clean"). A whole file (`blocks` null) reads the one-file predicates; a
+// part or Rest step its own blocks (flow-index stepFinished/stepObjections).
 function signOffStand(path: string, blocks: ChangeState[] | null) {
   if (!blocks) return fileFinished(path) ? "finished" : fileObjections(path) ? "changes" : "clean";
   const ix = flowIndex();
   if (ix.stepFinished({ path, blocks })) return "finished";
   return ix.stepObjections({ path, blocks }) ? "changes" : "clean";
 }
-// Floating sign-off button (mirrors the header's ⇧A action): shown only once the diff is
-// scrolled past its header, and only for a pending step of a changed file — not the Overview, a
-// preview (unchanged, not approvable), or an already-finished step (which offers Reset, not
-// Approve).
-S.approveFile = () => approveCurrentStep();
-S.fabState = () => {
-  if (S.overviewOpen || S.preview) return null;
-  const path = S.state?.files?.[S.fileIndex]?.path;
-  if (!path) return null;
-  const stand = signOffStand(path, currentSlot()?.blocks ?? null);
-  return stand === "finished" ? null : stand;
-};
 // A double-click's second click would undo the sign-off its first one made. The hint re-reads at
 // once: the pointer is still on the icon, which now does the opposite. A Walkthrough row passes
 // its step's part, so a part's icon signs off (or resets) that part alone.
@@ -317,17 +319,14 @@ S.closeSettings = () => {
 S.hasGuide = hasGuide;
 S.openOverview = () => {
   S.overviewOpen = true;
-  render();
+  // From the App view (its sidebar row or rail icon) the Overview is the code view's page.
+  if (S.view === "ui") void setView("code");
+  else render();
 };
 S.startGuided = () => {
   S.overviewOpen = false;
   S.selectStep?.(firstGuideStep());
 };
-// Top guide-bar getters (the bar is Alpine chrome, reactive on fileIndex/overviewOpen).
-S.showGuideBar = showGuideBar;
-S.guideStale = guideStale;
-S.curGuide = currentGuideEntry;
-S.curFileName = currentFileName;
 // Guided navigation: the Overview is the position before the first step. From it, Next
 // enters the first step and Prev is a no-op; within steps, Prev off the first → Overview.
 S.guideNext = () => {
@@ -353,10 +352,6 @@ S.guidePrev = () => {
   if (p === null) S.openOverview?.();
   else S.selectStep?.(p);
 };
-// The nav buttons dim only when the review is fully signed off (nothing left to wrap to) —
-// while unreviewed work remains, next/prev stay live because they now seek it.
-S.guideAtStart = () => !!S.overviewOpen && !anyUnreviewed();
-S.guideAtLast = () => !S.overviewOpen && nextStep(currentStep()) === null && !anyUnreviewed();
 // Review-order stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else the
 // Files tree's top-to-bottom order (see nextStep).
 S.nextFile = () => {
@@ -391,9 +386,33 @@ S.treeStep = (dir) => {
   if (target.fileIndex !== undefined) S.selectFile?.(target.fileIndex);
   else S.previewFile?.(target.path);
 };
-// The top bar's count of open change requests; a click steps to the next, as `]` does.
-S.openRequests = openRequests;
-S.nextRequest = () => stepOpenRequest(1);
+// The sidebar's Change requests list; a row goes to its request, as `]` / `[` landing on it do.
+S.openRequest = openRequest;
+// The top bar: what is under review, the agent's presence, and whether Send Review is the next
+// step.
+S.deskTitle = () => (S.state ? deskTitle(S.state) : "");
+S.deskSubtitle = () => (S.state ? deskSubtitle(S.state, uiOnly()) : "");
+// Presence and the open change requests walk every comment and the done state builds the flow
+// index, so one effect derives them once per change into the store, rather than every binding
+// re-deriving them. The review is
+// done when every in-flow step is signed off and current (reviewTally), the same count that opens
+// the Send sheet after the last approval, so Send never turns primary short of it. A desk with no
+// files (UI-only) has no code review to complete.
+let shownPresence = S.presence;
+Alpine.effect(() => {
+  const presence = agentPresence({
+    awaitingAgent: S.awaitingAgent,
+    queuedReviews: S.queuedReviews,
+    queuedQuestions: S.queuedQuestions,
+    activity: S.agentActivity,
+    unansweredAsks: unansweredAsks(S.state?.comments ?? [], S.state?.annotations ?? []),
+  });
+  if (presence.kind !== shownPresence.kind || presence.line !== shownPresence.line)
+    S.presence = shownPresence = presence;
+  const tally = reviewTally();
+  S.reviewDone = !!S.state?.files.length && tally.done === tally.total;
+  S.requests = requestRows();
+});
 // Keyboard help overlay + destructive-action confirm dialog (keys.ts owns the dialog state).
 S.helpGroups = helpGroups;
 S.confirmYes = confirmYes;
@@ -581,6 +600,8 @@ S.send = async (overallNote = "") => {
   });
   if (r && r.sent) {
     S.awaitingAgent = true;
+    // The change requests went with it: their held bands go now, not on the next poll.
+    updateAwaitingDom();
     toast("Sent to agent");
   } else toast("Could not send review");
 };
@@ -595,21 +616,25 @@ S.appForward = appForward;
 S.appRefresh = appRefresh;
 S.appGo = appGo;
 S.setViewport = setViewport;
-// Its annotations (uilane.ts): the mode toggle, the page annotation button and the address bar's
-// page pins, the sidebar, the header's open and waiting counts, and the enlarged screenshot.
+// Its annotations (uilane.ts): the mode toggle, the page annotation button, the address bar's page
+// pins and the stage's Unplaced tray, a pin's card, and the enlarged screenshot.
 S.setAppMode = setAppMode;
 S.annotatePage = annotatePage;
 S.pagePins = pagePins;
+S.unplacedPins = unplacedPins;
 S.selectAnnotation = selectAnnotation;
-S.toggleAnnotations = toggleAnnotations;
-S.openChanges = openChanges;
-S.waitingQuestions = waitingQuestions;
 S.closeShot = closeShot;
 S.shotSrc = shotSrc;
 S.shotTitle = shotTitle;
 
 // Alpine: register the reactive store, then start.
 (window as any).Alpine = Alpine;
+// x-keys draws a shortcut as keycaps: the expression's combo, or else the element's own text.
+Alpine.directive("keys", (el, { expression }, { evaluateLater, effect }) => {
+  if (!expression) return renderKeycaps(el, el.textContent ?? "");
+  const combo = evaluateLater<string>(expression);
+  effect(() => combo((c) => renderKeycaps(el, String(c ?? ""))));
+});
 Alpine.store("g", S);
 Alpine.start();
 
@@ -655,14 +680,9 @@ void render().finally(firstRenderDone);
 // Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,
 // so the lane chrome appears at once.
 requestAnimationFrame(() => (S.ready = true));
-// Reveal the floating Approve button once the diff scrolls past its (non-sticky) header. #diff
-// is the persistent scroll container (x-ignore), so this listener is attached once and survives
-// every re-render/file switch.
-$("diff").addEventListener("scroll", () => {
-  S.diffScrolled = $("diff").scrollTop > 140;
-});
-// A resize reflows line heights (and wrap), so the cursor's cached row measurements no longer
-// hold — drop the cache so the next navigation re-measures. (Scroll doesn't: the cached tops are
-// content-relative, so scrolling leaves the row list unchanged — see cursor.ts.)
-window.addEventListener("resize", invalidateCursorRows);
+// A resize of the diff — the window's, or a sidebar drag's — reflows line heights (and wrap), so
+// the cursor's cached row measurements no longer hold: drop the cache so the next navigation
+// re-measures. (Scroll doesn't: the cached tops are content-relative, so scrolling leaves the row
+// list unchanged — see cursor.ts.)
+new ResizeObserver(invalidateCursorRows).observe($("diff"));
 setInterval(pollState, 1500);

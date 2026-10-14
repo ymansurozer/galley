@@ -1,0 +1,313 @@
+/* Skim (issue 06): a muted, low-attention treatment — the opposite of the orange flag.
+   skim LOWERS scrutiny, so it reads gray, never as a state shout. */
+.ic.skim {
+  color: var(--ink-2);
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+
+/* Fully-skimmed group (issue 07): a quiet collapsed row at the bottom of the tree/walkthrough
+   gathering files that left the flow. Reads like the walk-cat header — muted, never a shout. */
+.node.skimgrp {
+  color: var(--ink-3);
+}
+
+.node.skimgrp .skimgrp-name {
+  color: var(--ink-2);
+}
+
+.node.skimgrp .skimgrp-count,
+.node.walk-skim .walk-skim-count {
+  margin-left: auto;
+  font-size: var(--text-2xs);
+  color: var(--ink-3);
+}
+
+.node.walk-skim .chev {
+  width: 12px;
+}
+
+/* Block collapse/expand strip — a diff annotation standing in for a skimmed change block. */
+.annotation.skim-strip {
+  min-height: 0;
+}
+
+.skim-strip .skim-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px;
+  font-family: var(--sans);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  background: var(--fill);
+  border: 0;
+  border-top: 1px solid var(--sep);
+  border-bottom: 1px solid var(--sep);
+  cursor: pointer;
+  text-align: left;
+}
+
+.skim-strip .skim-toggle:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.skim-strip .skim-caret {
+  flex: 0 0 auto;
+  width: 1em;
+}
+
+.skim-strip .skim-label {
+  flex: 1 1 auto;
+}
+
+.skim-strip .skim-action {
+  opacity: 0.75;
+}
+
+/* File-level collapse card: the whole diff folds behind one expandable strip. */
+.file-skim {
+  padding: 12px;
+}
+
+.file-skim-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  font-family: var(--sans);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  background: repeating-linear-gradient(-45deg, transparent 0 5px, var(--fill) 5px 6px);
+  border: 0;
+  border-radius: var(--radius-lg);
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+  cursor: pointer;
+  text-align: left;
+}
+
+.file-skim-strip:hover {
+  background-color: var(--fill);
+  color: var(--ink);
+}
+
+.file-skim-strip .file-skim-name {
+  font-family: var(--mono);
+  color: var(--ink);
+}
+
+.file-skim-strip .file-skim-meta {
+  flex: 1 1 auto;
+}
+
+.file-skim-strip .file-skim-expand {
+  color: var(--blue-ink);
+}
+
+/* Pure-rename row: a static note (identical content, nothing to expand), not a toggle. */
+.file-skim-strip.moved {
+  cursor: default;
+}
+
+.file-skim-strip.moved:hover {
+  background-color: transparent;
+  color: var(--ink-2);
+}
+
+.file-skim-strip.moved .ic {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--orange);
+}
+
+/* Oversized-file placeholder (issue 05): a verdict-capable summary shown instead of a diff
+   that would freeze the tab. Reuses the panel / churn-count / flag idioms so it reads as
+   native; the change-kind accent (--ct-color) mirrors the diff header's ctColor language and
+   colors the kind badge/icon only — a uniform border like the overview card, no left accent
+   (reviewer preference). */
+.oversized-card {
+  --ct-color: var(--ink-2);
+  max-width: 620px;
+  margin: 40px auto;
+  padding: 20px 22px;
+  background: var(--raised);
+  border: 0;
+  border-radius: var(--radius-xl);
+  box-shadow: 0 0 0 0.5px var(--sep-strong);
+  font-family: var(--sans);
+}
+
+.oversized-card.ct-new {
+  --ct-color: var(--green);
+}
+
+.oversized-card.ct-modified {
+  --ct-color: var(--blue);
+}
+
+.oversized-card.ct-deleted {
+  --ct-color: var(--red);
+}
+
+.oversized-card.ct-renamed {
+  --ct-color: var(--orange);
+}
+
+.oversized-card .ovsz-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.oversized-card .ovsz-icon {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  color: var(--ct-color);
+}
+
+.oversized-card .ovsz-path {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: var(--text-md);
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.oversized-card .ovsz-moved {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  color: var(--orange-ink);
+}
+
+.oversized-card .ovsz-moved .ic {
+  width: 11px;
+  height: 11px;
+}
+
+.oversized-card .ovsz-kind {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ct-color);
+}
+
+.oversized-card .ovsz-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.oversized-card .ovsz-size {
+  font-family: var(--mono);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.oversized-card .ovsz-counts {
+  display: inline-flex;
+  gap: var(--churn-gap);
+  font-family: var(--mono);
+  font-size: var(--text-md);
+}
+
+.oversized-card .ovsz-counts .a {
+  color: var(--green-ink);
+}
+
+.oversized-card .ovsz-counts .d {
+  color: var(--red-ink);
+}
+
+.oversized-card .ovsz-note {
+  margin: 10px 0 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.oversized-card .ovsz-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--sep);
+}
+
+/* The card's buttons: neutral push buttons, Reject in the destructive ink. The sign-off is the
+   file bar's. */
+.oversized-card .ovsz-btn,
+.oversized-card .ovsz-load {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 11px;
+  border: 0;
+  background: var(--raised);
+  box-shadow: var(--shadow-control);
+  color: var(--ink);
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.oversized-card .ovsz-btn:hover,
+.oversized-card .ovsz-load:hover {
+  background-color: var(--raised-hover);
+}
+
+.oversized-card .ovsz-btn:active,
+.oversized-card .ovsz-load:active {
+  background-color: var(--raised-pressed);
+}
+
+.oversized-card .ovsz-btn.danger {
+  color: var(--red-ink);
+}
+
+.oversized-card .ovsz-load {
+  margin-left: auto;
+  padding-right: 7px;
+}
+
+/* "← old path" arrow on a pure-rename row in the Skimmed tree/walkthrough group. */
+.node .moved-from {
+  margin-left: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-2xs);
+  color: var(--ink-3);
+}
+
+/* A split file's Review rows: the part's title after the file's name, and "Rest of" before it for
+   the changes no part claims. Muted, so the name still leads the row. */
+.node .walk-part {
+  min-width: 0;
+  margin-left: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.node .walk-rest {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  color: var(--ink-2);
+}

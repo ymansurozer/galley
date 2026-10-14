@@ -1,0 +1,202 @@
+/* ── The open file's bar (filebar.ts) ──
+   Pinned to the top of #diff while the view scrolls under it: path, moved-from, view toggles,
+   open in editor, +/−, then the file's actions. Scoped under #diff to outrank its code-sized
+   `#diff > *` text. */
+#diff > .file-bar {
+  position: sticky;
+  top: 0;
+  /* Above @pierre's rows (its own layers stop at z-index 4), below the ruler and the Rendering
+     cover. */
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--subbar-h);
+  padding: 6px 16px;
+  box-sizing: border-box;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--sep);
+  font-family: var(--sans);
+  font-size: var(--text-sm);
+  line-height: normal;
+}
+
+/* Folder muted, filename in ink. The folder shrinks first (min-width 0, a heavy shrink weight)
+   and loses its start (it's laid out right-to-left; <bdi> keeps the path itself left-to-right),
+   so the filename stays whole until there's no room even for it. */
+.file-bar .fb-path {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.file-bar .fb-dir {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  color: var(--ink-3);
+}
+
+.file-bar .fb-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* The part of a split file a step shows (or "Rest"), beside the path: ink-2, so the path leads
+   and the part still reads as what's on screen. */
+.file-bar .fb-part {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+/* "moved from <old>" beside a renamed file's new path (git -M). */
+.file-bar .fb-moved {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+.file-bar .seg {
+  margin-left: 4px;
+}
+
+.file-bar .fb-open {
+  flex: 0 0 auto;
+  width: 24px;
+}
+
+.file-bar .fb-open .ic {
+  width: 13px;
+  height: 13px;
+}
+
+.file-bar .fb-grow {
+  flex: 1 1 0;
+}
+
+.file-bar .fb-counts {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: var(--churn-gap);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.file-bar .fb-counts .a {
+  color: var(--green-ink);
+}
+
+.file-bar .fb-counts .d {
+  color: var(--red-ink);
+}
+
+/* A hairline between the file's facts and what you can do with it. */
+.file-bar .fb-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--sep);
+}
+
+.file-bar .fb-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A finished file's state: quiet ink, no ground — it reports, it isn't a button. */
+.file-bar .fb-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.file-bar .fb-state .ic {
+  width: 13px;
+  height: 13px;
+}
+
+.file-bar .fb-state.ok {
+  color: var(--green-ink);
+}
+
+.file-bar .fb-state.warn {
+  color: var(--orange-ink);
+}
+
+/* A preview's "Unchanged": a hairline tag, not a state. */
+.file-bar .fb-tag {
+  flex: 0 0 auto;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 20px;
+}
+
+/* Phone widths: the actions take a line of their own under the path, right-aligned. The path
+   keeps a few characters so the toggles wrap before it disappears. */
+@media (max-width: 760px) {
+  #diff > .file-bar {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 6px 12px;
+  }
+
+  .file-bar .fb-path {
+    min-width: 7em;
+  }
+
+  .file-bar .fb-sep {
+    display: none;
+  }
+
+  .file-bar .fb-actions {
+    flex: 1 0 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* ── The lost threads, read before the diff ──
+   Under the bar and the guide card, scrolling with the code. */
+#diff > .file-lead {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--sep);
+  font-family: var(--sans);
+  font-size: var(--text-sm);
+  line-height: normal;
+}

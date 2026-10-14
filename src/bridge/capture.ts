@@ -1,6 +1,6 @@
 import { domToCanvas } from "modern-screenshot";
 import type { BridgeShot, Rect } from "../types";
-import { atRenderScroll, cropFrame, markShape, unionRect } from "./crop";
+import { PIN, atRenderScroll, cropFrame, markShape, pinBox, unionRect } from "./crop";
 import { CAPS } from "./describe";
 import type { Located } from "./refind";
 
@@ -65,9 +65,15 @@ export async function capturePage(
   });
   const move = (b: Rect): Rect => ({ ...b, x: b.x + moved.x, y: b.y + moved.y });
   const boxes = target && ([move(target.boxes[0]), ...target.boxes.slice(1).map(move)] as const);
-  const frame = boxes && cropFrame(unionRect(boxes), view, dpr);
-  if (mark && frame && target && boxes)
-    drawMark(canvas, markShape(target.kind, boxes, view), dpr, mark);
+  const shape = mark && target && boxes ? markShape(target.kind, boxes, view, mark.number) : null;
+  // The crop is there only while the target is on screen; then it holds the drawn pin whole too,
+  // since a wide number on a small target would otherwise run past the padding.
+  const onScreen = boxes && cropFrame(unionRect(boxes), view, dpr);
+  const frame =
+    onScreen && boxes && shape && mark
+      ? cropFrame(unionRect([...boxes, pinBox(shape.pin, mark.number)]), view, dpr)
+      : onScreen;
+  if (mark && frame && shape) drawMark(canvas, shape, dpr, mark);
   const [viewport, crop] = await Promise.all([
     toPng(canvas),
     frame ? toPng(cut(canvas, frame)) : null,
@@ -142,8 +148,8 @@ function formFields() {
 }
 
 // The annotation's mark as the page draws a selected one (annotate.ts): outlines around the
-// elements, the region's dashed box or the quote's highlight, and the numbered pin in a white ring
-// with a soft shadow, amber for a change request and cyan for a question.
+// elements, the region's dashed box or the quote's highlight, amber for a change request and cyan
+// for a question, and its pin, the page's speech bubble.
 const MARK = { change: "#e0af68", question: "#00a8ff" };
 
 function drawMark(
@@ -179,32 +185,32 @@ function drawMark(
     ctx.globalAlpha = 1;
   }
   ctx.setLineDash([]);
+  // The bubble: 8 px in, a 12 px glyph, 4 px, the number, 8 px out; its tail 2 px off the corner.
+  const kind = question ? PIN.question : PIN.change;
   const label = String(number);
-  ctx.font = "700 11px Geist, ui-sans-serif, system-ui, sans-serif";
-  const width = Math.max(20, ctx.measureText(label).width + 10);
-  const pill = (grow: number) => {
-    ctx.beginPath();
-    ctx.roundRect(
-      pin.x - width / 2 - grow,
-      pin.y - 10 - grow,
-      width + 2 * grow,
-      20 + 2 * grow,
-      10 + grow,
-    );
-    ctx.fill();
-  };
-  ctx.shadowColor = "rgba(0, 0, 0, .35)";
-  ctx.shadowBlur = 8;
+  ctx.font = "700 12px Geist, ui-sans-serif, system-ui, sans-serif";
+  const width = Math.max(30, 8 + 12 + 4 + ctx.measureText(label).width + 8);
+  const left = pin.x - 2;
+  const top = pin.y - 2 - PIN.height;
+  ctx.beginPath();
+  ctx.roundRect(left, top, width, PIN.height, PIN.radii);
+  ctx.shadowColor = "rgba(0, 0, 0, .25)";
+  ctx.shadowBlur = 5;
   ctx.shadowOffsetY = 2;
-  ctx.fillStyle = "#fff";
-  pill(2);
+  ctx.fillStyle = kind.color;
+  ctx.fill();
   ctx.shadowColor = "transparent";
-  ctx.fillStyle = color;
-  pill(0);
-  ctx.fillStyle = "#050608";
-  ctx.textAlign = "center";
+  ctx.save();
+  ctx.translate(left + 8, top + 6);
+  ctx.scale(0.5, 0.5); // the glyph's 24-unit grid at 12 px
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2.4;
+  ctx.lineCap = ctx.lineJoin = "round";
+  ctx.stroke(new Path2D(kind.glyph));
+  ctx.restore();
+  ctx.fillStyle = "#fff";
   ctx.textBaseline = "middle";
-  ctx.fillText(label, pin.x, pin.y + 0.5);
+  ctx.fillText(label, left + 24, top + PIN.height / 2 + 0.5);
   ctx.restore();
 }
 

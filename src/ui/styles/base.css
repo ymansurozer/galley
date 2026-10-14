@@ -1,0 +1,95 @@
+/* Code is always monospace, wherever it appears in the chrome (inline code, fenced blocks).
+   The @pierre diff uses its own --diffs-font-family (set from the Code font in applyAppearance). */
+code,
+pre {
+  font-family: var(--mono);
+}
+
+/* Base size for sprite icons (<svg class="ic"><use href="#gly-…">). currentColor is inherited;
+   .tree-scoped rules below refine size/color per context. vertical-align tucks inline icons
+   (in labels, callouts) onto the text baseline. */
+svg.ic {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  vertical-align: -0.15em;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Overlay-style scrollbars: a thin rounded thumb in the ink's own tint, no track. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink) 22%, transparent) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--ink) 36%, transparent);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--blue) 30%, transparent);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Keyboard focus: the system's soft blue ring, on anything reached by Tab. */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--blue) 60%, transparent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

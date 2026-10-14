@@ -15,6 +15,8 @@ const ICON_MAP = {
   "gly-file": "lucide:file",
   "gly-check": "lucide:circle-check",
   "gly-flag": "lucide:flag",
+  // A question: the app pins' message bubble.
+  "gly-message": "lucide:message-circle",
   "gly-collapse-all": "lucide:chevrons-up",
   "gly-expand-all": "lucide:chevrons-down",
   // Chrome buttons + markers (were unicode/emoji).
@@ -24,6 +26,8 @@ const ICON_MAP = {
   "gly-arrow-right": "lucide:arrow-right",
   "gly-warn": "lucide:triangle-alert",
   "gly-open-editor": "lucide:square-arrow-out-up-right",
+  // The guide card's mark.
+  "gly-book": "lucide:book-open",
   // Walkthrough per-file status trio (gly-check doubles as the approved state).
   "gly-circle": "lucide:circle",
   "gly-circle-alert": "lucide:circle-alert",
@@ -35,13 +39,13 @@ const ICON_MAP = {
   "gly-tablet": "lucide:tablet",
   "gly-mobile": "lucide:smartphone",
   "gly-fit": "lucide:scan",
-  // UI lane: the Interact / Annotate mode toggle and the annotation sidebar's collapse / expand.
+  // UI lane: the Interact / Annotate mode toggle.
   "gly-pointer": "lucide:mouse-pointer-2",
-  "gly-annotate": "lucide:message-square-plus",
+  "gly-annotate": "lucide:pin",
   // UI lane: the chrome bar's page-annotation button.
   "gly-page-note": "lucide:sticky-note",
-  "gly-panel-close": "lucide:panel-right-close",
-  "gly-panel-open": "lucide:panel-right-open",
+  // The sidebar's collapse / expand button.
+  "gly-sidebar": "lucide:panel-left",
 };
 
 // Hand-drawn glyphs with no good library equivalent (status primitives). 24-unit viewBox to

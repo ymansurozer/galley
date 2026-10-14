@@ -1,0 +1,270 @@
+import { S, $ } from "./store";
+import { currentFile } from "./changes";
+import { currentFileParts, currentGuideEntry, guideStale } from "./guide";
+import { renderMarkdown } from "./markdown";
+import { syncFileBarHeight } from "./filebar";
+import type { GuideFile } from "./types";
+
+// ── The guide card ───────────────────────────────────────────────────────────
+// The guide's note on the step on screen: one card under the file bar, in the flow, for any view
+// of a file or part the guide has an entry for. Once it scrolls up under the bar it comes back
+// pinned as one line inside the bar (the start of the orientation · chevron), and a click on it
+// opens the full note over the code. A stale guide says so inside the card. A split file's Rest,
+// or the file opened whole, has no entry of its own: its card says what the view holds instead.
+
+const STALE =
+  "Guide generated for an earlier diff — regenerate and restart with --guide to refresh";
+
+function el(tag: string, className: string, text?: string): HTMLElement {
+  const e = document.createElement(tag);
+  e.className = className;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function bookIcon(): HTMLElement {
+  const tile = el("span", "gc-icon");
+  tile.innerHTML = `<svg class="ic"><use href="#gly-book"></use></svg>`;
+  return tile;
+}
+
+// "⇈ skimmed" when the guide skims the whole file, else null.
+function skimMark(entry: GuideFile): HTMLElement | null {
+  if (!entry.skim) return null;
+  const mark = el("span", "gc-skim-mark");
+  mark.innerHTML = `<svg class="ic"><use href="#gly-collapse-all"></use></svg>`;
+  mark.append("skimmed");
+  return mark;
+}
+
+// "Guide", then the skim mark. No category: the sidebar's Review list already files the file under
+// it, and a flagged file's amber is the flag line's own.
+function heading(entry: GuideFile): HTMLElement {
+  const h = el("span", "gc-head", "Guide");
+  const mark = skimMark(entry);
+  if (mark) h.appendChild(mark);
+  return h;
+}
+
+// A skimmed entry's reason, in the orientation's place when the guide gives none. The heading's
+// mark already says "skimmed" when it shows.
+function skimText(entry: GuideFile): string {
+  const reason = entry.skimReason ?? "";
+  return entry.skim ? reason : `skimmed · ${reason}`;
+}
+
+// The full note: orientation (or the skim reason a whole-file skim may give instead), the flag,
+// and the stale line. The prose renders as markdown (renderMarkdown sanitizes): it's the main
+// reading of a guided review, so the identifiers and lists the agent writes survive.
+function fullBody(entry: GuideFile): HTMLElement {
+  const body = el("div", "gc-body");
+  body.appendChild(heading(entry));
+  if (entry.orientation) {
+    const o = el("div", "gc-orient md");
+    o.innerHTML = renderMarkdown(entry.orientation);
+    body.appendChild(o);
+  } else if (entry.skimReason) body.appendChild(el("div", "gc-skim", skimText(entry)));
+  if (entry.flag) {
+    const f = el("div", "gc-flag");
+    f.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><div class="md">${renderMarkdown(entry.flag)}</div>`;
+    body.appendChild(f);
+  }
+  if (guideStale()) {
+    const s = el("div", "gc-stale");
+    s.append(el("span", "gc-stale-dot"), STALE);
+    body.appendChild(s);
+  }
+  return body;
+}
+
+// What the card says for the step on screen: the guide's entry for it (a part's own, an unsplit
+// file's), else, for a split file's Rest or the file opened whole, one muted line saying what the
+// view holds. No single part speaks for those, so the line never reads as the agent's guidance.
+// Null for a preview (an unchanged file isn't in the guide) or a file the guide doesn't list.
+type StepNote = { entry: GuideFile } | { line: string };
+function stepNote(): StepNote | null {
+  if (S.preview) return null;
+  const entry = currentGuideEntry();
+  if (entry) return { entry };
+  const name = currentFile()?.path.split("/").pop() ?? "";
+  if (S.stepPart === "rest")
+    return { line: `Rest of ${name}: the changes no part of the guide covers.` };
+  const parts = currentFileParts();
+  if (!parts.length) return null;
+  return {
+    line: `Split into ${parts.length} part${parts.length === 1 ? "" : "s"}: ${parts.join(" · ")}`,
+  };
+}
+
+// A Rest's or a whole split file's card: "Guide", the line, and the stale line.
+function lineBody(line: string): HTMLElement {
+  const body = el("div", "gc-body");
+  body.append(el("span", "gc-head", "Guide"), el("div", "gc-note", line));
+  if (guideStale()) {
+    const s = el("div", "gc-stale");
+    s.append(el("span", "gc-stale-dot"), STALE);
+    body.appendChild(s);
+  }
+  return body;
+}
+
+// The card in the flow, for render() to mount under the bar. Null when the step has nothing to say
+// (see stepNote).
+export function guideCard(): HTMLElement | null {
+  const note = stepNote();
+  if (!note) return null;
+  const card = el("section", "guide-card");
+  // Chrome with the file bar it pins under, so the appearance's (tokens.css), not the code's.
+  card.dataset.scheme = "chrome";
+  card.append(bookIcon(), "entry" in note ? fullBody(note.entry) : lineBody(note.line));
+  return card;
+}
+
+// ── Pinned ──
+// The one-line card lives inside the file bar (absolutely placed under it, so the bar's own layout
+// never moves) and shows while it carries .pinned. An IntersectionObserver on the in-flow card
+// sets that: no scroll listener, no layout reads per scroll. While pinned, the line's height
+// counts in --file-bar-h (filebar.ts), so jumps land below everything pinned.
+
+let mini: HTMLElement | null = null;
+let pinned = false;
+let open = false;
+let shownFor = "";
+// What the pinned line was last built from: a render that changes none of it (a poll, a decision,
+// a comment) keeps the line as it is, an open note's scroll and focus included.
+let builtFrom = "";
+let io: IntersectionObserver | null = null;
+let tracked: HTMLElement | null = null;
+
+const fileBar = () => $("diff").querySelector<HTMLElement>(":scope > .file-bar");
+
+// The pinned line's element, persistent so the bar's ResizeObserver can watch its height.
+export function guideMiniElement(): HTMLElement {
+  if (!mini) mini = el("div", "guide-mini");
+  return mini;
+}
+
+// Fill the pinned line for the step on screen and return it for the bar to carry, or null when the
+// step has no card. A different step starts closed and unpinned; the observer re-reports the new
+// card. The line is the book tile, the start of the orientation (or of a Rest's or a whole split
+// file's note) clipped at about half the bar, and the chevron. Anywhere on it opens the full note,
+// where the flag, the skim mark and the stale line wait: the line turns into the card's header row
+// (tile, "Guide", the skim mark) and the rest of the card drops below it.
+export function guideMini(): HTMLElement | null {
+  const note = stepNote();
+  const step = `${currentFile()?.path ?? ""}\n${S.preview ? "" : (S.stepPart ?? "")}`;
+  if (step !== shownFor) {
+    shownFor = step;
+    setOpen(false);
+    setPinned(false);
+  }
+  if (!note) return null;
+  const m = guideMiniElement();
+  const from = JSON.stringify([step, note, guideStale()]);
+  if (from === builtFrom && m.firstChild) return m;
+  builtFrom = from;
+  const line = el("div", "gm-line");
+  line.onclick = () => setOpen(!open);
+  const orient = el("span", "gm-orient");
+  if (!("entry" in note)) {
+    orient.classList.add("note");
+    orient.textContent = note.line;
+  } else if (note.entry.orientation) {
+    orient.classList.add("md");
+    orient.innerHTML = renderMarkdown(note.entry.orientation);
+  } else if (note.entry.skimReason) {
+    orient.classList.add("skim");
+    orient.textContent = `skimmed · ${note.entry.skimReason}`;
+  }
+  const chev = document.createElement("button");
+  chev.className = "btn icon sm gm-toggle";
+  chev.setAttribute("aria-label", "Show the full guide note");
+  chev.setAttribute("aria-expanded", String(open));
+  chev.dataset.tip = "Guide note";
+  chev.innerHTML = `<svg class="ic"><use href="#gly-chevron"></use></svg>`;
+  chev.onclick = (e) => {
+    e.stopPropagation(); // the line's own click would toggle it straight back
+    setOpen(!open);
+  };
+  // The card's own heading, shown once the note opens in the clipped orientation's place, so the
+  // open note reads as the card itself floating over the code.
+  const head = "entry" in note ? heading(note.entry) : el("span", "gc-head", "Guide");
+  head.classList.add("gm-head");
+  line.append(bookIcon(), head, orient, chev);
+  const full = el("div", "gm-full");
+  full.appendChild("entry" in note ? fullBody(note.entry) : lineBody(note.line));
+  m.replaceChildren(line, full);
+  return m;
+}
+
+// Replay the entrance on `target`: only on a pin or an open, never on a render.
+function enter(target: Element | null | undefined) {
+  if (!target) return;
+  target.classList.remove("entering");
+  void (target as HTMLElement).offsetWidth; // restart the animation
+  target.classList.add("entering");
+  target.addEventListener("animationend", () => target.classList.remove("entering"), {
+    once: true,
+  });
+}
+
+function setPinned(p: boolean) {
+  if (p === pinned) return;
+  pinned = p;
+  mini?.classList.toggle("pinned", p);
+  if (p) enter(mini);
+  // Back at the top the card is in view again, so an expanded copy has nothing to add.
+  if (!p) setOpen(false);
+  syncFileBarHeight();
+}
+
+// A click anywhere but the expanded card (or its chevron) closes it.
+function outside(e: MouseEvent) {
+  if (!mini?.contains(e.target as Node)) setOpen(false);
+}
+
+function setOpen(o: boolean) {
+  if (o === open) return;
+  open = o;
+  mini?.classList.toggle("open", o);
+  if (o) enter(mini?.querySelector(".gm-full"));
+  mini?.querySelector(".gm-toggle")?.setAttribute("aria-expanded", String(o));
+  if (o) document.addEventListener("click", outside, true);
+  else document.removeEventListener("click", outside, true);
+}
+
+// Esc's layer for the expanded card (keys.ts). False when it isn't open.
+export function closeGuideCard(): boolean {
+  // The App view hides it: Esc there belongs to the app's own layers.
+  if (!open || S.view !== "code") return false;
+  setOpen(false);
+  return true;
+}
+
+// Watch the mounted card (null: none on screen). The root margin trims the bar's height off the
+// top of #diff, so the card counts as gone once it has slid entirely under the bar; a card below
+// the view (never, at the top of a file) or one that left the page doesn't pin.
+export function trackGuideCard(card: HTMLElement | null) {
+  io?.disconnect();
+  io = null;
+  tracked = card;
+  if (!card) {
+    setPinned(false);
+    return;
+  }
+  const barH = fileBar()?.offsetHeight ?? 0;
+  io = new IntersectionObserver(
+    (entries) => {
+      const e = entries.at(-1);
+      if (!e?.rootBounds || !e.target.isConnected) return;
+      setPinned(!e.isIntersecting && e.boundingClientRect.bottom <= e.rootBounds.top + 0.5);
+    },
+    { root: $("diff"), rootMargin: `-${barH}px 0px 0px 0px` },
+  );
+  io.observe(card);
+}
+
+// The bar changed height (a wrap at narrow widths, a font change): re-watch with the new margin.
+export function retrackGuideCard() {
+  if (tracked?.isConnected) trackGuideCard(tracked);
+}

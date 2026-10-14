@@ -198,7 +198,7 @@ export type WalkRow =
       complete: boolean;
       jump: Step; // the step a header click opens (first pending in the group, else its first)
     }
-  | (WalkFile & { kind: "file"; key: string; cls: string; style: string });
+  | (WalkFile & { kind: "file"; key: string; cls: string });
 
 export function walkRows(
   groups: WalkGroup[],
@@ -238,7 +238,6 @@ export function walkRows(
         kind: "file",
         key: walkKey(f.path, f.part),
         cls: f.path === activePath ? "active" : "",
-        style: "--depth:1",
       });
   });
   return rows;

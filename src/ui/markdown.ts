@@ -15,7 +15,7 @@ import type { ThreadMessage } from "./types";
 // The curated Shiki theme + language set is shared with the diff view (@pierre/diffs, via
 // shiki-shim.ts) so one language set styles both surfaces — see shiki-curated.ts. The JS regex
 // engine (below) avoids an oniguruma wasm, and the theme names match the settings picker.
-import { CURATED_LANGS as LANGS, CURATED_THEMES as THEMES } from "./shiki-curated";
+import { CURATED_LANGS as LANGS, CURATED_THEMES as THEMES, codeScheme } from "./shiki-curated";
 
 // One markdown renderer for both comment bodies (#17) and markdown files (#21).
 // markdown-it gives exact per-block source lines (token.map) — see sourceLine below —
@@ -27,6 +27,8 @@ let md: MarkdownIt | null = null;
 // renders as a line break (people write comments as chat, not markdown source). File/guide
 // markdown keeps the standard soft-break behavior via `md`, so hard-wrapped prose isn't shredded.
 let mdComment: MarkdownIt | null = null;
+// The same, for comments drawn among the code: their fences follow the code theme's scheme.
+let mdCommentCode: MarkdownIt | null = null;
 let hl: Awaited<ReturnType<typeof createHighlighterCore>> | null = null;
 // Comment bodies re-render on every poll tick, and each edit mints a fresh id:updatedAt key —
 // so the cache would grow without bound (an orphaned entry per edit) if left uncapped. An LRU
@@ -57,11 +59,23 @@ function buildMd(theme: string, breaks = false): MarkdownIt {
     .use(sourceLine);
 }
 
-// Diff-only themes (e.g. pierre-dark) aren't Shiki bundles → render comment code in the
-// GitHub theme matching the chrome appearance (applyAppearance sets <html data-theme>).
-function resolveTheme(want: string): string {
+// Diff-only themes (e.g. pierre-dark) aren't Shiki bundles → render fences in the GitHub theme of
+// the scheme they land on: the appearance's on chrome and pages (applyAppearance sets <html
+// data-theme>), the code theme's own among the code, so a fence reads like what's around it.
+function resolveTheme(want: string, scheme: "dark" | "light"): string {
   if (THEMES[want]) return want;
-  return document.documentElement.dataset.theme === "light" ? "github-light" : "github-dark";
+  return scheme === "light" ? "github-light" : "github-dark";
+}
+
+function buildRenderers(name: string) {
+  const chrome = resolveTheme(
+    name,
+    document.documentElement.dataset.theme === "light" ? "light" : "dark",
+  );
+  const code = resolveTheme(name, codeScheme(name));
+  md = buildMd(chrome);
+  mdComment = buildMd(chrome, true);
+  mdCommentCode = code === chrome ? mdComment : buildMd(code, true);
 }
 
 // All curated themes preload into one highlighter, so switching is instant.
@@ -71,9 +85,7 @@ void (async () => {
     langs: LANGS as never,
     engine: createJavaScriptRegexEngine(),
   });
-  const theme = resolveTheme(loadSettings().theme);
-  md = buildMd(theme);
-  mdComment = buildMd(theme, true);
+  buildRenderers(loadSettings().theme);
   if (S.state) render();
 })();
 
@@ -81,9 +93,7 @@ void (async () => {
 // the caller re-renders. @pierre/diffs handles the diff side with the same theme name.
 export function setMarkdownTheme(name: string) {
   if (!hl) return;
-  const theme = resolveTheme(name);
-  md = buildMd(theme);
-  mdComment = buildMd(theme, true);
+  buildRenderers(name);
   cache.clear();
 }
 
@@ -101,17 +111,23 @@ export function renderMarkdownInline(text: string): string {
   return DOMPurify.sanitize(md.renderInline(text || ""));
 }
 
-// Comment body → sanitized HTML, cached by id+updatedAt (so an edit re-renders).
-export function renderCommentBody(c: ThreadMessage): string {
-  const key = `${c.id}:${c.updatedAt}`;
+// Where a comment renders: among the code (the diff and its unanchored block), or on the chrome
+// and pages (the rendered markdown view, the App view's cards). Its fences follow that surface's
+// scheme, which differs only under a diff-only code theme.
+export type CommentSurface = "code" | "chrome";
+
+// Comment body → sanitized HTML, cached by id+updatedAt (so an edit re-renders) and surface.
+export function renderCommentBody(c: ThreadMessage, surface: CommentSurface): string {
+  const key = `${c.id}:${c.updatedAt}:${surface}`;
   const cached = cache.get(key);
   if (cached !== undefined) {
     cache.delete(key); // re-insert → most-recently-used
     cache.set(key, cached);
     return cached;
   }
-  if (!mdComment) return `<p>${esc(c.body)}</p>`; // not ready yet — don't cache the fallback
-  const html = DOMPurify.sanitize(mdComment.render(c.body || ""));
+  const renderer = surface === "code" ? mdCommentCode : mdComment;
+  if (!renderer) return `<p>${esc(c.body)}</p>`; // not ready yet — don't cache the fallback
+  const html = DOMPurify.sanitize(renderer.render(c.body || ""));
   cache.set(key, html);
   while (cache.size > COMMENT_CACHE_CAP) {
     const oldest = cache.keys().next().value;

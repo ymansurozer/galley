@@ -1,0 +1,624 @@
+.app {
+  height: 100%;
+  display: grid;
+  /* Tall enough that the topbar buttons keep clear air above the progress strip riding
+     the bar's bottom edge. */
+  grid-template-rows: 48px 1fr;
+}
+
+/* ── Top bar: what is under review and the hand-back ──
+   [title] · [Code | App, centred on the bar] · [the agent's presence and the actions]. The side
+   columns share what's left equally, so the switch sits on the bar's centre; when the actions need
+   more than half, their column grows to them and the title gives way (it truncates). The controls
+   never wrap. The bar compacts by its own width (the @container rules below), not the window's:
+   beside a full-height sidebar it covers only the canvas, which a wide sidebar narrows. */
+.top {
+  position: relative;
+  /* Over .main, which a narrow bar's floating progress tag overlaps; under the dialogs (20), the
+     toasts (25) and the drawer (30). */
+  z-index: 10;
+  container: topbar / inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
+  column-gap: 12px;
+  align-items: center;
+  padding: 0 12px 0 14px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--sep);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/* Review progress: a 3px gauge along the bar's bottom edge, over its border. A visible track, the
+   fill, and the ⇧A tail ahead of it, which shows what approving the open file would add. It sits
+   still and moves only when a sign-off does: the fill glides, and a rise swells the bar for a
+   beat. progress.ts drives it. */
+.top-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  background: var(--fill-2);
+  transition: height 0.15s var(--ease);
+}
+
+/* A taller reach for the hover tag than the 3px it draws. */
+.top-progress::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 9px;
+}
+
+.top-progress:hover {
+  height: 5px;
+}
+
+.top-progress.swell {
+  height: 6px;
+}
+
+.top-progress > i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  border-radius: 0 2px 2px 0;
+}
+
+.top-progress > .fill {
+  background: var(--green);
+  transition: width 0.6s var(--ease);
+}
+
+.top-progress > .tail {
+  background: color-mix(in srgb, var(--green) 30%, transparent);
+  transition:
+    left 0.6s var(--ease),
+    width 0.4s var(--ease);
+}
+
+.top.done .top-progress > .fill {
+  border-radius: 0;
+}
+
+/* The branch (or file) under review over "project · mode". Both truncate; their tooltips carry
+   the full text. */
+.top-title {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.top-name {
+  min-width: 0;
+}
+
+.top-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.top-name-row > b,
+.top-name > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-name-row > b {
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 17px;
+}
+
+.top-name > span {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 14px;
+}
+
+/* The progress tag. There's no resting percentage, so it speaks only when asked (hover the bar or
+   the title: "N% · a/b files · x/y lines"), then fades. It floats just under the bar, at the bar's
+   start (the canvas's left edge, past the sidebar), over the content without moving it, and it
+   never takes the pointer from what's under it. progress.ts fills it. */
+.top-tag {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 8px;
+  display: none;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: var(--shadow-float);
+  height: 18px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(var(--fill-2), var(--fill-2)) var(--canvas);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 18px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.top-tag.show {
+  display: block;
+  animation: tag-in 0.3s var(--spring);
+}
+
+.top-tag.out {
+  animation: tag-out 0.2s var(--ease) forwards;
+}
+
+.top-tag > b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+@keyframes tag-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.96);
+  }
+}
+
+@keyframes tag-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* The brand lives at the sidebar's top; a desk showing no sidebar (one file, file mode, a UI-only
+   desk) keeps the logo here. */
+.top-logo {
+  display: none;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+body.single .top-logo,
+body.file-mode .top-logo,
+.app.ui-only .top-logo {
+  display: block;
+}
+
+/* The agent's presence, like a Mac activity view: its working line under a running spinner, or
+   amber when nothing is attached to pick the review or question up. */
+.agent-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Sized by the bar, so the actions it joins rarely need more than their half of it. */
+  width: clamp(120px, 16cqi, 240px);
+  height: 28px;
+  padding: 0 12px 0 10px;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--fill);
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+  white-space: nowrap;
+}
+
+.agent-pill .agent-who {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.agent-pill .agent-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-spin {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--ink);
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  animation: agent-spin 0.8s steps(8) infinite;
+}
+
+@keyframes agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A blue glint running along the pill's foot while the agent works. */
+.agent-run {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+}
+
+.agent-run > i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, var(--blue), transparent);
+  animation: agent-run 1.6s var(--ease) infinite;
+}
+
+@keyframes agent-run {
+  from {
+    left: -30%;
+  }
+
+  to {
+    left: 100%;
+  }
+}
+
+.agent-off {
+  display: none;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--orange);
+}
+
+.agent-pill.queued {
+  background: var(--orange-wash);
+  box-shadow: none;
+  color: var(--orange-ink);
+}
+
+.agent-pill.queued :is(.agent-spin, .agent-who, .agent-run) {
+  display: none;
+}
+
+.agent-pill.queued .agent-off {
+  display: block;
+}
+
+/* Hamburger that opens the off-canvas file drawer — the topbar's only tree affordance once
+   the tree goes off-canvas. Hidden by default; revealed only under the ≤1100px media query
+   (and re-hidden in single-file / file-mode, which have no tree). */
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin-left: -4px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.nav-toggle:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+/* Scrim behind the open file drawer; CSS-gated to narrow widths (see media query). */
+.tree-backdrop {
+  display: none;
+}
+
+.toggles {
+  grid-column: 2;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.actions {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* The switch's ⇧U sits on the segment it would switch to, as the sidebar's Review | Files shows its
+   W on the inactive tab. */
+.lane-switch .cap {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  font-size: 9px;
+}
+
+.lane-switch > button .ic {
+  width: 13px;
+  height: 13px;
+}
+
+/* Reset Review's glyph stands in for its label on a phone. */
+.reset-review > .ic {
+  display: none;
+}
+
+/* Send Review: a plain push button until every in-flow file is signed off, then the bar's one
+   filled action, with a check, a slow soft ring, and a green 100% beside it. */
+.send-review > .ic {
+  display: none;
+}
+
+.send-review.primary > .ic {
+  display: block;
+}
+
+.send-review.primary:not(:active, :focus-visible) {
+  animation: send-ready 2.6s ease-in-out infinite;
+}
+
+@keyframes send-ready {
+  0%,
+  100% {
+    box-shadow:
+      var(--shadow-fill),
+      0 0 0 0 transparent;
+  }
+
+  50% {
+    box-shadow:
+      var(--shadow-fill),
+      0 0 0 5px color-mix(in srgb, var(--blue) 22%, transparent);
+  }
+}
+
+.top-done {
+  display: none;
+  margin-right: 2px;
+  color: var(--green-ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.top.done .top-done {
+  display: inline;
+}
+
+/* A narrow bar (a phone, or the canvas beside a wide sidebar) keeps every control but compacts
+   them: the subtitle, the logo and the green 100% give way (the progress edge still shows it), the
+   pill keeps its glyph (its tooltip carries the line), the lane switch keeps its icons, Reset
+   Review its glyph, and the switch and the buttons drop their keycaps (their tooltips still carry
+   them). */
+@media (max-width: 760px) {
+  .top {
+    column-gap: 8px;
+    padding: 0 8px;
+  }
+}
+
+@container topbar (max-width: 760px) {
+  .top-logo,
+  .top-name > span,
+  .top-done {
+    display: none !important;
+  }
+
+  .agent-pill {
+    justify-content: center;
+    width: 28px;
+    padding: 0;
+  }
+
+  .agent-pill :is(.agent-who, .agent-line),
+  .lane-switch > button > span,
+  .lane-switch .keycaps,
+  .reset-review > span,
+  .top .btn .keycaps {
+    display: none;
+  }
+
+  .lane-switch > button {
+    padding: 0 9px;
+  }
+
+  .reset-review > .ic {
+    display: block;
+  }
+
+  .top .btn {
+    padding: 0 10px;
+    font-size: var(--text-sm);
+  }
+
+  .top .reset-review {
+    width: 28px;
+    padding: 0;
+  }
+}
+
+.actions .top-settings {
+  display: none;
+}
+
+body.single .actions .top-settings,
+body.file-mode .actions .top-settings {
+  display: inline-flex;
+}
+
+/* No tree exists in these modes (tree is display:none below), so suppress the drawer toggle. */
+body.single .nav-toggle,
+body.file-mode .nav-toggle {
+  display: none !important;
+}
+
+/* The sidebar's width: the one its resizer sets (--left-width), or the rail's while it's collapsed
+   (below), so the expanded width comes back as it was. */
+.app {
+  --side-w: var(--left-width, 280px);
+}
+
+.main {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--side-w) 1px minmax(0, 1fr);
+  position: relative;
+}
+
+/* Wide screens, in either view: the sidebar runs the window's full height with its brand row on
+   top, and the top bar (its progress edge with it) covers the canvas only. .main spans both of the
+   app's rows, so it stays the containing block of the dialogs, toasts and the warming app, and the
+   top bar sits over its first row, past the sidebar. The drawer (≤1100px) and sidebar-less desks
+   keep the full-width bar. */
+@media (min-width: 1101px) {
+  .app.side-collapsed {
+    --side-w: 52px;
+  }
+
+  /* The rail keeps its width: its edge doesn't drag (main.ts). */
+  .app.side-collapsed .resizer,
+  .app.side-collapsed .resizer:hover {
+    background: var(--sep);
+    cursor: default;
+  }
+
+  body:not(.single, .file-mode) .app:not(.ui-only) > .top {
+    grid-area: 1 / 1;
+    margin-left: calc(var(--side-w) + 1px);
+    /* Over .main, which overlaps it; under the dialogs (20) and the toasts (25). */
+    z-index: 10;
+  }
+
+  body:not(.single, .file-mode) .app:not(.ui-only) > .main {
+    grid-area: 1 / 1 / -1;
+    grid-template-rows: 48px minmax(0, 1fr);
+  }
+
+  body:not(.single, .file-mode) .app:not(.ui-only) :is(.tree, .resizer) {
+    grid-row: 1 / -1;
+  }
+
+  body:not(.single, .file-mode) .app:not(.ui-only) .center {
+    grid-row: 2;
+  }
+
+  /* The warming app keeps the UI view's box, which starts under the top bar and past the sidebar
+     (and its 1px edge), as the App view keeps the sidebar too. */
+  body:not(.single, .file-mode) .app:not(.ui-only, .view-ui) .uiview {
+    top: 48px;
+    left: calc(var(--side-w) + 1px);
+  }
+}
+
+/* ── Sidebar: navigation, on the window's material ── */
+.tree {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 10px;
+  background: var(--sidebar-material);
+}
+
+#files,
+#walk {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 10px;
+}
+
+/* Settings lives docked at the sidebar's far bottom; the topbar twin (.top-settings)
+   shows only when the tree is hidden (single-column / file mode) so it stays reachable. */
+.side-foot {
+  flex: 0 0 auto;
+  margin: auto -10px 0;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--sep);
+}
+
+.tree-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  text-align: left;
+}
+
+.tree-settings:hover {
+  color: var(--ink);
+  background: var(--fill-2);
+}
+
+.tree-settings:active {
+  background: var(--fill-3);
+}
+
+.tree-settings .keycaps {
+  margin-left: auto;
+}
+
+.resizer {
+  background: var(--sep);
+  cursor: col-resize;
+  min-width: 1px;
+  position: relative;
+}
+
+.resizer:before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+}
+
+.resizer:hover,
+.resizer.dragging {
+  background: var(--blue);
+}
+
+.center {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+[x-cloak] {
+  display: none !important;
+}
+
+/* Until the first state is in, the desk doesn't know which lanes it has: only the brand shows,
+   so neither lane's chrome flashes before the other's. */
+.app.booting .nav-toggle,
+.app.booting .toggles,
+.app.booting .actions,
+.app.booting .main {
+  visibility: hidden;
+}

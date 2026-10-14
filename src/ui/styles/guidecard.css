@@ -1,0 +1,313 @@
+/* ── The guide card (guidecard.ts) ──
+   The guide's note on the open file: a band of its own surface (--note) under the file bar, in the
+   flow. Scoped under #diff to outrank its code-sized `#diff > *` text. */
+#diff > .guide-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px 20px 14px 16px;
+  background: var(--note);
+  border-bottom: 1px solid var(--sep);
+  font-family: var(--sans);
+  font-size: var(--text-sm);
+  line-height: normal;
+}
+
+/* The card's mark: a small raised tile. */
+.gc-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+  background: var(--raised);
+  box-shadow: 0 0 0 0.5px var(--sep-strong);
+  color: var(--ink-2);
+}
+
+.gc-icon .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.gc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gc-head {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* The guide skims the whole file: quiet, the opposite of the flag's amber. */
+.gc-skim-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.gc-skim-mark .ic {
+  width: 11px;
+  height: 11px;
+}
+
+/* The orientation is the main reading of a guided review: ink, a step above the bar's text. */
+.gc-orient.md {
+  margin-top: 0;
+  max-width: 76ch;
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: 1.55;
+}
+
+/* A split file's Rest or whole-file view: what the view holds, in the orientation's place, muted
+   so it never reads as the agent's guidance. */
+.gc-note {
+  color: var(--ink-2);
+  font-size: var(--text-md);
+}
+
+/* A skimmed file's reason, in the orientation's place when the guide gives none. */
+.gc-skim {
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  font-style: italic;
+}
+
+/* The flag: the one line on the card that says "decide this before approving". */
+.gc-flag {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  max-width: 76ch;
+  margin-top: 2px;
+  color: var(--orange-ink);
+}
+
+.gc-flag > .ic {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  margin-top: 3px;
+}
+
+.gc-flag .md {
+  margin-top: 0;
+  color: var(--orange-ink);
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+/* A stale guide says so quietly, inside the card. */
+.gc-stale {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.gc-stale-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--orange);
+  box-shadow: 0 0 0 2.5px var(--orange-wash);
+}
+
+/* ── Pinned: the card in one line, carried under the file bar once the card has scrolled up under
+   it. Absolutely placed, so the bar's own layout never moves; the line's height still counts in
+   --file-bar-h while it shows (filebar.ts). ── */
+.file-bar > .guide-mini {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--note);
+  border-bottom: 1px solid var(--sep);
+}
+
+.file-bar > .guide-mini.pinned {
+  display: block;
+}
+
+/* The entrance plays on a pin or an open only (guidecard.ts adds .entering), never on a render. */
+:is(.guide-mini, .gm-full).entering {
+  animation: gm-in 0.18s var(--ease);
+}
+
+@keyframes gm-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* The whole line opens the note, so it reads as one control. */
+.gm-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  min-width: 0;
+  padding: 0 12px 0 16px;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.gm-line:hover {
+  background: var(--fill);
+}
+
+.gm-line .gc-icon {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+}
+
+.gm-line .gc-icon .ic {
+  width: 12px;
+  height: 12px;
+}
+
+/* The orientation clamped to what fits; its markdown flattens to one line of text. */
+/* Just the start: about half the bar, so the line stays a reminder, not a second reading. */
+.gm-orient {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+
+.gm-orient.md {
+  margin-top: 0;
+  font-size: var(--text-sm);
+  line-height: normal;
+}
+
+.gm-orient.md > * {
+  display: inline;
+  margin: 0;
+}
+
+.gm-orient.skim {
+  color: var(--ink-2);
+  font-style: italic;
+}
+
+.gm-orient.note {
+  color: var(--ink-2);
+}
+
+.gm-toggle {
+  flex: 0 0 auto;
+  width: 24px;
+  margin-left: auto;
+}
+
+.gm-toggle .ic {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.3s var(--spring);
+}
+
+/* Open: the full note drops over the code under the line, which keeps only its heading and the
+   turned chevron (the note below says the rest). */
+.guide-mini.open .gm-toggle .ic {
+  transform: rotate(90deg);
+}
+
+/* Open, the line is the full card's header row: the card's tile and "Guide" (with its skim mark)
+   in place of the clipped orientation, which the note below spells out. */
+.gm-line .gm-head {
+  display: none;
+}
+
+/* One card: no hairline between its header row and the body below. */
+.file-bar > .guide-mini.open {
+  border-bottom-color: transparent;
+}
+
+.guide-mini.open .gm-line {
+  gap: 12px;
+}
+
+.guide-mini.open .gm-line .gm-head {
+  display: inline-flex;
+  align-items: center;
+}
+
+.guide-mini.open .gm-orient {
+  display: none;
+}
+
+.guide-mini.open .gm-line .gc-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+}
+
+.guide-mini.open .gm-line .gc-icon .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.gm-full {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 60vh;
+  overflow: auto;
+  /* The body starts where the header's "Guide" does: the line's 16px, the 26px tile, 12px. */
+  padding: 0 20px 16px 54px;
+  background: var(--note);
+  border-bottom: 1px solid var(--sep);
+  box-shadow: var(--shadow-float);
+}
+
+.guide-mini.open .gm-full {
+  display: block;
+}
+
+.gm-full .gc-head {
+  display: none;
+}
+
+/* Phone widths: a tighter card and pinned line. */
+@media (max-width: 760px) {
+  #diff > .guide-card {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .gm-line {
+    padding: 0 8px 0 12px;
+  }
+
+  .guide-mini.open .gm-line {
+    gap: 10px;
+  }
+
+  .gm-full {
+    padding: 0 12px 14px 48px;
+  }
+}

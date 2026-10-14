@@ -1,0 +1,120 @@
+@media (max-width: 700px) {
+  .chrome {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    gap: 6px;
+  }
+
+  .chrome .addr {
+    order: 5;
+    flex-basis: 100%;
+  }
+
+  .chrome .vpsize,
+  .chrome .mode kbd,
+  .chrome .mode button span {
+    display: none;
+  }
+
+  /* The floating composer becomes a bottom sheet; !important beats the inline left/top. */
+  .ucomposer {
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 8px !important;
+    top: auto !important;
+    width: auto;
+    max-width: none;
+  }
+}
+
+/* Narrow widths: the file tree leaves the flow and becomes an off-canvas left drawer, so the
+   app stays a fixed-height single column with the diff filling it (the core surface owns the
+   screen) — no more tree-on-top page-scroll stacking. The tree is hidden by default and slides
+   in over a dimmed backdrop when opened (hamburger / ⇧B); selecting a file auto-closes it. */
+@media (max-width: 1100px) {
+  .main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .resizer {
+    display: none;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  .tree {
+    position: fixed;
+    top: 48px;
+    left: 0;
+    bottom: 0;
+    width: min(86vw, 300px);
+    z-index: 30;
+    border-right: 1px solid var(--sep);
+    transform: translateX(-102%);
+    transition:
+      transform 0.36s var(--ease),
+      box-shadow 0.3s;
+  }
+
+  .tree.drawer-open {
+    transform: translateX(0);
+    box-shadow: var(--shadow-float);
+  }
+
+  /* Set for an instant while the window crosses this breakpoint (main.ts). */
+  .tree.no-slide {
+    transition: none;
+  }
+
+  .tree-backdrop.open {
+    display: block;
+    position: fixed;
+    inset: 48px 0 0 0;
+    z-index: 29;
+    background: var(--scrim);
+  }
+
+  /* Float the comment surfaces over the diff rather than in-flow — an in-flow element would
+     add a row to the now fixed-height single column and clip the diff. As a bottom sheet:
+     !important beats the inline top/left the JS placer writes (placeNearActionPop) — without
+     it a fixed element carrying both an inline `top` and this `bottom` stretches full-height.
+     max-height keeps a long draft from overflowing the viewport (the textarea scrolls). */
+  .action-pop,
+  .composer {
+    position: fixed;
+    left: 12px !important;
+    right: 12px !important;
+    bottom: 12px !important;
+    top: auto !important;
+    width: auto;
+    max-width: none;
+    max-height: 60vh;
+    margin: 0;
+    z-index: 40;
+  }
+
+  .composer textarea {
+    max-height: 34vh;
+  }
+}
+
+body.single .tree,
+body.single .resizer[data-resize="left"] {
+  display: none;
+}
+
+body.single .main {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.file-mode .tree,
+body.file-mode .right,
+body.file-mode .resizer {
+  display: none;
+}
+
+body.file-mode .main {
+  grid-template-columns: minmax(0, 1fr);
+}

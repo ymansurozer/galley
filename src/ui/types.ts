@@ -14,6 +14,7 @@ import type {
   GuideFile,
   IndexEntry,
   PickedTarget,
+  PinRect,
   PollPayload,
   Rect,
   ReviewFile,
@@ -34,6 +35,9 @@ import type {
 } from "../types";
 import type { Step } from "./steps";
 import type { WalkRow } from "./walkthrough";
+import type { Presence } from "./topbar-derive";
+import type { DeskPin } from "./uilane-derive";
+import type { OpenRequest, RequestRow } from "./requests-derive";
 
 export type Side = "additions" | "deletions";
 export type DiffStyle = "split" | "unified";
@@ -64,7 +68,8 @@ export type Settings = {
   // How guided-review progress is weighted: "lines" (changed lines per file — finishing a
   // bigger change advances more) or "files" (every file counts the same).
   progressBy: "lines" | "files";
-  // Which sidebar pane a guided desk opens with; `w` toggles per-session from there.
+  // Which sidebar pane a guided desk opens with; `w` toggles per-session from there. The stored
+  // values predate the panes' names: "tree" is Files, "walkthrough" is Review.
   sidebarDefault: "tree" | "walkthrough";
   // Default view for a markdown file: "auto" (new/unchanged → rendered, changed → source so the
   // diff shows first), or force "rendered"/"source". The toolbar toggle still overrides per file.
@@ -167,7 +172,6 @@ export type ThreadMeta = {
   lineNumber: number;
   status: "open" | "resolved";
   comments: ReviewComment[];
-  changeId?: string;
 };
 export type ChangeMeta = {
   type: "change";
@@ -255,6 +259,11 @@ export interface Store {
   agentListening: boolean;
   queuedQuestions: number;
   queuedReviews: number;
+  // Derived by one effect in main.ts: the agent's presence, whether every in-flow file's sign-off
+  // is current (Send Review turns primary), and the sidebar's open change requests.
+  presence: Presence;
+  reviewDone: boolean;
+  requests: RequestRow[];
   lastBaseDiffHash: string | null;
   selected: Selection;
   // An inline composer (new / reply / edit) is open. Exactly one at a time; the composer's
@@ -263,6 +272,8 @@ export interface Store {
   toastMsg: string;
   // The toast's action button label ("Undo"), "" for a plain toast (store.ts toast()).
   toastAction: string;
+  // A shortcut the toast names, drawn as keycaps after its text ("" for none).
+  toastKeys: string;
   // Pending "go to line" digits typed in the diff ("" = inactive). Drives the goline pill;
   // ↵ / idle timeout commits the jump, Esc cancels (see cursor.ts goline section).
   golineBuffer: string;
@@ -288,16 +299,23 @@ export interface Store {
   // Which sidebar pane is showing when a guide is attached (no guide → tabs hidden, tree
   // only). Per-session like overviewOpen; settings.sidebarDefault seeds it at init.
   sidebarTab: "tree" | "walkthrough";
+  // The sidebar's Change requests list is expanded. Per-session, starts collapsed; `]` / `[`
+  // expand it, so the list they step through stays in sight.
+  requestsOpen: boolean;
+  // The one resolved thread expanded as its card (rests.ts threadKey: path, side and raw line);
+  // every other resolved thread rests as a row, and open threads always show as cards.
+  // Per-session.
+  openThread: string | null;
   // Narrow widths (≤1100px): the file tree is an off-canvas left drawer, hidden by default so
   // the diff owns the screen. Toggled by the header hamburger / ⇧B; auto-closed on file select.
   // Inert on desktop — the drawer styles are media-gated, so the tree stays side-by-side there.
   treeDrawerOpen: boolean;
+  // Wide widths: the sidebar is collapsed to its rail of icons (its button in the brand row, ⇧B).
+  // Per-session, starts expanded; inert at narrow widths, where the sidebar is the drawer.
+  sidebarCollapsed: boolean;
   // file mode: how a markdown file is shown — "rendered" (comark/markdown-it preview,
   // comment on blocks) or "source" (@pierre/diffs raw/diff).
   fileView: "rendered" | "source";
-  // True once the diff pane is scrolled past its header — reveals the floating Approve button
-  // so sign-off is reachable without scrolling back up to the header. Reset on every file switch.
-  diffScrolled: boolean;
   // Per-session skim expand state: change ids (block-level) and `file:<path>` keys (file-level)
   // the reviewer expanded. Not persisted — collapse is display-only and resets each session.
   skimExpanded: Set<string>;
@@ -326,12 +344,11 @@ export interface Store {
   // How many elements the reviewer has ⇧-clicked in the app, waiting for ⇧'s release (the bridge
   // reports it). While there are some, Esc drops them before it leaves Annotate.
   pendingPicks: number;
-  // The annotation sidebar is open; closed, it's a 40px rail. Below 1100px it opens as a drawer.
-  annotationsOpen: boolean;
-  // The annotation whose row is expanded and whose target is outlined on the page.
+  // The annotation whose card is open and whose target is outlined on the page.
   selectedAnnotation: string | null;
-  // Pages (routes) whose resolved annotations the sidebar reveals.
-  shownResolved: Set<string>;
+  // The annotations the page on screen has reported a placement for since the app arrived on it:
+  // the Unplaced tray trusts only these, not what an earlier visit found. Never saved.
+  lookedFor: Set<string>;
   // The target just picked in Annotate mode, or the page: while set, the floating composer is open
   // on it.
   annotationDraft: AnnotationDraft | null;
@@ -357,35 +374,24 @@ export interface Store {
   setSidebarTab?: (tab: Store["sidebarTab"]) => void;
   rowClick?: (r: TreeRow) => void;
   setStyle?: (style: DiffStyle) => void;
-  setFileView?: (view: "rendered" | "source") => void;
+  setFileView?: (view: "rendered" | "source") => Promise<void>;
   isMarkdownFile?: () => boolean;
-  // Sign off on the current step from the floating button (same action as the header ⇧A).
-  approveFile?: () => void;
   // A sidebar row's status icon: sign the file (or a Walkthrough row's part) off in place, or reset
   // a finished one. statusHint labels the icon with what a click will do, read on hover/focus
   // rather than bound per row.
   statusClick?: (path: string, e: MouseEvent, part?: Step["part"]) => void;
   statusHint?: (el: HTMLElement, path: string, part?: Step["part"]) => void;
   runToastAction?: () => void;
-  // Drives the floating Approve button: null hides it (overview, preview, or finished step),
-  // else the pending step's sign-off flavor — "clean" (Approve) or "changes" (Mark Reviewed).
-  fabState?: () => "clean" | "changes" | null;
   splitApplies?: () => boolean;
   applySettings?: () => void;
   openInEditor?: () => Promise<void>;
   openSettings?: () => void;
   closeSettings?: () => void;
   hasGuide?: () => boolean;
-  guideStale?: () => boolean;
   openOverview?: () => void;
   startGuided?: () => void;
-  showGuideBar?: () => boolean;
-  curGuide?: () => GuideFile | null;
-  curFileName?: () => string;
   guideNext?: () => void;
   guidePrev?: () => void;
-  guideAtStart?: () => boolean;
-  guideAtLast?: () => boolean;
   walkthroughRows?: () => WalkRow[];
   saveComment?: () => void;
   ask?: () => void;
@@ -397,9 +403,11 @@ export interface Store {
   nextFile?: () => void;
   prevFile?: () => void;
   treeStep?: (dir: 1 | -1) => void;
-  // The walk through open change requests (requests.ts): the top bar's count, and its next stop.
-  openRequests?: () => number;
-  nextRequest?: () => void;
+  // Going to one of the open change requests (requests.ts), from its sidebar row.
+  openRequest?: (r: OpenRequest) => void;
+  // The top bar's title and "project · mode" subtitle (topbar-derive.ts).
+  deskTitle?: () => string;
+  deskSubtitle?: () => string;
   confirmYes?: () => void;
   confirmNo?: () => void;
   promptFinish?: () => void;
@@ -419,11 +427,9 @@ export interface Store {
   setViewport?: (viewport: Viewport) => void;
   setAppMode?: (mode: AppMode) => void;
   annotatePage?: () => void;
-  pagePins?: () => { id: string; number: number; question: boolean; selected: boolean }[];
+  pagePins?: () => DeskPin[];
+  unplacedPins?: () => DeskPin[];
   selectAnnotation?: (id: string | null) => void;
-  toggleAnnotations?: () => void;
-  openChanges?: () => number;
-  waitingQuestions?: () => number;
   closeShot?: () => void;
   shotSrc?: () => string;
   shotTitle?: () => string;
@@ -466,6 +472,7 @@ export type {
   GuideFile,
   IndexEntry,
   PickedTarget,
+  PinRect,
   PollPayload,
   Rect,
   ReviewerSave,

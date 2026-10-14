@@ -1,0 +1,515 @@
+/* ── Sidebar contents: the brand row, the Review | Files switch, the two lists ── */
+
+/* The brand row heads the sidebar at the top bar's height, so the two read as one band. */
+.side-brand {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 48px;
+  padding: 0 6px;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.side-logo {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+/* Guided desks only: a full-width segmented control; the W hint rides on the tab that w
+   switches to. */
+.side-switch {
+  display: flex;
+  margin: 0 0 8px;
+}
+
+.side-switch > button {
+  flex: 1 1 0;
+  gap: 5px;
+}
+
+.side-switch .cap {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  font-size: 9px;
+}
+
+/* The Files list's own header: its label and the collapse-all / expand-all control. */
+.tree-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  padding: 0 2px 0 8px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.tree-toggle {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.tree-toggle:hover {
+  color: var(--ink);
+  background: var(--fill-2);
+}
+
+.tree-toggle:active {
+  background: var(--fill-3);
+}
+
+/* A row in either list. */
+.node {
+  position: relative;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  height: 28px;
+  /* Indent + guide lines derive from --depth (set inline per row by treeRows) so any
+     nesting depth renders correctly — fixed per-level classes capped at 3 and made
+     deeper files sit flush with their folder. Guides are 1px lines every 14px,
+     clipped to the indent width via background-size. */
+  padding: 0 8px 0 calc(8px + var(--depth, 0) * 14px);
+  border-radius: var(--radius-sm);
+  background-image: repeating-linear-gradient(to right, transparent 0 13px, var(--sep) 13px 14px);
+  background-size: calc(var(--depth, 0) * 14px) 100%;
+  background-position: 1px 0;
+  background-repeat: no-repeat;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.node .nm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* background-color (not the shorthand) so the --depth guide image survives hover/active */
+.node:hover {
+  background-color: var(--fill);
+  color: var(--ink);
+}
+
+.node:active {
+  background-color: var(--fill-2);
+}
+
+.node.active {
+  color: var(--ink);
+  background-color: var(--sel);
+}
+
+.node.changed {
+  color: var(--ink);
+}
+
+/* tree icons (custom sprite, currentColor) */
+.tree .ic {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.tree .chev {
+  width: 12px;
+  color: var(--ink-3);
+  transition: transform 0.2s var(--ease);
+}
+
+.tree .chev-spacer {
+  width: 12px;
+  flex: 0 0 auto;
+}
+
+.tree .chev.open {
+  transform: rotate(90deg);
+}
+
+.tree .folder {
+  color: var(--ink-2);
+}
+
+/* A changed file's icon carries its change kind: added, modified, deleted. */
+.tree .file {
+  color: var(--ink-3);
+}
+
+.tree .file.new {
+  color: var(--green);
+}
+
+.tree .file.modified {
+  color: var(--blue);
+}
+
+.tree .file.deleted {
+  color: var(--red);
+}
+
+.node .testcaret {
+  display: inline-grid;
+  place-items: center;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.node .status-pack {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--churn-gap);
+}
+
+.node .badge {
+  width: 13px;
+  height: 13px;
+}
+
+.node .badge.pending {
+  color: var(--blue);
+}
+
+.node .badge.approved {
+  color: var(--green);
+}
+
+.node .badge.changes {
+  color: var(--orange);
+}
+
+.node.test {
+  color: var(--ink-3);
+}
+
+/* Review list: Overview, then the guide's categories with their files, then Other and Skimmed.
+   Every row starts at the same edge; a category reads as a heading by its type alone. */
+.overview-row .ic {
+  color: var(--ink-2);
+}
+
+.overview-row .keycaps {
+  margin-left: auto;
+}
+
+/* The sidebar reads as three parts: the switch, the nav block (the Overview and the change
+   requests), and the list. The switch keeps 8px under it, the nav block 10px, on either tab; an
+   empty nav block (a guide-less desk with no requests) hides, so the list keeps the switch's
+   place. */
+.side-nav {
+  flex: 0 0 auto;
+  margin-bottom: 10px;
+}
+
+/* Open change requests, code and app: a row that folds the list under it, its count, and `]`,
+   which walks the list. The chevron rides on the label; the count and the key close the row. */
+.cr-head .flag {
+  color: var(--orange);
+}
+
+.cr-head .chev {
+  margin-right: auto;
+}
+
+.cr-count {
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--orange-wash);
+  color: var(--orange-ink);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The list scrolls on its own past a few rows, so the file list keeps its room. */
+.cr-list {
+  max-height: 30vh;
+  overflow: auto;
+}
+
+/* One compact row per request, indented under the label: its place, then its first line. */
+.node.cr-row {
+  height: 24px;
+  gap: 6px;
+  padding-left: 29px;
+  font-size: var(--text-sm);
+}
+
+.cr-row .ic {
+  width: 12px;
+  height: 12px;
+  color: var(--orange);
+}
+
+.cr-row.app .ic {
+  color: var(--ink-2);
+}
+
+.cr-loc {
+  flex: 0 0 auto;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+}
+
+.cr-row .nm {
+  color: var(--ink-2);
+}
+
+.cr-row:hover .nm {
+  color: var(--ink);
+}
+
+/* A category heading is a jump target too: a click opens the group's first file still to do. The
+   first one sits right under the nav block, whose own gap sets it off. */
+.node.walk-cat {
+  height: 24px;
+  margin-top: 10px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+#walk > .node:first-of-type {
+  margin-top: 0;
+}
+
+.node.walk-cat:hover {
+  color: var(--ink);
+}
+
+/* A flagged file: the guide asks for a closer look. */
+.node.flagged .nm {
+  color: var(--orange-ink);
+}
+
+#walk .crit {
+  color: var(--orange);
+  width: 12px;
+  height: 12px;
+}
+
+#walk .status-pack i {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: var(--text-2xs);
+}
+
+#walk .status-pack .add {
+  color: var(--green-ink);
+}
+
+#walk .status-pack .del {
+  color: var(--red-ink);
+}
+
+/* Per-file review state closes the row: empty circle = to do, check-circle = approved,
+   alert-circle = changes requested. */
+#walk .st {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+#walk .st.pending {
+  color: var(--ink-3);
+}
+
+#walk .st.approved {
+  color: var(--green);
+}
+
+#walk .st.changes {
+  color: var(--orange);
+}
+
+/* The status icon is the file's sign-off control in both tabs: a click approves (or marks
+   reviewed) a pending file and resets a finished one. The negative margin cancels the padding,
+   so the button keeps the bare icon's footprint. On hover: a quiet ring, and the icon takes the
+   color of the state a click leads to (data-act, set by statusHint). */
+.st-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  margin: -3px;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.st-btn:hover {
+  background: var(--fill-2);
+}
+
+.st-btn:active {
+  background: var(--fill-3);
+}
+
+:is(#files, #walk) .st-btn[data-act="approve"]:hover .ic {
+  color: var(--green);
+}
+
+:is(#files, #walk) .st-btn[data-act="mark"]:hover .ic {
+  color: var(--orange);
+}
+
+:is(#files, #walk) .st-btn[data-act="reset"]:hover .ic {
+  color: var(--ink-2);
+}
+
+/* ── Collapsing to a rail ──
+   The brand row closes with the collapse button. Collapsed (wide screens only; the drawer always
+   shows the sidebar whole), the sidebar is a rail of icons: the logo, the expand button, the
+   Overview, the change requests with their count, Review and Files on a guided desk, and Settings
+   at the foot. Each icon's tip sits to its right (tooltip.ts). */
+.side-collapse {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.side-collapse:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.side-collapse:active {
+  background: var(--fill-3);
+}
+
+.tree :is(.side-collapse, .rail-btn) .ic {
+  width: 16px;
+  height: 16px;
+}
+
+.side-rail {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.rail-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.rail-btn:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.rail-btn:active {
+  background: var(--fill-3);
+}
+
+.rail-btn.active {
+  background: var(--sel);
+  color: var(--ink);
+}
+
+.rail-btn .flag {
+  color: var(--orange);
+}
+
+/* The count rides the flag's corner. */
+.rail-btn .cr-count {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  min-width: 15px;
+  height: 14px;
+  padding: 0 3px;
+  font-size: var(--text-2xs);
+  line-height: 14px;
+}
+
+@media (min-width: 1101px) {
+  .app.side-collapsed .side-brand {
+    flex-direction: column;
+    height: auto;
+    padding: 14px 0 10px;
+    gap: 12px;
+  }
+
+  .app.side-collapsed .side-brand > span {
+    display: none;
+  }
+
+  .app.side-collapsed .side-collapse {
+    width: 32px;
+    height: 32px;
+    margin-left: 0;
+  }
+
+  .app.side-collapsed .side-rail {
+    display: flex;
+  }
+
+  /* !important: x-show writes an inline display when it shows them. */
+  .app.side-collapsed :is(.side-switch, .side-nav, .tree-title, #files, #walk) {
+    display: none !important;
+  }
+
+  .app.side-collapsed .tree-settings {
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin: 0 auto;
+    padding: 0;
+  }
+
+  .app.side-collapsed .tree-settings > :not(.ic) {
+    display: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .side-collapse {
+    display: none;
+  }
+}

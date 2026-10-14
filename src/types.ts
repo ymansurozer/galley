@@ -362,14 +362,15 @@ export type ForwardedKey = { key: string; code: string; shiftKey: boolean; altKe
 // Interact: the app gets every click and key. Annotate: the bridge takes the pointer, and a click
 // picks the element under it, a drag a box or the text it runs over.
 export type AppMode = "interact" | "annotate";
-// A numbered pin the bridge draws on the current page, with its target's mark: amber for a change
-// request, cyan for a question.
+// A numbered pin the bridge draws on the current page, with its target's mark: a change request's
+// flag on orange, a question's message on blue. A question still waiting on the agent pulses.
 export type UiMark = {
   id: string;
   number: number;
   target: UiMarkTarget;
   resolved: boolean;
   question: boolean;
+  waiting: boolean;
 };
 // An element as the bridge finds it again: where its source said it was rendered, the selector it
 // was captured with, what it showed (tag, text, else accessible name, and its classes) to check a
@@ -392,6 +393,8 @@ export type UiMarkTarget =
   | { kind: "element"; elements: UiMarkElement[] }
   | { kind: "region"; rect: Rect; elements: UiMarkElement[] }
   | { kind: "text"; quote: string; element: UiMarkElement };
+// A pin as drawn on the page: its annotation, and its box in the page's viewport.
+export type PinRect = { id: string; rect: Rect };
 // Whether an annotation's target was found on its page the last time that page loaded: `placed`
 // (its mark is drawn there), `unplaced` (not found once the page settled, so no mark), or
 // `unvisited` (its page hasn't loaded since the last `galley reload` or desk restart). An
@@ -414,8 +417,10 @@ export type BridgeMessage =
   | { type: "pending"; token: string; count: number }
   // The picked target moved on screen (scroll, layout), so the composer follows it.
   | { type: "anchor"; token: string; rect: Rect }
-  // The reviewer clicked an annotation's pin.
-  | { type: "select"; token: string; id: string }
+  // Where the page's pins are drawn (in the viewport), each time one moves, appears or goes: the
+  // desk anchors the open pin's card to it. With `clicked`, the reviewer just clicked: a pin (its
+  // annotation's id), or the page off the pins while one was selected (null).
+  | { type: "pins"; token: string; pins: PinRect[]; clicked?: string | null }
   // Where the page's marks were found once it settled after a load or route change, and later
   // whenever one is found or lost again: only the marks whose placement changed.
   | {
@@ -444,10 +449,17 @@ export type DeskMessage =
   // one's placement, changed or not.
   | { type: "relook"; token: string }
   // The pins for the current page, the selected annotation (outlined, scrolled into view once
-  // found), and whether the composer is open on the last pick (its highlight stays until the
-  // composer closes). The bridge looks for each new pin's target once the page settles, and reports
-  // where it found them (`placements`).
-  | { type: "marks"; token: string; marks: UiMark[]; selected: string | null; picking: boolean };
+  // found), and, while the composer is open on the last pick, the number that pick will get (its
+  // highlight and its draft pin, so numbered, stay until the composer closes; null otherwise). The
+  // bridge looks for each new pin's target once the page settles, and reports where it found them
+  // (`placements`).
+  | {
+      type: "marks";
+      token: string;
+      marks: UiMark[];
+      selected: string | null;
+      picking: number | null;
+    };
 
 // ── UI annotations ──────────────────────────────────────────────────────────────────────────────
 // An element the reviewer pointed at in the app, as the bridge captured it. Everything in it is

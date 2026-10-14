@@ -1,0 +1,131 @@
+#diff {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--canvas);
+  padding: 0;
+  /* @pierre reserves a right-side scrollbar gutter; we scroll on #diff itself, so drop it */
+  --diffs-scrollbar-gutter-override: 0px;
+  /* Where a jump lands: below everything pinned at the top (--file-bar-h, measured by
+     filebar.ts), with a little air so the target doesn't sit flush against it. */
+  --jump-top: calc(var(--file-bar-h, 0px) + 8px);
+}
+
+/* Whatever scrolls into view under the sticky file bar lands below it, not under it (@pierre's
+   rows get the same margin in its shadow, render.ts). It's a margin on the targets, not
+   scroll-padding on #diff: padding would also cover the bar itself, and focusing one of its
+   buttons would scroll the diff to "reveal" it. */
+#diff > :not(.file-bar),
+#diff > :not(.file-bar) * {
+  scroll-margin-top: var(--jump-top);
+}
+
+#diff > * {
+  font-family: var(--sans);
+  font-size: var(--code-size, 12.5px);
+  line-height: 1.62;
+}
+
+/* Diff area = the scroller (#diff) plus a fixed overview ruler overlaid on its right edge.
+   The wrapper doesn't scroll, so the ruler stays put while #diff scrolls under it. */
+.diff-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* VSCode-style change overview: green/red ticks mapping the whole file to the gutter,
+   so changes are visible in one skim. Shown only in "expand unchanged" mode. */
+.ovr {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  z-index: 6;
+  pointer-events: none;
+  display: none;
+}
+
+/* A faint track, hairlined off the code, so the ticks read as a map rather than stray marks. */
+.ovr.show {
+  display: block;
+  background: var(--fill);
+  box-shadow: inset 1px 0 0 var(--sep);
+}
+
+/* "Rendering…" indicator shown while a non-cached diff render is in flight. Covers the
+   diff area so stale content isn't shown; the work is synchronous so it can't animate. */
+.diff-rendering {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  background: var(--canvas);
+  pointer-events: none;
+}
+
+/* The same floating pill as a toast, its words quieter: it reports, it doesn't ask. */
+.diff-rendering span {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  background: var(--window);
+  box-shadow: var(--shadow-float);
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+
+.ovr i {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  min-height: 2px;
+  border-radius: 1px;
+}
+
+.ovr i.add {
+  background: var(--green);
+}
+
+.ovr i.del {
+  background: var(--red);
+}
+
+/* A file whose contents can't be fetched (contents.ts): a card where its diff would be, naming
+   the file and the way out, while the rest of the desk stays live. */
+.contents-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 10px;
+  max-width: 560px;
+  margin: 16px 20px;
+  padding: 12px 16px 12px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--red-wash);
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: 1.45;
+}
+
+.contents-error .ic {
+  grid-row: span 2;
+  margin-top: 2px;
+  color: var(--red-ink);
+}
+
+.contents-error-path {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.contents-error-meta {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}

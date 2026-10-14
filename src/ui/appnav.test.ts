@@ -342,7 +342,6 @@ const key = (k: string, code: string, shiftKey = false, altKey = false) => ({
 
 test("readBridgeMessage passes up only the UI view's keys, never ones that send, reset or confirm", () => {
   for (const ok of [
-    key("L", "KeyL", true),
     key("U", "KeyU", true),
     key("ArrowDown", "ArrowDown", true),
     key("ArrowUp", "ArrowUp", true),
@@ -363,25 +362,26 @@ test("readBridgeMessage passes up only the UI view's keys, never ones that send,
     key("Enter", "Enter"), // confirms the dialog ⇧R opens
     key("S", "KeyS", true), // ⇧S: send
     key("A", "KeyA", true), // ⇧A: approve
+    key("L", "KeyL", true), // ⇧L: the annotation list, gone with it
     key("P", "KeyP", true, true),
     key("Escape", "Escape", true),
     key("x".repeat(40), "KeyX"),
   ])
     assert.equal(readBridgeMessage(forged, TOKEN), null, JSON.stringify(forged));
-  assert.equal(readBridgeMessage({ ...key("L", "KeyL", true), shiftKey: "yes" }, TOKEN), null);
+  assert.equal(readBridgeMessage({ ...key("U", "KeyU", true), shiftKey: "yes" }, TOKEN), null);
 });
 
 test("a forwarded key runs only while annotating, except ⌥A", () => {
   const altA = { key: "a", code: "KeyA", shiftKey: false, altKey: true };
   const altP = { key: "p", code: "KeyP", shiftKey: false, altKey: true };
-  const shiftL = { key: "L", code: "KeyL", shiftKey: true, altKey: false };
+  const shiftDown = { key: "ArrowDown", code: "ArrowDown", shiftKey: true, altKey: false };
   const escape = { key: "Escape", code: "Escape", shiftKey: false, altKey: false };
   assert.equal(forwardedKeyRuns(altA, "interact"), true);
   assert.equal(forwardedKeyRuns(altP, "interact"), false);
-  assert.equal(forwardedKeyRuns(shiftL, "interact"), false);
+  assert.equal(forwardedKeyRuns(shiftDown, "interact"), false);
   assert.equal(forwardedKeyRuns(escape, "interact"), false, "in Interact, Esc belongs to the app");
   assert.equal(forwardedKeyRuns(altP, "annotate"), true);
-  assert.equal(forwardedKeyRuns(shiftL, "annotate"), true);
+  assert.equal(forwardedKeyRuns(shiftDown, "annotate"), true);
   assert.equal(forwardedKeyRuns(escape, "annotate"), true);
 });
 
@@ -412,10 +412,35 @@ test("the app warms in the code view once the diff has rendered and there's an a
   assert.equal(shouldWarm({ ...ready, view: "ui" }), false);
 });
 
-test("readBridgeMessage reads pin clicks and anchor moves", () => {
-  const select = { type: "select", token: TOKEN, id: "a-1" };
-  assert.deepEqual(readBridgeMessage(select, TOKEN), select);
-  assert.equal(readBridgeMessage({ ...select, id: 3 }, TOKEN), null);
+test("readBridgeMessage reads pin rects and clicks, and anchor moves", () => {
+  const rect = { x: 10, y: 20, width: 20, height: 20 };
+  const pins = { type: "pins", token: TOKEN, pins: [{ id: "a-1", rect }] };
+  assert.deepEqual(readBridgeMessage(pins, TOKEN), pins);
+  assert.deepEqual(readBridgeMessage({ ...pins, clicked: "a-1" }, TOKEN), {
+    ...pins,
+    clicked: "a-1",
+  });
+  assert.deepEqual(readBridgeMessage({ ...pins, clicked: null }, TOKEN), {
+    ...pins,
+    clicked: null,
+  });
+  // A malformed pin is dropped, the rest kept; a malformed click or list drops the message.
+  assert.deepEqual(
+    readBridgeMessage(
+      {
+        ...pins,
+        pins: [
+          { id: 3, rect },
+          { id: "a-2", rect: { x: 1 } },
+        ],
+      },
+      TOKEN,
+    ),
+    { type: "pins", token: TOKEN, pins: [] },
+  );
+  assert.equal(readBridgeMessage({ ...pins, clicked: 3 }, TOKEN), null);
+  assert.equal(readBridgeMessage({ ...pins, pins: "a-1" }, TOKEN), null);
+  assert.equal(readBridgeMessage({ ...pins, token: "other" }, TOKEN), null);
   const anchor = { type: "anchor", token: TOKEN, rect: { x: 1, y: 2, width: 3, height: 4 } };
   assert.deepEqual(readBridgeMessage(anchor, TOKEN), anchor);
   assert.equal(readBridgeMessage({ ...anchor, rect: { x: 1 } }, TOKEN), null);

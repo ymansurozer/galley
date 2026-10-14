@@ -1,19 +1,20 @@
 import { S, $, esc } from "./store";
-import { currentFile, fileFinished, fileObjections, fileReviewState } from "./changes";
-import { approveCurrentFile, resetReview, rejectFile } from "./decisions";
+import { currentFile, fileFinished } from "./changes";
+import { rejectFile } from "./decisions";
 import { deferRender } from "./render";
-import { currentGuideEntry } from "./guide";
-import { isFileSkim, fileSkimReason, movedFrom } from "./skim";
+import { movedFrom } from "./skim";
 import type { ReviewState } from "./types";
+import { keycapsHtml } from "./keycaps";
 
 type ReviewFile = ReviewState["files"][number];
 
 // ── Oversized-file placeholder card (issue 05) ───────────────────────────────
 // A file whose diff would freeze the tab (server-stamped `oversized`, see state.ts) renders as a
 // verdict-capable summary card INSTEAD of fetching + rendering its diff — so opening it never
-// blocks on a multi-MB tokenization pass. The card carries the file's stats, its guide badges, the
-// same whole-file verdict controls a rendered file has, and a "Load diff anyway" escape hatch. Once
-// loaded, the file behaves like any rendered file for the rest of the session (S.loadedOversized).
+// blocks on a multi-MB tokenization pass. The card carries the file's stats, Reject file, and a
+// "Load diff anyway" escape hatch; the sign-off sits in the file bar above it and the guide's note
+// in the guide card, as for any file. Once loaded, the file behaves like any rendered file for the
+// rest of the session (S.loadedOversized).
 
 // Whether `f` (default: the current file) should paint the placeholder card right now: it's stamped
 // oversized and the reviewer hasn't chosen to load its real diff this session.
@@ -59,42 +60,16 @@ function kindClass(kind: ReviewFile["changeKind"]): string {
   }
 }
 
-// The whole-file verdict controls — identical semantics to a rendered file's header:
-// finished → a state pill + Reset; otherwise Reject file (when there are blocks to reject) +
-// Approve / Mark Reviewed.
-function verdictControls(path: string): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "ovsz-verdict";
-  if (fileFinished(path)) {
-    const state = fileReviewState(path);
-    const pill = document.createElement("span");
-    pill.className = "ovsz-pill " + (state === "approved" ? "ok" : "warn");
-    pill.textContent = state === "approved" ? "Approved" : "Changes requested";
-    wrap.appendChild(pill);
-    const reset = document.createElement("button");
-    reset.className = "ovsz-btn ghost";
-    reset.textContent = "Reset";
-    reset.onclick = () => resetReview(path);
-    wrap.appendChild(reset);
-    return wrap;
-  }
-  // Reject file only makes sense when the file actually has change blocks (a hunk-less added file
-  // has none — nothing to reject block-by-block).
-  const hasBlocks = S.state.changes.some((c) => c.path === path);
-  if (hasBlocks) {
-    const reject = document.createElement("button");
-    reject.className = "ovsz-btn danger";
-    reject.textContent = "Reject file";
-    reject.onclick = () => rejectFile(path);
-    wrap.appendChild(reject);
-  }
-  const objections = fileObjections(path);
-  const approve = document.createElement("button");
-  approve.className = "ovsz-btn primary" + (objections ? " warn" : "");
-  approve.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} <kbd>⇧A</kbd>`;
-  approve.onclick = () => approveCurrentFile();
-  wrap.appendChild(approve);
-  return wrap;
+// The card's own verdict: Reject file, for an unfinished file that has change blocks to reject (a
+// hunk-less added file has none). Approve / Mark Reviewed, the signed-off state and Reset are the
+// file bar's, as for any file.
+function rejectControl(path: string): HTMLElement | null {
+  if (fileFinished(path) || !S.state.changes.some((c) => c.path === path)) return null;
+  const reject = document.createElement("button");
+  reject.className = "ovsz-btn danger";
+  reject.textContent = "Reject file";
+  reject.onclick = () => rejectFile(path);
+  return reject;
 }
 
 // Render the summary card into #diff. Called from renderCenter in place of the diff, BEFORE any
@@ -102,7 +77,6 @@ function verdictControls(path: string): HTMLElement {
 export function renderOversizedCard() {
   const file = currentFile();
   const path = file.path;
-  const entry = currentGuideEntry();
   const from = movedFrom(path);
 
   const card = document.createElement("div");
@@ -128,26 +102,6 @@ export function renderOversizedCard() {
   head.appendChild(kind);
   card.appendChild(head);
 
-  // Guide badges the file would normally show: category chip, skim note, flag callout.
-  if (entry || isFileSkim(path)) {
-    const badges = document.createElement("div");
-    badges.className = "ovsz-badges";
-    if (entry) {
-      const cat = document.createElement("span");
-      cat.className = "ovsz-cat" + (entry.flag ? " crit" : "");
-      cat.textContent = entry.category;
-      badges.appendChild(cat);
-    }
-    if (isFileSkim(path)) {
-      const skim = document.createElement("span");
-      skim.className = "ovsz-skim";
-      const reason = fileSkimReason(path);
-      skim.innerHTML = `<svg class="ic"><use href="#gly-collapse-all"></use></svg><span>${reason ? `skimmed · ${esc(reason)}` : "skimmed"}</span>`;
-      badges.appendChild(skim);
-    }
-    card.appendChild(badges);
-  }
-
   // Stats: byte size is the focal number (why this is a card), with the churn counts beside it.
   const stats = document.createElement("div");
   stats.className = "ovsz-stats";
@@ -168,21 +122,14 @@ export function renderOversizedCard() {
   note.textContent = "This file is large. Its diff is hidden to keep the desk responsive.";
   card.appendChild(note);
 
-  // The flag reads as a callout below the note (same amber-box idiom as the guide header's flag).
-  if (entry?.flag) {
-    const flag = document.createElement("div");
-    flag.className = "ovsz-flag";
-    flag.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><div>${esc(entry.flag)}</div>`;
-    card.appendChild(flag);
-  }
-
-  // Actions: whole-file verdict controls + Load diff anyway.
+  // Actions: Reject file (when it applies) + Load diff anyway.
   const actions = document.createElement("div");
   actions.className = "ovsz-actions";
-  actions.appendChild(verdictControls(path));
+  const reject = rejectControl(path);
+  if (reject) actions.appendChild(reject);
   const load = document.createElement("button");
   load.className = "ovsz-load";
-  load.innerHTML = `Load diff anyway <kbd>↵</kbd>`;
+  load.innerHTML = `Load diff anyway ${keycapsHtml("↵")}`;
   load.onclick = () => loadOversizedDiff();
   actions.appendChild(load);
   card.appendChild(actions);

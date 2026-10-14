@@ -40,8 +40,39 @@ export function cropFrame(
   return { x, y, width: x2 - x, height: y2 - y };
 }
 
-// A pin's half-height plus a pixel: how far its centre stays from the viewport's edges.
-const PIN_INSET = 11;
+// The page's pins (annotate.ts) and the screenshots' (capture.ts) are one speech bubble: 24 px high,
+// rounded but for its bottom-left corner, the tail, which sits 2 px off the target's top-left
+// corner. It carries the kind's glyph (lucide's flag or message-circle, on a 24-unit grid) in white,
+// then the number, on the kind's colour.
+export const PIN = {
+  height: 24,
+  radii: [12, 12, 12, 3],
+  change: {
+    color: "#b05400",
+    glyph:
+      "M4 22V4a1 1 0 0 1 .4-.8A6 6 0 0 1 8 2c3 0 5 2 7.33 2q2 0 3.07-.8A1 1 0 0 1 20 4v10a1 1 0 0 1-.4.8A6 6 0 0 1 16 16c-3 0-5-2-8-2a6 6 0 0 0-4 1.53",
+  },
+  question: { color: "#0a72e8", glyph: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z" },
+};
+
+// About how wide the bubble is for `number`: 8 px in, the 12 px glyph, 4 px, about 8 px a digit of
+// the 12 px bold number, 8 px out.
+export const pinWidth = (number: number) => 31 + 8 * String(number).length;
+
+// Where a pin's tail goes for a target's first box: its top-left corner, kept so the bubble stays on
+// screen (26 px of room above it, and `width` to its right; 44 px suits a two-digit number).
+export const pinCorner = (r: Rect, viewWidth: number, width = 44) => ({
+  x: Math.max(2, Math.min(viewWidth - width, r.x)),
+  y: Math.max(26, r.y),
+});
+
+// The bubble's own box for a pin whose tail sits at `pin`, so a crop can hold it whole.
+export const pinBox = (pin: { x: number; y: number }, number: number): Rect => ({
+  x: pin.x - 2,
+  y: pin.y - 2 - PIN.height,
+  width: pinWidth(number),
+  height: PIN.height,
+});
 
 // The smallest box holding all of `rects`.
 export function unionRect([first, ...rest]: readonly [Rect, ...Rect[]]): Rect {
@@ -60,12 +91,13 @@ export function unionRect([first, ...rest]: readonly [Rect, ...Rect[]]): Rect {
 // Where an annotation's mark goes on a viewport image, in CSS px, from its target's boxes (as
 // refind.ts locates them), the way the page draws its marks (annotate.ts): an outline just outside
 // each element's box, so the stroke doesn't cover the element's own edge; the region's dashed box;
-// or the quote's highlighted lines. The numbered pin sits on the first box's top-left corner, kept
-// on screen as the page's pins are.
+// or the quote's highlighted lines. The numbered pin's tail sits on the first box's top-left
+// corner, kept on screen as the page's pins are.
 export function markShape(
   kind: UiMarkTarget["kind"],
   boxes: readonly [Rect, ...Rect[]],
   view: { width: number; height: number },
+  number?: number,
 ) {
   const style = kind === "element" ? "outline" : kind === "region" ? "dashed" : "highlight";
   const [first] = boxes;
@@ -77,9 +109,6 @@ export function markShape(
           ? { x: b.x - 2, y: b.y - 2, width: b.width + 4, height: b.height + 4 }
           : b,
     })),
-    pin: {
-      x: Math.max(PIN_INSET, Math.min(view.width - PIN_INSET, first.x)),
-      y: Math.max(PIN_INSET, first.y),
-    },
+    pin: pinCorner(first, view.width, number === undefined ? undefined : pinWidth(number)),
   };
 }

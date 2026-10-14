@@ -8,14 +8,16 @@ import {
   annotatePage,
   clearPendingPicks,
   closeShot,
+  pinCardShowing,
   selectAnnotation,
   setAppMode,
   stepAnnotation,
-  toggleAnnotations,
   toggleAppMode,
 } from "./uilane";
-import { isOpenChange } from "./uilane-derive";
 import { stepOpenRequest } from "./requests";
+import { closeBlockers } from "./blockers";
+import { closeGuideCard } from "./guidecard";
+import { closeThreadCard, cursorToComposingThread } from "./rests";
 import type { ForwardedKey } from "./types";
 import {
   cursorMoveLine,
@@ -95,28 +97,31 @@ function escape() {
     closeShot();
     return;
   }
+  // The open pin card over the app, unless a composer in it is open: that goes first, then the card.
+  if (inUiView() && pinCardShowing() && !(S.composerOpen && composerInUi())) {
+    selectAnnotation(null);
+    return;
+  }
+  // The popovers over the code: above everything in it, below the dialogs (which close the
+  // blockers list as they open — see installBlockers). Then the guide card opened over the code.
+  if (closeBlockers()) return;
+  if (closeGuideCard()) return;
+  // An expanded resolved card, once its composer (below) has closed: Esc closes a reply first.
+  if (!S.composerOpen && !S.editingCommentId && closeThreadCard()) return;
   if (S.composerOpen || S.editingCommentId) {
-    // A code composer also drops the line highlight it was anchored to.
-    if (!composerInUi()) cursorReset();
+    // A code composer also drops the line highlight it was anchored to, unless it's a reply or an
+    // edit in a thread's card: the cursor goes to the card's line, where r, ↵ and c act on it.
+    if (!composerInUi() && !cursorToComposingThread()) cursorReset();
     closeComposer(); // rebuilds the lane so the inline composer's DOM goes away
     return;
   }
-  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate, then the expanded
-  // row, then the narrow-width drawer.
+  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate.
   if (inUiView() && S.appMode === "annotate" && S.pendingPicks) {
     clearPendingPicks();
     return;
   }
   if (inUiView() && S.appMode === "annotate") {
     setAppMode("interact");
-    return;
-  }
-  if (inUiView() && S.selectedAnnotation) {
-    selectAnnotation(null);
-    return;
-  }
-  if (inUiView() && S.annotationsOpen && matchMedia("(max-width: 1100px)").matches) {
-    S.annotationsOpen = false;
     return;
   }
   // A lone line selection (keyboard cursor, or a click that left the highlight without an open
@@ -220,12 +225,13 @@ const HOTKEYS: Hotkey[] = [
     when: inDiff,
     run: () => cursorMoveHunk(-1),
   },
+  // Across both views: the walk switches to the one its next request is in.
   {
     combo: "]",
     desc: "Next open change request",
     group: "Navigate",
     test: k("]"),
-    when: inCode,
+    when: navigable,
     run: () => stepOpenRequest(1),
   },
   {
@@ -233,7 +239,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Previous open change request",
     group: "Navigate",
     test: k("["),
-    when: inCode,
+    when: navigable,
     run: () => stepOpenRequest(-1),
   },
   {
@@ -272,7 +278,7 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "1–9",
-    desc: "Go to line (↵ jump, esc cancel)",
+    desc: "Go to a line (type its number)",
     group: "Navigate",
     test: (e) => /^[0-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey,
     when: inDiff,
@@ -382,7 +388,7 @@ const HOTKEYS: Hotkey[] = [
   // View
   {
     combo: "v",
-    desc: "Split / Stacked",
+    desc: "Unified / Split",
     group: "View",
     test: k("v"),
     when: inDiff,
@@ -398,7 +404,7 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "w",
-    desc: "Tree / Walkthrough sidebar",
+    desc: "Review / Files sidebar",
     group: "View",
     when: () => hasGuide() && inCode(),
     test: k("w"),
@@ -406,7 +412,7 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "⇧U",
-    desc: "Code / UI view",
+    desc: "Code / App view",
     group: "View",
     // Only with both lanes. From inside the app it arrives only while annotating (dispatchKey).
     when: () => navigable() && hasUi() && !uiOnly(),
@@ -415,7 +421,7 @@ const HOTKEYS: Hotkey[] = [
     // aren't initialised yet while this table is built.
     run: () => toggleView(),
   },
-  // UI view: the app's mode, the annotation sidebar, and stepping through annotations. ⌥A and ⇧
+  // UI view: the app's mode, annotating the page, and stepping through annotations. ⌥A and ⇧
   // chords pressed in the app arrive here too: the bridge forwards them (dispatchKey).
   {
     combo: "⌥A",
@@ -437,14 +443,6 @@ const HOTKEYS: Hotkey[] = [
     run: () => annotatePage(),
   },
   {
-    combo: "⇧L",
-    desc: "Annotations sidebar",
-    group: "UI",
-    test: shift("L"),
-    when: () => inUiView() && navigable(),
-    run: () => toggleAnnotations(),
-  },
-  {
     combo: "⇧↓",
     desc: "Next annotation",
     group: "UI",
@@ -461,29 +459,17 @@ const HOTKEYS: Hotkey[] = [
     run: () => stepAnnotation(-1),
   },
   {
-    combo: "]",
-    desc: "Next open change request",
-    group: "UI",
-    test: k("]"),
-    when: () => inUiView() && navigable(),
-    run: () => stepAnnotation(1, isOpenChange),
-  },
-  {
-    combo: "[",
-    desc: "Previous open change request",
-    group: "UI",
-    test: k("["),
-    when: () => inUiView() && navigable(),
-    run: () => stepAnnotation(-1, isOpenChange),
-  },
-  {
     combo: "⇧B",
-    desc: "Files drawer (narrow screens)",
+    desc: "Collapse sidebar (the drawer on narrow screens)",
     group: "View",
-    when: inCode,
+    when: () => navigable() && !uiOnly(),
     test: shift("B"),
-    // Toggles the off-canvas file tree at narrow widths; inert on desktop (drawer is media-gated).
-    run: () => (S.treeDrawerOpen = !S.treeDrawerOpen),
+    // Collapses the sidebar to its rail on wide screens, in either view; at narrow widths, where
+    // the sidebar is the off-canvas drawer, it opens and closes that instead.
+    run: () => {
+      if (matchMedia("(max-width: 1100px)").matches) S.treeDrawerOpen = !S.treeDrawerOpen;
+      else S.sidebarCollapsed = !S.sidebarCollapsed;
+    },
   },
   {
     combo: "⇧E",
@@ -504,18 +490,21 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "⇧R",
-    desc: "Reset review",
+    desc: "Reset Review",
     group: "App",
     test: shift("R"),
     when: navigable,
+    // The server's reset clears the app's annotations with the comments, so a desk with an app
+    // says so.
     run: () =>
-      askConfirm("Reset the whole review? This clears every decision and comment.", () =>
-        S.reset?.(),
+      askConfirm(
+        `Reset the whole review? This clears every decision, sign-off${hasUi() ? ", comment and annotation" : " and comment"}.`,
+        () => S.reset?.(),
       ),
   },
   {
     combo: "⇧S",
-    desc: "Send to agent",
+    desc: "Send review",
     group: "App",
     test: shift("S"),
     when: navigable,

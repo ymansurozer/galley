@@ -1,3 +1,4 @@
+import Alpine from "alpinejs";
 import { S, D, $ } from "./store";
 import type { ChangeState, Decision, ReviewComment, Side } from "./types";
 import {
@@ -8,16 +9,18 @@ import {
   toDisplayLine,
 } from "./changes";
 import { attributeComment, placeBlocks } from "./flow-index";
-import { currentSlot } from "./guide";
+import { currentGuideEntry, currentSlot } from "./guide";
 import { blockStep } from "./steps";
 import { isUnanchored } from "./unanchored";
 import { revealLine } from "./expand";
-import { cursorJumpTo, isRendered } from "./cursor";
+import { cursorJumpTo, cursorReset, isRendered } from "./cursor";
+import { isFileSkimCollapsed, toggleFileSkim } from "./skim";
+import { holdPlace } from "./rests";
 
 // ── "Why can't I approve this file?" ─────────────────────────────────────────
 // fileObjections gates Approve on rejected hunks and open change-request comments, but
 // either can sit far off-screen (or, for an orphaned thread, off the diff entirely). The
-// blockers chip in the diff header counts them and opens a jump list, so the reason a
+// blockers chip in the file bar counts them and opens a jump list, so the reason a
 // file reads "Mark reviewed" / changes-requested is always one click away.
 
 export type Blocker =
@@ -76,11 +79,28 @@ function decisionDisplayPos(d: Decision): { side: Side; line: number } {
 
 // Scroll a thread that isn't on a diff row (the strip's, a rendered markdown file's) into view and
 // flash it.
-export function flashThread(el: HTMLElement) {
+function flashThread(el: HTMLElement) {
+  holdPlace(null); // the smooth scroll runs on past the hold's moment
   el.scrollIntoView({ block: "center", behavior: "smooth" });
   el.classList.remove("flash");
   void el.offsetWidth; // restart the animation
   el.classList.add("flash");
+}
+
+// A thread on a diff row: the cursor lands on (and flashes) its line, and its card flashes beside
+// it. Two frames late, so an unfold's re-render has drawn the card first.
+function flashLineThread(side: Side, lineNumber: number) {
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      const el = $("diff").querySelector<HTMLElement>(
+        `.line-thread [data-thread="${side}:${lineNumber}"]`,
+      );
+      if (!el) return;
+      el.classList.remove("flash");
+      void el.offsetWidth; // restart the animation
+      el.classList.add("flash");
+    }),
+  );
 }
 
 // A jump never lands on a block another step covers, which a part view renders as plain code: it
@@ -99,33 +119,98 @@ async function openBlockStep(c: ChangeState | undefined): Promise<boolean> {
   );
 }
 
-// `live` re-checks, after any step switch has rendered, that the caller still wants the jump.
-export async function jumpToBlocker(b: Blocker, live = () => true) {
-  if (b.kind === "thread" && b.unanchored) {
-    // The thread lives in the strip above the diff, not on a row.
-    const el = $("diff").querySelector<HTMLElement>(
-      `.unanchored-strip [data-thread="${b.side}:${b.lineNumber}"]`,
+// Bring a blocker on the open file into view and flash it, from whichever view the file is in.
+// It's the one route for both the blockers list and the change-request walk (requests.ts), so the
+// two can't drift. The view first gets something to land on: a skimmed file folded behind its
+// strip expands, and a rejected change in rendered markdown, which has no rows to show it,
+// switches the file to Source. Then the target is found where the view draws it: a rendered
+// markdown thread, the lost-thread strip, else the diff row, under the cursor; a row in a block
+// another step covers opens that step first (openBlockStep). `current` lets a caller drop a jump
+// the reviewer moved on from while the view re-rendered.
+export async function jumpToBlocker(b: Blocker, current: () => boolean = () => true) {
+  const path = currentFile().path;
+  if (isFileSkimCollapsed(path)) await toggleFileSkim(path);
+  if (b.kind === "reject" && $("diff").querySelector(".md-file")) await S.setFileView?.("source");
+  if (currentFile()?.path !== path || !current()) return;
+  if (b.kind === "reject") {
+    const block = S.state.changes.find((c) => c.id === b.decision.key);
+    if (!(await openBlockStep(block)) || !current()) return;
+    const pos = decisionDisplayPos(b.decision);
+    cursorJumpTo(pos.side, pos.line);
+    return;
+  }
+  const diff = $("diff");
+  const thread =
+    diff.querySelector<HTMLElement>(`.md-thread[data-thread="${b.lineNumber}"]`) ??
+    diff.querySelector<HTMLElement>(`.unanchored-strip [data-thread="${b.side}:${b.lineNumber}"]`);
+  if (thread) {
+    cursorReset(); // off the rows, so the cursor can't hold the place
+    flashThread(
+      thread.closest<HTMLElement>(".thread-slot") ?? thread.querySelector(".thread-slot") ?? thread,
     );
-    if (el) flashThread(el);
-    else
-      $("diff")
-        .querySelector<HTMLElement>(".unanchored-strip")
-        ?.scrollIntoView({ block: "center", behavior: "smooth" });
     return;
   }
-  if (b.kind === "thread") {
-    if (!(await openBlockStep(currentBlockAt(b.side, b.lineNumber))) || !live()) return;
-    const line = toDisplayLine(b.side, b.lineNumber);
-    // Unfold only when the line isn't rendered: each expansion reveals more lines, so unfolding a
-    // line that already renders would widen the run on every jump to it.
-    if (!isRendered(b.side, line)) revealLine(b.side, b.lineNumber);
-    cursorJumpTo(b.side, line);
+  if (b.unanchored) {
+    holdPlace(null);
+    diff
+      .querySelector<HTMLElement>(".unanchored-strip")
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
     return;
   }
-  if (!(await openBlockStep(S.state.changes.find((c) => c.id === b.decision.key))) || !live())
-    return;
-  const pos = decisionDisplayPos(b.decision);
-  cursorJumpTo(pos.side, pos.line);
+  if (!(await openBlockStep(currentBlockAt(b.side, b.lineNumber))) || !current()) return;
+  const line = toDisplayLine(b.side, b.lineNumber);
+  // Unfold only when the line isn't rendered: each expansion reveals more lines, so unfolding a
+  // line that already renders would widen the run on every jump to it.
+  if (!isRendered(b.side, line)) revealLine(b.side, b.lineNumber);
+  cursorJumpTo(b.side, line);
+  if (b.kind === "thread") flashLineThread(b.side, b.lineNumber);
+}
+
+// The open popover, while one is open: a row's jump, a click outside and Esc all close it through
+// `close`, which also drops the outside-click listener.
+let openPop: { wrap: HTMLElement; close: () => void } | null = null;
+
+// Esc's layer for the popover (keys.ts): close it. False when none is showing — a re-render of the
+// bar may have dropped it from the page, and then Esc belongs to the next layer.
+export function closeBlockers(): boolean {
+  if (!openPop) return false;
+  // Hidden behind the App view it closes too, but leaves that Esc to the app's own layers.
+  const shown = openPop.wrap.isConnected && S.view === "code";
+  openPop.close();
+  return shown;
+}
+
+// A dialog or go-to-line takes the keyboard, Esc included, so the popover closes as one opens:
+// left open behind a dialog, it would linger after the dialog's Esc. Leaving the code view closes
+// it too.
+export function installBlockers() {
+  Alpine.effect(() => {
+    if (
+      S.confirmMsg ||
+      S.sendOpen ||
+      S.settingsOpen ||
+      S.shotView ||
+      S.golineBuffer ||
+      S.view !== "code"
+    )
+      closeBlockers();
+  });
+}
+
+// One row of the jump list: what kind of blocker, where it sits, and its text.
+function blockerRow(b: Blocker): HTMLButtonElement {
+  const [kind, glyph, label, where, text] =
+    b.kind === "reject"
+      ? ["undone", "arrow-left", "Undone", `L${b.decision.lineNumber}`, b.decision.title]
+      : b.unanchored
+        ? ["lost", "circle-alert", "Lost its place", `was L${b.lineNumber}`, b.preview]
+        : ["change", "flag", "Change request", `L${b.lineNumber}`, b.preview];
+  const row = document.createElement("button");
+  row.className = `blockers-item ${kind}`;
+  row.innerHTML = `<span class="bk-kind"><svg class="ic"><use href="#gly-${glyph}"></use></svg>${label}</span><span class="bk-where"></span><span class="bk-text"></span>`;
+  row.querySelector(".bk-where")!.textContent = where;
+  row.querySelector(".bk-text")!.textContent = text;
+  return row;
 }
 
 // The blockers of the step on screen: the file's, or in a part or Rest view only the step's own (a
@@ -142,10 +227,16 @@ function stepBlockers(path: string, blocks: ChangeState[] | null): Blocker[] {
   );
 }
 
-// The header chip + its jump-list popover (imperative DOM, like the rest of the header).
+// The bar's "N blockers" chip + its jump-list popover (imperative DOM, like the rest of the bar).
+// The step on screen's blockers (see stepBlockers): what its "N blockers" chip lists.
+export function currentBlockers(): Blocker[] {
+  return stepBlockers(currentFile().path, currentSlot()?.blocks ?? null);
+}
+
 export function blockersChip(): HTMLElement | null {
+  const path = currentFile().path;
   const blocks = currentSlot()?.blocks ?? null;
-  const items = stepBlockers(currentFile().path, blocks);
+  const items = stepBlockers(path, blocks);
   if (!items.length) return null;
   const wrap = document.createElement("span");
   wrap.className = "blockers";
@@ -153,21 +244,32 @@ export function blockersChip(): HTMLElement | null {
   btn.className = "blockers-chip";
   btn.textContent = `${items.length} blocker${items.length === 1 ? "" : "s"}`;
   btn.setAttribute("data-tip", `What's keeping this ${blocks ? "part" : "file"} from Approved`);
+  btn.setAttribute("aria-expanded", "false");
   wrap.appendChild(btn);
   const pop = document.createElement("div");
   pop.className = "blockers-pop";
+  pop.setAttribute("role", "menu");
+  const head = document.createElement("div");
+  head.className = "blockers-head";
+  // The step it keeps from Approved: the file, a part of it, or its Rest.
+  const name = path.split("/").pop();
+  const part = S.stepPart === "rest" ? null : currentGuideEntry()?.part?.title;
+  const step = S.stepPart === "rest" ? `Rest of ${name}` : part ? `${name} · ${part}` : name;
+  head.textContent = `Keeping ${step} from Approved`;
+  pop.appendChild(head);
+  const close = () => {
+    wrap.classList.remove("open");
+    btn.setAttribute("aria-expanded", "false");
+    document.removeEventListener("click", outside, true);
+    if (openPop?.wrap === wrap) openPop = null;
+  };
+  const outside = (ev: MouseEvent) => {
+    if (!wrap.contains(ev.target as Node)) close();
+  };
   for (const b of items) {
-    const row = document.createElement("button");
-    row.className = "blockers-item";
-    if (b.kind === "reject") {
-      row.innerHTML = `<span class="bk-kind reject">Rejected</span><span class="bk-where">line ${b.decision.lineNumber}</span><span class="bk-text"></span>`;
-      row.querySelector(".bk-text")!.textContent = b.decision.title;
-    } else {
-      row.innerHTML = `<span class="bk-kind change">Change request</span><span class="bk-where">${b.unanchored ? "unanchored" : `line ${b.lineNumber}`}</span><span class="bk-text"></span>`;
-      row.querySelector(".bk-text")!.textContent = b.preview;
-    }
+    const row = blockerRow(b);
     row.onclick = () => {
-      wrap.classList.remove("open");
+      close();
       void jumpToBlocker(b);
     };
     pop.appendChild(row);
@@ -175,16 +277,12 @@ export function blockersChip(): HTMLElement | null {
   wrap.appendChild(pop);
   btn.onclick = (e) => {
     e.stopPropagation();
-    const open = wrap.classList.toggle("open");
-    if (open) {
-      const close = (ev: MouseEvent) => {
-        if (!wrap.contains(ev.target as Node)) {
-          wrap.classList.remove("open");
-          document.removeEventListener("click", close, true);
-        }
-      };
-      document.addEventListener("click", close, true);
-    }
+    if (wrap.classList.contains("open")) return close();
+    closeBlockers(); // a popover left open by an earlier render of the bar
+    wrap.classList.add("open");
+    btn.setAttribute("aria-expanded", "true");
+    document.addEventListener("click", outside, true);
+    openPop = { wrap, close };
   };
   return wrap;
 }

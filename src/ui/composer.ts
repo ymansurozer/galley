@@ -3,6 +3,7 @@ import { rowAnchor } from "./changes";
 import { render } from "./render";
 import { renderUiLane } from "./uilane";
 import type { Side } from "./types";
+import { keycapsHtml } from "./keycaps";
 
 // ── Inline composers ─────────────────────────────────────────────────────────
 // The composer is imperative DOM built into the diff (like the thread), NOT the old
@@ -51,14 +52,14 @@ export function buildComposer(): HTMLElement {
   card.appendChild(ta);
   const row = document.createElement("div");
   row.className = "crow";
-  row.innerHTML = `<span class="spacer"></span><button class="cbtn ask">Ask <kbd>⌘⇧↵</kbd></button><button class="cbtn req">Request change <kbd>⌘↵</kbd></button>`;
+  row.innerHTML = `<span class="spacer"></span><button class="cbtn ask tint">Ask ${keycapsHtml("⌘⇧↵")}</button><button class="cbtn req tint">Request change ${keycapsHtml("⌘↵")}</button>`;
   (row.querySelector(".ask") as HTMLButtonElement).onclick = () => S.ask?.();
   (row.querySelector(".req") as HTMLButtonElement).onclick = () => S.requestChange?.();
   card.appendChild(row);
   return card;
 }
 
-// The in-place edit state for a message: the body swaps for a textarea (amber accent) with
+// The in-place edit state for a message: the body swaps for a textarea (orange accent) with
 // Save / Cancel, keeping the existing S.editingCommentId + submitComment edit path.
 export function buildEditor(): HTMLElement {
   const wrap = document.createElement("div");
@@ -70,7 +71,7 @@ export function buildEditor(): HTMLElement {
   wrap.appendChild(ta);
   const row = document.createElement("div");
   row.className = "crow editrow";
-  row.innerHTML = `<span class="spacer"></span><button class="cbtn cancel">Cancel</button><button class="cbtn req save">Save <kbd>⌘↵</kbd></button>`;
+  row.innerHTML = `<span class="spacer"></span><button class="cbtn cancel">Cancel</button><button class="cbtn req save tint">Save ${keycapsHtml("⌘↵")}</button>`;
   (row.querySelector(".cancel") as HTMLButtonElement).onclick = () => closeComposer();
   (row.querySelector(".save") as HTMLButtonElement).onclick = () => S.saveComment?.();
   wrap.appendChild(row);
@@ -138,13 +139,14 @@ export function closeComposer(deferRender = false) {
   document.addEventListener("click", settle); // bubble: runs after the target's own handlers
 }
 
-// After every render the diff DOM (and any composer inside it) is rebuilt from scratch, so
-// re-focus the open composer and restore its caret from the store. No-op when none is open.
+// After every render the diff DOM (and any composer inside it) is rebuilt from scratch, and so are
+// the UI lane's floating composer and pin card, so re-focus the open composer and restore its caret
+// from the store. No-op when none is open.
 export function restoreComposerFocus() {
   if (!S.composerOpen) return;
   const ta = document.querySelector<HTMLTextAreaElement>(
     composerInUi()
-      ? "#uiComposer .js-composer-focus, #annotationList .js-composer-focus"
+      ? "#uiComposer .js-composer-focus, #pinCard .js-composer-focus"
       : ".js-composer-focus",
   );
   if (!ta) return;

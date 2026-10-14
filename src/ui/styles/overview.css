@@ -1,0 +1,228 @@
+/* ── The guide's Overview page: a document on the canvas ──
+   A reading column: the title, the review's facts, the agent's overview, the PR description in
+   a grouped card, then Start Review. */
+.guide-overview {
+  min-height: 100%;
+  padding: 34px 32px 140px;
+}
+
+.guide-overview .go-card {
+  max-width: 660px;
+  margin: 0 auto;
+}
+
+.guide-overview h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  line-height: 1.15;
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+.guide-overview .go-sub {
+  margin-bottom: 18px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/* Focused review: a quiet pill telling the reviewer churn was deliberately skimmed. */
+.guide-overview .go-focused {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  margin: -6px 0 18px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--fill-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.guide-overview .go-focused .ic {
+  width: 12px;
+  height: 12px;
+}
+
+/* The stale guide: a callout in the flag's orange, its glyph hanging in the left padding so the
+   sentence (text and inline code together) wraps as one run. */
+.guide-overview .go-stale {
+  position: relative;
+  margin: 0 0 20px;
+  padding: 9px 12px 9px 34px;
+  border-radius: var(--radius-lg);
+  background: var(--orange-wash);
+  color: var(--orange-ink);
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.guide-overview .go-stale .ic {
+  position: absolute;
+  top: 11px;
+  left: 12px;
+}
+
+.guide-overview .go-stale code {
+  padding: 0 4px;
+  border-radius: var(--radius-xs);
+  background: var(--fill-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.guide-overview .go-overview {
+  margin: 0 0 20px;
+  color: var(--ink);
+  font-size: 14.5px;
+  line-height: 1.58;
+  text-wrap: pretty;
+}
+
+.guide-overview .go-overview p {
+  margin: 0 0 12px;
+}
+
+.guide-overview .go-overview code {
+  font-size: var(--text-md);
+}
+
+.guide-overview .go-pr {
+  margin: 0 0 20px;
+  padding: 10px 16px 12px;
+  border-radius: var(--radius-xl);
+  background: var(--window);
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+}
+
+.guide-overview .go-pr b {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.guide-overview .go-pr .md {
+  margin-top: 0;
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: 1.55;
+}
+
+.guide-overview .go-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+@media (max-width: 760px) {
+  .guide-overview {
+    padding: 24px 18px 80px;
+  }
+
+  .guide-overview h1 {
+    font-size: 22px;
+  }
+}
+
+/* ── Toast and the go-to-line pill: a banner floating over the bottom of the canvas ──
+   One line where it fits; on a phone a long toast wraps inside the pill rather than running off
+   the screen. */
+.toast,
+.goline {
+  position: absolute;
+  left: 50%;
+  bottom: 46px;
+  z-index: 25;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  min-height: 32px;
+  padding: 6px 14px;
+  border-radius: 16px;
+  background: var(--window);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Wide screens: the banners centre on the canvas, as the sheets do, rather than on the window
+   under the full-height sidebar. */
+@media (min-width: 1101px) {
+  body:not(.single, .file-mode) .app:not(.ui-only) :is(.toast, .goline) {
+    grid-area: 1 / 3 / -1 / 4;
+  }
+}
+
+.toast.show,
+.goline.show {
+  display: flex;
+  animation: banner-in 0.4s var(--spring);
+}
+
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+}
+
+.toast:has(.toast-action:not([style*="none"])) {
+  padding-right: 5px;
+}
+
+.toast-action {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--blue-wash);
+  color: var(--blue-ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: color-mix(in srgb, var(--blue) 22%, transparent);
+}
+
+.toast-action:active {
+  background: color-mix(in srgb, var(--blue) 32%, transparent);
+}
+
+/* Go-to-line: a mode indicator for pending typed digits — the label quiet, the typed number in
+   the code's face, the keys set off by a hairline. */
+.goline {
+  color: var(--ink-2);
+}
+
+.goline b {
+  color: var(--ink);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.goline .goline-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--sep-strong);
+  color: var(--ink-2);
+  font-weight: 400;
+}

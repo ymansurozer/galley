@@ -19,8 +19,9 @@ import {
   pickedInApp,
   placedInApp,
   placeFloatingComposer,
+  placePinCard,
   resumeUiComposer,
-  selectAnnotation,
+  pinsInApp,
   setUiComposerAside,
   syncBridge,
 } from "./uilane";
@@ -116,7 +117,7 @@ let warming = false;
 
 // Load the app in the background while the reviewer reads code, once the tab is idle (Safari has
 // no requestIdleCallback: a short timer stands in). The code view keeps a loaded app laid out where
-// the UI view shows it, unseen and inert (index.html), so it lays out at the stage's real size and
+// the UI view shows it, unseen and inert (styles/appview.css), so it lays out at the stage's real size and
 // the first switch finds it loaded.
 function warmApp() {
   const ready = () =>
@@ -162,7 +163,8 @@ function reclaimFocus() {
   restoreComposerFocus();
 }
 
-export function setView(view: "code" | "ui") {
+// Switching to the code view repaints the diff; the returned render settles once it has.
+export function setView(view: "code" | "ui"): Promise<void> | undefined {
   if (view === "ui" ? !hasUi() : uiOnly()) return;
   // A UI-lane composer can't stay open behind the code view (it would hold the code lane's keys
   // and the poll's diff adoption): it's set aside with its text and comes back with the UI view.
@@ -171,8 +173,7 @@ export function setView(view: "code" | "ui") {
   syncBridge();
   if (view === "code") {
     reclaimFocus();
-    render(); // the diff pane was hidden while the app showed — repaint it
-    return;
+    return render(); // the diff pane was hidden while the app showed — repaint it
   }
   if (!S.app.loaded) loadApp(targetRoute());
   shown = true;
@@ -233,6 +234,7 @@ export function setViewport(viewport: Viewport) {
   S.viewport = viewport;
   sizeFrame();
   placeFloatingComposer();
+  placePinCard();
 }
 
 // Fit fills the stage. A preset renders the app at its real CSS size, so the app's own media
@@ -342,7 +344,8 @@ export function adoptUiTarget(ui: ReviewState["ui"]) {
   }
   if (S.app.loaded) loadApp(targetRoute());
   else warmApp();
-  toast(before ? "App target changed" : "App attached — ⇧U shows it");
+  if (before) toast("App target changed");
+  else toast("App attached — show it with", undefined, "⇧U");
 }
 
 // Keep the view legal for the desk's current shape (after init, a reload, or a target change).
@@ -380,7 +383,7 @@ export function installAppView() {
       return;
     }
     if (msg.type === "anchor") return movedInApp(msg.rect);
-    if (msg.type === "select") return selectAnnotation(msg.id);
+    if (msg.type === "pins") return pinsInApp(msg.pins, msg.clicked);
     if (msg.type === "placements") return placedInApp(msg.placements);
     if (msg.type === "key") {
       if (forwardedKeyRuns(msg, appModeNow())) dispatchKey(msg);
@@ -403,5 +406,6 @@ export function installAppView() {
   new ResizeObserver(() => {
     sizeFrame();
     placeFloatingComposer();
+    placePinCard();
   }).observe($("appStage"));
 }

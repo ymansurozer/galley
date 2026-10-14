@@ -138,12 +138,12 @@ export function treeRows(): TreeRow[] {
     // A changed test stays revealed for its whole lifecycle (like any changed file) so it doesn't
     // vanish from the tree the moment it's approved — only *unchanged* sibling tests stay folded.
     const changedTests = !isTest && file.tests.some((t) => t.changed);
-    // The parent filename reads as "needs attention" (cyan) only while a changed test is still
+    // The parent filename reads as "needs attention" (full ink) only while a changed test is still
     // pending; once every changed test is signed off, the parent goes neutral (dealt with).
     const pendingChangedTests =
       !isTest && file.tests.some((t) => t.changed && ix.reviewState(t.path) === "pending");
-    // "Changed" (cyan) filename = still needs attention: a pending changed file, or a child test
-    // that's still pending. Approved / changes-requested files read as neutral (dealt with).
+    // "Changed" (full-ink) filename = still needs attention: a pending changed file, or a child
+    // test that's still pending. Approved / changes-requested files read as neutral (dealt with).
     const changedish = (file.changed && state === "pending") || pendingChangedTests;
     const testOpen = hasTests && (S.expandedDirs.has(`tests:${file.path}`) || changedTests);
     // A file with tests shows the test-toggle caret instead of a badge only when it's otherwise
@@ -188,8 +188,8 @@ export function treeRows(): TreeRow[] {
   }
 
   // A flat, muted row for a fully-skimmed file inside the collapsed group: no state badge and no
-  // "changed" cyan (it's out of the flow), just the skim indicator. Clicking opens it like any
-  // file — its file/block skim strips render as issue 06 built.
+  // "changed" full-ink name (it's out of the flow), just the skim indicator. Clicking opens it like
+  // any file — its file/block skim strips render as issue 06 built.
   function skimFileRow(path: string): FileRow {
     const index = changed.get(path);
     return {
@@ -249,9 +249,10 @@ let followed: string | null = null;
 // selectFile calls this directly, and render() re-applies it after Alpine's flush (an rAF later,
 // so freshly re-keyed rows get the class back — Alpine's :class diff only removes classes it
 // added itself, so this manual class survives binding re-evaluation on reused elements).
-// No file is "active" on the Overview; a previewed file wins over the indexed review file.
-// The Files tree marks the file; the Walkthrough marks the step's own row — a part's, or the
-// Rest's — and, for a file opened whole, every row of that file (a split file has one per part).
+// On the Overview the Review tab's Overview row is "active" and no file is; a previewed file wins
+// over the indexed review file. The Files tree marks the file; the Walkthrough marks the step's own
+// row — a part's, or the Rest's — and, for a file opened whole, every row of that file (a split
+// file has one per part).
 // It is also the one place the sidebar follows the active step (followActiveRow), whatever moved
 // it — a click, ⇧←/→, ⌘⇧↑/↓, approve-advance, a wrap seek.
 export function applyActiveRow() {
@@ -259,8 +260,9 @@ export function applyActiveRow() {
     ? null
     : (S.preview?.path ?? S.state?.files?.[S.fileIndex]?.path ?? null);
   const part = S.preview ? undefined : S.stepPart;
-  for (const el of document.querySelectorAll("#files .node.active, #walk .node.active"))
-    el.classList.remove("active");
+  for (const el of document.querySelectorAll(".tree .node.active")) el.classList.remove("active");
+  if (S.overviewOpen)
+    document.querySelector('.side-nav .node[data-key="overview"]')?.classList.add("active");
   if (path) {
     const rows = [
       `#files .node[data-key="${CSS.escape(`file:${path}`)}"]`,
@@ -296,7 +298,7 @@ function followActiveRow(path: string) {
   showActiveRow();
 }
 
-// Scroll the visible sidebar list (Files or Walkthrough; the other is display:none) just enough
+// Scroll the visible sidebar list (Files or Review; the other is display:none) just enough
 // to show the active row, "nearest"-style, so a row already in view never moves. An rAF later,
 // once Alpine's flush has rendered the rows a reveal just opened. main.ts setSidebarTab calls it
 // too: a follow made while that list was hidden couldn't scroll it.

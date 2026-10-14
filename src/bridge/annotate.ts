@@ -1,6 +1,6 @@
-import type { AppMode, BridgeMessage, PickedTarget, Rect, UiMark } from "../types";
+import type { AppMode, BridgeMessage, PickedTarget, PinRect, Rect, UiMark } from "../types";
 import { OVERLAY_ATTR } from "./capture";
-import { unionRect } from "./crop";
+import { PIN, pinCorner, pinWidth, unionRect } from "./crop";
 import { CAPS, describeElement, labelOf, targetOf } from "./describe";
 import { marksPlacer } from "./placement";
 import { located } from "./refind";
@@ -51,19 +51,28 @@ const STYLE = `
   .hl { background: rgba(224, 175, 104, .34); border-radius: 2px }
   .region.resolved, .hl.resolved { opacity: .35 }
   .pin {
-    position: fixed; pointer-events: none; transform: translate(-50%, -50%); min-width: 20px; height: 20px;
-    padding: 0 5px; border-radius: 999px; display: grid; place-items: center; background: #e0af68; color: #050608;
-    font: 700 11px/1 Geist, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 0 0 2px #fff, 0 2px 8px rgba(0, 0, 0, .35);
-    transition: transform .12s
+    position: fixed; pointer-events: auto; cursor: pointer; transform: translate(-2px, calc(-100% - 2px));
+    display: inline-flex; align-items: center; gap: 4px; height: 24px; min-width: 30px; padding: 0 8px;
+    border-radius: ${PIN.radii.map((r) => `${r}px`).join(" ")}; background: ${PIN.change.color}; color: #fff;
+    font: 700 12px/1 Geist, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 2px 5px rgba(0, 0, 0, .25);
+    transition: background .2s ease-out
   }
-  .annotate .pin { pointer-events: auto; cursor: pointer }
-  .annotate .pin:hover { transform: translate(-50%, -50%) scale(1.12) }
-  .pin.sel { transform: translate(-50%, -50%) scale(1.2); box-shadow: 0 0 0 2px #fff, 0 0 0 5px rgba(0, 168, 255, .45), 0 2px 8px rgba(0, 0, 0, .35) }
-  .pin.q { background: #00a8ff }
+  .pin svg { width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round }
+  .pin:hover { background: #8f4400; transition-duration: 0s }
+  .pin.q { background: ${PIN.question.color} }
+  .pin.q:hover { background: #0b5bc0 }
+  .pin.sel, .pin.sel:hover { background: #1c1c1e }
+  .pin.waiting::after {
+    content: ""; position: absolute; inset: -5px; border-radius: inherit; border: 2px solid #0a72e8; opacity: 0;
+    animation: ping 1.6s ease-out infinite; pointer-events: none
+  }
+  @keyframes ping { 0% { opacity: .55; transform: scale(.85) } 100% { opacity: 0; transform: scale(1.35) } }
+  @media (prefers-reduced-motion: reduce) { .pin.waiting::after { animation: none } }
   .outline.q { border-color: #00a8ff }
   .region.q, .region.picked { border-color: #00a8ff; background: rgba(0, 168, 255, .09) }
   .hl.q, .hl.picked { background: rgba(0, 168, 255, .3) }
-  .pin.resolved { background: #e5e5e5; color: #737373 }
+  .pin.resolved { filter: grayscale(1); opacity: .55 }
+  .pin.draft { background: #00a8ff; pointer-events: none }
   #chip {
     position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%); display: none; padding: 7px 12px;
     border-radius: 999px; background: #101415; border: 1px solid #354146; color: #d9d9d4; white-space: nowrap;
@@ -76,10 +85,15 @@ const STYLE = `
   }
 `;
 
+// The pins' glyphs: a change request's flag, a question's message.
+const glyph = (d: string) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+const FLAG = glyph(PIN.change.glyph);
+const MESSAGE = glyph(PIN.question.glyph);
+
 // Keys that scroll the page: they still reach it in Annotate mode.
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
-// The UI view's ⇧ chords passed up while annotating: sidebar, next / previous, Code / UI.
-const FORWARDED_SHIFT = new Set(["L", "U", "ArrowDown", "ArrowUp"]);
+// The UI view's ⇧ chords passed up while annotating: next / previous annotation, Code / App.
+const FORWARDED_SHIFT = new Set(["U", "ArrowDown", "ArrowUp"]);
 // How far the pointer moves before a press becomes a drag, and the smallest box a drag picks.
 const DRAG_START = 5;
 const MIN_REGION = 8;
@@ -131,9 +145,20 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
   let lastAnchor = "";
   // The selected mark, until it's found and scrolled into view (or found missing).
   let revealing: string | null = null;
+  // The number the pick the composer is open on will get, for its draft pin; null without one.
+  let draftNumber: number | null = null;
+  // The pins as last drawn, as last posted, and the frame a post waits for.
+  let pins: PinRect[] = [];
+  let sentPins = "";
+  let pinsFrame = 0;
 
   // Created on first use, so a page that is never annotated never gets the host.
   let overlay: ReturnType<typeof buildOverlay> | null = null;
+  // What layout last wrote into the marks and the pick layers. Compared as written, not against
+  // innerHTML: the browser serializes a pin's <path/> glyph back as <path></path>, so that check never
+  // matched and every pass rebuilt the pins, the hovered one under the pointer.
+  let marksHtml = "";
+  let pickHtml = "";
   const ui = () => (overlay ??= buildOverlay());
 
   const placer = marksPlacer(
@@ -407,7 +432,15 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     // A press on the veil or a pin would otherwise bubble out of the shadow root to the app's
     // document listeners (as a press on the host), and a dialog that closes on a press outside
     // it would close under the reviewer's pick. The bridge's own listeners sit below the layer.
-    for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "click"] as const)
+    for (const type of [
+      "pointerdown",
+      "pointerup",
+      "mousedown",
+      "mouseup",
+      "click",
+      "touchstart",
+      "touchend",
+    ] as const)
       parts.layer.addEventListener(type, (e) => e.stopPropagation());
     let frame = 0;
     parts.veil.addEventListener("pointermove", (e) => {
@@ -421,6 +454,8 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     parts.veil.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
+      // Picking is a press on the page too: the selected pin's card gives way.
+      if (selected) postPins(null);
       window.focus();
       const hit = under(e.clientX, e.clientY);
       gesture = {
@@ -458,11 +493,44 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
       layout();
     });
     parts.veil.addEventListener("wheel", wheel, { passive: false });
+    // A pin takes its press in either mode (the layer keeps it from the app): no focus or selection
+    // moves under it, and its click opens or closes its card in the desk.
+    parts.marks.addEventListener("pointerdown", (e) => e.preventDefault());
     parts.marks.addEventListener("click", (e) => {
       const pin = e.target instanceof Element ? e.target.closest<HTMLElement>(".pin") : null;
-      if (pin?.dataset.id) post({ type: "select", token, id: pin.dataset.id });
+      if (pin?.dataset.id) postPins(pin.dataset.id);
     });
   }
+
+  // The pins as drawn, for the desk to anchor the open pin's card to. Posted at most once a frame,
+  // and only when one moved, appeared or went, or with a click.
+  function pinsKey() {
+    const round = (r: Rect) => [r.x, r.y, r.width, r.height].map(Math.round);
+    return JSON.stringify(pins.map((p) => [p.id, ...round(p.rect)]));
+  }
+  function postPins(clicked?: string | null) {
+    sentPins = pinsKey();
+    post({ type: "pins", token, pins, ...(clicked !== undefined && { clicked }) });
+  }
+  function pinsMoved() {
+    if (pinsFrame || pinsKey() === sentPins) return;
+    pinsFrame = requestAnimationFrame(() => {
+      pinsFrame = 0;
+      if (pinsKey() !== sentPins) postPins();
+    });
+  }
+  // A primary press on the page off the pins closes the selected pin's card. A press inside the
+  // overlay (a pin, or the veil while annotating) is the overlay's own, and one on the root element
+  // is on the page's scrollbar.
+  addEventListener(
+    "pointerdown",
+    (e) => {
+      const t = e.target;
+      if (selected && e.button === 0 && t !== overlay?.host && t !== document.documentElement)
+        postPins(null);
+    },
+    true,
+  );
 
   const inView = (r: Rect) =>
     r.width + r.height > 0 &&
@@ -473,6 +541,14 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
 
   const box = (r: Rect, cls: string, inner = "") =>
     `<div class="box ${cls}" style="left:${r.x}px;top:${r.y}px;width:${r.width}px;height:${r.height}px">${inner}</div>`;
+
+  // A numbered pin on a target's top-left corner: a speech bubble whose tail (its tight bottom-left
+  // corner) sits on the corner, kept on screen. A kind's glyph leads the number.
+  const pinAt = (r: Rect, number: number, cls: string, icon = "", id?: string) => {
+    const { x, y } = pinCorner(r, innerWidth, pinWidth(number));
+    const data = id ? ` data-id="${escapeHtml(id)}"` : "";
+    return `<div class="${cls}"${data} title="#${number}" style="left:${x}px;top:${y}px">${icon}${number}</div>`;
+  };
 
   // Where the pick is now: its elements, its box (moved with its first element), or its text.
   function pickBoxes(p: Pick): Rect[] {
@@ -506,30 +582,35 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
       if (m.target.kind === "region") html += box(at.boxes[0], `region${tone}`);
       else if (m.target.kind === "text") for (const r of at.boxes) html += box(r, `hl${tone}`);
       else if (sel) for (const r of at.boxes) html += box(r, `outline${q}`);
-      const [first] = at.boxes;
-      const x = Math.max(11, Math.min(innerWidth - 11, first.x));
-      const y = Math.max(11, first.y);
-      html += `<div class="pin${q}${sel ? " sel" : ""}${m.resolved ? " resolved" : ""}" data-id="${escapeHtml(m.id)}" title="#${m.number}" style="left:${x}px;top:${y}px">${m.number}</div>`;
+      const cls = `pin${q}${sel ? " sel" : ""}${m.resolved ? " resolved" : ""}${m.waiting ? " waiting" : ""}`;
+      html += pinAt(at.boxes[0], m.number, cls, m.question ? MESSAGE : FLAG, m.id);
     }
-    if (overlay.marks.innerHTML !== html) overlay.marks.innerHTML = html;
+    if (html !== marksHtml) overlay.marks.innerHTML = marksHtml = html;
+    pins = [...overlay.marks.querySelectorAll<HTMLElement>(".pin")].map((el) => ({
+      id: el.dataset.id ?? "",
+      rect: rectOf(el),
+    }));
+    pinsMoved();
 
     const boxes = picked ? pickBoxes(picked) : [];
-    let pickHtml = "";
+    let nextPick = "";
     if (picked?.kind === "element")
       boxes.forEach(
-        (r, i) => (pickHtml += box(r, "pick", boxes.length > 1 ? `<i>${i + 1}</i>` : "")),
+        (r, i) => (nextPick += box(r, "pick", boxes.length > 1 ? `<i>${i + 1}</i>` : "")),
       );
     else if (picked?.kind === "region")
-      pickHtml += boxes.map((r) => box(r, "region picked")).join("");
-    else if (picked?.kind === "text") pickHtml += boxes.map((r) => box(r, "hl picked")).join("");
+      nextPick += boxes.map((r) => box(r, "region picked")).join("");
+    else if (picked?.kind === "text") nextPick += boxes.map((r) => box(r, "hl picked")).join("");
+    // The pick's new pin, numbered as the annotation will be, where its mark's pin will sit.
+    if (boxes[0] && draftNumber !== null) nextPick += pinAt(boxes[0], draftNumber, "pin draft");
     pending.forEach((el, i) => {
-      if (el.isConnected) pickHtml += box(rectOf(el), "pick pending", `<i>${i + 1}</i>`);
+      if (el.isConnected) nextPick += box(rectOf(el), "pick pending", `<i>${i + 1}</i>`);
     });
     if (gesture?.range)
-      pickHtml += textRects(gesture.range)
+      nextPick += textRects(gesture.range)
         .map((r) => box(r, "hl picked"))
         .join("");
-    if (overlay.pick.innerHTML !== pickHtml) overlay.pick.innerHTML = pickHtml;
+    if (nextPick !== pickHtml) overlay.pick.innerHTML = pickHtml = nextPick;
 
     const n = pending.length;
     const chip = n
@@ -538,9 +619,11 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     if (overlay.chip.innerHTML !== chip) overlay.chip.innerHTML = chip;
     overlay.chip.style.display = chip ? "block" : "none";
 
+    // The composer sits on the draft pin when there is one, else beside the whole pick.
     const [first, ...rest] = boxes;
     if (first) {
-      const at = unionRect([first, ...rest]);
+      const draftPin = overlay.pick.querySelector(".pin");
+      const at = draftPin ? rectOf(draftPin) : unionRect([first, ...rest]);
       const anchor = JSON.stringify([at.x, at.y, at.width, at.height].map(Math.round));
       if (anchor !== lastAnchor) {
         lastAnchor = anchor;
@@ -621,8 +704,9 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
       if (overlay) overlay.hover.style.display = "none";
       pendingChanged();
     },
-    setMarks(next: UiMark[], nextSelected: string | null, picking: boolean) {
-      if (!picking) picked = null;
+    setMarks(next: UiMark[], nextSelected: string | null, picking: number | null) {
+      if (picking === null) picked = null;
+      draftNumber = picking;
       quotes.keep(new Set(next.map((m) => m.id)));
       placer.set(next);
       if (nextSelected !== selected) revealing = nextSelected;
