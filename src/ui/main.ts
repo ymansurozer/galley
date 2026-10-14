@@ -50,7 +50,7 @@ import {
   navOrder,
   walkthroughRows,
 } from "./guide";
-import { refreshBaseTitle, reviewStats } from "./progress";
+import { installProgress, refreshBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import { renderKeycaps } from "./keycaps";
 import { installTooltips } from "./tooltip";
@@ -155,6 +155,7 @@ matchMedia("(max-width: 1100px)").addEventListener("change", () => {
 // Keyboard shortcuts: a central scope-aware dispatcher (keys.ts) is the single source of truth.
 installKeys();
 installTooltips();
+installProgress();
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
