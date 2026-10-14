@@ -163,9 +163,8 @@
 }
 
 /* The marks tying a group's rows to their lines (rests.ts placeThreadMarks): each row's line
-   number repeated in the number column, a gutter line from the first anchor to the last row,
-   and a dot on each anchor, in the code theme's number colour. Over the code, under the sticky
-   bar; the pointer passes through. */
+   number repeated in the number column, in the code theme's number colour. Over the code, under
+   the sticky bar; the pointer passes through. */
 .thread-marks {
   position: absolute;
   top: 0;
@@ -181,25 +180,6 @@
   font: 500 var(--text-2xs) / 1 var(--mono);
   text-align: right;
   opacity: 0.8;
-}
-
-.tm-dot,
-.tm-line {
-  position: absolute;
-  background: currentColor;
-  opacity: 0.6;
-}
-
-.tm-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-pill);
-  transform: translate(-50%, -50%);
-}
-
-.tm-line {
-  width: 1px;
-  transform: translateX(-50%);
 }
 
 .thread-card {

@@ -176,8 +176,7 @@ export function closeThreadCard(): boolean {
 }
 
 // The marks that tie a group's rows to their lines: each row repeats its line number in the
-// number column, and a gutter line runs from the first anchor to the last row, with a dot on
-// each anchor. One overlay in #diff's scrolled content, like the change rail, placed from the
+// number column. One overlay in #diff's scrolled content, like the change rail, placed from the
 // cursor's row geometry whenever the rows move (invalidateCursorRows), never on scroll.
 let marks: HTMLElement | null = null;
 
@@ -195,25 +194,17 @@ function placeThreadMarks() {
   for (const g of groups) {
     const side = g.dataset.side as Side; // set with the group
     const slots = [...g.querySelectorAll<HTMLElement>(":scope > .thread-slot")];
-    const anchors = slots.map((s) => rowAt(side, Number(s.dataset.line))?.el).filter((x) => !!x);
-    const num = anchors[0]?.getBoundingClientRect();
+    // The number column, read off the first anchor line's own number cell.
+    const num = slots
+      .map((s) => rowAt(side, Number(s.dataset.line))?.el)
+      .find((x) => !!x)
+      ?.getBoundingClientRect();
     if (!num) continue; // its lines are folded or skimmed away
-    // In the number column's right margin, clear of the digits and of the change bar beside it.
-    const x = num.right - x0 - 4;
-    const mids: number[] = [];
-    for (const el of anchors) {
-      const r = el.getBoundingClientRect();
-      mids.push(r.top + r.height / 2 - y0);
-      html += `<i class="tm-dot" style="left:${x}px;top:${r.top + r.height / 2 - y0}px"></i>`;
-    }
     for (const s of slots) {
       const r = s.getBoundingClientRect();
       const mid = r.top + Math.min(r.height, 24) / 2 - y0;
-      mids.push(mid);
       html += `<b class="tm-num" style="left:${num.left - x0}px;width:${num.width}px;top:${mid}px">${s.dataset.line}</b>`;
     }
-    const top = Math.min(...mids);
-    html += `<i class="tm-line" style="left:${x}px;top:${top}px;height:${Math.max(...mids) - top}px"></i>`;
   }
   marks ??= Object.assign(document.createElement("div"), { className: "thread-marks" });
   marks.innerHTML = html;
