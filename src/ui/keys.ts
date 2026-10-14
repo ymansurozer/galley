@@ -113,8 +113,7 @@ function escape() {
     closeComposer(); // rebuilds the lane so the inline composer's DOM goes away
     return;
   }
-  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate, then the
-  // narrow-width drawer.
+  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate.
   if (inUiView() && S.appMode === "annotate" && S.pendingPicks) {
     clearPendingPicks();
     return;
