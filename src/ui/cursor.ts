@@ -1,6 +1,6 @@
 import { S, D, $, toast, persist } from "./store";
 import type { Side } from "./types";
-import { currentChanges, fromDisplayLine, inCurrentStep } from "./changes";
+import { currentChanges, inCurrentStep, rowAnchor } from "./changes";
 import { acceptChange } from "./decisions";
 import { openCommentComposer } from "./selection";
 import { render } from "./render";
@@ -271,12 +271,12 @@ export function cursorVerdict(status: "accepted" | "rejected") {
 
 function threadComments() {
   if (!cur) return [];
-  const raw = fromDisplayLine(cur.side, cur.line); // comments persist raw lines
+  const at = rowAnchor(cur.side, cur.line); // comments persist raw lines
   return S.state.comments.filter(
     (c) =>
       c.path === (S.preview?.path ?? S.state.files[S.fileIndex]?.path) &&
-      c.side === cur!.side &&
-      c.lineNumber === raw,
+      c.side === at.side &&
+      c.lineNumber === at.line,
   );
 }
 

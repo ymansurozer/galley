@@ -15,7 +15,8 @@ import { loadDiffLib } from "./difflib";
 import {
   currentFile,
   currentSplittable,
-  fromDisplayLine,
+  rowAnchor,
+  selectionAnchor,
   fileFinished,
   fileObjections,
   flowIndex,
@@ -491,7 +492,7 @@ S.openInEditor = async () => {
     return;
   }
   const sel = cursorSelection() ?? S.selected;
-  await openEditorAt(file.path, sel ? fromDisplayLine(sel.side, sel.lineNumber) : 1);
+  await openEditorAt(file.path, sel ? rowAnchor(sel.side, sel.lineNumber).line : 1);
 };
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
@@ -521,8 +522,11 @@ const submitComment = (intent: "question" | "action") => {
   // S.selected carries rendered (display) gutter numbers; persist the raw file line so
   // the anchor stays valid as decisions replay and across rounds.
   const file = currentFile();
-  const side = S.selected.side;
-  const lineNumber = fromDisplayLine(side, S.selected.lineNumber);
+  const {
+    side,
+    line: lineNumber,
+    endLine,
+  } = selectionAnchor(S.selected.side, S.selected.lineNumber, S.selected.endLine);
   // Anchor text comes from the current file's fetched contents (contents.ts `cur`, loaded by the
   // render of this file). It's best-effort — the server re-derives its own anchorText on reload —
   // so if cur isn't this file yet, leave it undefined rather than snapshot the wrong file's line.
@@ -533,8 +537,7 @@ const submitComment = (intent: "question" | "action") => {
     path: file.path,
     side,
     lineNumber,
-    endLine:
-      S.selected.endLine === undefined ? undefined : fromDisplayLine(side, S.selected.endLine),
+    endLine,
     // Snapshot the anchored line's text so a reload can re-anchor the thread after the
     // agent's edits shift it (reanchorComments).
     anchorText: contents?.split("\n")[lineNumber - 1],
