@@ -263,6 +263,11 @@
   width: 80px;
 }
 
+.set-grid input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
 /* Phone widths: the controls narrow to one shared column and a long label wraps beside it. */
 @media (max-width: 600px) {
   .set-grid label {
@@ -273,11 +278,6 @@
   .set-grid input[type="text"] {
     width: 156px;
   }
-}
-
-.set-grid input[type="checkbox"] {
-  width: auto;
-  margin: 0;
 }
 
 /* The Shortcuts tab: generated from the key table (keys.ts helpGroups). Each group's heading
@@ -297,7 +297,7 @@
   font-weight: 600;
 }
 
-.help-col:first-child .help-h {
+.help-col:first-of-type .help-h {
   margin-top: 0;
 }
 
