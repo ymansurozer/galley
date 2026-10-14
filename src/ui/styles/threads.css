@@ -1,9 +1,9 @@
 /* ── Thread cards ────────────────────────────────────────────────────────────────────────────
-   A thread is one card: a header naming what it is and its line, the messages with their authors'
-   avatars, the band its state ends in, then Reply… and Resolve. In the diff it sits in the code
-   column under its line (Pierre slots it into its light DOM, so these rules reach it), capped at
-   a reading width. The unanchored block, the rendered markdown view and the UI lane's annotation
-   list draw the same card. --tc names the kind's hue: blue for a question or the agent, orange
+   A thread is one card: a header naming what it is, whether it's held and its line, the messages
+   with their authors' avatars (a waiting question's status under it), then Reply… and Resolve. In
+   the diff it sits in the code column under its line (Pierre slots it into its light DOM, so these
+   rules reach it), capped at a reading width. The unanchored block, the rendered markdown view and
+   the UI lane's pin card draw the same card. --tc names the kind's hue: blue for a question or the agent, orange
    for a change request. */
 .annotation {
   font-family: var(--sans);
@@ -161,7 +161,7 @@
   animation: card-flash 1.2s var(--ease);
 }
 
-/* Header: the kind in its hue, its state, the line at the right. */
+/* Header: the kind in its hue, its state, the held chip, the line at the right. */
 .tc-head {
   display: flex;
   align-items: center;
@@ -190,6 +190,17 @@
   text-overflow: ellipsis;
   color: var(--ink-3);
   font-weight: 500;
+}
+
+/* Held for Send: a quiet chip while a change request waits for the review to go (the `hidden`
+   attribute takes it away once it's sent). */
+.tc-held {
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--orange-wash);
+  color: var(--orange-ink);
+  font-size: var(--text-2xs);
+  line-height: 16px;
 }
 
 .tc-loc {
@@ -267,7 +278,7 @@
   color: var(--ink-3);
 }
 
-/* The change-request pill (questions carry none). */
+/* A message's intent, where the thread's kind doesn't say it (thread-derive intentPill). */
 .thread-card .intent-badge {
   padding: 0 6px;
   border-radius: var(--radius-sm);
@@ -279,6 +290,11 @@
 .thread-card .intent-badge.a {
   color: var(--orange-ink);
   background: var(--orange-wash);
+}
+
+.thread-card .intent-badge.q {
+  color: var(--blue-ink);
+  background: var(--blue-wash);
 }
 
 .md {
@@ -381,43 +397,19 @@
   }
 }
 
-/* Bands: the state the card ends in, edge to edge. Waiting on the agent is blue (amber when no
-   agent will pick the question up); a change request held for Send is orange. */
-.tc-band {
+/* A question's status, under it until the agent answers: working in blue, amber when no agent
+   will pick the question up. Plain ink on the card, so it reads in either code scheme. */
+.msg-status {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  margin: 10px -12px 0;
-  padding: 7px 12px 8px;
+  gap: 6px;
+  margin-top: 5px;
+  color: var(--blue-ink);
   font-size: var(--text-xs);
   line-height: 1.4;
 }
 
-/* A held band hides while the review is sent (updateAwaitingDom toggles `hidden`); the display
-   above would otherwise override the attribute. */
-.tc-band[hidden] {
-  display: none;
-}
-
-.tc-band .ic {
-  flex: 0 0 auto;
-  width: 12px;
-  height: 12px;
-  margin-top: 1px;
-}
-
-.tc-band.held {
-  background: var(--orange-band);
-  color: var(--orange-ink);
-}
-
-.tc-band.awaiting-answer {
-  background: var(--blue-band);
-  color: var(--blue-ink);
-}
-
-.tc-band.awaiting-answer.queued {
-  background: var(--orange-band);
+.msg-status.queued {
   color: var(--orange-ink);
 }
 
@@ -580,7 +572,6 @@
 /* The composer (a new comment, a reply, the UI lane's floating one): a field and the two
    intents under it, Ask in blue (question), Request change in orange. */
 .thread-card .meta + .composer-card,
-.thread-card .tc-band + .composer-card,
 .thread-card .msg + .composer-card {
   margin-top: 10px;
 }

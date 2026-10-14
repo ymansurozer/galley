@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ThreadMessage } from "./types";
-import { lineLabel, questionWaiting, showsHeld, threadKind } from "./thread-derive.js";
+import {
+  intentPill,
+  lineLabel,
+  messageWaiting,
+  questionWaiting,
+  showsHeld,
+  threadKind,
+} from "./thread-derive.js";
 
 let seq = 0;
 const msg = (over: Partial<ThreadMessage> = {}): ThreadMessage => {
@@ -48,7 +55,71 @@ test("a question waits until an agent reply lands after it was asked", () => {
   assert.equal(questionWaiting([msg({ intent: "action" })]), false);
 });
 
-test("the held band shows for a change request until the review is sent", () => {
+test("each question waits on its own: an earlier answer doesn't answer a later ask", () => {
+  // The reviewer's mixed thread: a change request, a Request change reply, an Ask reply.
+  const thread = [
+    msg({ intent: "action" }),
+    msg({ intent: "action" }),
+    msg({ intent: "question" }),
+  ];
+  assert.deepEqual(
+    thread.map((m) => messageWaiting(m, thread)),
+    [false, false, true],
+  );
+  const answeredThread = [...thread, msg({ role: "agent" })];
+  assert.deepEqual(
+    answeredThread.map((m) => messageWaiting(m, answeredThread)),
+    [false, false, false, false],
+  );
+  // Asked again after the agent's answer: only the later ask waits.
+  const first = msg({ intent: "question" });
+  const later = [first, msg({ role: "agent" }), msg({ intent: "question" })];
+  assert.deepEqual(
+    later.map((m) => messageWaiting(m, later)),
+    [false, false, true],
+  );
+  assert.equal(questionWaiting(later), true);
+});
+
+test("a message wears its intent where the thread's kind doesn't say it", () => {
+  const pills = (kind: ReturnType<typeof threadKind>, thread: ThreadMessage[]) =>
+    thread.map((m, i) => intentPill(m, i, kind));
+  // The reviewer's case: the opener is the change request the header names; the Request change
+  // reply and the Ask reply both say what they are.
+  assert.deepEqual(
+    pills("change", [
+      msg({ intent: "action" }),
+      msg({ intent: "action" }),
+      msg({ intent: "question" }),
+    ]),
+    [null, "change", "question"],
+  );
+  // One-intent threads stay bare: a lone change request, a question and its follow-up.
+  assert.deepEqual(pills("change", [msg({ intent: "action" })]), [null]);
+  assert.deepEqual(
+    pills("question", [
+      msg({ intent: "question" }),
+      msg({ role: "agent" }),
+      msg({ intent: "question" }),
+    ]),
+    [null, null, null],
+  );
+  // An ask the reviewer followed with Request change: a change request opened by a question.
+  assert.deepEqual(pills("change", [msg({ intent: "question" }), msg({ intent: "action" })]), [
+    "question",
+    "change",
+  ]);
+  // Notes and the agent's messages carry none.
+  assert.deepEqual(pills("note", [msg({ intent: "note" })]), [null]);
+  assert.deepEqual(
+    pills("change", [msg({ intent: "action" }), msg({ role: "agent", intent: "question" })]),
+    [null, null],
+  );
+  // A resolved card's header no longer names the kind, so its opener says it.
+  assert.deepEqual(pills("resolved", [msg({ intent: "action" })]), ["change"]);
+});
+
+test("the held chip shows for a change request until the review is sent", () => {
   assert.equal(showsHeld(true, false), true);
   assert.equal(showsHeld(true, true), false);
   assert.equal(showsHeld(false, false), false);
