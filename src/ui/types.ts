@@ -169,7 +169,6 @@ export type ThreadMeta = {
   lineNumber: number;
   status: "open" | "resolved";
   comments: ReviewComment[];
-  changeId?: string;
 };
 export type ChangeMeta = {
   type: "change";

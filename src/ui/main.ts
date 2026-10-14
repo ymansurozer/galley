@@ -668,8 +668,9 @@ void render().finally(firstRenderDone);
 // Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,
 // so the lane chrome appears at once.
 requestAnimationFrame(() => (S.ready = true));
-// A resize reflows line heights (and wrap), so the cursor's cached row measurements no longer
-// hold — drop the cache so the next navigation re-measures. (Scroll doesn't: the cached tops are
-// content-relative, so scrolling leaves the row list unchanged — see cursor.ts.)
-window.addEventListener("resize", invalidateCursorRows);
+// A resize of the diff — the window's, or a sidebar drag's — reflows line heights (and wrap), so
+// the cursor's cached row measurements no longer hold: drop the cache so the next navigation
+// re-measures. (Scroll doesn't: the cached tops are content-relative, so scrolling leaves the row
+// list unchanged — see cursor.ts.)
+new ResizeObserver(invalidateCursorRows).observe($("diff"));
 setInterval(pollState, 1500);

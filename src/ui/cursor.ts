@@ -1,7 +1,8 @@
 import { S, D, $, toast, persist } from "./store";
-import type { Side } from "./types";
+import type { ChangeState, Side } from "./types";
 import { currentChanges, fromDisplayLine } from "./changes";
 import { acceptChange } from "./decisions";
+import { changeSpan, pendingChangeAt, spanHolds } from "./decisions-derive";
 import { openCommentComposer } from "./selection";
 import { render } from "./render";
 import { diffShadowRoot } from "./diff-dom";
@@ -24,13 +25,22 @@ let cur: { side: Side; line: number } | null = null;
 // content, not the viewport), so it's stable across scroll — only a re-render, or a resize
 // reflowing line heights, actually changes it. So we cache it and rebuild only on those events:
 // invalidateCursorRows() is wired to @pierre's onPostRender (render.ts — mount / update / unmount,
-// which covers our render() AND @pierre's own expandHunk rerenders) and to window resize (main.ts).
+// which covers our render() AND @pierre's own expandHunk rerenders) and to #diff's own resizes
+// (main.ts: a window resize, or a sidebar drag that rewraps lines without one).
 // Scroll deliberately does NOT invalidate: scrolling never changes the list, and arrow navigation
 // (which scrolls via scrollIntoView) stays on cache hits instead of re-sweeping the file per press.
 let cached: Row[] | null = null;
 
 export function invalidateCursorRows() {
   cached = null;
+  // The rows just moved (a render, an expansion, a resize): the rail follows once they've laid out.
+  if (rail?.isConnected && !railQueued) {
+    railQueued = true;
+    requestAnimationFrame(() => {
+      railQueued = false;
+      markCursorChange();
+    });
+  }
 }
 
 // Every navigable code line in visual (top-to-bottom) order. @pierre tags each line's gutter with
@@ -92,6 +102,7 @@ function landOn(r: Row | undefined, scroll = true) {
   cur = { side: r.side, line: r.line };
   paint(r);
   if (scroll) r.el.scrollIntoView({ block: "nearest" });
+  markCursorChange();
 }
 
 // Adopt a pointer-made selection as the cursor position, so the arrows continue from the
@@ -99,12 +110,14 @@ function landOn(r: Row | undefined, scroll = true) {
 // selection itself — no repaint, no scroll.
 export function cursorSyncTo(side: Side, line: number) {
   cur = { side, line };
+  markCursorChange();
 }
 
 // Re-resolve the cursor after a render: keep the same logical line, just repaint. The cursor
 // is hidden until the reviewer navigates or clicks (no auto-highlighted first line), so when
 // there's no active cursor we clear the selection instead.
 export function cursorResync() {
+  markCursorChange();
   if (!cur) {
     hide();
     return;
@@ -118,6 +131,7 @@ export function cursorResync() {
 export function cursorReset() {
   cur = null;
   hide();
+  markCursorChange();
 }
 
 export function cursorSelection() {
@@ -160,6 +174,7 @@ function landAt(side: Side, line: number): boolean {
   cur = { side: r.side, line: r.line };
   paint(r);
   r.el.scrollIntoView({ block: "center" });
+  markCursorChange();
   return true;
 }
 
@@ -271,18 +286,83 @@ export function cursorMoveHunk(dir: 1 | -1) {
   toast(dir === 1 ? "No more changes" : "No previous changes");
 }
 
-// The change (hunk) whose range covers the cursor line on its side. The cursor reads
-// rendered gutter numbers (display space), so compare against the display anchors.
+// ── The change at the cursor ─────────────────────────────────────────────────
+// The pending change whose rows hold the cursor line, on either side: ⇧Y / ⇧N act on it. The cursor
+// reads rendered gutter numbers (display space), so the rows come from the rendered diff.
 function cursorChange() {
-  if (!cur) return null;
-  return (
-    currentChanges().find(
-      (c) =>
-        c.side === cur!.side &&
-        cur!.line >= (c.displayLineNumber ?? c.lineNumber) &&
-        cur!.line <= (c.displayEndLine ?? c.endLine ?? c.lineNumber),
-    ) ?? null
+  if (!cur || !D.fileDiff) return null;
+  return pendingChangeAt(currentChanges(), D.fileDiff, cur.side, cur.line);
+}
+
+// The change the cursor marks, for a control drawn mid-render (annotations.ts) before the
+// post-render resync marks it. None with per-change verdicts off: ⇧Y / ⇧N are off then too.
+export function cursorChangeId(): string | null {
+  return S.settings.perChangeVerdicts ? (cursorChange()?.id ?? null) : null;
+}
+
+// Mark the change at the cursor: only its Undo | Keep control shows its keycaps, and a rail runs
+// down its rows and its control (decisions.css). Only the affected controls' class and the rail's
+// box change, never the diff, so it's cheap enough for every cursor move.
+let rail: HTMLElement | null = null;
+let railQueued = false;
+
+function markCursorChange() {
+  const diff = $("diff");
+  const id = cursorChangeId();
+  for (const el of diff.querySelectorAll<HTMLElement>(".verdict.at-cursor"))
+    if (el.dataset.change !== id) el.classList.remove("at-cursor");
+  const control = id
+    ? diff.querySelector<HTMLElement>(`.verdict[data-change="${CSS.escape(id)}"]`)
+    : null;
+  control?.classList.add("at-cursor");
+  const change = id ? currentChanges().find((c) => c.id === id) : undefined;
+  placeRail(diff, change, control);
+}
+
+// The rail is an overlay in #diff's scrolled content, so it moves with the rows and never shifts
+// the code, in either layout. It runs from the change's first row to the bottom of its last row
+// or its control's row, whichever is lower, down the left edge of the pane the change lives in:
+// in split, its deletions' pane (the left one) when it has any, else its additions'. Unified has
+// one pane, flush with #diff. The cursor's row list says which rows are the
+// change's (a split row holds both sides); their edges are measured now, since the list's cached
+// tops can lag a reflow it wasn't invalidated for. A change whose rows are hidden — a skimmed
+// block collapsed under a cursor that sat in it — has no rows on the list, so no rail.
+function placeRail(diff: HTMLElement, change?: ChangeState, control?: HTMLElement | null) {
+  if (!change || !D.fileDiff) {
+    rail?.remove();
+    return;
+  }
+  const span = changeSpan(change, D.fileDiff);
+  const holds = (r: Row) =>
+    spanHolds(span, r.side, r.line) || (!!r.alt && spanHolds(span, r.alt.side, r.alt.line));
+  const shown = (r: Row) => r.el.isConnected && r.el.getBoundingClientRect().height > 0;
+  let held = rows().filter(holds);
+  if (held.length && !(shown(held[0]) && shown(held[held.length - 1]))) {
+    invalidateCursorRows();
+    held = rows().filter(holds);
+  }
+  if (!held.length) {
+    rail?.remove();
+    return;
+  }
+  const box = diff.getBoundingClientRect();
+  const origin = box.top - diff.scrollTop;
+  const pane = diffShadowRoot()?.querySelector<HTMLElement>(
+    `code[data-${span.deletions ? "deletions" : "additions"}] [data-gutter]`,
   );
+  const left = pane ? pane.getBoundingClientRect().left - box.left + diff.scrollLeft : 0;
+  const row = control?.closest(".annotation");
+  const top = held[0].el.getBoundingClientRect().top - origin;
+  const bottom =
+    Math.max(
+      held[held.length - 1].el.getBoundingClientRect().bottom,
+      row?.getBoundingClientRect().bottom ?? 0,
+    ) - origin;
+  rail ??= Object.assign(document.createElement("div"), { className: "change-rail" });
+  rail.style.left = `${left}px`;
+  rail.style.top = `${top}px`;
+  rail.style.height = `${bottom - top}px`;
+  if (rail.parentElement !== diff) diff.append(rail);
 }
 
 // Open the comment composer anchored to the cursor line (keyboard equivalent of clicking a
