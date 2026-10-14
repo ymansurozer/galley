@@ -11,6 +11,7 @@ export function reviewerSlice(state: ReviewState): ReviewerSave {
     comments: state.comments,
     reviewedFiles: state.reviewedFiles,
     reviewedFileHashes: state.reviewedFileHashes,
+    signedOffBlocks: state.signedOffBlocks,
     decisionFiles: state.decisionFiles,
     annotations: state.annotations,
     lastAnnotationNumber: state.lastAnnotationNumber,

@@ -1,6 +1,6 @@
 import { S, D, $, toast, persist } from "./store";
 import type { Side } from "./types";
-import { currentChanges, fromDisplayLine } from "./changes";
+import { currentChanges, fromDisplayLine, inCurrentStep } from "./changes";
 import { acceptChange } from "./decisions";
 import { openCommentComposer } from "./selection";
 import { render } from "./render";
@@ -234,12 +234,14 @@ export function cursorMoveHunk(dir: 1 | -1) {
 }
 
 // The change (hunk) whose range covers the cursor line on its side. The cursor reads
-// rendered gutter numbers (display space), so compare against the display anchors.
+// rendered gutter numbers (display space), so compare against the display anchors. Only the
+// step's own blocks: in a part view another step's block is plain code a verdict must not reach.
 function cursorChange() {
   if (!cur) return null;
   return (
     currentChanges().find(
       (c) =>
+        inCurrentStep(c) &&
         c.side === cur!.side &&
         cur!.line >= (c.displayLineNumber ?? c.lineNumber) &&
         cur!.line <= (c.displayEndLine ?? c.endLine ?? c.lineNumber),

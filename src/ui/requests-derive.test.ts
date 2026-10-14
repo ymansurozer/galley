@@ -33,6 +33,7 @@ const rank = (path: string) => {
   const i = order.indexOf(path);
   return i < 0 ? Infinity : i;
 };
+const place = (c: { path: string }) => ({ rank: rank(c.path) });
 const flagged = (c: ReviewComment) => c.unanchored === true;
 const where = (s: RequestStop) => `${s.path}:${s.unanchored ? "strip" : s.lineNumber}`;
 
@@ -51,7 +52,7 @@ const review = [
 ];
 
 test("requestStops walks open change requests in review order, then line, the strip first", () => {
-  assert.deepEqual(requestStops(review, rank, flagged).map(where), [
+  assert.deepEqual(requestStops(review, place, flagged).map(where), [
     "b.ts:20",
     "a.ts:strip",
     "a.ts:12",
@@ -70,19 +71,19 @@ test("a thread is one stop, and counts while a reviewer's change request in it i
     comment("a.ts", 8, { intent: "question" }),
     comment("a.ts", 8, { role: "agent", intent: "note" }),
   ];
-  assert.deepEqual(requestStops(thread, rank, flagged).map(where), ["a.ts:5"]);
+  assert.deepEqual(requestStops(thread, place, flagged).map(where), ["a.ts:5"]);
   assert.equal(openRequestCount(thread), 1);
 });
 
 test("a thread sits in the strip when any of its comments lost its anchor", () => {
   const thread = [comment("a.ts", 5), comment("a.ts", 5, { role: "agent", unanchored: true })];
-  assert.deepEqual(requestStops(thread, rank, flagged).map(where), ["a.ts:strip"]);
+  assert.deepEqual(requestStops(thread, place, flagged).map(where), ["a.ts:strip"]);
 });
 
 test("a file outside the review order (a preview) comes after it, by path", () => {
   const stops = requestStops(
     [comment("z.md", 1), comment("c.ts", 2), comment("m.md", 1)],
-    rank,
+    place,
     flagged,
   );
   assert.deepEqual(stops.map(where), ["c.ts:2", "m.md:1", "z.md:1"]);
@@ -91,7 +92,7 @@ test("a file outside the review order (a preview) comes after it, by path", () =
 test("the same line on both sides: the deleted line first", () => {
   const stops = requestStops(
     [comment("a.ts", 5), comment("a.ts", 5, { side: "deletions" })],
-    rank,
+    place,
     flagged,
   );
   assert.deepEqual(
@@ -100,20 +101,35 @@ test("the same line on both sides: the deleted line first", () => {
   );
 });
 
+test("a split file's requests are walked by the step each is attributed to", () => {
+  // a.ts is split: lines past 30 belong to a part that comes after c.ts in review order.
+  const byStep = (c: { path: string; lineNumber: number }) => ({
+    rank: c.path === "a.ts" && c.lineNumber > 30 ? 3 : rank(c.path),
+  });
+  assert.deepEqual(requestStops(review, byStep, flagged).map(where), [
+    "b.ts:20",
+    "a.ts:12",
+    "c.ts:3",
+    "a.ts:strip",
+    "a.ts:40",
+  ]);
+});
+
 test("openRequestCount counts the walk's stops", () => {
   assert.equal(openRequestCount(review), 5);
   assert.equal(openRequestCount([]), 0);
 });
 
-const stops = requestStops(review, rank, flagged);
+const stops = requestStops(review, place, flagged);
 const at = (path: string, lineNumber: number, unanchored = false): RequestStop => ({
   path,
   side: "additions",
   lineNumber,
   unanchored,
+  rank: rank(path),
 });
 const step = (from: RequestStop | null, dir: 1 | -1) => {
-  const s = stepRequest(stops, rank, from, dir);
+  const s = stepRequest(stops, from, dir);
   return s && `${where(s.stop)}${s.wrapped ? " (wrapped)" : ""}`;
 };
 
@@ -121,7 +137,7 @@ test("] visits every stop once, in order, then wraps", () => {
   const seen: string[] = [];
   let from: RequestStop | null = null;
   for (let i = 0; i < stops.length + 1; i++) {
-    const s = stepRequest(stops, rank, from, 1)!;
+    const s = stepRequest(stops, from, 1)!;
     seen.push(`${where(s.stop)}${s.wrapped ? " (wrapped)" : ""}`);
     from = s.stop;
   }
@@ -159,6 +175,6 @@ test("with no place to step from, ] starts at the first stop and [ at the last",
 
 test("a lone stop wraps onto itself; no stops, no step", () => {
   const one = [at("a.ts", 3)];
-  assert.deepEqual(stepRequest(one, rank, one[0]!, 1), { stop: one[0], wrapped: true });
-  assert.equal(stepRequest([], rank, null, 1), null);
+  assert.deepEqual(stepRequest(one, one[0]!, 1), { stop: one[0], wrapped: true });
+  assert.equal(stepRequest([], null, 1), null);
 });

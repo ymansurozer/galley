@@ -1,7 +1,9 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { S, D, persist } from "./store";
 import { cur } from "./contents";
-import { buildLineMap, type DecidedPosition } from "./linemap";
+import { buildLineMap } from "./linemap";
+import { blockAt, changePosition, replayPositions } from "./replay";
+import { inStep } from "./steps";
 import { acceptSignedOffBlocks, changeStableKey } from "./decisions-derive";
 import { deriveFlowIndex, type FlowIndex } from "./flow-index";
 import type { ChangeState, ReviewComment, ReviewState, Side } from "./types";
@@ -39,6 +41,17 @@ export function currentSplittable(): boolean {
 }
 export function currentChanges(): ChangeState[] {
   return S.state.changes.filter((c) => c.path === currentFile().path);
+}
+// Whether the step on screen covers a change block of its file (steps.ts inStep): every block in
+// the whole-file view, only the step's own in a part or Rest view, where the rest render as plain
+// code. Readers of the rendered blocks (verdict bars, the block cursor, skims) filter through
+// this; currentChanges stays every block, since the replay and sign-off need all of them.
+export function inCurrentStep(c: ChangeState): boolean {
+  return inStep(S.state.guide?.files ?? [], S.preview ? undefined : S.stepPart, c);
+}
+// The block of the file on screen whose raw lines on `side` include `line` (see replay.ts).
+export function currentBlockAt(side: Side, line: number): ChangeState | undefined {
+  return D.rawFileDiff ? blockAt(D.rawFileDiff, currentChanges(), side, line) : undefined;
 }
 export function currentComments(): ReviewComment[] {
   return S.state.comments.filter((c) => c.path === currentFile().path);
@@ -114,6 +127,8 @@ export function deriveChanges(
         // Server-stamped skim rides on the change's identity; carry it across client
         // re-derivation. A rewritten block gets a new id → no prev → skim drops on its own.
         skim: prev?.skim,
+        // The guide part that claims the block rides the same identity (absent = Rest).
+        part: prev?.part,
       });
     });
   });
@@ -129,35 +144,6 @@ export function ensureChangesFromFileDiff(diff = D.fileDiff) {
   // Blocks a sign-off couldn't see (an untracked add signed off unopened) are accepted now.
   const file = S.state.files.find((f) => f.path === path);
   if (file && acceptSignedOffBlocks(S.state, file)) persist();
-}
-
-export function findChangePosition(diff: FileDiffMetadata, stableKey: string) {
-  for (let hunkIndex = 0; hunkIndex < diff.hunks.length; hunkIndex++) {
-    const h = diff.hunks[hunkIndex];
-    for (let changeIndex = 0; changeIndex < (h.hunkContent || []).length; changeIndex++) {
-      const part = h.hunkContent[changeIndex];
-      if (part?.type === "change" && changeStableKey(part) === stableKey)
-        return { hunkIndex, changeIndex };
-    }
-  }
-  return null;
-}
-
-// Resolutions renumber lines but preserve hunk count and per-hunk content-entry count
-// 1:1 (a resolved change becomes a context entry at the same index), so the recorded
-// (hunkIndex, changeIndex) addresses the block in raw AND replayed diffs alike. The
-// stableKey lookup (which embeds a line number) only remains as a fallback for legacy
-// persisted changes that predate changeIndex — and is only sound against the raw diff.
-function changePosition(diff: FileDiffMetadata, change: ChangeState) {
-  const pos =
-    change.changeIndex !== undefined
-      ? { hunkIndex: change.hunkIndex, changeIndex: change.changeIndex }
-      : change.stableKey
-        ? findChangePosition(diff, change.stableKey)
-        : null;
-  if (!pos) return null;
-  const part = diff.hunks[pos.hunkIndex]?.hunkContent?.[pos.changeIndex];
-  return part?.type === "change" ? pos : null;
 }
 
 export function applyDecisionToDiff(
@@ -177,20 +163,13 @@ export function applyDecisionToDiff(
   }
 }
 
-// Replay every decided block onto the raw diff, and rebuild the raw↔display line map
-// the rest of the render (annotations, cursor, selections) converts through.
+// Replay the view's resolutions onto the raw diff — every decided block, plus the pending blocks
+// the step doesn't cover (replay.ts) — and rebuild the raw↔display line map the rest of the render
+// (annotations, cursor, selections) converts through, from the same list.
 export function replayDecisions(diff: FileDiffMetadata): FileDiffMetadata {
-  const decided: DecidedPosition[] = [];
-  // Resolve every position against the RAW diff up front (the fallback lookup would
-  // mis-match against a partially resolved one), then apply by invariant indexes.
-  for (const change of currentChanges().filter((c) => c.status !== "pending")) {
-    const pos = changePosition(diff, change);
-    if (pos)
-      decided.push({ ...pos, status: change.status === "rejected" ? "rejected" : "accepted" });
-  }
-  decided.sort((a, b) => a.hunkIndex - b.hunkIndex || a.changeIndex - b.changeIndex);
-  D.lineMap = decided.length ? buildLineMap(diff, decided) : null;
-  for (const d of decided) {
+  const resolved = replayPositions(diff, currentChanges(), inCurrentStep);
+  D.lineMap = resolved.length ? buildLineMap(diff, resolved) : null;
+  for (const d of resolved) {
     try {
       diff = D.diffAcceptRejectHunk(diff, d.hunkIndex, {
         type: d.status === "accepted" ? "accept" : "reject",
@@ -204,12 +183,17 @@ export function replayDecisions(diff: FileDiffMetadata): FileDiffMetadata {
 }
 
 // Refresh pending changes' display anchors from the replayed diff: the annotation for a
-// block must sit at the line number @pierre will actually render, not the raw file line.
+// block must sit at the line number @pierre will actually render, not the raw file line. A
+// pending block the replay resolved (another step's, in a part view) renders no change rows, so
+// it keeps no anchor.
 export function syncDisplayAnchors(resolved: FileDiffMetadata) {
   for (const c of currentChanges()) {
     if (c.status !== "pending" || c.changeIndex === undefined) continue;
     const part = resolved.hunks[c.hunkIndex]?.hunkContent?.[c.changeIndex];
-    if (part?.type !== "change") continue;
+    if (part?.type !== "change") {
+      c.displayLineNumber = c.displayEndLine = undefined;
+      continue;
+    }
     const lineNumber =
       (c.side === "additions" ? part.additionLineIndex : part.deletionLineIndex) + 1;
     c.displayLineNumber = lineNumber;

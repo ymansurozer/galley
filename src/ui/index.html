@@ -730,6 +730,16 @@
       font-weight: 600
     }
 
+    /* The part (or "Rest") of a split file a step shows, beside the path — muted so the path leads. */
+    .ghdr .ghdr-part {
+      flex: 0 1 auto;
+      margin-left: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted)
+    }
+
     /* "moved from <old>" note beside a renamed file's new path (git -M). */
     .ghdr .ghdr-moved {
       flex: 0 1 auto;
@@ -808,6 +818,14 @@
 
     /* A skimmed file's reason, in the orientation's place when the guide omits one. */
     .ghdr .ghdr-skim {
+      color: var(--muted);
+      font-size: var(--text-sm)
+    }
+
+    /* On a split file's Rest or whole-file view, one muted line under the file name (past the 15px
+       icon and the row's 8px gap) says what the view holds, in place of a part's guidance card. */
+    .ghdr .ghdr-note {
+      margin-left: 23px;
       color: var(--muted);
       font-size: var(--text-sm)
     }
@@ -1807,8 +1825,10 @@
       pointer-events: none
     }
 
-    /* "← old path" arrow on a pure-rename row in the Skimmed tree/walkthrough group. */
-    .node .moved-from {
+    /* "← old path" arrow on a pure-rename row in the Skimmed tree/walkthrough group, and a split
+       file's part title beside its name in the Walkthrough. */
+    .node .moved-from,
+    .node .walk-part {
       margin-left: 6px;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -4526,20 +4546,23 @@
           </template></div>
         <div id="walk" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'" x-cloak>
           <template x-for="r in $store.g.walkthroughRows()" :key="r.key">
-            <div class="node" :data-key="r.key" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '']" :style="r.kind==='cat' ? '' : r.style"
-              @click="r.kind!=='cat' ? $store.g.selectFile(r.fileIndex) : (r.skimmed ? $store.g.toggleSkimGroup() : $store.g.selectFile(r.jumpIndex))">
+            <div class="node" :data-key="r.key" :data-path="r.path" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '']" :style="r.kind==='cat' ? '' : r.style"
+              @click="r.kind!=='cat' ? $store.g.selectStep({fileIndex: r.fileIndex, part: r.part}) : (r.skimmed ? $store.g.toggleSkimGroup() : $store.g.selectStep(r.jump))">
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='cat' && r.skimmed"><use href="#gly-chevron"></use></svg>
               <span class="nm walk-cat-name" x-show="r.kind==='cat'" x-text="r.category" :title="r.category"></span>
               <span class="walk-skim-count" x-show="r.kind==='cat' && r.skimmed" x-text="r.total + (r.total===1 ? ' file' : ' files')"></span>
               <!-- File status leads the row (empty circle = to do); ± stay flush right below. A click
                    signs the file off or resets it, as in the Files tab. -->
-              <button type="button" class="st-btn" x-show="r.kind==='file' && r.state" @click.stop="$store.g.statusClick(r.path, $event)" @mousedown.prevent
-                @mouseenter="$store.g.statusHint($el, r.path)" @focus="$store.g.statusHint($el, r.path)">
+              <button type="button" class="st-btn" x-show="r.kind==='file' && r.state" @click.stop="$store.g.statusClick(r.path, $event, r.part)" @mousedown.prevent
+                @mouseenter="$store.g.statusHint($el, r.path, r.part)" @focus="$store.g.statusHint($el, r.path, r.part)">
                 <svg class="ic st pending" x-show="r.state==='pending'"><use href="#gly-circle"></use></svg>
                 <svg class="ic st approved" x-show="r.state==='approved'"><use href="#gly-check"></use></svg>
                 <svg class="ic st changes" x-show="r.state==='changes-requested'"><use href="#gly-circle-alert"></use></svg>
               </button>
+              <!-- A split file's rows: "<name> <part title>" per part, "Rest of <name>" for the blocks no part claims. -->
+              <span class="walk-rest" x-show="r.kind==='file' && r.part==='rest'">Rest of</span>
               <span class="nm" x-show="r.kind==='file'" x-text="r.name" :title="r.path"></span>
+              <span class="walk-part" x-show="r.kind==='file' && r.partTitle" x-text="r.partTitle" :title="r.partTitle"></span>
               <span class="moved-from" x-show="r.kind==='file' && r.movedFrom" x-text="'← '+r.movedFrom" :title="'moved from '+r.movedFrom"></span>
               <svg class="ic crit" x-show="r.kind==='file' && r.flag" :title="r.flag"><use href="#gly-flag"></use></svg>
               <svg class="ic skim" x-show="r.kind==='file' && r.skim" title="Skimmed"><use href="#gly-collapse-all"></use></svg>

@@ -8,8 +8,7 @@ import {
   ensureChangesFromFileDiff,
   replayDecisions,
   syncDisplayAnchors,
-  fileFinished,
-  fileObjections,
+  flowIndex,
 } from "./changes";
 import type { AnnotationMeta } from "./types";
 import { applyActiveRow, applyLayoutClasses } from "./tree";
@@ -23,12 +22,19 @@ import {
   handleDiffSelection,
   attachDiffSelectionHandlers,
 } from "./selection";
-import { approveCurrentFile, resetReview } from "./decisions";
+import { approveCurrentStep, resetReview, resetStep } from "./decisions";
 import { blockersChip } from "./blockers";
 import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
 import { renderMarkdown } from "./markdown";
 import { cursorResync, cursorReset, invalidateCursorRows } from "./cursor";
-import { hasGuide, renderOverview, currentGuideEntry } from "./guide";
+import {
+  currentFileParts,
+  currentGuideEntry,
+  currentSlot,
+  currentStep,
+  hasGuide,
+  renderOverview,
+} from "./guide";
 import { updateProgress } from "./progress";
 import {
   applySkimCollapse,
@@ -41,6 +47,7 @@ import {
   toggleFileSkim,
 } from "./skim";
 import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
+import { applyHunkFolds } from "./fold";
 import { diffShadowRoot } from "./diff-dom";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -97,9 +104,10 @@ export function deferRender(forceIfBig = false): Promise<void> {
     ),
   );
 }
-// Identity of a rendered diff for the LRU cache: the current file + every option that changes
-// what @pierre renders. selectFile uses this to tell if re-opening a file will be a fast cache
-// hit (→ skip the "Rendering…" indicator). Reads currentFile(), so call after fileIndex is set.
+// Identity of a rendered diff for the LRU cache: the current step (file + part) + every option
+// that changes what @pierre renders. selectFile uses this to tell if re-opening a file will be a
+// fast cache hit (→ skip the "Rendering…" indicator). Reads currentFile(), so call after fileIndex
+// is set. Each part of a split file is its own entry: its header carries that part's guidance.
 export function diffKey(previewing: boolean): string {
   const f = currentFile();
   return JSON.stringify([
@@ -115,6 +123,7 @@ export function diffKey(previewing: boolean): string {
     // appearance flips @pierre's themeType, so a cached diff must invalidate on it
     S.settings.appearance,
     !!currentGuideEntry(),
+    previewing ? null : (S.stepPart ?? null),
   ]);
 }
 // @pierre mounts its icon sprite into each diff's shadow root, so a light-DOM `<use>` can't
@@ -395,6 +404,7 @@ async function renderCenter() {
     cacheKey: f.contentHash || ckey(cur.newContents),
   };
   let fd: FileDiffMetadata;
+  let rawFd: FileDiffMetadata | null = null;
   if (viewOnly) {
     fd = D.parseDiffFromFile({ name: newName, contents: "", cacheKey: "∅" }, newF);
     D.lineMap = null;
@@ -403,7 +413,7 @@ async function renderCenter() {
     // Changes (identity, raw anchors) derive from the raw diff; the rendered diff is the
     // decision-replayed one, so display anchors must be re-read from it (resolutions
     // renumber lines — see linemap.ts).
-    const rawFd = D.parseDiffFromFile(oldF, newF);
+    rawFd = D.parseDiffFromFile(oldF, newF);
     ensureChangesFromFileDiff(rawFd);
     fd = replayDecisions(rawFd);
     syncDisplayAnchors(fd);
@@ -417,18 +427,23 @@ async function renderCenter() {
     ? "[data-code]{--diffs-bg-addition-override:var(--diffs-bg-context);--diffs-bg-addition-emphasis-override:var(--diffs-bg-context);--diffs-bg-addition-number-override:var(--diffs-bg-context-gutter);--diffs-fg-number-addition-override:var(--diffs-fg-number)}"
     : "";
   D.fileDiff = fd;
+  D.rawFileDiff = rawFd;
   applyLayoutClasses();
-  // The per-file sign-off action in the diff header. Unfinished → one context button:
-  // "Approve" (clean) or "Mark reviewed" (has a rejected hunk / open requested-change), which
-  // accepts pending hunks, signs off, and advances. Finished → a state pill + Reset to undo.
+  // The sign-off action in the diff header, for the step on screen: a part or Rest step on its
+  // own, else the file. Unfinished → one context button: "Approve" (clean) or "Mark reviewed"
+  // (has a rejected hunk / open requested-change), which accepts pending hunks, signs off, and
+  // advances. Finished → a state pill + Reset to undo.
   const headerActions = () => {
     const wrap = document.createElement("span");
     const filePath = currentFile().path;
+    const blocks = currentSlot()?.blocks ?? null;
+    const step = currentStep();
+    const ix = flowIndex();
     const reset = () => {
       const b = document.createElement("button");
       b.className = "diff-header-action undo";
       b.textContent = "Reset";
-      b.onclick = () => resetReview(filePath);
+      b.onclick = () => (blocks ? void resetStep(step) : resetReview(filePath));
       return b;
     };
     // The chip lists what keeps the file from Approved (rejected hunks, open change
@@ -444,29 +459,34 @@ async function renderCenter() {
       collapse.onclick = () => toggleFileSkim(filePath);
       wrap.appendChild(collapse);
     }
-    if (fileFinished(filePath)) {
-      // The file-tree badge carries the approved / changes-requested state; the header just
-      // offers a quiet Reset to undo the sign-off (plus the blockers chip when relevant).
+    if (ix.stepFinished({ path: filePath, blocks })) {
+      // The sidebar badges carry the approved / changes-requested state; the header just offers
+      // a quiet Reset to undo the sign-off (plus the blockers chip when relevant).
       if (chip) wrap.appendChild(chip);
       wrap.appendChild(reset());
     } else {
-      const objections = fileObjections(filePath);
+      const objections = ix.stepObjections({ path: filePath, blocks });
       // Reset (clear in-progress hunk decisions) sits on the left; Approve is always far right.
-      if (S.state.decisionFiles?.includes(filePath)) wrap.appendChild(reset());
+      const decided = blocks
+        ? blocks.some((c) => c.status !== "pending")
+        : S.state.decisionFiles?.includes(filePath);
+      if (decided) wrap.appendChild(reset());
       if (chip) wrap.appendChild(chip);
       const button = document.createElement("button");
       button.className = "diff-header-action" + (objections ? " warn" : "");
       button.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} <kbd>⇧A</kbd>`;
-      button.onclick = () => approveCurrentFile();
+      button.onclick = () => approveCurrentStep();
       wrap.appendChild(button);
     }
     return wrap;
   };
   // Our custom diff header (all changed-file modes): row 1 preserves @pierre's look —
   // change-type icon + filename + a subtle Split/Stacked toggle + counts + actions. With a
-  // guide, row 2 (left-aligned) adds the category + AI guidance.
+  // guide, row 2 (left-aligned) adds the category + AI guidance — on a part step, that part's
+  // own; on a split file's Rest or whole-file view, one muted line saying what's shown instead.
   const fileHeader = (file: FileDiffMetadata) => {
     const entry = currentGuideEntry();
+    const parts = currentFileParts();
     const wrap = document.createElement("div");
     wrap.className = "ghdr";
     wrap.style.setProperty("--ct-color", ctColor(file?.type));
@@ -478,6 +498,15 @@ async function renderCenter() {
     name.className = "ghdr-file";
     name.textContent = currentFile().path;
     row1.appendChild(name);
+    // A step of a split file names its part (or "Rest") beside the path.
+    const partLabel = S.stepPart === "rest" ? "Rest" : (entry?.part?.title ?? "");
+    if (partLabel) {
+      const label = document.createElement("span");
+      label.className = "ghdr-part";
+      label.title = partLabel;
+      label.textContent = partLabel;
+      row1.appendChild(label);
+    }
     // Rename+edit files (git -M): note where the file moved from, right of the new path.
     const from = movedFrom(currentFile().path);
     if (from) {
@@ -539,6 +568,17 @@ async function renderCenter() {
         guide.appendChild(flag);
       }
       wrap.appendChild(guide);
+    } else if (S.stepPart === "rest" || parts.length) {
+      // No single part speaks for these, so no orientation card — one muted line says what the
+      // view holds, so it never reads as the agent's guidance.
+      const note = document.createElement("div");
+      note.className = "ghdr-note";
+      const base = currentFile().path.split("/").pop();
+      note.textContent =
+        S.stepPart === "rest"
+          ? `Rest of ${base}: the changes no part of the guide covers.`
+          : `Split into ${parts.length} part${parts.length === 1 ? "" : "s"}: ${parts.join(" · ")}`;
+      wrap.appendChild(note);
     }
     // Open threads whose anchor line no longer renders — shown as the diff's first row,
     // below the action bar, so they stay actionable (they block approval until resolved).
@@ -618,7 +658,10 @@ async function renderCenter() {
       // The rendered rows just changed (mount, update, or @pierre's own expandHunk rerender —
       // which never routes through our render()), so the cursor's cached row list is stale.
       invalidateCursorRows();
-      if (phase !== "unmount") applySkimCollapse();
+      if (phase !== "unmount") {
+        applySkimCollapse();
+        applyHunkFolds();
+      }
     },
     // @pierre reserves a right-side gutter via `scrollbar-gutter: stable` on the code grid
     // (for a vertical scrollbar it hides) — drop it so rows fill the full width. previewCSS
@@ -633,9 +676,13 @@ async function renderCenter() {
   // though the runtime shape (side/lineNumber/metadata) is exactly what it reads.
   const anns = () => annotations() as DiffLineAnnotation<AnnotationMeta>[];
   const afterRender = () => {
-    // Collapse skimmed blocks by hiding their rows — synchronous (before paint) so there's no
-    // expand-then-collapse flash, and re-run every render so it survives @pierre re-renders.
-    if (!previewing) applySkimCollapse();
+    // Collapse skimmed blocks and fold other parts' hunks by hiding their rows — synchronous
+    // (before paint) so there's no expand-then-collapse flash, and re-run every render so it
+    // survives @pierre re-renders.
+    if (!previewing) {
+      applySkimCollapse();
+      applyHunkFolds();
+    }
     setTimeout(() => attachDiffSelectionHandlers(), 0);
     // Unfold collapsed regions hiding an open comment thread (once per rendered diff).
     if (!previewing) revealThreadLines(key);

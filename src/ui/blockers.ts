@@ -1,6 +1,15 @@
 import { S, D, $ } from "./store";
-import type { Decision, ReviewComment, Side } from "./types";
-import { currentFile, toDisplayLine } from "./changes";
+import type { ChangeState, Decision, ReviewComment, Side } from "./types";
+import {
+  currentBlockAt,
+  currentChanges,
+  currentFile,
+  inCurrentStep,
+  toDisplayLine,
+} from "./changes";
+import { attributeComment, placeBlocks } from "./flow-index";
+import { currentSlot } from "./guide";
+import { blockStep } from "./steps";
 import { isUnanchored } from "./unanchored";
 import { revealLine } from "./expand";
 import { cursorJumpTo, isRendered } from "./cursor";
@@ -74,7 +83,24 @@ export function flashThread(el: HTMLElement) {
   el.classList.add("flash");
 }
 
-export function jumpToBlocker(b: Blocker) {
+// A jump never lands on a block another step covers, which a part view renders as plain code: it
+// opens that block's own step first (its part, or the file's Rest). Resolves false when the
+// reviewer moved elsewhere while that step rendered, so the jump no longer applies.
+async function openBlockStep(c: ChangeState | undefined): Promise<boolean> {
+  if (!c || inCurrentStep(c)) return true;
+  const step = blockStep(S.state.guide?.files ?? [], S.fileIndex, c);
+  await S.selectStep?.(step);
+  return (
+    !S.overviewOpen &&
+    !S.preview &&
+    S.view === "code" &&
+    S.fileIndex === step.fileIndex &&
+    S.stepPart === step.part
+  );
+}
+
+// `live` re-checks, after any step switch has rendered, that the caller still wants the jump.
+export async function jumpToBlocker(b: Blocker, live = () => true) {
   if (b.kind === "thread" && b.unanchored) {
     // The thread lives in the strip above the diff, not on a row.
     const el = $("diff").querySelector<HTMLElement>(
@@ -88,6 +114,7 @@ export function jumpToBlocker(b: Blocker) {
     return;
   }
   if (b.kind === "thread") {
+    if (!(await openBlockStep(currentBlockAt(b.side, b.lineNumber))) || !live()) return;
     const line = toDisplayLine(b.side, b.lineNumber);
     // Unfold only when the line isn't rendered: each expansion reveals more lines, so unfolding a
     // line that already renders would widen the run on every jump to it.
@@ -95,21 +122,37 @@ export function jumpToBlocker(b: Blocker) {
     cursorJumpTo(b.side, line);
     return;
   }
+  if (!(await openBlockStep(S.state.changes.find((c) => c.id === b.decision.key))) || !live())
+    return;
   const pos = decisionDisplayPos(b.decision);
   cursorJumpTo(pos.side, pos.line);
 }
 
+// The blockers of the step on screen: the file's, or in a part or Rest view only the step's own (a
+// rejected block of its, a request attributed to one of its blocks), so the chip agrees with the
+// step's "Mark reviewed" (flow-index stepObjections).
+function stepBlockers(path: string, blocks: ChangeState[] | null): Blocker[] {
+  const items = fileBlockers(path);
+  if (!blocks) return items;
+  const own = new Set(blocks.map((c) => c.id));
+  const hunks = S.state.files.find((f) => f.path === path)?.hunks ?? [];
+  const placed = placeBlocks(currentChanges(), hunks);
+  return items.filter((b) =>
+    own.has(b.kind === "reject" ? b.decision.key : (attributeComment(b, placed)?.id ?? "")),
+  );
+}
+
 // The header chip + its jump-list popover (imperative DOM, like the rest of the header).
 export function blockersChip(): HTMLElement | null {
-  const path = currentFile().path;
-  const items = fileBlockers(path);
+  const blocks = currentSlot()?.blocks ?? null;
+  const items = stepBlockers(currentFile().path, blocks);
   if (!items.length) return null;
   const wrap = document.createElement("span");
   wrap.className = "blockers";
   const btn = document.createElement("button");
   btn.className = "blockers-chip";
   btn.textContent = `${items.length} blocker${items.length === 1 ? "" : "s"}`;
-  btn.setAttribute("data-tip", "What's keeping this file from Approved");
+  btn.setAttribute("data-tip", `What's keeping this ${blocks ? "part" : "file"} from Approved`);
   wrap.appendChild(btn);
   const pop = document.createElement("div");
   pop.className = "blockers-pop";
@@ -125,7 +168,7 @@ export function blockersChip(): HTMLElement | null {
     }
     row.onclick = () => {
       wrap.classList.remove("open");
-      jumpToBlocker(b);
+      void jumpToBlocker(b);
     };
     pop.appendChild(row);
   }

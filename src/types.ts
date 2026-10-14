@@ -20,6 +20,11 @@ export type DiffFile = {
   oldPath?: string;
   newPath?: string;
   hunks: DiffHunk[];
+  // The old side's blob id, as the diff's `index` header abbreviates it. With ReviewFile's
+  // contentHash it names both sides the file's diff was taken over, for the contents caches: in a
+  // working-tree review, staging a block changes the old side (the index) under the same new side.
+  // Absent where git prints no `index` line (a pure rename, a mode change).
+  oldOid?: string;
 };
 
 export type ReviewComment = {
@@ -91,6 +96,11 @@ export type ChangeState = {
   // reviewer-owned and never rides /api/save; a rewritten block loses the id it was
   // stamped under and the skim drops. `reason` is the agent's short note ("import-only").
   skim?: { reason?: string };
+  // Server-stamped when a guide part (GuideFile.part) claims this block: the index of the owning
+  // entry in the stored, order-sorted guide.files. Absent = no part claims it (the file's Rest
+  // step). Resolved from the guide's spans on attach, then carried by content across every reload
+  // or restart that keeps the guide (state.ts carryParts). Never rides /api/save.
+  part?: number;
 };
 
 // An explicit, durable record of a user's accept/reject on a change block, keyed
@@ -177,6 +187,14 @@ export type GuideFile = {
   // 01's moved badge. Working repo mode only; mutually exclusive with skimBlocks (both resolve
   // against the diff, and a merged entry has no rawDiff section).
   movedFrom?: string;
+  // Splits a file's diff into review steps: the same path listed once per part, each entry with
+  // its own category/orientation/flag. `lines` are new-file-side spans ([start, end] or a single
+  // line), resolved like skimBlocks to the change blocks they touch when the guide is attached
+  // (resolveParts stamps ChangeState.part); a reload that keeps the guide carries each block's
+  // part by content instead. A split file is split all the way — every entry for the path carries a
+  // part — and a part never combines with a whole-file `skim` or `movedFrom`. Blocks no part
+  // claims form the file's "Rest" step.
+  part?: { title: string; lines: Array<[number, number] | number> };
 };
 
 // The guided review the coding agent attaches (the desk renders it, runs no model).
@@ -233,6 +251,11 @@ export type ReviewState = {
   // goes stale when the file's content changes.
   reviewedFiles: string[];
   reviewedFileHashes?: Record<string, string>;
+  // Change blocks the reviewer signed off, `path:stableKey` → the block's contentHash at sign-off:
+  // a guide part (or Rest) is done while each of its blocks has a current entry. Once every block
+  // of a file has one, the file's own sign-off above is written too, so approval and the agent's
+  // ReviewResult stay file-level.
+  signedOffBlocks?: Record<string, string>;
   stagedFiles: string[];
   stagedChangeKeys?: string[];
   decisionFiles?: string[];
@@ -269,6 +292,7 @@ export type ReviewerSave = Pick<
   | "comments"
   | "reviewedFiles"
   | "reviewedFileHashes"
+  | "signedOffBlocks"
   | "decisionFiles"
   | "annotations"
   | "lastAnnotationNumber"
@@ -283,7 +307,10 @@ export type IndexEntry = { mode: string; oid: string } | null;
 // token (null while no proxy runs), and that process's `galley reload` count. Rides every save and
 // Send beside the slice. A save stamped with anything else was made before the latest reload or
 // restart, which reset every annotation's placement, so the desk keeps its own placements.
-export type SaveStamp = { token: string | null; reloadGeneration: number };
+// `baseDiffHash` is the diff the tab's state was built on, which its decisions are keyed to; the
+// desk carries a save made on an older diff onto its own (mergeReviewerSave). The desk's own stamp
+// leaves it out, as does a tab from before it existed.
+export type SaveStamp = { token: string | null; reloadGeneration: number; baseDiffHash?: string };
 
 // Transient desk-liveness fields injected into the /api/state response alongside
 // ReviewState. Deliberately NOT on ReviewState: anything on state is persisted by

@@ -11,6 +11,7 @@ import {
   buildDiffSource,
   buildReviewResult,
   buildReviewState,
+  carryParts,
   computeApprovedFiles,
   deskLockPath,
   findLiveDesks,
@@ -22,8 +23,11 @@ import {
   parsedDiffOf,
   persistReview,
   reanchorComments,
+  readFileContents,
   readGlobalSettings,
   resolveMovedFrom,
+  resolveGuide,
+  resolveParts,
   resolveSkim,
   reviewDir,
   sanitizeSession,
@@ -38,6 +42,7 @@ import type {
   Decision,
   Guide,
   ReviewComment,
+  ReviewFile,
   ReviewState,
   UiAnnotationRecord,
   UiElement,
@@ -382,6 +387,7 @@ test("mergeReviewState migrates a decision + open comment + sign-off across a re
     comments: [comment({ id: "c1", path: "old.ts", intent: "action", anchorText: "x" })],
     reviewedFiles: ["old.ts"],
     reviewedFileHashes: { "old.ts": "H" },
+    signedOffBlocks: { "old.ts:k1": "H" },
   });
   const merged = await mergeReviewState(base, saved);
   // Decision re-keyed to the new path and carried forward (content unchanged).
@@ -394,6 +400,754 @@ test("mergeReviewState migrates a decision + open comment + sign-off across a re
   // A pure rename keeps its content hash, so the prior sign-off survives, re-keyed.
   assert.deepEqual(merged.reviewedFiles, ["new.ts"]);
   assert.equal(merged.reviewedFileHashes!["new.ts"], "H");
+  assert.deepEqual(merged.signedOffBlocks, { "new.ts:k1": "H" });
+});
+
+// ── Decisions across line shifts ─────────────────────────────────────────────
+// A block's key embeds its first line, so an edit above it re-keys it. These run the reload path
+// over a real repo: app.ts holds l1..l14 committed, and each test writes the working tree.
+const committedLines = Array.from({ length: 14 }, (_, i) => `l${i + 1}`);
+async function withShiftRepo(
+  run: (
+    edit: (lines: string[]) => Promise<ReviewState>,
+    stage: (lines: string[]) => Promise<void>,
+  ) => Promise<void>,
+) {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-shift-")));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "app.ts"), committedLines.join("\n") + "\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    const write = (lines: string[]) =>
+      fs.writeFile(path.join(dir, "app.ts"), lines.join("\n") + "\n");
+    await run(
+      // Write the working tree and build the desk on it, as `galley reload` rebuilds.
+      async (lines) => {
+        await write(lines);
+        return (await buildReviewState(dir, { session: "s" }))!;
+      },
+      // Put `lines` in the index, as accepting a block stages it out of the working-tree diff.
+      async (lines) => {
+        await write(lines);
+        gitq("add", "app.ts");
+      },
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+// The committed lines with `edits` (1-based line → new text) applied.
+const edited = (edits: Record<number, string>) =>
+  committedLines.map((line, i) => edits[i + 1] ?? line);
+// Two lines inserted after l1: everything below moves down by two.
+const insertAbove = (lines: string[]) => [lines[0]!, "n1", "n2", ...lines.slice(1)];
+// The decision the tab records on a block (decisions-derive.ts recordDecision).
+const decide = (st: ReviewState, key: string, status: Decision["status"]): Decision => {
+  const c = st.changes.find((ch) => `${ch.path}:${ch.stableKey}` === key);
+  assert.ok(c, `block ${key} is in the diff`);
+  return decision({
+    key,
+    path: c.path,
+    status,
+    reviewedHash: c.contentHash,
+    lineNumber: c.lineNumber,
+  });
+};
+const statusOf = (st: ReviewState, key: string) =>
+  st.changes.find((c) => `${c.path}:${c.stableKey}` === key)?.status;
+const decided = (st: ReviewState) =>
+  (st.decisions ?? []).map((d) => [d.key, d.status, d.lineNumber]).sort();
+// The same line added after l3 and after l8: two blocks with identical content.
+const twinLines = () => {
+  const lines = [...committedLines.slice(0, 3), "x", ...committedLines.slice(3, 8), "x"];
+  return [...lines, ...committedLines.slice(8)];
+};
+// The sign-off entry the tab writes on a block (decisions-derive.ts signOffStep).
+const signedOff = (st: ReviewState, ...keys: string[]) =>
+  Object.fromEntries(
+    keys.map((key) => {
+      const c = st.changes.find((ch) => `${ch.path}:${ch.stableKey}` === key);
+      assert.ok(c?.contentHash, `block ${key} is in the diff`);
+      return [key, c.contentHash];
+    }),
+  );
+// Every block of the diff signed off, and the file with them, as approving every part leaves it.
+const allSignedOff = (st: ReviewState): ReviewState => ({
+  ...st,
+  signedOffBlocks: signedOff(st, ...st.changes.map((c) => `${c.path}:${c.stableKey}`)),
+  reviewedFiles: ["app.ts"],
+  reviewedFileHashes: { "app.ts": st.files[0]!.contentHash },
+});
+// app.ts split by a guide, its blocks stamped by hand as the guide's spans would have stamped
+// them: `parts` maps a block's first line to its part.
+const stampParts = (st: ReviewState, parts: Record<number, number>) => {
+  for (const c of st.changes) {
+    const part = parts[c.lineNumber];
+    if (part !== undefined) c.part = part;
+  }
+  const count = Math.max(...Object.values(parts)) + 1;
+  st.guide = {
+    overview: "o",
+    files: Array.from({ length: count }, (_, i) => ({
+      path: "app.ts",
+      order: i,
+      category: `C${i}`,
+      orientation: `Part ${i}`,
+      part: { title: `Part ${i}`, lines: [1] },
+    })),
+  };
+  return st;
+};
+// Each block's part by its first line, "rest" for a block no part claims.
+const partsOf = (st: Pick<ReviewState, "changes">) =>
+  Object.fromEntries(st.changes.map((c) => [c.lineNumber, c.part ?? "rest"]));
+
+test("an accepted block keeps its decision, under its new key, when lines are inserted above it", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 8: "L8" }));
+    const saved = { ...before, decisions: [decide(before, "app.ts:additions:8:1:1", "accepted")] };
+    const merged = await mergeReviewState(await edit(insertAbove(edited({ 8: "L8" }))), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:10:1:1"), "accepted");
+    assert.deepEqual(decided(merged), [["app.ts:additions:10:1:1", "accepted", 10]]);
+    assert.equal(merged.decisions![0]!.reviewedHash, saved.decisions[0]!.reviewedHash);
+  });
+});
+
+test("a rejected block keeps its decision, under its new key, when lines are inserted above it", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 8: "L8" }));
+    const saved = { ...before, decisions: [decide(before, "app.ts:additions:8:1:1", "rejected")] };
+    const merged = await mergeReviewState(await edit(insertAbove(edited({ 8: "L8" }))), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:10:1:1"), "rejected");
+    assert.deepEqual(decided(merged), [["app.ts:additions:10:1:1", "rejected", 10]]);
+  });
+});
+
+test("identical blocks shifted together keep their own decisions, paired in document order", async () => {
+  await withShiftRepo(async (edit) => {
+    const twins = twinLines();
+    const before = await edit(twins);
+    const first = before.changes.find((c) => c.stableKey === "additions:4:0:1")!;
+    const second = before.changes.find((c) => c.stableKey === "additions:10:0:1")!;
+    assert.equal(first.contentHash, second.contentHash, "the two blocks are identical");
+    const saved = {
+      ...before,
+      // Saved second-first, so the pairing can't lean on the array's order.
+      decisions: [
+        decide(before, "app.ts:additions:10:0:1", "rejected"),
+        decide(before, "app.ts:additions:4:0:1", "accepted"),
+      ],
+    };
+    const merged = await mergeReviewState(await edit(insertAbove(twins)), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:6:0:1"), "accepted");
+    assert.equal(statusOf(merged, "app.ts:additions:12:0:1"), "rejected");
+    assert.deepEqual(decided(merged), [
+      ["app.ts:additions:12:0:1", "rejected", 12],
+      ["app.ts:additions:6:0:1", "accepted", 6],
+    ]);
+  });
+});
+
+test("an undecided twin left in place doesn't take the decision of an accepted twin staged out", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    const before = await edit(twinLines());
+    const accepted = decide(before, "app.ts:additions:4:0:1", "accepted");
+    // Stage the first twin only: the working-tree diff keeps the second, at the same line.
+    await stage([...committedLines.slice(0, 3), "x", ...committedLines.slice(3)]);
+    const merged = await mergeReviewState(await edit(twinLines()), {
+      ...before,
+      decisions: [accepted],
+    });
+    assert.deepEqual(
+      merged.changes.map((c) => [c.stableKey, c.status]),
+      [["additions:10:0:1", "pending"]],
+    );
+    assert.deepEqual(decided(merged), [["app.ts:additions:4:0:1", "accepted", 4]]);
+  });
+});
+
+test("an undecided twin left in place doesn't take the decision of a twin rewritten in place", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(twinLines());
+    const accepted = decide(before, "app.ts:additions:4:0:1", "accepted");
+    const rewritten = twinLines();
+    rewritten[3] = "y";
+    const merged = await mergeReviewState(await edit(rewritten), {
+      ...before,
+      decisions: [accepted],
+    });
+    assert.equal(statusOf(merged, "app.ts:additions:4:0:1"), "pending");
+    assert.equal(statusOf(merged, "app.ts:additions:10:0:1"), "pending");
+    assert.deepEqual(decided(merged), []);
+  });
+});
+
+test("a block shifted onto another decided block's old key keeps its own decision, and so does the other", async () => {
+  await withShiftRepo(async (edit) => {
+    // l5 and l7 change; two lines above move the l5 block to line 7, the old key of the l7 block.
+    const pair = edited({ 5: "A", 7: "B" });
+    const before = await edit(pair);
+    const saved = {
+      ...before,
+      decisions: [
+        decide(before, "app.ts:additions:5:1:1", "accepted"),
+        decide(before, "app.ts:additions:7:1:1", "rejected"),
+      ],
+    };
+    const merged = await mergeReviewState(await edit(insertAbove(pair)), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:7:1:1"), "accepted");
+    assert.equal(statusOf(merged, "app.ts:additions:9:1:1"), "rejected");
+    assert.deepEqual(decided(merged), [
+      ["app.ts:additions:7:1:1", "accepted", 7],
+      ["app.ts:additions:9:1:1", "rejected", 9],
+    ]);
+  });
+});
+
+test("a decided block that was shifted and rewritten comes back pending", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 8: "L8" }));
+    const saved = { ...before, decisions: [decide(before, "app.ts:additions:8:1:1", "rejected")] };
+    const merged = await mergeReviewState(
+      await edit(insertAbove(edited({ 8: "L8 again" }))),
+      saved,
+    );
+    assert.equal(statusOf(merged, "app.ts:additions:10:1:1"), "pending");
+    assert.deepEqual(decided(merged), []);
+  });
+});
+
+test("a block moved elsewhere in its file comes back pending and unsigned, and the file unapproved", async () => {
+  await withShiftRepo(async (edit) => {
+    // One added line, after l3 and then after l8, beside an unchanged edit at l12.
+    const withAudit = (after: number) => {
+      const lines = edited({ 12: "L12" });
+      lines.splice(after, 0, "audit");
+      return lines;
+    };
+    const before = stampParts(await edit(withAudit(3)), { 4: 0, 13: 1 });
+    const saved = {
+      ...allSignedOff(before),
+      decisions: [
+        decide(before, "app.ts:additions:4:0:1", "accepted"),
+        decide(before, "app.ts:additions:13:1:1", "accepted"),
+      ],
+    };
+    const merged = await mergeReviewState(await edit(withAudit(8)), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:9:0:1"), "pending");
+    assert.equal(statusOf(merged, "app.ts:additions:13:1:1"), "accepted");
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}), ["app.ts:additions:13:1:1"]);
+    assert.deepEqual(computeApprovedFiles(merged), []);
+  });
+});
+
+test("a new line identical to an accepted block staged out of the diff comes back pending", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    const round1 = edited({ 11: "L11" });
+    round1.splice(3, 0, "x");
+    const s1 = await edit(round1);
+    const saved = { ...s1, decisions: [decide(s1, "app.ts:additions:4:0:1", "accepted")] };
+    // Accepting the x block staged it: the index takes it, the working tree keeps both edits.
+    const staged = [...committedLines];
+    staged.splice(3, 0, "x");
+    await stage(staged);
+    const s2 = await mergeReviewState(await edit(round1), saved);
+    assert.deepEqual(decided(s2), [["app.ts:additions:4:0:1", "accepted", 4]]);
+    // Rounds later the agent adds the same line after l8.
+    const round3 = [...round1];
+    round3.splice(9, 0, "x");
+    const s3 = await mergeReviewState(await edit(round3), s2);
+    assert.equal(statusOf(s3, "app.ts:additions:10:0:1"), "pending");
+    assert.deepEqual(decided(s3), [["app.ts:additions:4:0:1", "accepted", 4]]);
+  });
+});
+
+// The committed lines with two lines added after l2: the top part, which approving stages.
+const withTop = (lines: string[]) => [...lines.slice(0, 2), "n1", "n2", ...lines.slice(2)];
+
+test("the parts below a part the desk staged keep their decisions and sign-offs across the agent's next edit", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    const round1 = withTop(edited({ 10: "C", 12: "D" }));
+    const before = stampParts(await edit(round1), { 3: 0, 12: 1, 14: 1 });
+    const saved = {
+      ...before,
+      decisions: [
+        decide(before, "app.ts:additions:3:0:2", "accepted"),
+        decide(before, "app.ts:additions:12:1:1", "accepted"),
+        decide(before, "app.ts:additions:14:1:1", "rejected"),
+      ],
+      signedOffBlocks: signedOff(
+        before,
+        "app.ts:additions:3:0:2",
+        "app.ts:additions:12:1:1",
+        "app.ts:additions:14:1:1",
+      ),
+      stagedChangeKeys: ["app.ts:additions:3:0:2"],
+    };
+    // Approving the top part staged it; then the agent adds a line after l6, above the lower part.
+    await stage(withTop(committedLines));
+    const round2 = [...round1];
+    round2.splice(8, 0, "m1");
+    const merged = await mergeReviewState(await edit(round2), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:13:1:1"), "accepted");
+    assert.equal(statusOf(merged, "app.ts:additions:15:1:1"), "rejected");
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}).sort(), [
+      "app.ts:additions:13:1:1",
+      "app.ts:additions:15:1:1",
+    ]);
+    assert.deepEqual(partsOf(merged), { 9: "rest", 13: 1, 15: 1 });
+  });
+});
+
+test("a deletion below a block the desk staged keeps its decision and sign-off, re-keyed by the stage", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    // l12 deleted: a pure-deletion block keys on its old-side line, which the stage above moves.
+    const round1 = withTop(committedLines.filter((l) => l !== "l12"));
+    const before = await edit(round1);
+    const saved = {
+      ...before,
+      decisions: [decide(before, "app.ts:deletions:12:1:0", "rejected")],
+      signedOffBlocks: signedOff(before, "app.ts:deletions:12:1:0"),
+      stagedChangeKeys: ["app.ts:additions:3:0:2"],
+    };
+    await stage(withTop(committedLines));
+    const merged = await mergeReviewState(await edit(round1), saved);
+    assert.equal(statusOf(merged, "app.ts:deletions:14:1:0"), "rejected");
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}), ["app.ts:deletions:14:1:0"]);
+  });
+});
+
+test("a block the agent reverted above another doesn't count as staged", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(withTop(edited({ 12: "D" })));
+    const saved = { ...before, decisions: [decide(before, "app.ts:additions:14:1:1", "rejected")] };
+    // The top block is reverted, not staged: the base is unchanged, and the l12 block moves up.
+    const merged = await mergeReviewState(await edit(edited({ 12: "D" })), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:12:1:1"), "rejected");
+  });
+});
+
+test("a save from a tab still on the pre-reload diff lands on the reloaded blocks", async () => {
+  await withShiftRepo(async (edit) => {
+    // The tab accepts the l8 block and saves; then the agent edits above it and reloads.
+    const live = await edit(edited({ 8: "L8", 11: "L11" }));
+    const oldDiff = live.baseDiffHash;
+    const accepted = decide(live, "app.ts:additions:8:1:1", "accepted");
+    const rejected = decide(live, "app.ts:additions:11:1:1", "rejected");
+    const seen = (baseDiffHash: string) => ({ token: null, reloadGeneration: 0, baseDiffHash });
+    mergeReviewerSave(live, { decisions: [accepted], seen: seen(oldDiff) });
+    // The desk remembers the diff it reloads away from (server.ts, /api/reload).
+    const prior = { baseDiffHash: live.baseDiffHash, changes: live.changes, files: live.files };
+    Object.assign(
+      live,
+      await mergeReviewState(await edit(insertAbove(edited({ 8: "L8", 11: "L11" }))), live),
+    );
+    assert.deepEqual(decided(live), [["app.ts:additions:10:1:1", "accepted", 10]]);
+    // Before the tab adopts the reloaded diff, the reviewer rejects the l11 block on the old one.
+    mergeReviewerSave(
+      live,
+      { decisions: [accepted, rejected], seen: seen(oldDiff) },
+      undefined,
+      prior,
+    );
+    assert.deepEqual(decided(live), [
+      ["app.ts:additions:10:1:1", "accepted", 10],
+      ["app.ts:additions:13:1:1", "rejected", 13],
+    ]);
+    assert.equal(statusOf(live, "app.ts:additions:10:1:1"), "accepted");
+    assert.equal(statusOf(live, "app.ts:additions:13:1:1"), "rejected");
+    // A save from further back than the desk remembers can't be placed: the desk keeps its own.
+    mergeReviewerSave(live, { decisions: [], seen: seen("two diffs back") }, undefined, prior);
+    assert.equal(decided(live).length, 2);
+    // Once the tab has adopted the reloaded diff, its save is taken as sent.
+    const current = live.decisions!.filter((d) => d.status === "accepted");
+    mergeReviewerSave(live, { decisions: current, seen: seen(live.baseDiffHash) });
+    assert.deepEqual(decided(live), [["app.ts:additions:10:1:1", "accepted", 10]]);
+  });
+});
+
+test("a block sign-off survives a reload while its block is there with the content it was signed off on", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 5: "A", 8: "L8", 11: "L11" }));
+    const saved = {
+      ...before,
+      signedOffBlocks: {
+        ...signedOff(before, "app.ts:additions:5:1:1", "app.ts:additions:8:1:1"),
+        "app.ts:additions:11:1:1": "another content",
+        "gone.ts:additions:1:0:1": "h",
+      },
+    };
+    const merged = await mergeReviewState(
+      await edit(edited({ 5: "A", 8: "L8 again", 11: "L11" })),
+      saved,
+    );
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}), ["app.ts:additions:5:1:1"]);
+  });
+});
+
+test("a block sign-off follows its block, under its new key, when lines are inserted above it", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 8: "L8", 11: "L11" }));
+    const signed = signedOff(before, "app.ts:additions:8:1:1");
+    const merged = await mergeReviewState(await edit(insertAbove(edited({ 8: "L8", 11: "L11" }))), {
+      ...before,
+      signedOffBlocks: signed,
+    });
+    assert.deepEqual(merged.signedOffBlocks, {
+      "app.ts:additions:10:1:1": signed["app.ts:additions:8:1:1"],
+    });
+  });
+});
+
+test("a save from a tab still on the pre-reload diff carries its block sign-offs onto the reloaded blocks", async () => {
+  await withShiftRepo(async (edit) => {
+    const live = await edit(edited({ 8: "L8", 11: "L11" }));
+    const oldDiff = live.baseDiffHash;
+    const prior = { baseDiffHash: oldDiff, changes: live.changes, files: live.files };
+    const signed = signedOff(live, "app.ts:additions:8:1:1", "app.ts:additions:11:1:1");
+    Object.assign(
+      live,
+      await mergeReviewState(await edit(insertAbove(edited({ 8: "L8", 11: "L11" }))), live),
+    );
+    const seen = (baseDiffHash: string) => ({ token: null, reloadGeneration: 0, baseDiffHash });
+    mergeReviewerSave(live, { signedOffBlocks: signed, seen: seen(oldDiff) }, undefined, prior);
+    assert.deepEqual(live.signedOffBlocks, {
+      "app.ts:additions:10:1:1": signed["app.ts:additions:8:1:1"],
+      "app.ts:additions:13:1:1": signed["app.ts:additions:11:1:1"],
+    });
+    // From further back than the desk remembers, the desk keeps its own.
+    mergeReviewerSave(
+      live,
+      { signedOffBlocks: {}, seen: seen("two diffs back") },
+      undefined,
+      prior,
+    );
+    assert.equal(Object.keys(live.signedOffBlocks ?? {}).length, 2);
+  });
+});
+
+test("a save from a tab two diffs behind keeps the desk's file sign-offs along with its decisions", async () => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-stale-tab-")));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  const write = (f: string, s: string) => fs.writeFile(path.join(dir, f), s);
+  const build = async () => (await buildReviewState(dir, { session: "s" }))!;
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    await write("x.ts", "a\nb\nc\n");
+    await write("y.ts", "1\n2\n3\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    await write("x.ts", "a\nBAD\nc\n");
+    await write("y.ts", "1\n2a\n3\n");
+    const d0 = await build();
+    // The desk reloads twice on y.ts edits while the tab stays on d0.
+    await write("y.ts", "1\n2b\n3\n");
+    const d1 = await mergeReviewState(await build(), d0);
+    await write("y.ts", "1\n2c\n3\n");
+    const d2 = await mergeReviewState(await build(), d1);
+    // On d0, the reviewer rejects x.ts's block and marks the file reviewed.
+    mergeReviewerSave(
+      d2,
+      {
+        decisions: [decide(d0, "x.ts:additions:2:1:1", "rejected")],
+        decisionFiles: ["x.ts"],
+        reviewedFiles: ["x.ts"],
+        reviewedFileHashes: { "x.ts": d0.files.find((f) => f.path === "x.ts")!.contentHash },
+        seen: { token: null, reloadGeneration: 0, baseDiffHash: d0.baseDiffHash },
+      },
+      undefined,
+      { baseDiffHash: d1.baseDiffHash, changes: d1.changes, files: d1.files },
+    );
+    assert.deepEqual(d2.decisions, []);
+    assert.deepEqual(d2.reviewedFiles, []);
+    assert.deepEqual(d2.reviewedFileHashes, {});
+    assert.deepEqual(d2.decisionFiles, []);
+    assert.deepEqual(computeApprovedFiles(d2), []);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a working-mode file's contents follow a stage that moved its old side", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    const lines = edited({ 3: "A", 11: "L11" });
+    const s1 = await edit(lines);
+    const text = (l: string[]) => l.join("\n") + "\n";
+    assert.equal((await readFileContents(s1, s1.files[0]!)).oldContents, text(committedLines));
+    // Accepting the l3 block staged it; the working tree, and so the file's hash, is unchanged.
+    await stage(edited({ 3: "A" }));
+    const s2 = await edit(lines);
+    assert.equal(s2.files[0]!.contentHash, s1.files[0]!.contentHash);
+    const now = await readFileContents(s2, s2.files[0]!);
+    assert.equal(now.oldContents, text(edited({ 3: "A" })));
+    assert.equal(now.newContents, text(lines));
+  });
+});
+
+// ── Parts across rounds ──────────────────────────────────────────────────────
+// A carried-forward guide places blocks by content (stampParts, above).
+
+test("blocks that only moved keep their part across a reload, and a Rest block stays Rest", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 3: "A", 5: "B", 10: "C", 12: "D" });
+    const before = stampParts(await edit(lines), { 3: 0, 5: 0, 10: 1 });
+    const merged = await mergeReviewState(await edit(insertAbove(lines)), before);
+    // The inserted pair sits above part 0, outside its former lines: Rest.
+    assert.deepEqual(partsOf(merged), { 2: "rest", 5: 0, 7: 0, 12: 1, 14: "rest" });
+  });
+});
+
+test("an edit inside part 1 and lines inserted above part 2 leave part 2 signed off and part 1 pending", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 3: "A", 5: "B", 7: "C", 11: "D", 13: "E" });
+    const before = allSignedOff(stampParts(await edit(lines), { 3: 0, 5: 0, 7: 0, 11: 1, 13: 1 }));
+    // Part 1's middle block is rewritten, and two lines land after l9, above part 2.
+    const next = edited({ 3: "A", 5: "B again", 7: "C", 11: "D", 13: "E" });
+    next.splice(9, 0, "m1", "m2");
+    const merged = await mergeReviewState(await edit(next), before);
+    assert.deepEqual(partsOf(merged), { 3: 0, 5: 0, 7: 0, 10: "rest", 13: 1, 15: 1 });
+    // Part 2's blocks moved to new keys with their sign-offs; part 1's rewritten block has none.
+    assert.deepEqual(merged.signedOffBlocks, {
+      "app.ts:additions:3:1:1": before.signedOffBlocks!["app.ts:additions:3:1:1"],
+      "app.ts:additions:7:1:1": before.signedOffBlocks!["app.ts:additions:7:1:1"],
+      "app.ts:additions:13:1:1": before.signedOffBlocks!["app.ts:additions:11:1:1"],
+      "app.ts:additions:15:1:1": before.signedOffBlocks!["app.ts:additions:13:1:1"],
+    });
+    assert.deepEqual(merged.reviewedFiles, [], "the file is pending again");
+  });
+});
+
+test("a block rewritten in place between two blocks of one part stays in that part", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 3: "A", 5: "B", 7: "C" })), { 3: 0, 5: 0, 7: 0 });
+    const merged = await mergeReviewState(await edit(edited({ 3: "A", 5: "B2", 7: "C" })), before);
+    assert.deepEqual(partsOf(merged), { 3: 0, 5: 0, 7: 0 });
+  });
+});
+
+test("a new block between a part-1 block and a part-2 block goes to Rest", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 3: "A", 5: "B", 10: "C", 12: "D" });
+    const before = stampParts(await edit(lines), { 3: 0, 5: 0, 10: 1, 12: 1 });
+    const merged = await mergeReviewState(
+      await edit(edited({ 3: "A", 5: "B", 8: "new", 10: "C", 12: "D" })),
+      before,
+    );
+    assert.deepEqual(partsOf(merged), { 3: 0, 5: 0, 8: "rest", 10: 1, 12: 1 });
+  });
+});
+
+test("a part whose blocks are all gone after a reload claims no block", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 3: "A", 5: "B", 10: "C", 12: "D" })), {
+      3: 0,
+      5: 0,
+      10: 1,
+      12: 1,
+    });
+    const merged = await mergeReviewState(await edit(edited({ 3: "A", 5: "B" })), before);
+    assert.deepEqual(partsOf(merged), { 3: 0, 5: 0 });
+  });
+});
+
+test("a file whose parts are all signed off stays approved when an edit only moves its blocks", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 8: "L8", 11: "L11" });
+    const before = allSignedOff(stampParts(await edit(insertAbove(lines)), { 2: 0, 10: 0, 13: 1 }));
+    // The inserted pair is reverted: the other two blocks move up, their content untouched.
+    const merged = await mergeReviewState(await edit(lines), before);
+    assert.notEqual(merged.files[0]!.contentHash, before.files[0]!.contentHash);
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}).sort(), [
+      "app.ts:additions:11:1:1",
+      "app.ts:additions:8:1:1",
+    ]);
+    assert.deepEqual(merged.reviewedFiles, ["app.ts"]);
+    assert.deepEqual(merged.reviewedFileHashes, { "app.ts": merged.files[0]!.contentHash });
+    assert.deepEqual(computeApprovedFiles(merged), ["app.ts"]);
+  });
+});
+
+test("an unsplit file's approval lapses when the agent reverts one of its approved blocks", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 8: "L8", 11: "L11" });
+    const before = allSignedOff(await edit(insertAbove(lines)));
+    const merged = await mergeReviewState(await edit(lines), before);
+    assert.equal(Object.keys(merged.signedOffBlocks ?? {}).length, 2, "its blocks stay signed off");
+    assert.deepEqual(merged.reviewedFiles, []);
+    assert.deepEqual(computeApprovedFiles(merged), []);
+  });
+});
+
+test("a save from a tab still on the pre-reload diff keeps a file approved whose blocks only moved", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 8: "L8", 11: "L11" });
+    const live = stampParts(await edit(insertAbove(lines)), { 2: 0, 10: 0, 13: 1 });
+    const prior = { baseDiffHash: live.baseDiffHash, changes: live.changes, files: live.files };
+    const signed = allSignedOff(live);
+    Object.assign(live, await mergeReviewState(await edit(lines), live));
+    mergeReviewerSave(
+      live,
+      {
+        signedOffBlocks: signed.signedOffBlocks,
+        reviewedFiles: signed.reviewedFiles,
+        reviewedFileHashes: signed.reviewedFileHashes,
+        seen: { token: null, reloadGeneration: 0, baseDiffHash: prior.baseDiffHash },
+      },
+      undefined,
+      prior,
+    );
+    assert.equal(Object.keys(live.signedOffBlocks ?? {}).length, 2);
+    assert.deepEqual(live.reviewedFileHashes, { "app.ts": live.files[0]!.contentHash });
+    assert.deepEqual(computeApprovedFiles(live), ["app.ts"]);
+  });
+});
+
+test("a guide swap regroups the parts and keeps the sign-offs of blocks already signed off", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 3: "A", 5: "B", 10: "C" });
+    const before = await edit(lines);
+    const split = (...parts: Array<[string, number[]]>): Guide => ({
+      overview: "o",
+      files: parts.map(([title, at], i) => ({
+        path: "app.ts",
+        order: i,
+        category: title,
+        orientation: title,
+        part: { title, lines: at },
+      })),
+    });
+    assert.ok(resolveGuide(before, split(["One", [3, 5]], ["Two", [10]])).ok);
+    const saved = {
+      ...before,
+      signedOffBlocks: signedOff(before, "app.ts:additions:3:1:1", "app.ts:additions:5:1:1"),
+    };
+    const after = await edit(lines);
+    const merged = await mergeReviewState(after, saved);
+    assert.ok(
+      resolveGuide(merged, split(["Head", [3]], ["Tail", [5, 10]]), parsedDiffOf(after)).ok,
+    );
+    assert.deepEqual(partsOf(merged), { 3: 0, 5: 1, 10: 1 });
+    assert.deepEqual(merged.signedOffBlocks, saved.signedOffBlocks);
+  });
+});
+
+// The carry rule itself, on the edges of the position rule.
+test("carryParts: at the file's start a block joins the part below only within that part's former lines", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 3: "A", 5: "B" })), { 3: 0, 5: 0 });
+    const after = await edit(edited({ 1: "new", 3: "A2", 5: "B" }));
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 1: "rest", 3: 0, 5: 0 });
+  });
+});
+
+test("carryParts: at the file's end a block joins the part above only within that part's former lines", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 10: "C", 12: "D" })), { 10: 1, 12: 1 });
+    // l12 grows by a line past the part's last line; a new line is appended after l14.
+    const grown = edited({ 10: "C", 12: "D2" });
+    grown.splice(12, 0, "D3");
+    const after = await edit([...grown, "appended"]);
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 10: 1, 12: 1, 16: "rest" });
+  });
+});
+
+test("carryParts: a rewritten edge block stays in its part though another part borders it", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 3: "A", 5: "B", 10: "C", 12: "D" })), {
+      3: 0,
+      5: 0,
+      10: 1,
+      12: 1,
+    });
+    const after = await edit(edited({ 3: "A", 5: "B2", 10: "C2", 12: "D" }));
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 3: 0, 5: 0, 10: 1, 12: 1 });
+  });
+});
+
+test("carryParts: a part pushed down by an edit above keeps its rewritten last block", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 3: "A", 10: "C", 12: "D" })), {
+      3: 0,
+      10: 1,
+      12: 1,
+    });
+    const after = await edit(insertAbove(edited({ 3: "A", 10: "C", 12: "D2" })));
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 2: "rest", 5: 0, 12: 1, 14: 1 });
+  });
+});
+
+test("carryParts: a block both bordering parts' former lines cover goes to Rest", async () => {
+  await withShiftRepo(async (edit) => {
+    // The parts interleave: part 0 spans lines 3-10, part 1 lines 6-13.
+    const lines = edited({ 3: "A", 6: "B", 10: "C", 13: "D" });
+    const before = stampParts(await edit(lines), { 3: 0, 6: 1, 10: 0, 13: 1 });
+    const after = await edit(edited({ 3: "A", 6: "B", 8: "new", 10: "C", 13: "D" }));
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 3: 0, 6: 1, 8: "rest", 10: 0, 13: 1 });
+  });
+});
+
+test("carryParts: identical blocks keep their own parts, paired in document order", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(twinLines()), { 4: 0, 10: 1 });
+    const after = await edit(insertAbove(twinLines()));
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 2: "rest", 6: 0, 12: 1 });
+  });
+});
+
+test("a split file that becomes a git rename on a reload keeps its parts at its new path", async () => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-rename-parts-")));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "app.ts"), committedLines.join("\n") + "\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    // A staged desk, so the rename below is one git detects (index vs HEAD).
+    const stage = async (file: string, lines: string[]) => {
+      await fs.writeFile(path.join(dir, file), lines.join("\n") + "\n");
+      gitq("add", "-A");
+      return (await buildReviewState(dir, { session: "s", staged: true }))!;
+    };
+    const before = stampParts(await stage("app.ts", edited({ 3: "A", 5: "B", 10: "C" })), {
+      3: 0,
+      5: 0,
+      10: 1,
+    });
+    gitq("mv", "app.ts", "moved.ts");
+    // The first block is rewritten too: it joins its part by that part's former lines.
+    const after = await stage("moved.ts", edited({ 3: "A2", 5: "B", 10: "C" }));
+    assert.equal(after.files[0]?.oldPath, "app.ts", "git sees a rename");
+    const merged = await mergeReviewState(after, before);
+    assert.deepEqual(
+      merged.changes.map((c) => [c.path, c.lineNumber, c.part]),
+      [
+        ["moved.ts", 3, 0],
+        ["moved.ts", 5, 0],
+        ["moved.ts", 10, 1],
+      ],
+    );
+    // The guide's entries follow the file, so its parts still name a file in the diff.
+    assert.deepEqual(
+      merged.guide?.files.map((g) => g.path),
+      ["moved.ts", "moved.ts"],
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 // ── resolveMovedFrom (issue 03) ──────────────────────────────────────────────
@@ -1143,6 +1897,140 @@ test("reload parses the unified diff exactly once, shared across build + skim (i
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+// ── resolveParts: guide parts → ChangeState.part stamping ────────────────────
+// SKIM_DIFF's two blocks: the imports run (new lines 3-5) and the core() rewrite (new lines 8-9).
+const IMPORTS = "additions:3:0:3";
+const CORE = "additions:8:1:2";
+
+function partsGuide(
+  ...parts: Array<[title: string, lines: Array<[number, number] | number>]>
+): Guide {
+  return {
+    overview: "o",
+    files: parts.map(([title, lines], i) => ({
+      path: "app.ts",
+      order: i,
+      category: `C${i}`,
+      orientation: title,
+      part: { title, lines },
+    })),
+  };
+}
+const partOf = (changes: ChangeState[], stableKey: string) =>
+  changes.find((c) => c.stableKey === stableKey)!.part;
+// SKIM_DIFF as the resolvers see a review: its raw diff, change blocks and files.
+const skimDiff = (
+  changes = changesFromDiff(SKIM_DIFF),
+  files: Array<Pick<ReviewFile, "path" | "changeKind">> = [
+    { path: "app.ts", changeKind: "modified" },
+  ],
+) => ({ rawDiff: SKIM_DIFF, changes, files });
+
+test("resolveParts stamps each block with the index of the guide entry whose part claims it", () => {
+  const changes = changesFromDiff(SKIM_DIFF);
+  const r = resolveParts(skimDiff(changes), partsGuide(["Imports", [[3, 5]]], ["Core", [9]]));
+  assert.deepEqual(r, { ok: true });
+  assert.equal(partOf(changes, IMPORTS), 0);
+  assert.equal(partOf(changes, CORE), 1);
+});
+
+test("resolveParts leaves a block no part claims unstamped (the file's Rest)", () => {
+  const changes = changesFromDiff(SKIM_DIFF);
+  assert.ok(resolveParts(skimDiff(changes), partsGuide(["Imports", [4]])).ok);
+  assert.equal(partOf(changes, IMPORTS), 0);
+  assert.equal(partOf(changes, CORE), undefined);
+});
+
+test("resolveParts rejects a span that matches no block, naming path, part title and span", () => {
+  const r = resolveParts(skimDiff(), partsGuide(["Imports", [[3, 5]]], ["Core", [[100, 104]]]));
+  assert.deepEqual(r, {
+    ok: false,
+    reason: 'guide part "Core" on "app.ts": span [100, 104] matches no change in the diff',
+  });
+  const single = resolveParts(skimDiff(), partsGuide(["Core", [1]]));
+  assert.deepEqual(single, {
+    ok: false,
+    reason: 'guide part "Core" on "app.ts": line 1 matches no change in the diff',
+  });
+});
+
+test("resolveParts rejects a part on a file absent from the diff", () => {
+  const guide = partsGuide(["Ghost", [3]]);
+  guide.files[0]!.path = "ghost.ts";
+  const r = resolveParts(skimDiff(), guide);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.match(r.reason, /"Ghost" on "ghost\.ts"/);
+});
+
+test("resolveParts rejects two parts claiming one block, naming both and the block's lines", () => {
+  const r = resolveParts(skimDiff(), partsGuide(["Imports", [[3, 5]]], ["Core", [5, [8, 9]]]));
+  assert.deepEqual(r, {
+    ok: false,
+    reason: 'guide parts "Imports" and "Core" on "app.ts" both claim the change at lines 3-5',
+  });
+});
+
+test("resolveParts clears prior stamps so re-resolution follows the new guide", () => {
+  const changes = changesFromDiff(SKIM_DIFF);
+  resolveParts(skimDiff(changes), partsGuide(["Imports", [3]], ["Core", [8]]));
+  resolveParts(skimDiff(changes), partsGuide(["Core", [8]]));
+  assert.equal(partOf(changes, IMPORTS), undefined);
+  assert.equal(partOf(changes, CORE), 0);
+});
+
+test("resolveGuide resolves skims and parts together and fails on either", () => {
+  const guide = partsGuide(["Imports", [[3, 5]]], ["Core", [8]]);
+  guide.files[0]!.skimBlocks = [{ lines: [3, 5], reason: "imports" }];
+  const changes = changesFromDiff(SKIM_DIFF);
+  assert.deepEqual(resolveGuide(skimDiff(changes), guide), { ok: true });
+  assert.deepEqual(changes.find((c) => c.stableKey === IMPORTS)!.skim, { reason: "imports" });
+  assert.equal(partOf(changes, CORE), 1);
+  guide.files[1]!.part!.lines = [100];
+  const bad = resolveGuide(skimDiff(), guide);
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.match(bad.reason, /"Core" on "app\.ts": line 100/);
+});
+
+test("resolveParts says a new untracked file can't be split, naming path and part", () => {
+  // An untracked add is one whole-file entry with no section in the raw diff.
+  const guide = partsGuide(["Scaffold", [[1, 5]]]);
+  guide.files[0]!.path = "new.ts";
+  const files = [
+    { path: "app.ts", changeKind: "modified" as const },
+    { path: "new.ts", changeKind: "added" as const },
+  ];
+  assert.deepEqual(resolveParts(skimDiff(undefined, files), guide), {
+    ok: false,
+    reason:
+      'guide part "Scaffold" on "new.ts": "new.ts" is a new untracked file — one whole-file change, it can\'t be split into parts',
+  });
+});
+
+test("resolveGuide rejects a part's skimBlocks span that reaches another part's block", () => {
+  const guide = partsGuide(["Imports", [[3, 5]]], ["Core", [8]]);
+  guide.files[0]!.skimBlocks = [{ lines: [8, 8], reason: "churn" }];
+  assert.deepEqual(resolveGuide(skimDiff(), guide), {
+    ok: false,
+    reason:
+      'guide part "Imports" on "app.ts": skimBlocks span [8, 8] reaches the change at lines 8-9, which part "Core" claims',
+  });
+  // Carried forward, that skim stamp is dropped: Core stays in the flow, unskimmed.
+  const changes = changesFromDiff(SKIM_DIFF);
+  resolveParts(skimDiff(changes), partsGuide(["Imports", [[3, 5]]], ["Core", [8]]));
+  assert.deepEqual(resolveSkim(SKIM_DIFF, changes, guide, { strict: false }), { ok: true });
+  assert.equal(changes.find((c) => c.stableKey === CORE)!.skim, undefined);
+  assert.equal(partOf(changes, CORE), 1);
+});
+
+test("resolveGuide lets a part skim its own blocks and unclaimed ones", () => {
+  const guide = partsGuide(["Core", [8]]);
+  guide.files[0]!.skimBlocks = [{ lines: [3, 9] }];
+  const changes = changesFromDiff(SKIM_DIFF);
+  assert.deepEqual(resolveGuide(skimDiff(changes), guide), { ok: true });
+  assert.ok(changes.find((c) => c.stableKey === CORE)!.skim, "its own block");
+  assert.ok(changes.find((c) => c.stableKey === IMPORTS)!.skim, "a Rest block");
 });
 
 test("skim never changes approval derivations (display-only)", () => {
