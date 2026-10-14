@@ -1,6 +1,27 @@
 # Changelog
 
 
+## v0.7.6
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.7.5...v0.7.6)
+
+### 🚀 Enhancements
+
+- Review-desk polish — sidebar sign-off, change-request navigation, ask conversion, background app warm-up, project name in header ([#83](https://github.com/ymansurozer/galley/pull/83))
+- Split a file's diff into guide parts ([#97](https://github.com/ymansurozer/galley/pull/97))
+- Redesign the review desk ([#104](https://github.com/ymansurozer/galley/pull/104))
+
+### 🩹 Fixes
+
+- Show a reload that only changed untracked files in the open tab ([#93](https://github.com/ymansurozer/galley/pull/93))
+- Keep line numbers aligned below collapsed skim blocks ([#94](https://github.com/ymansurozer/galley/pull/94))
+- Stop the skim collapse logging a false "hid nothing" on every cold open ([#95](https://github.com/ymansurozer/galley/pull/95))
+- Guide parts follow-ups ([#118](https://github.com/ymansurozer/galley/pull/118))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.7.5
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.7.4...v0.7.5)
