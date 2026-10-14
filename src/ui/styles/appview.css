@@ -8,7 +8,8 @@
 .app.view-ui .guidebar,
 .app.view-ui .diff-area,
 .app.view-ui .top-progress,
-.app.view-ui .top-pct {
+.app.view-ui .top-pct,
+.app.view-ui .top-done {
   display: none !important;
 }
 
@@ -122,10 +123,6 @@
 
 .chrome .seg > button {
   padding: 0 8px;
-}
-
-.modal.shot .seg {
-  font-size: var(--text-xs);
 }
 
 .chrome .vpsize {
