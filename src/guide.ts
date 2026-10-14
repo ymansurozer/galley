@@ -188,3 +188,11 @@ export function validateGuide(input: unknown): GuideValidation {
   if (typeof g.baseDiffHash === "string" && g.baseDiffHash) guide.baseDiffHash = g.baseDiffHash;
   return { ok: true, guide };
 }
+
+// Whether two validated guides say the same thing, whatever diff each was stamped against
+// (baseDiffHash). A stored guide is a validated one round-tripped through JSON, so they compare
+// as JSON.
+export function sameGuide(a: Guide, b: Guide) {
+  const bare = (g: Guide) => JSON.stringify({ ...g, baseDiffHash: undefined });
+  return bare(a) === bare(b);
+}

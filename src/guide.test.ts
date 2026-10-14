@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateGuide } from "./guide.js";
+import { sameGuide, validateGuide } from "./guide.js";
 import { mergeReviewState } from "./state.js";
 import type { Guide, ReviewState } from "./types.js";
 
@@ -18,6 +18,19 @@ const validInput = () => ({
     },
     { path: "src/config/limits.ts", order: 1, category: "Config", orientation: "Constants." },
   ],
+});
+
+test("sameGuide compares guides whatever diff each was stamped against, as stored", () => {
+  const valid = () => {
+    const r = validateGuide(validInput());
+    assert.ok(r.ok);
+    return r.guide;
+  };
+  const stored: Guide = JSON.parse(JSON.stringify({ ...valid(), baseDiffHash: "d1" }));
+  assert.ok(sameGuide(valid(), stored));
+  const regrouped = valid();
+  regrouped.files[0]!.category = "Elsewhere";
+  assert.ok(!sameGuide(regrouped, stored));
 });
 
 test("validateGuide accepts a well-formed guide and sorts files by order", () => {

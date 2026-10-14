@@ -141,6 +141,12 @@ export function parseUnifiedDiff(raw: string): DiffFile[] {
       renamedFiles.add(file);
       continue;
     }
+    // `index <old>..<new> [mode]`, before any hunk: the old side's (abbreviated) blob id.
+    const index = hunk ? null : rawLine.match(/^index ([0-9a-f]+)\.\./);
+    if (index) {
+      file.oldOid = index[1];
+      continue;
+    }
     if (rawLine.startsWith("Binary files ") || rawLine.startsWith("GIT binary patch")) {
       binaryFiles.add(file);
       continue;

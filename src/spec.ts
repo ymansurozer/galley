@@ -220,9 +220,9 @@ Attach with \`galley <mode> --guide <file>\`: an overview page + your files in o
 orientation (schema below). Galley validates + renders it (markdown in prose fields, raw HTML
 stripped) and runs no model — content and order are yours. Write the guide OUTSIDE the working tree
 (temp or gitignored): working mode surfaces untracked files, so an in-repo guide shows as a stray
-addition. Stamped to its diff and surviving reload/restart; once a reload advances past it it's
-flagged stale — regenerate and swap via \`galley reload --guide <new>\` (one desk only — see Between
-rounds).
+addition. Stamped to its diff and surviving reload/restart (a restart re-passing the same, unchanged
+--guide file carries it the same way); once a reload advances past it it's flagged stale —
+regenerate and swap via \`galley reload --guide <new>\` (one desk only — see Between rounds).
 
 ### Guide JSON schema
 One JSON object:

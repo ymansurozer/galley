@@ -5,7 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getBranch, getGitRoot, gh, git } from "./git.js";
-import { validateGuide } from "./guide.js";
+import { sameGuide, validateGuide } from "./guide.js";
 import { parseUiTarget } from "./proxy.js";
 import { AGENT_HEADER, startServer } from "./server.js";
 import { SPEC } from "./spec.js";
@@ -627,7 +627,10 @@ async function runDesk(
       process.exitCode = 1;
       return;
     }
-    newGuide = loaded;
+    // The guide the saved review already carries, given again (a restart re-passing the same
+    // --guide), is carried forward as a restart without --guide carries it: its parts follow
+    // content (carryParts) rather than re-resolving from spans the agent's edits may have moved.
+    if (!saved?.guide || !sameGuide(loaded, saved.guide)) newGuide = loaded;
   }
   const moveGuide = newGuide ?? saved?.guide;
   if (moveGuide) {
@@ -685,7 +688,9 @@ async function runDesk(
     .filter(Boolean);
   const { url, lockUrl } = await startServer({
     state,
-    priorDiff: saved ? { baseDiffHash: saved.baseDiffHash, changes: saved.changes } : undefined,
+    priorDiff: saved
+      ? { baseDiffHash: saved.baseDiffHash, changes: saved.changes, files: saved.files }
+      : undefined,
     port: typeof args.port === "string" ? Number(args.port) : stablePort(state.root, state.session),
     host,
     allowedHosts,

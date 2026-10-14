@@ -258,6 +258,58 @@ test("a bare galley restarts a stopped UI-only desk on its persisted target", as
   }
 });
 
+test("a restart given the guide its review already carries keeps the parts by content", async () => {
+  const { repo, home, cleanup } = await tempRepo(false);
+  const children: ChildProcess[] = [];
+  const lines = Array.from({ length: 30 }, (_, i) => `b${i + 1}`);
+  const writeB = (l: string[]) => writeFile(path.join(repo, "b.txt"), l.join("\n") + "\n");
+  try {
+    await writeB(lines);
+    execFileSync("git", ["add", "-A"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-q", "-m", "b"], { cwd: repo, stdio: "ignore" });
+    const edited = lines.map((l, i) => (i === 2 || i === 24 ? `${l}!` : l));
+    await writeB(edited);
+    const guidePath = path.join(home, "guide.json");
+    const part = (title: string, at: number) => ({
+      path: "b.txt",
+      category: title,
+      orientation: title,
+      part: { title, lines: [at] },
+    });
+    await writeFile(
+      guidePath,
+      JSON.stringify({ overview: "o", files: [part("Top", 3), part("Bottom", 25)] }),
+    );
+    const args = ["--repo", repo, "--port", "0", "--guide", guidePath];
+    const parts = async (url: string) => {
+      const st = (await fetch(`${url}api/state`).then((r) => r.json())) as {
+        changes: Array<{ lineNumber: number; part?: number }>;
+      };
+      return st.changes.map((c) => [c.lineNumber, c.part ?? "rest"]);
+    };
+    const first = await startDesk(args, home);
+    children.push(first.child);
+    assert.deepEqual(await parts(first.url), [
+      [3, 0],
+      [25, 1],
+    ]);
+    assert.equal(runCli(["stop", "--repo", repo, "--all"], home).status, 0);
+    await new Promise((resolve) => first.child.once("exit", resolve));
+    // Two lines inserted above the bottom part move its block to line 27, off the guide's span.
+    await writeB([...edited.slice(0, 10), "n1", "n2", ...edited.slice(10)]);
+    const again = await startDesk(args, home);
+    children.push(again.child);
+    assert.deepEqual(await parts(again.url), [
+      [3, 0],
+      [11, "rest"],
+      [27, 1],
+    ]);
+  } finally {
+    for (const c of children) c.kill();
+    await cleanup();
+  }
+});
+
 // ── Opening the browser: a desk start prints its URL and opens a tab only on --open ───────────
 
 test(

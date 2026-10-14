@@ -20,6 +20,11 @@ export type DiffFile = {
   oldPath?: string;
   newPath?: string;
   hunks: DiffHunk[];
+  // The old side's blob id, as the diff's `index` header abbreviates it. With ReviewFile's
+  // contentHash it names both sides the file's diff was taken over, for the contents caches: in a
+  // working-tree review, staging a block changes the old side (the index) under the same new side.
+  // Absent where git prints no `index` line (a pure rename, a mode change).
+  oldOid?: string;
 };
 
 export type ReviewComment = {
