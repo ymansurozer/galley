@@ -142,24 +142,12 @@
       <div class="tree-backdrop" :class="{open: $store.g.treeDrawerOpen}" @click="$store.g.treeDrawerOpen=false"></div>
       <div class="resizer" data-resize="left"></div>
       <section class="center">
-        <div class="guidebar" x-show="$store.g.showGuideBar && $store.g.showGuideBar()" x-cloak>
-          <div class="gb-acts">
-            <button class="gb-home" @click="$store.g.openOverview()" data-tip="Overview" data-tip-keys="o"><svg class="ic"><use href="#gly-home"></use></svg></button>
-            <button class="gb-nav" @click="$store.g.guidePrev()"
-              :disabled="$store.g.guideAtStart && $store.g.guideAtStart()" data-tip="Previous file" data-tip-keys="⇧←"><svg class="ic"><use href="#gly-arrow-left"></use></svg></button>
-            <button class="gb-nav" @click="$store.g.guideNext()"
-              :disabled="$store.g.guideAtLast && $store.g.guideAtLast()" data-tip="Next file" data-tip-keys="⇧→"><svg class="ic"><use href="#gly-arrow-right"></use></svg></button>
-          </div>
-          <span class="gb-stale" x-show="$store.g.guideStale && $store.g.guideStale()"
-            title="Guide generated for an earlier diff — regenerate and restart with --guide to refresh"><svg class="ic"><use href="#gly-warn"></use></svg> Guide Stale</span>
-          <span class="gb-fill"></span>
-        </div>
         <div class="diff-area">
           <div id="diff" x-ignore></div>
           <div class="ovr" id="ovr" x-ignore></div>
           <div class="diff-rendering" x-show="$store.g.rendering" x-cloak><span>Rendering…</span></div>
         </div>
-        <!-- The UI view: the proxied app under a browser-chrome bar (in the guide bar's slot). The
+        <!-- The UI view: the proxied app under a browser-chrome bar. The
              iframe is created by appview.ts inside #appFrame and stays alive across view switches;
              the code view keeps it laid out, unseen and inert, once it has loaded. -->
         <div class="uiview" x-cloak x-show="$store.g.view==='ui' || $store.g.app.loaded" :inert="$store.g.view!=='ui'">

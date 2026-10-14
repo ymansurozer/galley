@@ -33,6 +33,7 @@ import {
 import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
 import { diffShadowRoot } from "./diff-dom";
 import { fileEnd, fileLead, renderFileBar } from "./filebar";
+import { guideCard, trackGuideCard } from "./guidecard";
 
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
 // side (the new side reuses the server's contentHash). Same content → same key → cache hit.
@@ -206,18 +207,23 @@ async function renderCenter() {
   const dropInstance = () => {
     D.instance = null;
   };
-  // Every file view opens under the file's bar; a view that wrote #diff wholesale gets it back on
-  // top. (The Overview and the empty centre aren't a file, so they have none.) The oversized card
-  // and the contents error have no rows a blocker could jump to — reaching one would mean silently
-  // loading the diff the card holds back, or the contents that just failed — so their bars carry
-  // no blockers chip.
-  const withBar = (jumpable = true) => host.prepend(renderFileBar(undefined, jumpable));
+  // Every file view opens under the file's bar and, when the guide has an entry for the file, its
+  // guide card; a view that wrote #diff wholesale gets both back on top. (The Overview and the
+  // empty centre aren't a file, so they have neither.) The oversized card and the contents error
+  // have no rows a blocker could jump to — reaching one would mean silently loading the diff the
+  // card holds back, or the contents that just failed — so their bars carry no blockers chip.
+  const withBar = (jumpable = true) => {
+    const card = guideCard();
+    host.prepend(renderFileBar(undefined, jumpable), ...(card ? [card] : []));
+    trackGuideCard(card);
+  };
   // Guided review: the Overview page takes over the center until a file is selected.
   if (S.overviewOpen && hasGuide()) {
     cursorReset();
     dropInstance();
     D.lineMap = null;
     renderOverview();
+    trackGuideCard(null);
     return;
   }
   const f = currentFile();
@@ -230,6 +236,7 @@ async function renderCenter() {
     D.lineMap = null;
     applyLayoutClasses();
     host.replaceChildren();
+    trackGuideCard(null);
     return;
   }
   // An oversized file (server-stamped) paints a verdict-capable summary card instead of its diff —
@@ -379,14 +386,14 @@ async function renderCenter() {
     },
     // @pierre reserves a right-side gutter via `scrollbar-gutter: stable` on the code grid
     // (for a vertical scrollbar it hides) — drop it so rows fill the full width. The rows' scroll
-    // margin keeps a scrolled-to line clear of the sticky file bar (diff.css does the same for
-    // the light DOM; --file-bar-h inherits into the shadow). [data-flash] is a jumped-to line
-    // (cursor.ts flashRow): an orange wash over its own tint that fades, like a thread's flash
-    // off the rows (decisions.css). previewCSS (empty unless previewing) neutralizes addition
-    // styling to context, in-shadow.
+    // margin keeps a scrolled-to line clear of the sticky file bar (diff.css does the same for the
+    // light DOM and defines --jump-top, which inherits into the shadow). [data-flash] is a
+    // jumped-to line (cursor.ts flashRow): an orange wash over its own tint that fades, like a
+    // thread's flash off the rows (decisions.css). previewCSS (empty unless previewing)
+    // neutralizes addition styling to context, in-shadow.
     unsafeCSS:
       "[data-code]{scrollbar-gutter:auto}" +
-      "[data-line-type]{scroll-margin-top:var(--file-bar-h,0px)}" +
+      "[data-line-type]{scroll-margin-top:var(--jump-top,0px)}" +
       "[data-flash]{animation:galley-flash 1.2s ease-out}" +
       "@keyframes galley-flash{0%{box-shadow:inset 0 0 0 100vmax color-mix(in srgb,var(--orange) 25%,transparent)}}" +
       previewCSS,
@@ -426,20 +433,19 @@ async function renderCenter() {
   }
   D.diffCache.set(key, entry);
   D.instance = entry.inst;
-  // Mount this file's wrapper between its bar + lead and its end row (replaceChildren detaches
-  // the previously-active wrapper — it lives on in the Map — and removes any overview/markdown
-  // content). A same-file re-render leaves the wrapper attached and swaps only what surrounds it,
-  // so the diff isn't detached/reattached and the scroll stays put. A preview has neither lead nor
-  // end row: it isn't in the review.
+  // Mount this file's wrapper between its bar + guide card + lead and its end row (replaceChildren
+  // detaches the previously-active wrapper — it lives on in the Map — and removes any
+  // overview/markdown content). A same-file re-render leaves the wrapper attached and swaps only
+  // what surrounds it, so the diff isn't detached/reattached and the scroll stays put. A preview
+  // has no guide card, lead or end row: it isn't in the review.
   const bar = renderFileBar(fd);
-  const lead = previewing ? null : fileLead();
+  const above = [guideCard(), previewing ? null : fileLead()].filter((x) => x !== null);
   const end = previewing ? null : fileEnd();
   const mountedNew = entry.wrapper.parentNode !== host;
-  if (mountedNew)
-    host.replaceChildren(bar, ...(lead ? [lead] : []), entry.wrapper, ...(end ? [end] : []));
+  if (mountedNew) host.replaceChildren(bar, ...above, entry.wrapper, ...(end ? [end] : []));
   else {
     for (const el of Array.from(host.children)) if (el !== bar && el !== entry.wrapper) el.remove();
-    if (lead) entry.wrapper.before(lead);
+    entry.wrapper.before(...above);
     if (end) entry.wrapper.after(end);
   }
   entry.inst.setLineAnnotations?.(anns());
@@ -452,6 +458,7 @@ async function renderCenter() {
   // replaceChildren preserves its previous scrollTop — a tall next file would otherwise open
   // mid-scroll. A same-file re-render (a decision applied) skips this and keeps its scroll.
   if (mountedNew) host.scrollTop = 0;
+  trackGuideCard(host.querySelector<HTMLElement>(":scope > .guide-card"));
   afterRender();
   // Evict least-recently-used instances beyond the cap.
   while (D.diffCache.size > DIFF_CACHE_CAP) {

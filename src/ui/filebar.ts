@@ -5,31 +5,46 @@ import { unanchoredBlock } from "./annotations";
 import { unanchoredThreads } from "./unanchored";
 import { approveCurrentFile, resetReview } from "./decisions";
 import { blockersChip, fileBlockers } from "./blockers";
-import { renderMarkdown } from "./markdown";
-import { currentGuideEntry, nextFileIndex } from "./guide";
+import { nextFileIndex } from "./guide";
 import { isFileSkim, isFileSkimCollapsed, movedFrom, toggleFileSkim } from "./skim";
 import { keycapsHtml, keycapsNode } from "./keycaps";
 import { fileBarActions, splitPath } from "./filebar-derive";
+import { guideMini, guideMiniElement, retrackGuideCard } from "./guidecard";
 
 // ── The open file's bar ──────────────────────────────────────────────────────
 // One Galley-DOM header serves every file view (diff, skim strip, pure rename, oversized card,
 // rendered markdown, preview). render() mounts it as #diff's first child, where it sits sticky
 // under the top bar while the view scrolls beneath it. #diff is also where every jump scrolls
 // (cursor, go-to-line, blockers, the change-request walk), so the bar's height is mirrored into
-// --file-bar-h, the scroll-margin-top of everything under it (diff.css, and the rows' in-shadow
-// CSS in render.ts): a scrollIntoView then lands below the bar instead of under it. The element
-// persists across renders (its contents are rebuilt), so one observer tracks it for the session —
-// including its wrap at narrow widths.
+// --file-bar-h, which sets the scroll-margin-top of everything under it (--jump-top in diff.css,
+// and the rows' in-shadow CSS in render.ts): a scrollIntoView then lands below the bar, with a
+// little air, instead of under it. The element
+// persists across renders (its contents are rebuilt), and so does the pinned guide line it carries
+// (guidecard.ts), so one observer tracks both for the session — including the bar's wrap at narrow
+// widths, which also moves the line the guide card pins at.
 let bar: HTMLElement | null = null;
 function barElement(): HTMLElement {
   if (bar) return bar;
   const el = document.createElement("div");
   el.className = "file-bar";
-  new ResizeObserver(() =>
-    $("diff").style.setProperty("--file-bar-h", `${el.offsetHeight}px`),
-  ).observe(el);
+  const ro = new ResizeObserver(() => {
+    syncFileBarHeight();
+    retrackGuideCard();
+  });
+  ro.observe(el);
+  ro.observe(guideMiniElement());
   bar = el;
   return el;
+}
+
+// --file-bar-h: the bar, plus the pinned guide line under it while that shows.
+export function syncFileBarHeight() {
+  if (!bar) return;
+  const pinned = bar.querySelector<HTMLElement>(":scope > .guide-mini.pinned");
+  $("diff").style.setProperty(
+    "--file-bar-h",
+    `${bar.offsetHeight + (pinned?.offsetHeight ?? 0)}px`,
+  );
 }
 
 function button(className: string, label: string, run: () => unknown): HTMLButtonElement {
@@ -164,11 +179,12 @@ export function renderFileBar(fd?: FileDiffMetadata, jumpable = true): HTMLEleme
   const lead: Node[] = [pathLabel(f.path)];
   const grow = document.createElement("span");
   grow.className = "fb-grow";
+  const mini = guideMini();
   if (S.preview) {
     const tag = document.createElement("span");
     tag.className = "fb-tag";
     tag.textContent = "Unchanged";
-    el.replaceChildren(...lead, openEditorButton(), grow, tag);
+    mount(el, [...lead, openEditorButton(), grow, tag], null);
     return el;
   }
   // Rename+edit files (git -M): where the file moved from, right of the new path.
@@ -222,8 +238,17 @@ export function renderFileBar(fd?: FileDiffMetadata, jumpable = true): HTMLEleme
   counts.innerHTML = `<span class="a">+${add}</span><span class="d">−${del}</span>`;
   const sep = document.createElement("span");
   sep.className = "fb-sep";
-  el.replaceChildren(...lead, openEditorButton(), grow, counts, sep, fileActions(f.path, jumpable));
+  mount(el, [...lead, openEditorButton(), grow, counts, sep, fileActions(f.path, jumpable)], mini);
   return el;
+}
+
+// Swap the bar's contents but leave the pinned guide line where it is when it stays: detaching it
+// would replay its entrance and drop an open note's scroll, selection and focus.
+function mount(el: HTMLElement, kids: Node[], mini: HTMLElement | null) {
+  const keep = mini && mini.parentNode === el ? mini : null;
+  for (const c of Array.from(el.childNodes)) if (c !== keep) c.remove();
+  if (keep) keep.before(...kids);
+  else el.append(...kids, ...(mini ? [mini] : []));
 }
 
 // The row after the file's last line: "End of <file> · next: <file> ⇧→" and the file's sign-off,
@@ -251,48 +276,14 @@ export function fileEnd(): HTMLElement {
   return row;
 }
 
-// What reads before the diff, under the bar and scrolling with the code: the guide's note on this
-// file, then any open threads whose anchor line no longer renders. Null when there's neither.
+// The open threads whose anchor line no longer renders, read before the diff (under the bar and
+// the guide card) so they stay actionable: they block approval until resolved. Null when there are
+// none.
 export function fileLead(): HTMLElement | null {
-  const entry = currentGuideEntry();
   const orphans = unanchoredThreads();
-  if (!entry && !orphans.length) return null;
+  if (!orphans.length) return null;
   const lead = document.createElement("div");
   lead.className = "file-lead";
-  if (entry) {
-    // Group the AI guidance into a subtle card, set apart from the bar + the code. The prose
-    // fields render as markdown (renderMarkdown sanitizes) — the guidance is the main reading
-    // content of a guided review, so identifiers/lists the agent writes survive.
-    const guide = document.createElement("div");
-    guide.className = "ghdr-guide";
-    const chip = document.createElement("span");
-    chip.className = "ghdr-cat" + (entry.flag ? " crit" : "");
-    chip.textContent = entry.category;
-    guide.appendChild(chip);
-    // A whole-file skim entry may omit its orientation; the skim reason (if any) takes the
-    // slot. Only the expanded file reaches the diff view — the collapsed strip shows the reason.
-    if (entry.orientation) {
-      const expl = document.createElement("div");
-      expl.className = "ghdr-expl md";
-      expl.innerHTML = renderMarkdown(entry.orientation);
-      guide.appendChild(expl);
-    } else if (entry.skimReason) {
-      const why = document.createElement("div");
-      why.className = "ghdr-skim";
-      why.textContent = `skimmed · ${entry.skimReason}`;
-      guide.appendChild(why);
-    }
-    // A flagged file gets its own readable callout within the card.
-    if (entry.flag) {
-      const flag = document.createElement("div");
-      flag.className = "ghdr-flag";
-      flag.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><div class="md">${renderMarkdown(entry.flag)}</div>`;
-      guide.appendChild(flag);
-    }
-    lead.appendChild(guide);
-  }
-  // Open threads whose anchor line no longer renders — shown before the diff's first row so they
-  // stay actionable (they block approval until resolved).
-  if (orphans.length) lead.appendChild(unanchoredBlock(orphans));
+  lead.appendChild(unanchoredBlock(orphans));
   return lead;
 }

@@ -39,15 +39,10 @@ import { ensureIcons } from "./icons";
 import {
   hasGuide,
   firstGuideIndex,
-  currentGuideEntry,
-  currentFileName,
-  showGuideBar,
-  guideStale,
   nextFileIndex,
   prevFileIndex,
   nextWrapIndex,
   prevWrapIndex,
-  anyUnreviewed,
   navOrder,
   walkthroughRows,
 } from "./guide";
@@ -161,7 +156,7 @@ installProgress();
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
-// Update the lightweight state synchronously (so the tree active-row + guide bar repaint
+// Update the lightweight state synchronously (so the tree's active row repaints
 // immediately — the click feels instant), then run the heavier diff render via deferRender,
 // which shows the "Rendering…" indicator only for a cold open of a big file.
 S.selectFile = async (i) => {
@@ -307,11 +302,6 @@ S.startGuided = () => {
   S.overviewOpen = false;
   S.selectFile?.(firstGuideIndex());
 };
-// Top guide-bar getters (the bar is Alpine chrome, reactive on fileIndex/overviewOpen).
-S.showGuideBar = showGuideBar;
-S.guideStale = guideStale;
-S.curGuide = currentGuideEntry;
-S.curFileName = currentFileName;
 // Guided navigation: the Overview is the position before the first file. From it, Next
 // enters the first file and Prev is a no-op; within files, Prev off the first → Overview.
 S.guideNext = () => {
@@ -338,10 +328,6 @@ S.guidePrev = () => {
   if (p === null) S.openOverview?.();
   else S.selectFile?.(p);
 };
-// The nav buttons dim only when the review is fully signed off (nothing left to wrap to) —
-// while unreviewed work remains, next/prev stay live because they now seek it.
-S.guideAtStart = () => !!S.overviewOpen && !anyUnreviewed();
-S.guideAtLast = () => !S.overviewOpen && nextFileIndex(S.fileIndex) === null && !anyUnreviewed();
 // Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else the
 // Files tree's top-to-bottom order (see nextFileIndex).
 S.nextFile = () => {

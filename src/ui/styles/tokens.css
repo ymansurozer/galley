@@ -107,9 +107,9 @@
   /* A slight overshoot, for things that move into place (a segment thumb, a sheet). */
   --spring: cubic-bezier(0.32, 1.36, 0.56, 1);
 
-  /* Height of the secondary bar directly under the top header — shared by the guide bar
-     (.guidebar), the app view's browser chrome and the annotation sidebar's head, so their
-     bottom borders form one line. */
+  /* Height of the secondary bar directly under the top header — shared by the file bar, the app
+     view's browser chrome and the annotation sidebar's head, so their bottom borders form one
+     line. */
   --subbar-h: 40px;
 
   /* Gap between the +added / −removed (and state badge) churn indicators, kept in sync
