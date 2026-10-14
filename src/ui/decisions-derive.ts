@@ -1,5 +1,5 @@
-import type { ChangeContent } from "@pierre/diffs";
-import type { ChangeState, Decision, ReviewState } from "./types";
+import type { ChangeContent, FileDiffMetadata } from "@pierre/diffs";
+import type { ChangeState, Decision, ReviewState, Side } from "./types";
 
 type ReviewFile = ReviewState["files"][number];
 
@@ -11,6 +11,49 @@ export function changeStableKey(part: ChangeContent) {
   const side = part.additions > 0 ? "additions" : "deletions";
   const lineNumber = (side === "additions" ? part.additionLineIndex : part.deletionLineIndex) + 1;
   return `${side}:${lineNumber}:${part.deletions || 0}:${part.additions || 0}`;
+}
+
+// The display lines a change's rows show on each side of the rendered (decision-replayed) diff,
+// first to last, or null for a side it has no rows on. A replace shows both. A change's hunk and
+// change indexes hold in the replayed diff (syncDisplayAnchors reads its anchors the same way).
+export type ChangeSpan = Record<Side, [number, number] | null>;
+
+export function changeSpan(
+  change: ChangeState,
+  rendered: Pick<FileDiffMetadata, "hunks">,
+): ChangeSpan | null {
+  const part =
+    change.changeIndex === undefined
+      ? undefined
+      : rendered.hunks[change.hunkIndex]?.hunkContent?.[change.changeIndex];
+  if (part?.type !== "change") return null;
+  const lines = (index: number, count: number): [number, number] | null =>
+    count ? [index + 1, index + count] : null;
+  return {
+    additions: lines(part.additionLineIndex, part.additions),
+    deletions: lines(part.deletionLineIndex, part.deletions),
+  };
+}
+
+export function spanHolds(span: ChangeSpan, side: Side, line: number) {
+  const s = span[side];
+  return !!s && line >= s[0] && line <= s[1];
+}
+
+// The pending change whose rows show this display line, on either side: what ⇧Y / ⇧N act on and
+// what the cursor's rail marks. A decided change has folded into plain lines, so it never answers.
+export function pendingChangeAt(
+  changes: readonly ChangeState[],
+  rendered: Pick<FileDiffMetadata, "hunks">,
+  side: Side,
+  line: number,
+): ChangeState | null {
+  for (const c of changes) {
+    if (c.status !== "pending") continue;
+    const span = changeSpan(c, rendered);
+    if (span && spanHolds(span, side, line)) return c;
+  }
+  return null;
 }
 
 // The explicit decision record is the source of truth for accept/reject (decoupled

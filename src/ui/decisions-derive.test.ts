@@ -4,14 +4,16 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { parseDiffFromFile } from "@pierre/diffs";
+import { diffAcceptRejectHunk, parseDiffFromFile } from "@pierre/diffs";
 import { buildReviewResult, buildReviewState, readFileContents } from "../state.js";
-import type { ReviewState } from "../types.js";
+import type { ChangeState, ReviewState } from "../types.js";
 import {
   acceptSignedOffBlocks,
   captureFileReview,
+  changeSpan,
   changeStableKey,
   clearFileReview,
+  pendingChangeAt,
   restoreFileReview,
   signOff,
 } from "./decisions-derive.js";
@@ -195,4 +197,72 @@ test("blocks of a file not signed off, or signed off against older content, stay
     assert.equal(state.changes.find((c) => c.path === "d.ts")?.status, "pending");
     assert.ok(state.changes.filter((c) => c.path === "a.ts").every((c) => c.status === "pending"));
   });
+});
+
+// The change under the cursor, in a file with an insertion, a replace and a deletion:
+//   old: one two three four five six seven eight
+//   new: one new-a new-b two three FOUR five six eight
+// so in display lines the insertion is additions 2–3, the replace additions 6 / deletions 4, and
+// the deletion deletions 7.
+function cursorFile() {
+  const diff = parseDiffFromFile(
+    { name: "f.ts", contents: "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n" },
+    { name: "f.ts", contents: "one\nnew-a\nnew-b\ntwo\nthree\nFOUR\nfive\nsix\neight\n" },
+  );
+  const changes: ChangeState[] = [];
+  diff.hunks.forEach((h, hunkIndex) =>
+    h.hunkContent.forEach((part, changeIndex) => {
+      if (part.type !== "change") return;
+      changes.push({
+        id: changeStableKey(part),
+        path: "f.ts",
+        hunkIndex,
+        changeIndex,
+        side: part.additions ? "additions" : "deletions",
+        lineNumber: (part.additions ? part.additionLineIndex : part.deletionLineIndex) + 1,
+        title: "",
+        status: "pending",
+      });
+    }),
+  );
+  return { diff, changes };
+}
+
+test("a change's span covers its rows on each side it has rows on", () => {
+  const { diff, changes } = cursorFile();
+  assert.deepEqual(
+    changes.map((c) => changeSpan(c, diff)),
+    [
+      { additions: [2, 3], deletions: null },
+      { additions: [6, 6], deletions: [4, 4] },
+      { additions: null, deletions: [7, 7] },
+    ],
+  );
+});
+
+test("the change under the cursor answers from any of its rows, a replace's deleted line too", () => {
+  const { diff, changes } = cursorFile();
+  const [insert, replace, remove] = changes;
+  assert.equal(pendingChangeAt(changes, diff, "additions", 3), insert);
+  assert.equal(pendingChangeAt(changes, diff, "additions", 6), replace);
+  assert.equal(pendingChangeAt(changes, diff, "deletions", 4), replace, "its removed line");
+  assert.equal(pendingChangeAt(changes, diff, "deletions", 7), remove);
+  // The same numbers on the other side are other lines: additions 7 is "five", deletions 3 "three".
+  assert.equal(pendingChangeAt(changes, diff, "additions", 7), null);
+  assert.equal(pendingChangeAt(changes, diff, "deletions", 3), null);
+});
+
+test("a decided change folds away: it no longer answers, and the rows after it renumber", () => {
+  const { diff, changes } = cursorFile();
+  const [insert, replace] = changes;
+  // Undo the insertion, as replayDecisions would: its two added lines leave the new side.
+  insert.status = "rejected";
+  const rendered = diffAcceptRejectHunk(diff, insert.hunkIndex, {
+    type: "reject",
+    changeIndex: insert.changeIndex,
+  });
+  assert.equal(pendingChangeAt(changes, rendered, "additions", 2), null, "the undone insertion");
+  assert.deepEqual(changeSpan(replace, rendered), { additions: [4, 4], deletions: [4, 4] });
+  assert.equal(pendingChangeAt(changes, rendered, "additions", 4), replace);
+  assert.equal(pendingChangeAt(changes, rendered, "additions", 6), null);
 });

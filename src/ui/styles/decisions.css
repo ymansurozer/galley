@@ -1,70 +1,88 @@
-.change-actions {
-  position: absolute;
-  top: 4px;
-  right: 8px;
-  display: flex;
-  gap: 0;
-  align-items: center;
-  margin: 0;
-  padding: 1.5px;
+/* ── A pending change's Undo | Keep (annotations.ts) ──
+   A compact segmented control under the change's last changed line, set at the code column and
+   quiet at rest. The change holding the cursor (cursor.ts markCursorChange) gets a firmer track,
+   its keycaps, and a rail down its rows. */
+.verdict-row {
+  min-height: 0;
+  padding: 3px 16px 6px 8px;
+}
+
+/* Its own raised ground, not a tint: the code theme is picked apart from the appearance, so the
+   row under it can be dark in the light appearance or light in the dark one. */
+.verdict.seg {
   background: var(--raised);
   box-shadow: var(--shadow-control);
-  border: 0;
-  border-radius: var(--radius-sm);
-  width: max-content;
-  z-index: 4;
 }
 
-/* A thread carrying its line's change: the bar takes its own row above the thread. Laid over
-   the thread, it covered the first message's actions. */
-.annotation:has(> .comment-box) > .change-actions {
-  position: static;
-  margin: 4px 8px 0 auto;
-}
-
-/* Undo | Keep: a quiet pair — neutral until the pointer says which way it leans. */
-.change-actions button,
-.diff-header-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.change-actions button {
-  height: 21px;
-  min-width: 64px;
-  justify-content: center;
-  border: 0;
-  border-radius: 4px;
-  padding: 0 8px;
-  background: transparent;
+.verdict > button {
+  min-width: 56px;
+  gap: 5px;
   color: var(--ink-2);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  transition:
-    background-color 0.12s ease,
-    color 0.12s ease;
 }
 
-.change-actions .cap {
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  font-size: 9.5px;
+.verdict > button .keycaps {
+  display: none;
 }
 
-.change-actions .cap.glyph {
-  font-size: 11px;
+.verdict.at-cursor > button {
+  color: var(--ink);
 }
 
-.change-actions .reject:hover {
+.verdict.at-cursor > button .keycaps {
+  display: inline-flex;
+}
+
+/* Neutral until the pointer says which way it leans. */
+.verdict > .reject:hover {
   background: var(--red-wash);
   color: var(--red-ink);
 }
 
-.change-actions .accept:hover {
+.verdict > .accept:hover {
   background: var(--green-wash);
   color: var(--green-ink);
+}
+
+.verdict > .reject:active {
+  background: color-mix(in srgb, var(--red) 24%, transparent);
+}
+
+.verdict > .accept:active {
+  background: color-mix(in srgb, var(--green) 24%, transparent);
+}
+
+.verdict .cap {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  font-size: 9.5px;
+}
+
+.verdict .cap.glyph {
+  font-size: 11px;
+}
+
+/* The rail beside the change holding the cursor (cursor.ts placeRail): an overlay in #diff's
+   scrolled content, so it moves with the rows and never shifts the code. It is as wide as
+   @pierre's change bar (4px) and sits over it, so with the default Bars indicator the change's
+   bar turns blue instead of doubling up. Under the sticky file bar (z-index 5). */
+#diff {
+  position: relative;
+}
+
+.change-rail {
+  position: absolute;
+  left: 0;
+  z-index: 4;
+  width: 4px;
+  background: var(--blue);
+  pointer-events: none;
+}
+
+.diff-header-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* The file's own actions in its header. Reset and Collapse are quiet text buttons. */
