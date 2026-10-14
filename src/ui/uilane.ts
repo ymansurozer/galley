@@ -12,6 +12,7 @@ import { appGo, appViewport, captureApp, fromAppViewport, postToApp } from "./ap
 import { settledWithin } from "./appnav";
 import {
   annotationSource,
+  askStamp,
   draftAnchor,
   marksFor,
   markTarget,
@@ -464,9 +465,13 @@ export const shotTitle = () => {
 };
 
 // Hand a question to the agent now, once the save carrying it has landed: the desk builds the
-// question event from its stored copy of the annotation.
+// question event from its stored copy of the annotation. A turn made while the save drained
+// supersedes this ask (askStamp).
 async function askAgent(annotationId: string, messageId: string) {
+  const message = () => find(annotationId)?.comments.find((m) => m.id === messageId);
+  const asked = askStamp(message());
   await saver.settled();
+  if (askStamp(message()) !== asked) return;
   const res = await fetch("/api/ask", {
     method: "POST",
     headers: { "content-type": "application/json" },

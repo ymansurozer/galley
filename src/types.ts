@@ -261,7 +261,7 @@ export type ReviewState = {
 // replaces exactly these fields (snapshot semantics, latest wins) and touches nothing else.
 // decisionFiles rides along because it's reviewer-mutated and gates the per-file Reset
 // button on reload; stagedFiles/stagedChangeKeys deliberately do NOT — they're maintained
-// server-side by /api/stage, /api/unstage, and syncGitState.
+// server-side by /api/stage, /api/unstage, /api/restage, and syncGitState.
 export type ReviewerSave = Pick<
   ReviewState,
   | "decisions"
@@ -272,6 +272,11 @@ export type ReviewerSave = Pick<
   | "annotations"
   | "lastAnnotationNumber"
 >;
+
+// A path's index entry as /api/unstage found it (a file's Reset), handed back to /api/restage by
+// the Reset's Undo so it puts back exactly what was staged. null: the index had no entry (a staged
+// deletion). Absent from the unstage response: a conflicted path, which Undo can't restore.
+export type IndexEntry = { mode: string; oid: string } | null;
 
 // What the tab had adopted of the desk when it saved (DeskStatus): the desk process, by its UI
 // token (null while no proxy runs), and that process's `galley reload` count. Rides every save and

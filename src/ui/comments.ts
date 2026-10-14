@@ -1,7 +1,7 @@
 import { S, toast, persist, saver } from "./store";
 import { toDisplayLine } from "./changes";
 import { render } from "./render";
-import { turnInto, turnsInto } from "./uilane-derive";
+import { askStamp, turnInto, turnsInto } from "./uilane-derive";
 
 // Edit & delete the reviewer's own comments. Agent replies (role "agent") are
 // read-only and never get edit/delete affordances, but we guard here too.
@@ -33,9 +33,12 @@ export async function deleteComment(id: string) {
 }
 
 // Hand a question to the agent now, once the save carrying it has landed: the desk builds the
-// question event from its stored copy of the comment.
+// question event from its stored copy of the comment. A turn made while the save drained supersedes
+// this ask: one back to a change request withdraws it, and one into a question again asks for itself.
 export async function askComment(id: string) {
+  const asked = askStamp(S.state.comments.find((c) => c.id === id));
   await saver.settled();
+  if (askStamp(S.state.comments.find((c) => c.id === id)) !== asked) return;
   const res = await fetch("/api/ask", {
     method: "POST",
     headers: { "content-type": "application/json" },

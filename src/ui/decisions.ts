@@ -10,7 +10,7 @@ import {
   signOff,
   type FileReview,
 } from "./decisions-derive";
-import type { Decision, ReviewState } from "./types";
+import type { Decision, IndexEntry, ReviewState } from "./types";
 
 type ReviewFile = ReviewState["files"][number];
 
@@ -34,17 +34,9 @@ async function stageFile(file: ReviewFile): Promise<boolean> {
   return true;
 }
 
-// Re-stage one block a Reset unstaged, recording its key only once the index took it.
-async function stageChange(path: string, key: string): Promise<boolean> {
-  const res = await api<{ ok?: boolean }>("/api/stage-change", {
-    method: "POST",
-    body: JSON.stringify({ path, stableKey: key.slice(path.length + 1) }),
-  }).catch(() => null);
-  if (!res?.ok) return false;
-  S.state.stagedChangeKeys = S.state.stagedChangeKeys || [];
-  if (!S.state.stagedChangeKeys.includes(key)) S.state.stagedChangeKeys.push(key);
-  return true;
-}
+// Files whose sign-off is still staging. A Reset meanwhile would unstage before the stage landed,
+// and the late stage would record the file as staged again under Reset's toast.
+const signing = new Set<string>();
 
 export function approveCurrentFile() {
   return approveFile(currentFile().path, { advance: true });
@@ -65,7 +57,9 @@ export async function approveFile(path: string, { advance }: { advance: boolean 
   const clean = !fileObjections(path);
   const stage = clean && S.settings.stageOnAccept && S.state.mode !== "pr";
   // The sign-off is the verdict and stands either way: a failed stage only leaves it unstaged.
-  const stageFailed = stage && !(await stageFile(file));
+  signing.add(path);
+  const stageFailed = stage && !(await stageFile(file)); // never throws: false on any failure
+  signing.delete(path);
   persist();
   const label = clean ? "Approved" : "Marked reviewed";
   const say = (t: string) => toast(stageFailed ? `${label} — couldn't stage ${path}` : t);
@@ -93,8 +87,9 @@ export async function approveFile(path: string, { advance }: { advance: boolean 
 }
 
 // The sidebar's status icon: sign a pending file off where it stands, or reset a finished one —
-// Reset's Undo is the safety net against a stray click.
+// Reset's Undo is the safety net against a stray click. A click while the sign-off stages is ignored.
 export function toggleSignOff(path: string) {
+  if (signing.has(path)) return;
   if (fileFinished(path)) resetReview(path);
   else void approveFile(path, { advance: false });
 }
@@ -107,9 +102,10 @@ export function resetReview(path: string) {
   clearFileReview(state, path);
   // Unstage is a git-index op the UI state already reflects — fire it without blocking so the
   // re-render (and its indicator) start immediately.
-  const unstaged = api("/api/unstage", { method: "POST", body: JSON.stringify({ path }) }).catch(
-    () => {},
-  );
+  const unstaged = api<{ ok?: boolean; index?: IndexEntry }>("/api/unstage", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  }).catch(() => null);
   // Reset restores hunks the approval had collapsed, which re-tokenizes a big file — show the
   // "Rendering…" indicator during it (deferRender(true) shows it for any big file).
   deferRender(true);
@@ -117,18 +113,43 @@ export function resetReview(path: string) {
   persist();
 }
 
-async function undoReset(state: ReviewState, prior: FileReview, unstaged: Promise<unknown>) {
+async function undoReset(
+  state: ReviewState,
+  prior: FileReview,
+  unstaged: Promise<{ ok?: boolean; index?: IndexEntry } | null>,
+) {
   // A reload since the Reset swapped the state out; the capture describes the one it replaced.
   if (S.state !== state) return toast("Can't undo — the diff changed");
   restoreFileReview(state, prior);
   deferRender(true);
   persist();
-  // Re-stage once the Reset's unstage has landed, through the endpoints that staged it.
-  await unstaged;
-  const file = state.files.find((f) => f.path === prior.path);
-  let staged = !prior.staged || (!!file && (await stageFile(file)));
-  for (const key of prior.stagedChangeKeys) staged = (await stageChange(prior.path, key)) && staged;
-  toast(staged ? "Reset undone" : `Restored — couldn't re-stage ${prior.path}`);
+  // Once the Reset's unstage has landed, put back the index entry it replaced — exactly what was
+  // staged, never the working tree's newer edits — with the staging records the Reset dropped.
+  const res = await unstaged;
+  const restaged =
+    !res?.ok || res.index === undefined
+      ? !prior.staged && !prior.stagedChangeKeys.length // nothing to put back, or no way to
+      : await restage(prior, res.index);
+  toast(restaged ? "Reset undone" : `Restored — couldn't re-stage ${prior.path}`);
+}
+
+async function restage(prior: FileReview, index: IndexEntry): Promise<boolean> {
+  const res = await api<{ ok?: boolean }>("/api/restage", {
+    method: "POST",
+    body: JSON.stringify({
+      path: prior.path,
+      index,
+      staged: prior.staged,
+      stagedChangeKeys: prior.stagedChangeKeys,
+    }),
+  }).catch(() => null);
+  if (!res?.ok) return false;
+  if (prior.staged && !S.state.stagedFiles.includes(prior.path))
+    S.state.stagedFiles.push(prior.path);
+  S.state.stagedChangeKeys = S.state.stagedChangeKeys || [];
+  for (const key of prior.stagedChangeKeys)
+    if (!S.state.stagedChangeKeys.includes(key)) S.state.stagedChangeKeys.push(key);
+  return true;
 }
 
 // Reject a whole file in one action, for the oversized-file card (issue 05): its blocks aren't

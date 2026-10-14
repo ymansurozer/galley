@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { UiAnnotationRecord } from "./types";
 import {
   annotationSource,
+  askStamp,
   answered,
   draftAnchor,
   firstLine,
@@ -25,6 +26,7 @@ import {
   stepOrder,
   targetLabel,
   turnAnnotationInto,
+  turnInto,
   turnsInto,
   waitingCount,
 } from "./uilane-derive.js";
@@ -587,6 +589,24 @@ test("only a reviewer's change request or question turns", () => {
   assert.equal(turnsInto(msg("n", "user", T0, "note")), null);
   assert.equal(turnsInto(msg("u", "user", T0)), null);
   assert.equal(turnsInto(msg("r", "agent", T0, "action")), null);
+});
+
+test("a later turn supersedes an ask waiting on its save", () => {
+  const m = msg("q", "user", T0, "action");
+  turnInto(m, "question", T1);
+  const asked = askStamp(m);
+  assert.equal(asked, T1);
+  turnInto(m, "action", T1);
+  assert.notEqual(askStamp(m), asked, "turned back: the waiting ask is withdrawn");
+  turnInto(m, "question", "2026-10-13T10:02:00.000Z");
+  assert.notEqual(askStamp(m), asked, "turned again: the new turn asks for itself");
+  assert.equal(
+    askStamp(msg("n", "user", T0, "question")),
+    T0,
+    "a fresh question: asked at creation",
+  );
+  assert.equal(askStamp(msg("r", "agent", T0, "question")), null);
+  assert.equal(askStamp(undefined), null, "deleted meanwhile");
 });
 
 test("a code thread's question is answered by an agent reply after it was asked", () => {

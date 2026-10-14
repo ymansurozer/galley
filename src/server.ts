@@ -47,6 +47,7 @@ import type {
   AgentActivity,
   AwaitEvent,
   DeskStatus,
+  IndexEntry,
   PollPayload,
   QuestionPayload,
   ReviewState,
@@ -314,6 +315,24 @@ async function applyPatchToIndex(root: string, patch: string) {
   } finally {
     await fs.rm(path.dirname(tmp), { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+// A path's index entry as an unstage found it, so a Reset's Undo puts back exactly what was staged:
+// re-adding the working tree would stage edits the reviewer never saw (a staged-mode desk reviews
+// the index, not the working tree). undefined: a conflicted path, which Undo can't restore this way.
+async function readIndexEntry(root: string, filePath: string): Promise<IndexEntry | undefined> {
+  const out = await git(["ls-files", "--stage", "--", filePath], root);
+  if (!out) return null;
+  const m = /^(\d+) ([0-9a-f]+) 0\t[^\n]*$/.exec(out);
+  return m ? { mode: m[1]!, oid: m[2]! } : undefined;
+}
+async function writeIndexEntry(root: string, filePath: string, entry: IndexEntry) {
+  await git(
+    entry
+      ? ["update-index", "--add", "--cacheinfo", `${entry.mode},${entry.oid},${filePath}`]
+      : ["update-index", "--force-remove", "--", filePath],
+    root,
+  );
 }
 
 async function openUrl(url: string) {
@@ -1305,6 +1324,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (req.method === "POST" && url.pathname === "/api/unstage") {
         return await serialize(async () => {
           const { path: filePath } = JSON.parse(await readBody(req)) as { path: string };
+          const index = await readIndexEntry(state.root, filePath).catch(() => undefined);
           await git(["restore", "--staged", "--", filePath], state.root).catch(async () =>
             git(["reset", "HEAD", "--", filePath], state.root),
           );
@@ -1312,6 +1332,41 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           state.stagedChangeKeys = (state.stagedChangeKeys ?? []).filter(
             (key) => !key.startsWith(`${filePath}:`),
           );
+          await persistReview(state);
+          // The entry it replaced, for /api/restage (a Reset's Undo); absent when unrestorable.
+          return json(res, 200, { ok: true, index });
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/api/restage") {
+        // A Reset's Undo: put back the index entry /api/unstage reported, and the staging records
+        // the Reset dropped.
+        return await serialize(async () => {
+          const b = JSON.parse(await readBody(req)) as {
+            path: string;
+            index: IndexEntry;
+            staged?: boolean;
+            stagedChangeKeys?: string[];
+          };
+          const valid =
+            b.index === null ||
+            (typeof b.index?.mode === "string" &&
+              /^\d+$/.test(b.index.mode) &&
+              typeof b.index.oid === "string" &&
+              /^[0-9a-f]+$/.test(b.index.oid));
+          if (typeof b.path !== "string" || !valid)
+            return fail(
+              res,
+              422,
+              "INVALID_INDEX_ENTRY",
+              "restage requires the path and the index entry /api/unstage returned",
+              "Send { path, index } as JSON.",
+            );
+          await writeIndexEntry(state.root, b.path, b.index);
+          if (b.staged && !state.stagedFiles.includes(b.path)) state.stagedFiles.push(b.path);
+          state.stagedChangeKeys ??= [];
+          for (const key of b.stagedChangeKeys ?? [])
+            if (key.startsWith(`${b.path}:`) && !state.stagedChangeKeys.includes(key))
+              state.stagedChangeKeys.push(key);
           await persistReview(state);
           return json(res, 200, { ok: true });
         });

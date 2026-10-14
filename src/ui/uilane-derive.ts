@@ -87,6 +87,11 @@ export function turnInto(m: ThreadMessage, intent: "action" | "question", now: s
   else delete m.askedAt;
 }
 
+// When a message was last asked, or null when it isn't a question (any more). An ask that waited on
+// a save sends only if this hasn't moved meanwhile: a later turn supersedes it.
+export const askStamp = (m: ThreadMessage | undefined) =>
+  m && m.role !== "agent" && m.intent === "question" ? (m.askedAt ?? m.createdAt) : null;
+
 // An annotation's kind lives on it (its pin, row tint and tooltip) and on its opening message (what
 // the Send sends), so the two turn together.
 export function turnAnnotationInto(

@@ -1124,6 +1124,50 @@ test("/api/reload: a guide-declared move merges into a rename entry; a bad one i
   });
 });
 
+test("/api/unstage reports the index entry it replaced and /api/restage puts exactly that back", async () => {
+  await withServer(async (handle, root, st) => {
+    const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
+    g(["init", "-q"]);
+    g(["config", "user.email", "t@t.co"]);
+    g(["config", "user.name", "tester"]);
+    await writeFile(path.join(root, "a.ts"), "v1\n");
+    await writeFile(path.join(root, "b.ts"), "keep\n");
+    g(["add", "."]);
+    g(["commit", "-qm", "init"]);
+    // a.ts: v2 staged, then a newer v3 in the working tree the reviewer never saw. b.ts: a staged
+    // deletion, so its index has no entry at all.
+    await writeFile(path.join(root, "a.ts"), "v2\n");
+    g(["add", "a.ts"]);
+    await writeFile(path.join(root, "a.ts"), "v3\n");
+    g(["rm", "-q", "b.ts"]);
+    st.stagedFiles = ["a.ts", "b.ts"];
+    st.stagedChangeKeys = ["a.ts:k"];
+
+    const unstage = async (p: string) =>
+      (await (await post(handle.url, "api/unstage", { path: p })).json()) as { index?: unknown };
+    const a = await unstage("a.ts");
+    const b = await unstage("b.ts");
+    assert.equal(g(["show", ":a.ts"]), "v1\n", "the Reset unstaged a.ts");
+    assert.equal(b.index, null, "a staged deletion has no index entry");
+    assert.equal(g(["ls-files", "b.ts"]).trim(), "b.ts", "the Reset put b.ts back in the index");
+    assert.deepEqual(st.stagedFiles, []);
+
+    const restage = (p: string, index: unknown, keys: string[] = []) =>
+      post(handle.url, "api/restage", { path: p, index, staged: true, stagedChangeKeys: keys });
+    assert.equal((await restage("a.ts", a.index, ["a.ts:k"])).status, 200);
+    assert.equal((await restage("b.ts", b.index)).status, 200);
+    assert.equal(g(["show", ":a.ts"]), "v2\n", "the staged content, not the working tree's v3");
+    assert.equal(g(["ls-files", "b.ts"]).trim(), "", "the deletion is staged again");
+    assert.deepEqual(st.stagedFiles, ["a.ts", "b.ts"]);
+    assert.deepEqual(st.stagedChangeKeys, ["a.ts:k"]);
+
+    // Anything but an entry /api/unstage could have reported is refused, index untouched.
+    const bad = await restage("a.ts", { mode: "100644", oid: "v1; rm -rf" });
+    assert.equal(bad.status, 422);
+    assert.equal(g(["show", ":a.ts"]), "v2\n");
+  });
+});
+
 test("/api/file-contents returns contents equal to the embedded copies; rejects escapes + unknown paths (issue 02)", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "galley-fc-"));
   const oldHome = process.env.HOME;

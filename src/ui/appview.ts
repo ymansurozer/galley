@@ -319,7 +319,12 @@ export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): bo
     if (prev && proxy && prev.port !== proxy.port && S.app.loaded) loadApp(S.app.route);
     // The UI view opened before the proxy was up: load now. The code view warms it.
     else if (proxy && S.view === "ui" && !S.app.loaded) loadApp(targetRoute());
-    else warmApp();
+    else {
+      // A page warmed but never shown still runs the old token's bridge: warm it afresh, as a
+      // reload does, rather than show it disconnected on the first switch.
+      if (S.app.loaded && !shown) S.app.loaded = false;
+      warmApp();
+    }
   }
   return false;
 }
