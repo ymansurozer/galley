@@ -40,11 +40,7 @@
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
         </div>
       </div>
-      <div class="actions"><button class="req-chip" x-cloak x-show="$store.g.view==='code' && $store.g.openRequests()"
-          data-tip="Next open change request" data-tip-keys="]" :aria-label="'Next open change request, ' + $store.g.openRequests() + ' open'"
-          @click="$store.g.nextRequest()"><svg class="ic"><use href="#gly-flag"></use></svg><b
-            x-text="$store.g.openRequests()"></b><span class="req-label"
-            x-text="$store.g.openRequests() === 1 ? 'open request' : 'open requests'"></span><kbd x-keys>]</kbd></button><span class="top-pct" id="progressPct" style="display:none"></span><button class="btn icon top-settings" data-tip="Settings" data-tip-keys="⇧," @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
+      <div class="actions"><span class="top-pct" id="progressPct" style="display:none"></span><button class="btn icon top-settings" data-tip="Settings" data-tip-keys="⇧," @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
           class="btn quiet danger reset-review" data-tip="Reset review" data-tip-keys="⇧R" aria-label="Reset review" @click="$store.g.reset()"><svg class="ic"><use href="#gly-refresh"></use></svg><span>Reset review</span></button><span
           class="top-done">100%</span><button class="btn send-review" :class="{primary: $store.g.reviewDone && !$store.g.awaitingAgent}"
           :disabled="$store.g.awaitingAgent" @click="$store.g.confirmSend()"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg><span
@@ -58,6 +54,27 @@
           <!-- The w hint sits on the INACTIVE tab — the one pressing w switches to. -->
           <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.setSidebarTab('walkthrough')">Review <kbd x-keys x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
           <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.setSidebarTab('tree')">Files <kbd x-keys x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
+        </div>
+        <!-- Above either list: the Overview (Review tab) and the open change requests (both tabs, and a
+             guide-less desk). -->
+        <div class="side-nav">
+          <!-- "active" while the Overview shows, patched like the file rows' (applyActiveRow). -->
+          <div class="node overview-row" data-key="overview" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'"
+            @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg><span class="nm">Overview</span><kbd x-keys>o</kbd></div>
+          <div class="node cr-head" x-show="$store.g.requestRows().length" x-cloak role="button" :aria-expanded="$store.g.requestsOpen"
+            @click="$store.g.requestsOpen = !$store.g.requestsOpen"><svg class="ic flag"><use href="#gly-flag"></use></svg><span
+              class="nm">Change requests</span><svg class="ic chev" :class="{open: $store.g.requestsOpen}"><use href="#gly-chevron"></use></svg><span
+              class="cr-count" x-text="$store.g.requestRows().length"></span><kbd x-keys>]</kbd></div>
+          <div class="cr-list" x-show="$store.g.requestsOpen && $store.g.requestRows().length" x-cloak>
+            <template x-for="r in $store.g.requestRows()" :key="r.key">
+              <div class="node cr-row" :class="{app: r.kind==='app'}" :title="r.loc + ' — ' + r.text" @click="$store.g.openRequest(r)">
+                <svg class="ic" x-show="r.kind==='code'"><use href="#gly-flag"></use></svg>
+                <svg class="ic" x-show="r.kind==='app'"><use href="#gly-app"></use></svg>
+                <span class="cr-loc" x-text="r.loc"></span>
+                <span class="nm" x-text="r.text"></span>
+              </div>
+            </template>
+          </div>
         </div>
         <div class="tree-title" x-show="!($store.g.hasGuide && $store.g.hasGuide()) || $store.g.sidebarTab==='tree'"><span>Files</span>
           <button class="tree-toggle" @click="$store.g.toggleAllDirs()"
@@ -92,9 +109,6 @@
             </div>
           </template></div>
         <div id="walk" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'" x-cloak>
-          <!-- "active" while the Overview shows, patched like the file rows' (applyActiveRow). -->
-          <div class="node overview-row" data-key="overview" @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg><span
-              class="nm">Overview</span><kbd x-keys>o</kbd></div>
           <template x-for="r in $store.g.walkthroughRows()" :key="r.key">
             <div class="node" :data-key="r.key" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '', r.kind==='file' && r.flag ? 'flagged' : '']"
               @click="r.kind!=='cat' ? $store.g.selectFile(r.fileIndex) : (r.skimmed ? $store.g.toggleSkimGroup() : $store.g.selectFile(r.jumpIndex))">

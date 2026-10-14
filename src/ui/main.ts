@@ -89,7 +89,7 @@ import {
   waitingQuestions,
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
-import { openRequests, stepOpenRequest } from "./requests";
+import { openRequest, requestRows } from "./requests";
 import { uuid } from "./uuid";
 import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
@@ -383,9 +383,9 @@ S.treeStep = (dir) => {
   if (target.fileIndex !== undefined) S.selectFile?.(target.fileIndex);
   else S.previewFile?.(target.path);
 };
-// The top bar's count of open change requests; a click steps to the next, as `]` does.
-S.openRequests = openRequests;
-S.nextRequest = () => stepOpenRequest(1);
+// The sidebar's Change requests list; a row goes to its request, as `]` / `[` landing on it do.
+S.requestRows = requestRows;
+S.openRequest = openRequest;
 // The top bar: what is under review, the agent's presence, and whether Send Review is the next
 // step.
 S.deskTitle = () => (S.state ? deskTitle(S.state) : "");

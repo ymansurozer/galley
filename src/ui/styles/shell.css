@@ -276,54 +276,6 @@ body.file-mode .top-logo,
   height: 13px;
 }
 
-/* The review's open change requests, in the top bar: a click (or ]) walks to the next one.
-   Quiet beside Send; orange is the change-request color the tree's flag badge wears. Narrow,
-   it keeps the flag and the count; narrower still it would push the actions onto two lines, so
-   it leaves the bar to them (] still walks). */
-.actions .req-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
-  padding: 0 8px;
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.actions .req-chip .ic {
-  color: var(--orange);
-}
-
-.actions .req-chip b {
-  margin-right: -2px;
-  color: var(--orange-ink);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.actions .req-chip:hover {
-  color: var(--ink);
-  background: var(--orange-wash);
-}
-
-@container topbar (max-width: 1100px) {
-  .actions .req-chip .req-label,
-  .actions .req-chip .keycaps {
-    display: none;
-  }
-}
-
-@container topbar (max-width: 760px) {
-  .actions .req-chip {
-    display: none;
-  }
-}
-
 /* Reset review's glyph stands in for its label on a phone. */
 .reset-review > .ic {
   display: none;

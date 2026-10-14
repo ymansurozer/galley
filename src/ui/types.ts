@@ -34,6 +34,7 @@ import type {
 } from "../types";
 import type { WalkRow } from "./walkthrough";
 import type { Presence } from "./topbar-derive";
+import type { OpenRequest, RequestRow } from "./requests-derive";
 
 export type Side = "additions" | "deletions";
 export type DiffStyle = "split" | "unified";
@@ -289,6 +290,9 @@ export interface Store {
   // Which sidebar pane is showing when a guide is attached (no guide → tabs hidden, tree
   // only). Per-session like overviewOpen; settings.sidebarDefault seeds it at init.
   sidebarTab: "tree" | "walkthrough";
+  // The sidebar's Change requests list is expanded. Per-session, starts expanded; `]` / `[`
+  // expand it, so the list they step through stays in sight.
+  requestsOpen: boolean;
   // Narrow widths (≤1100px): the file tree is an off-canvas left drawer, hidden by default so
   // the diff owns the screen. Toggled by the header hamburger / ⇧B; auto-closed on file select.
   // Inert on desktop — the drawer styles are media-gated, so the tree stays side-by-side there.
@@ -396,9 +400,9 @@ export interface Store {
   nextFile?: () => void;
   prevFile?: () => void;
   treeStep?: (dir: 1 | -1) => void;
-  // The walk through open change requests (requests.ts): the top bar's count, and its next stop.
-  openRequests?: () => number;
-  nextRequest?: () => void;
+  // The open change requests across both lanes (requests.ts): the sidebar's rows, and going to one.
+  requestRows?: () => RequestRow[];
+  openRequest?: (r: OpenRequest) => void;
   // The top bar's title and "project · mode" subtitle (topbar-derive.ts).
   deskTitle?: () => string;
   deskSubtitle?: () => string;

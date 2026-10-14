@@ -243,12 +243,9 @@ export function selectAnnotation(id: string | null, fromList = false) {
   requestAnimationFrame(() => rowIn(list, a.id)?.scrollIntoView({ block: "nearest" }));
 }
 
-// `only` narrows the walk: `]` / `[` step through the open change requests alone.
-export function stepAnnotation(dir: 1 | -1, only?: (a: UiAnnotationRecord) => boolean) {
-  const list = annotationsOf();
-  const order = stepOrder(pageGroups(list), S.shownResolved);
-  const kept = only && new Set(list.filter(only).map((a) => a.id));
-  const next = stepFrom(order, S.selectedAnnotation, dir, kept ? (id) => kept.has(id) : undefined);
+export function stepAnnotation(dir: 1 | -1) {
+  const order = stepOrder(pageGroups(annotationsOf()), S.shownResolved);
+  const next = stepFrom(order, S.selectedAnnotation, dir);
   if (next) selectAnnotation(next);
 }
 

@@ -14,7 +14,6 @@ import {
   toggleAnnotations,
   toggleAppMode,
 } from "./uilane";
-import { isOpenChange } from "./uilane-derive";
 import { stepOpenRequest } from "./requests";
 import type { ForwardedKey } from "./types";
 import {
@@ -220,12 +219,13 @@ const HOTKEYS: Hotkey[] = [
     when: inDiff,
     run: () => cursorMoveHunk(-1),
   },
+  // Across both views: the walk switches to the one its next request is in.
   {
     combo: "]",
     desc: "Next open change request",
     group: "Navigate",
     test: k("]"),
-    when: inCode,
+    when: navigable,
     run: () => stepOpenRequest(1),
   },
   {
@@ -233,7 +233,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Previous open change request",
     group: "Navigate",
     test: k("["),
-    when: inCode,
+    when: navigable,
     run: () => stepOpenRequest(-1),
   },
   {
@@ -459,22 +459,6 @@ const HOTKEYS: Hotkey[] = [
     test: shift("ArrowUp"),
     when: () => inUiView() && navigable(),
     run: () => stepAnnotation(-1),
-  },
-  {
-    combo: "]",
-    desc: "Next open change request",
-    group: "UI",
-    test: k("]"),
-    when: () => inUiView() && navigable(),
-    run: () => stepAnnotation(1, isOpenChange),
-  },
-  {
-    combo: "[",
-    desc: "Previous open change request",
-    group: "UI",
-    test: k("["),
-    when: () => inUiView() && navigable(),
-    run: () => stepAnnotation(-1, isOpenChange),
   },
   {
     combo: "⇧B",
