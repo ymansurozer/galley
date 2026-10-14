@@ -71,7 +71,6 @@
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.15s;
 }
 
 .rest:hover {

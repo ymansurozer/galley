@@ -194,7 +194,6 @@
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.15s;
 }
 
 .toast-action:hover {

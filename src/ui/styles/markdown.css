@@ -50,7 +50,6 @@
 .md-anchor {
   cursor: pointer;
   border-radius: var(--radius-sm);
-  transition: background 0.1s;
   box-decoration-break: clone;
 }
 

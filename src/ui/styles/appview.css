@@ -177,7 +177,6 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: background-color 0.12s;
 }
 
 :is(.chrome .pagepin, .traypin) .ic {

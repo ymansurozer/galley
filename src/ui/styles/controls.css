@@ -8,7 +8,8 @@
 
 /* Push button: neutral by default.
    Every button answers the pointer with a colour step and nothing else: no ring, border,
-   shadow or movement. Hover steps its ground or ink a little; pressed steps it a little more. */
+   shadow or movement, and no transition, so it switches at once. Hover steps its ground or ink a
+   little; pressed steps it a little more. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -25,10 +26,6 @@
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
-  transition:
-    background-color 0.15s,
-    color 0.15s,
-    box-shadow 0.15s;
 }
 
 .btn:hover {
@@ -138,9 +135,6 @@
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  transition:
-    background-color 0.2s var(--ease),
-    color 0.15s;
 }
 
 .seg > button:hover {
