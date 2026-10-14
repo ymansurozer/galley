@@ -36,10 +36,6 @@
         <div class="seg lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / App" data-tip-keys="⇧U"><button
             :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg><span>Code</span></button><button
             :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg><span>App</span></button></div>
-        <div class="seg" x-show="$store.g.view==='code' && $store.g.isMarkdownFile()" data-tip="Rendered / source" data-tip-keys="m"><button :class="{active: $store.g.fileView==='rendered'}"
-            @click="$store.g.setFileView('rendered')">Rendered</button><button
-            :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
-        </div>
       </div>
       <div class="actions"><button class="btn icon top-settings" data-tip="Settings" data-tip-keys="⇧," @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
           class="btn quiet danger reset-review" data-tip="Reset review" data-tip-keys="⇧R" aria-label="Reset review" @click="$store.g.reset()"><svg class="ic"><use href="#gly-refresh"></use></svg><span>Reset review</span></button><span
@@ -162,11 +158,6 @@
           <div id="diff" x-ignore></div>
           <div class="ovr" id="ovr" x-ignore></div>
           <div class="diff-rendering" x-show="$store.g.rendering" x-cloak><span>Rendering…</span></div>
-          <button class="diff-fab fill" x-cloak
-            x-show="$store.g.fabState && $store.g.diffScrolled && $store.g.fabState()"
-            :class="{warn: $store.g.fabState && $store.g.fabState()==='changes'}"
-            @click="$store.g.approveFile && $store.g.approveFile()"><span
-              x-text="$store.g.fabState && $store.g.fabState()==='changes' ? 'Mark Reviewed' : 'Approve'">Approve</span> <kbd x-keys>⇧A</kbd></button>
         </div>
         <!-- The UI view: the proxied app under a browser-chrome bar (in the guide bar's slot). The
              iframe is created by appview.ts inside #appFrame and stays alive across view switches;

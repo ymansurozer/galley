@@ -1,10 +1,9 @@
-import { S, $, toast } from "./store";
+import { S, toast } from "./store";
 import { currentFile, fromDisplayLine, toDisplayLine } from "./changes";
 import { isUnanchored } from "./unanchored";
-import { flashThread, jumpToBlocker } from "./blockers";
-import { cursorOn, cursorReset, cursorSelection } from "./cursor";
+import { jumpToBlocker } from "./blockers";
+import { cursorOn, cursorSelection } from "./cursor";
 import { hasGuide, reviewFileOrder } from "./guide";
-import { isFileSkimCollapsed, toggleFileSkim } from "./skim";
 import { selectAnnotation } from "./uilane";
 import { setView } from "./appview";
 import {
@@ -112,9 +111,9 @@ export function openRequest(r: OpenRequest) {
 }
 
 // Open the request's file (a changed one, else as a preview), wait for it to render, then bring the
-// thread into view where it shows: a rendered markdown file's thread, the unanchored strip's, else
-// the cursor on its line. Coming from the App view, the diff's repaint (`shown`) settles first, so
-// nothing draws over the landing and no second render races it.
+// thread into view the way the blockers list does: a rendered markdown file's thread, the
+// unanchored strip's, else the cursor on its line. Coming from the App view, the diff's repaint
+// (`shown`) settles first, so nothing draws over the landing and no second render races it.
 async function land(r: CodeRequest, shown?: Promise<void>) {
   await shown;
   // The reviewer may have moved on meanwhile.
@@ -123,21 +122,9 @@ async function land(r: CodeRequest, shown?: Promise<void>) {
     const i = S.state.files.findIndex((f) => f.path === r.path);
     await (i >= 0 ? S.selectFile?.(i) : S.previewFile?.(r.path));
   }
-  // A skimmed file the reviewer folded back hides its diff, the thread with it.
-  if (isFileSkimCollapsed(r.path)) await toggleFileSkim(r.path);
   // The reviewer may have moved on while it rendered.
-  if (currentFile()?.path !== r.path || last !== r) return;
-  const diff = $("diff");
-  const md = diff.querySelector<HTMLElement>(`.md-thread[data-thread="${r.lineNumber}"]`);
-  const strip = diff.querySelector(`.unanchored-strip [data-thread="${r.side}:${r.lineNumber}"]`);
-  if (md || strip) cursorReset();
-  if (md) flashThread(md);
-  else
-    jumpToBlocker({
-      kind: "thread",
-      side: r.side,
-      lineNumber: r.lineNumber,
-      preview: "",
-      unanchored: !!strip,
-    });
+  const current = () => currentFile()?.path === r.path && last === r;
+  if (!current()) return;
+  const { side, lineNumber, unanchored } = r;
+  await jumpToBlocker({ kind: "thread", side, lineNumber, preview: "", unanchored }, current);
 }
