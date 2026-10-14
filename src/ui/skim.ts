@@ -1,5 +1,5 @@
 import { S, $, esc } from "./store";
-import { currentChanges, currentFile } from "./changes";
+import { currentChanges, currentFile, inCurrentStep } from "./changes";
 import { render } from "./render";
 import { isFullySkimmed } from "./skim-derive";
 import { diffShadowRoot } from "./diff-dom";
@@ -201,7 +201,8 @@ export function renderMovedPure() {
 // per collapsed block, so every line number below it sits one row above its code. hideBetween
 // holds that rule; the closing check below flags any column whose tracks end up different heights.
 export function applySkimCollapse() {
-  const blocks = currentChanges().filter((c) => isBlockSkimCollapsed(c));
+  // A part view renders another step's skimmed block as plain code: nothing of it to fold.
+  const blocks = currentChanges().filter((c) => inCurrentStep(c) && isBlockSkimCollapsed(c));
   const shadow = diffShadowRoot();
   // Not ready: a cold mount where render() resolved before @pierre committed the rows — the
   // shadow root may be missing, or present but still empty. There is nothing to fold or clear,

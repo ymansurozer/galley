@@ -37,16 +37,11 @@ export function stepPlan(
 ): { listed: StepSlot[]; other: StepSlot[] } {
   const index = new Map(files.map((f, i) => [f.path, i] as const));
   const listedPaths = new Set<string>();
-  // Per split path, the guide indices of its part entries — a block stamped with any other index
-  // (a stale stamp from a swapped guide) counts as unclaimed.
-  const partsOf = new Map<string, Set<number>>();
-  guideFiles.forEach((g, gi) => {
+  const splitPaths = new Set<string>();
+  for (const g of guideFiles) {
     listedPaths.add(g.path);
-    if (!g.part) return;
-    let parts = partsOf.get(g.path);
-    if (!parts) partsOf.set(g.path, (parts = new Set()));
-    parts.add(gi);
-  });
+    if (g.part) splitPaths.add(g.path);
+  }
   const listed: StepSlot[] = [];
   const stepped = new Set<string>();
   guideFiles.forEach((g, gi) => {
@@ -57,16 +52,15 @@ export function stepPlan(
       stepped.add(g.path);
       return;
     }
-    const blocks = changesOf(g.path).filter((c) => c.part === gi);
+    const blocks = changesOf(g.path).filter((c) => inStep(guideFiles, gi, c));
     if (!blocks.length) return;
     listed.push({ step: { fileIndex, part: gi }, path: g.path, entry: g, blocks });
     stepped.add(g.path);
   });
   const other: StepSlot[] = [];
   files.forEach((f, fileIndex) => {
-    const parts = partsOf.get(f.path);
-    if (parts) {
-      const rest = changesOf(f.path).filter((c) => c.part === undefined || !parts.has(c.part));
+    if (splitPaths.has(f.path)) {
+      const rest = changesOf(f.path).filter((c) => inStep(guideFiles, "rest", c));
       if (rest.length)
         other.push({ step: { fileIndex, part: "rest" }, path: f.path, blocks: rest });
       else if (!stepped.has(f.path))
@@ -75,6 +69,25 @@ export function stepPlan(
       other.push({ step: { fileIndex }, path: f.path, blocks: null });
   });
   return { listed, other };
+}
+
+// Whether a step covers a change block of its file — the blocks it shows as a diff, while the
+// part view replays the rest as plain code (replay.ts). The whole file covers every block; a part,
+// the blocks stamped with its entry's index; Rest, the blocks no part claims. A stamp naming no part
+// entry of the block's path (a stale stamp from a swapped guide) counts as unclaimed.
+export function inStep(guideFiles: GuideFile[], part: Step["part"], c: ChangeState): boolean {
+  if (part === undefined) return true;
+  if (part !== "rest") return c.part === part;
+  const owner = c.part === undefined ? undefined : guideFiles[c.part];
+  return !owner?.part || owner.path !== c.path;
+}
+
+// The step that covers a change block of the file at `fileIndex`: its part, else the file's Rest
+// when the guide splits the file, else the whole file. A jump to a block opens this step, so it
+// never lands on a copy of the block another step renders as plain code.
+export function blockStep(guideFiles: GuideFile[], fileIndex: number, c: ChangeState): Step {
+  if (!guideFiles.some((g) => g.path === c.path && g.part)) return { fileIndex };
+  return inStep(guideFiles, "rest", c) ? { fileIndex, part: "rest" } : { fileIndex, part: c.part };
 }
 
 // A step that has left the review flow: a part or Rest step whose blocks are all skimmed, else a

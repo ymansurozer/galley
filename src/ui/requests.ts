@@ -91,7 +91,7 @@ async function land(stop: RequestStop) {
   if (md || strip) cursorReset();
   if (md) flashThread(md);
   else
-    jumpToBlocker({
+    await jumpToBlocker({
       kind: "thread",
       side: stop.side,
       lineNumber: stop.lineNumber,

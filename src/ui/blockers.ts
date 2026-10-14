@@ -1,6 +1,7 @@
 import { S, D, $ } from "./store";
-import type { Decision, ReviewComment, Side } from "./types";
-import { currentFile, toDisplayLine } from "./changes";
+import type { ChangeState, Decision, ReviewComment, Side } from "./types";
+import { currentBlockAt, currentFile, inCurrentStep, toDisplayLine } from "./changes";
+import { blockStep } from "./steps";
 import { isUnanchored } from "./unanchored";
 import { revealLine } from "./expand";
 import { cursorJumpTo, isRendered } from "./cursor";
@@ -74,7 +75,14 @@ export function flashThread(el: HTMLElement) {
   el.classList.add("flash");
 }
 
-export function jumpToBlocker(b: Blocker) {
+// A jump never lands on a block another step covers, which a part view renders as plain code: it
+// opens that block's own step first (its part, or the file's Rest).
+async function openBlockStep(c: ChangeState | undefined) {
+  if (!c || inCurrentStep(c)) return;
+  await S.selectStep?.(blockStep(S.state.guide?.files ?? [], S.fileIndex, c));
+}
+
+export async function jumpToBlocker(b: Blocker) {
   if (b.kind === "thread" && b.unanchored) {
     // The thread lives in the strip above the diff, not on a row.
     const el = $("diff").querySelector<HTMLElement>(
@@ -88,6 +96,7 @@ export function jumpToBlocker(b: Blocker) {
     return;
   }
   if (b.kind === "thread") {
+    await openBlockStep(currentBlockAt(b.side, b.lineNumber));
     const line = toDisplayLine(b.side, b.lineNumber);
     // Unfold only when the line isn't rendered: each expansion reveals more lines, so unfolding a
     // line that already renders would widen the run on every jump to it.
@@ -95,6 +104,7 @@ export function jumpToBlocker(b: Blocker) {
     cursorJumpTo(b.side, line);
     return;
   }
+  await openBlockStep(S.state.changes.find((c) => c.id === b.decision.key));
   const pos = decisionDisplayPos(b.decision);
   cursorJumpTo(pos.side, pos.line);
 }
@@ -125,7 +135,7 @@ export function blockersChip(): HTMLElement | null {
     }
     row.onclick = () => {
       wrap.classList.remove("open");
-      jumpToBlocker(b);
+      void jumpToBlocker(b);
     };
     pop.appendChild(row);
   }
