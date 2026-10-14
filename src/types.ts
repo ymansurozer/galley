@@ -365,6 +365,8 @@ export type UiMarkTarget =
   | { kind: "element"; elements: UiMarkElement[] }
   | { kind: "region"; rect: Rect; elements: UiMarkElement[] }
   | { kind: "text"; quote: string; element: UiMarkElement };
+// A pin as drawn on the page: its annotation, and its box in the page's viewport.
+export type PinRect = { id: string; rect: Rect };
 // Whether an annotation's target was found on its page the last time that page loaded: `placed`
 // (its mark is drawn there), `unplaced` (not found once the page settled, so no mark), or
 // `unvisited` (its page hasn't loaded since the last `galley reload` or desk restart). An
@@ -387,8 +389,10 @@ export type BridgeMessage =
   | { type: "pending"; token: string; count: number }
   // The picked target moved on screen (scroll, layout), so the composer follows it.
   | { type: "anchor"; token: string; rect: Rect }
-  // The reviewer clicked an annotation's pin.
-  | { type: "select"; token: string; id: string }
+  // Where the page's pins are drawn (in the viewport), each time one moves, appears or goes: the
+  // desk anchors the open pin's card to it. With `clicked`, the reviewer just clicked: a pin (its
+  // annotation's id), or the page off the pins while one was selected (null).
+  | { type: "pins"; token: string; pins: PinRect[]; clicked?: string | null }
   // Where the page's marks were found once it settled after a load or route change, and later
   // whenever one is found or lost again: only the marks whose placement changed.
   | {

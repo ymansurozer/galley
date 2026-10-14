@@ -104,18 +104,18 @@ function escape() {
     closeComposer(); // rebuilds the lane so the inline composer's DOM goes away
     return;
   }
-  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate, then the expanded
-  // row, then the narrow-width drawer.
+  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then the open pin card, then
+  // Annotate, then the narrow-width drawer.
   if (inUiView() && S.appMode === "annotate" && S.pendingPicks) {
     clearPendingPicks();
     return;
   }
-  if (inUiView() && S.appMode === "annotate") {
-    setAppMode("interact");
-    return;
-  }
   if (inUiView() && S.selectedAnnotation) {
     selectAnnotation(null);
+    return;
+  }
+  if (inUiView() && S.appMode === "annotate") {
+    setAppMode("interact");
     return;
   }
   if (inUiView() && S.annotationsOpen && matchMedia("(max-width: 1100px)").matches) {

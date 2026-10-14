@@ -177,7 +177,7 @@
                 @keydown.escape="$event.target.value = $store.g.app.route; $event.target.blur()">
               <!-- The page's own annotations: their pins live here, not on the page. -->
               <span class="pagepins"><template x-for="m in $store.g.pagePins()" :key="m.id"><button type="button"
-                    class="pagepin" :class="{q: m.question, sel: m.selected}" :title="'#' + m.number + ' · this page'"
+                    class="pagepin" :class="{q: m.question, sel: m.selected}" :data-id="m.id" :title="'#' + m.number + ' · this page'"
                     @click="$store.g.selectAnnotation(m.selected ? null : m.id)" x-text="m.number"></button></template></span>
             </form>
             <button class="pill-refresh" x-cloak x-show="$store.g.app.stale" @click="$store.g.appRefresh()"><span class="dot"></span>App updated — refresh</button>
@@ -208,8 +208,8 @@
           </div>
         </div>
       </section>
-      <!-- The annotation sidebar (UI view): page groups of one-line rows; a row expands in place to its
-           thread. #annotationList is drawn by uilane.ts. Collapsed, it's a rail with the open count
+      <!-- The annotation sidebar (UI view): page groups of one-line rows; a row opens its pin's card.
+           #annotationList is drawn by uilane.ts. Collapsed, it's a rail with the open count
            and the waiting count; below 1100px the rail stays and the list opens as a drawer over the
            app. -->
       <aside class="annside" x-cloak x-show="$store.g.view==='ui'">
@@ -229,9 +229,10 @@
             x-text="$store.g.waitingQuestions()"></span><span class="vt">Annotations</span></button>
       </aside>
       <div class="annside-backdrop" x-show="$store.g.view==='ui' && $store.g.annotationsOpen" @click="$store.g.toggleAnnotations()"></div>
-      <!-- The floating composer on an element picked in Annotate mode (uilane.ts): beside its target,
-           a bottom sheet at narrow widths. -->
+      <!-- The floating composer on an element picked in Annotate mode, and the selected annotation's
+           card beside its pin (uilane.ts): bottom sheets at narrow widths. -->
       <div class="ucomposer" id="uiComposer" x-ignore></div>
+      <div class="ucomposer" id="pinCard" tabindex="-1" x-ignore></div>
       <div class="modal-backdrop" id="settingsModal" :class="{show: $store.g.settingsOpen}"
         @click.self="$store.g.closeSettings()">
         <div class="modal settings">

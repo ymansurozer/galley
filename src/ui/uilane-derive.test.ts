@@ -389,6 +389,23 @@ test("the composer sits right of its target, else left, else below or above, ins
   assert.deepEqual(placeComposer(null, card, stage), { left: 692, top: 48 });
 });
 
+test("a pin's card opens beside its pin, flipping left near the stage's right edge", () => {
+  // A 20px pin in the fit stage, and a 380px card.
+  const stage = { x: 0, y: 88, width: 1080, height: 612 };
+  const card = { width: 380, height: 200 };
+  const pin = (x: number, y: number) => ({ x, y, width: 20, height: 20 });
+  // Room on the right: 12px past the pin, level with its top.
+  assert.deepEqual(placeComposer(pin(483, 400), card, stage), { left: 515, top: 400 });
+  // The Upload button's pin near the right edge: left of it.
+  assert.deepEqual(placeComposer(pin(927, 123), card, stage), { left: 535, top: 123 });
+  // Low on the stage: kept inside it, still beside the pin.
+  assert.deepEqual(placeComposer(pin(100, 680), card, stage), { left: 132, top: 492 });
+  // In a narrow stage with room on neither side: below the pin, or above it near the bottom.
+  const narrow = { x: 0, y: 88, width: 400, height: 612 };
+  assert.deepEqual(placeComposer(pin(190, 120), card, narrow), { left: 12, top: 152 });
+  assert.deepEqual(placeComposer(pin(190, 600), card, narrow), { left: 12, top: 388 });
+});
+
 test("a source shows its last two path segments and line, and opens repo-relative", () => {
   const root = "/home/dev/shop";
   const file = `${root}/apps/web/app/components/Files/Toolbar.vue`;
