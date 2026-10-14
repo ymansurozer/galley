@@ -619,7 +619,7 @@ test("a save from a tab still on the pre-reload diff lands on the reloaded block
   });
 });
 
-// The sign-off entry the tab writes on a block (decisions-derive.ts signOffBlocks).
+// The sign-off entry the tab writes on a block (decisions-derive.ts signOffStep).
 const signedOff = (st: ReviewState, ...keys: string[]) =>
   Object.fromEntries(
     keys.map((key) => {

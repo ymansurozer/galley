@@ -37,13 +37,15 @@ function placer() {
   const rankOf = (step: Step) =>
     ranks.get(stepKey(step)) ?? fileRanks.get(step.fileIndex) ?? Infinity;
   const ix = flowIndex();
+  const indexOf = new Map(S.state.files.map((f, i) => [f.path, i] as const));
   const placed = new Map<string, PlacedBlock[]>();
   const at = (path: string, side: Side, lineNumber: number): Pick<RequestStop, "step" | "rank"> => {
-    const fileIndex = S.state.files.findIndex((f) => f.path === path);
-    if (fileIndex < 0) return { rank: Infinity };
+    const fileIndex = indexOf.get(path);
+    if (fileIndex === undefined) return { rank: Infinity };
     let blocks = placed.get(path);
     if (!blocks) {
-      blocks = placeBlocks(ix.changesByPath.get(path) ?? [], S.state.files[fileIndex]!.hunks ?? []);
+      const hunks = S.state.files[fileIndex]?.hunks ?? [];
+      blocks = placeBlocks(ix.changesByPath.get(path) ?? [], hunks);
       placed.set(path, blocks);
     }
     const block = attributeComment({ side, lineNumber }, blocks);
