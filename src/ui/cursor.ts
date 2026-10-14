@@ -141,6 +141,14 @@ function landOn(r: Row | undefined, scroll = true) {
   if (!openThreadAt(r.side, r.line) && r.alt) openThreadAt(r.alt.side, r.alt.line);
 }
 
+// Put the cursor on a line without scrolling: a thread opened by a click on its row.
+export function cursorPlace(side: Side, line: number) {
+  landOn(
+    rows().find((r) => matches(r, side, line)),
+    false,
+  );
+}
+
 // Adopt a pointer-made selection as the cursor position, so the arrows continue from the
 // clicked line instead of restarting at the first change. @pierre already painted the
 // selection itself — no repaint, no scroll.
@@ -213,7 +221,8 @@ function landAt(side: Side, line: number): boolean {
   r.el.scrollIntoView({ block: "center" });
   holdPlace(r.el); // where the jump put it, not where an opening card held the view before it
   markCursorChange();
-  if (!openThreadAt(side, line)) openThreadAt(r.side, r.line);
+  if (!openThreadAt(side, line) && !openThreadAt(r.side, r.line) && r.alt)
+    openThreadAt(r.alt.side, r.alt.line);
   return true;
 }
 
@@ -409,8 +418,9 @@ function placeRail(diff: HTMLElement, change?: ChangeState, control?: HTMLElemen
 // line). The composer renders inline at S.selected, so there's nothing to position.
 export function cursorComment() {
   if (!cur) ensureCursor();
-  if (!cur) return;
-  S.selected = { side: cur.side, lineNumber: cur.line };
+  const at = threadCoords();
+  if (!at) return;
+  S.selected = { side: at.side, lineNumber: at.line };
   openCommentComposer();
 }
 
@@ -425,15 +435,30 @@ export function cursorVerdict(status: "accepted" | "rejected") {
   acceptChange(ch.id, status);
 }
 
+function lineComments(side: Side, line: number) {
+  const raw = fromDisplayLine(side, line); // comments persist raw lines
+  const path = S.preview?.path ?? S.state.files[S.fileIndex]?.path;
+  return S.state.comments.filter((c) => c.path === path && c.side === side && c.lineNumber === raw);
+}
+
+// Where the cursor's line keeps its thread: the cursor's own coordinates, or, on a context row,
+// the other column's when only that one carries a thread (one on a deleted line that became
+// context after ⇧N, say), as landing on the row opens it.
+function threadCoords(): { side: Side; line: number } | null {
+  if (!cur) return null;
+  const at = cur;
+  const r = rows().find((x) => matches(x, at.side, at.line));
+  const other = r && (r.side === at.side && r.line === at.line ? r.alt : r);
+  return other &&
+    !lineComments(at.side, at.line).length &&
+    lineComments(other.side, other.line).length
+    ? { side: other.side, line: other.line }
+    : at;
+}
+
 function threadComments() {
-  if (!cur) return [];
-  const raw = fromDisplayLine(cur.side, cur.line); // comments persist raw lines
-  return S.state.comments.filter(
-    (c) =>
-      c.path === (S.preview?.path ?? S.state.files[S.fileIndex]?.path) &&
-      c.side === cur!.side &&
-      c.lineNumber === raw,
-  );
+  const at = threadCoords();
+  return at ? lineComments(at.side, at.line) : [];
 }
 
 // Toggle resolve/reopen on the cursor line's thread.
