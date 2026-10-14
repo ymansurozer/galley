@@ -23,8 +23,8 @@ import { isBlockSkimCollapsed, skimStripLabel, toggleSkimBlock } from "./skim";
 import { firstLine, turnsInto } from "./uilane-derive";
 import { asksChange } from "./requests-derive";
 import {
+  cardLoc,
   intentPill,
-  lineLabel,
   messageWaiting,
   questionStatus,
   questionWaiting,
@@ -263,19 +263,22 @@ export const KINDS: Record<ThreadKind, { label: string; glyph: string }> = {
   resolved: { label: "Resolved", glyph: sprite("check") },
 };
 
-// A thread as its card draws it. A code thread's card names what it is and where it sits in a
-// header (`loc`, struck through when the thread lost its line), chipped "Held for Send" while its
-// change request waits for Send. The UI lane's pin card names its annotation's number there.
+// A thread as its card draws it. A code thread's card names what it is in a header, and where it
+// sits only where its place doesn't say it (`loc`: a range, or the line a lost thread had, struck
+// through; thread-derive cardLoc), chipped "Held for Send" while its change request waits for
+// Send. The UI lane's pin card names its annotation's number there.
 export type ThreadView = {
   status: "open" | "resolved";
   comments: ThreadMessage[];
-  head?: { kind: ThreadKind; loc: string; lost?: boolean; held: boolean };
+  head?: { kind: ThreadKind; loc: string | null; lost?: boolean; held: boolean };
 };
 
-const locHtml = (head: { loc: string; lost?: boolean }) =>
-  head.lost
-    ? `<span class="tc-loc" title="This thread lost its line"><s>${esc(head.loc)}</s></span>`
-    : `<span class="tc-loc">${esc(head.loc)}</span>`;
+const locHtml = (head: { loc: string | null; lost?: boolean }) =>
+  !head.loc
+    ? ""
+    : head.lost
+      ? `<span class="tc-loc" title="This thread lost its line"><s>${esc(head.loc)}</s></span>`
+      : `<span class="tc-loc">${esc(head.loc)}</span>`;
 
 function headHtml(c: ThreadView, head: NonNullable<ThreadView["head"]>) {
   const { label, glyph } = KINDS[head.kind];
@@ -402,18 +405,18 @@ export function threadCard(t: ThreadMeta, lost: boolean, surface: CommentSurface
   const asks = t.comments.some(asksChange);
   const head = {
     kind: threadKind(t.status, t.comments),
-    loc: lineLabel(t.lineNumber, t.comments[0]?.endLine),
+    loc: cardLoc(t.lineNumber, t.comments[0]?.endLine, lost),
     lost,
     held: asks,
   };
   return buildCommentThread({ ...t, head }, lineThread(t), surface);
 }
 
-// The new-comment composer as a card at its line: what it is and where, then the reviewer's
-// composer. S.selected is display space; the header names the file's own line.
+// The new-comment composer as a card at its line: what it is (and the range, for one), then the
+// reviewer's composer. S.selected is display space; the header names the file's own lines.
 export function composerCard(): HTMLElement {
   const at = selectionAnchor(S.selected.side, S.selected.lineNumber, S.selected.endLine);
-  const loc = lineLabel(at.line, at.endLine);
+  const loc = cardLoc(at.line, at.endLine, false);
   const card = document.createElement("div");
   card.className = "comment-box thread-card k-new";
   card.innerHTML = `<div class="tc-head"><span class="tc-kind">${BUBBLE}New comment</span>${locHtml({ loc })}</div><div class="meta">${AVATAR.you}<span class="author">You</span></div>`;

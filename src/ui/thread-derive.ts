@@ -65,3 +65,9 @@ export function intentPill(
 // The line a thread sits on, or the range it covers.
 export const lineLabel = (line: number, endLine?: number) =>
   endLine !== undefined && endLine !== line ? `L${line}–${endLine}` : `L${line}`;
+
+// The line label a card's header carries, if any. A card sits under its line, so a one-line one
+// needs none; a range's card sits under its last line, so the range is named, and a thread that
+// lost its line keeps the old number.
+export const cardLoc = (line: number, endLine: number | undefined, lost: boolean) =>
+  lost || (endLine !== undefined && endLine !== line) ? lineLabel(line, endLine) : null;
