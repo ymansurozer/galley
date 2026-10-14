@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 import {
   anchorTextFor,
   appendAnnotationReply,
+  baseDiffHashOf,
   buildDiffSource,
   buildReviewResult,
   buildReviewState,
@@ -14,6 +15,7 @@ import {
   deskLockPath,
   findLiveDesks,
   globalSettingsPath,
+  hash,
   loadLatestReview,
   mergeReviewerSave,
   mergeReviewState,
@@ -1252,6 +1254,130 @@ test("buildReviewState on a clean tree: null by default, an empty state with all
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+// ── baseDiffHash: the review files outside the raw diff ─────────────────────────────────────────
+const MODIFIED_DIFF = [
+  "diff --git a/a.ts b/a.ts",
+  "index 5626abf..a9c5f5b 100644",
+  "--- a/a.ts",
+  "+++ b/a.ts",
+  "@@ -1 +1 @@",
+  "-one",
+  "+ONE",
+  "",
+].join("\n");
+// git -M at 100% similarity: a zero-hunk section the parse keeps — still a file the raw diff names.
+const PURE_RENAME_DIFF = [
+  "diff --git a/old.ts b/new.ts",
+  "similarity index 100%",
+  "rename from old.ts",
+  "rename to new.ts",
+  "",
+].join("\n");
+
+test("baseDiffHashOf is exactly the raw diff's hash when the raw diff names every review file", () => {
+  const rawDiff = MODIFIED_DIFF + PURE_RENAME_DIFF;
+  const files = [file("a.ts"), { ...file("new.ts"), oldPath: "old.ts", newPath: "new.ts" }];
+  const parsedDiff = parseUnifiedDiff(rawDiff);
+  assert.equal(baseDiffHashOf({ rawDiff, parsedDiff, files }), hash(rawDiff));
+  assert.equal(baseDiffHashOf({ rawDiff: "", parsedDiff: [], files: [] }), hash(""));
+});
+
+test("baseDiffHashOf folds in each file the raw diff doesn't name, by path and content, in any order", () => {
+  const rawDiff = MODIFIED_DIFF;
+  const parsedDiff = parseUnifiedDiff(rawDiff);
+  const of = (...files: ReturnType<typeof file>[]) =>
+    baseDiffHashOf({ rawDiff, parsedDiff, files });
+  const withUntracked = of(file("a.ts"), file("z.ts", "Z1"), file("b.ts", "B1"));
+  assert.notEqual(withUntracked, hash(rawDiff), "an untracked add moves the hash");
+  assert.equal(of(file("b.ts", "B1"), file("z.ts", "Z1"), file("a.ts")), withUntracked);
+  assert.notEqual(of(file("a.ts"), file("z.ts", "Z2"), file("b.ts", "B1")), withUntracked);
+  assert.notEqual(of(file("a.ts"), file("y.ts", "Z1"), file("b.ts", "B1")), withUntracked);
+  // A file-mode desk on a new file: no raw diff at all, just the one whole file.
+  const fileDesk = (contentHash: string) =>
+    baseDiffHashOf({ rawDiff: "", parsedDiff: [], files: [file("plan.md", contentHash)] });
+  assert.notEqual(fileDesk("P1"), hash(""));
+  assert.notEqual(fileDesk("P1"), fileDesk("P2"));
+});
+
+// A committed a.txt in a fresh repo; buildReviewState persists nothing, so the tree holds only
+// what each test writes.
+async function withHashRepo(run: (dir: string) => Promise<void>) {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-basehash-")));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.co");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "a.txt"), "one\ntwo\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    await run(dir);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+const buildRepoDesk = async (dir: string) =>
+  (await buildReviewState(dir, { session: "s", allowEmpty: true }))!;
+
+test("a repo desk without untracked files hashes exactly its raw diff; the same tree hashes the same", async () => {
+  await withHashRepo(async (dir) => {
+    await fs.writeFile(path.join(dir, "a.txt"), "one\nTWO\n");
+    const st = await buildRepoDesk(dir);
+    assert.ok(st.rawDiff.includes("+TWO"));
+    assert.equal(st.baseDiffHash, hash(st.rawDiff));
+    await fs.writeFile(path.join(dir, "n1.txt"), "n1\n");
+    await fs.writeFile(path.join(dir, "n2.txt"), "n2\n");
+    const once = await buildRepoDesk(dir);
+    assert.equal((await buildRepoDesk(dir)).baseDiffHash, once.baseDiffHash);
+  });
+});
+
+test("adding or editing only an untracked file moves a repo desk's baseDiffHash", async () => {
+  await withHashRepo(async (dir) => {
+    await fs.writeFile(path.join(dir, "a.txt"), "one\nTWO\n");
+    const before = await buildRepoDesk(dir);
+    await fs.writeFile(path.join(dir, "new.txt"), "first\n");
+    const added = await buildRepoDesk(dir);
+    assert.equal(added.rawDiff, before.rawDiff, "git diff doesn't see the untracked file");
+    assert.ok(added.files.some((f) => f.path === "new.txt"));
+    assert.notEqual(added.baseDiffHash, before.baseDiffHash);
+    await fs.writeFile(path.join(dir, "new.txt"), "second\n");
+    const edited = await buildRepoDesk(dir);
+    assert.equal(edited.rawDiff, added.rawDiff);
+    assert.notEqual(edited.baseDiffHash, added.baseDiffHash);
+  });
+});
+
+test("a plain mv moves a repo desk's baseDiffHash, even when it leaves the raw diff as it was", async () => {
+  await withHashRepo(async (dir) => {
+    const clean = await buildRepoDesk(dir);
+    await fs.rename(path.join(dir, "a.txt"), path.join(dir, "b.txt"));
+    const moved = await buildRepoDesk(dir);
+    assert.ok(moved.files.some((f) => f.path === "b.txt" && f.renamePure));
+    assert.notEqual(moved.baseDiffHash, clean.baseDiffHash);
+    // Moved on again: the raw diff still only deletes a.txt; the paired rename's new path moved.
+    await fs.rename(path.join(dir, "b.txt"), path.join(dir, "c.txt"));
+    const movedAgain = await buildRepoDesk(dir);
+    assert.ok(movedAgain.files.some((f) => f.path === "c.txt" && f.renamePure));
+    assert.equal(movedAgain.rawDiff, moved.rawDiff);
+    assert.notEqual(movedAgain.baseDiffHash, moved.baseDiffHash);
+  });
+});
+
+test("a file desk on an untracked file moves its baseDiffHash on every edit", async () => {
+  await withHashRepo(async (dir) => {
+    const plan = path.join(dir, "plan.md");
+    const build = async () =>
+      (await buildReviewState(dir, { mode: "file", path: plan, session: "s" }))!;
+    await fs.writeFile(plan, "# Plan\n");
+    const first = await build();
+    await fs.writeFile(plan, "# Plan\n\n- step 1\n");
+    const edited = await build();
+    assert.equal(edited.rawDiff, "");
+    assert.notEqual(edited.baseDiffHash, first.baseDiffHash);
+  });
 });
 
 // ── UI annotations ──────────────────────────────────────────────────────────────────────────────

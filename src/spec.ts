@@ -105,7 +105,8 @@ await yields exactly one:
 
 ## ReviewResult
 The \`result\` field of a review event:
-- session, repoRoot, mode, staged, head (sha|null), baseDiffHash (hash of the reviewed diff)
+- session, repoRoot, mode, staged, head (sha|null), baseDiffHash (an opaque hash of the reviewed
+  diff, untracked files included; only ever compare it)
 - accepted[], rejected[]: {path, lineNumber, side, title}
 - codeChangeRequests[]: {path, lineNumber, side, body}
 - uiTarget? — the app URL the desk serves (absent without a UI target); each annotation's own page

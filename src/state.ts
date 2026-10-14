@@ -592,6 +592,29 @@ export async function buildDiffSource(opts: {
   return { files, changes, rawDiff, parsedDiff };
 }
 
+// The hash the open tab watches (its light poll refetches /api/state only when this moves) and a
+// guide is stamped against (a mismatch reads as stale), so it must move whenever the review does.
+// `git diff` never names an untracked file, so the raw diff alone misses a change made only in an
+// untracked add, the new path of a `mv` paired into a pure rename, or file mode's hunk-less whole
+// file. Each review file the raw diff doesn't name is folded in by path + contentHash. "Names" is
+// the path assembleDiff gives the file it builds from a parsed entry (newPath ?? oldPath) — a
+// zero-hunk pure rename is named too, so hunk count is no test. With nothing to fold in it is
+// exactly hash(rawDiff), the value reviews saved by older versions carry, so their guides don't
+// turn stale on upgrade. Sorted, so the same tree always hashes the same; the raw diff goes in as
+// its own fixed-length hash, and "\0" never occurs in a path or a hex hash, so the encoding is
+// unambiguous.
+export function baseDiffHashOf(
+  source: Pick<DiffSource, "rawDiff" | "parsedDiff" | "files">,
+): string {
+  const named = new Set(source.parsedDiff.map((f) => f.newPath ?? f.oldPath));
+  const unnamed = source.files
+    .filter((f) => !named.has(f.path))
+    .map((f) => `${f.path}\0${f.contentHash}`)
+    .sort();
+  if (!unnamed.length) return hash(source.rawDiff);
+  return hash([hash(source.rawDiff), ...unnamed].join("\0"));
+}
+
 // A small LRU of resolved file contents, so the tab re-opening a file (or re-fetching after a
 // render) doesn't re-spawn `git show`. Keyed by root + path + contentHash: contentHash is the
 // new-side blob OID, so a reload that rewrites the file changes the key and the stale entry
@@ -701,7 +724,7 @@ export async function buildReviewState(
       base: extra.base,
       staged: extra.staged,
       head,
-      baseDiffHash: hash(source.rawDiff),
+      baseDiffHash: baseDiffHashOf(source),
       createdAt: nowIso(),
       updatedAt: nowIso(),
       rawDiff: source.rawDiff,

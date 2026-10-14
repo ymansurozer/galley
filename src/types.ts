@@ -218,7 +218,8 @@ export type ReviewState = {
   base?: string;
   staged: boolean;
   head: string | null;
-  // Hash of the raw diff this review was built against (staleness metadata).
+  // Hash of the diff this review was built against: the raw diff plus every review file it doesn't
+  // name, untracked ones included (baseDiffHashOf). Staleness metadata — the tab and guide compare it.
   baseDiffHash: string;
   createdAt: string;
   updatedAt?: string;
