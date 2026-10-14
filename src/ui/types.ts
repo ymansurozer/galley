@@ -33,6 +33,7 @@ import type {
   UiTarget,
 } from "../types";
 import type { WalkRow } from "./walkthrough";
+import type { Presence } from "./topbar-derive";
 import type { OpenRequest, RequestRow } from "./requests-derive";
 
 export type Side = "additions" | "deletions";
@@ -250,6 +251,10 @@ export interface Store {
   agentListening: boolean;
   queuedQuestions: number;
   queuedReviews: number;
+  // Derived for the top bar by one effect in main.ts: the agent's presence, and whether every
+  // in-flow file's sign-off is current (Send Review turns primary).
+  presence: Presence;
+  reviewDone: boolean;
   lastBaseDiffHash: string | null;
   selected: Selection;
   // An inline composer (new / reply / edit) is open. Exactly one at a time; the composer's
@@ -390,6 +395,9 @@ export interface Store {
   // The open change requests across both lanes (requests.ts): the sidebar's rows, and going to one.
   requestRows?: () => RequestRow[];
   openRequest?: (r: OpenRequest) => void;
+  // The top bar's title and "project · mode" subtitle (topbar-derive.ts).
+  deskTitle?: () => string;
+  deskSubtitle?: () => string;
   confirmYes?: () => void;
   confirmNo?: () => void;
   promptFinish?: () => void;

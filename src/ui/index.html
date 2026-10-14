@@ -16,24 +16,31 @@
 
 <body>
   <div class="app booting" x-data :class="{booting: !$store.g.ready, 'view-ui': $store.g.view==='ui', 'ui-only': $store.g.uiOnly(), 'annotations-closed': !$store.g.annotationsOpen}">
-    <header class="top">
-      <div class="brand"><button class="nav-toggle" data-tip="Files" data-tip-keys="⇧B" aria-label="Toggle file tree"
-          @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="brand-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#hb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#hb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#hb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="hb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span><span class="brand-project" x-cloak
-          x-show="$store.g.state?.project" x-text="$store.g.state?.project" :title="$store.g.state?.project"></span></div>
+    <header class="top" :class="{done: $store.g.reviewDone}">
+      <!-- What is under review: the branch (or file) and "project · mode" (topbar-derive.ts). The
+           logo shows only where no sidebar carries the brand. -->
+      <div class="top-title"><button class="nav-toggle" data-tip="Files" data-tip-keys="⇧B" aria-label="Toggle file tree"
+          @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="top-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#tb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#tb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#tb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="tb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="tb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="tb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><div
+          class="top-name"><b x-text="$store.g.deskTitle()" :title="$store.g.deskTitle()"></b><span
+            x-text="$store.g.deskSubtitle()" :title="$store.g.deskSubtitle()"></span></div></div>
+      <!-- The agent's presence (topbar-derive.ts): only while it has something in flight. -->
+      <div class="agent-pill" role="status" x-cloak x-show="$store.g.presence.kind !== 'hidden'"
+        :class="{queued: $store.g.presence.kind === 'notAttached'}" :data-tip="$store.g.presence.line"><svg
+          class="agent-spin" viewBox="0 0 16 16" aria-hidden="true"><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.18"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.3" transform="rotate(45 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.41" transform="rotate(90 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.53" transform="rotate(135 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.64" transform="rotate(180 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.76" transform="rotate(225 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.87" transform="rotate(270 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.99" transform="rotate(315 8 8)"/></svg><i
+          class="agent-off" aria-hidden="true"></i><b class="agent-who">Agent</b><span class="agent-line"
+          x-text="$store.g.presence.line"></span><span class="agent-run" aria-hidden="true"><i></i></span></div>
       <div class="toggles">
         <!-- Code / UI lane switch: only when the desk has a UI target and a diff. A single-lane desk
              shows no lane label. -->
-        <div class="seg lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / UI" data-tip-keys="⇧U"><button
+        <div class="seg lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / App" data-tip-keys="⇧U"><button
             :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg><span>Code</span></button><button
-            :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg><span>UI</span></button></div>
+            :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg><span>App</span></button></div>
       </div>
-      <div class="actions"><span class="agent-status" x-cloak
-          :class="{queued: $store.g.queuedReviews > 0}"
-          x-show="$store.g.awaitingAgent && ($store.g.queuedReviews > 0 || $store.g.agentActivity)"
-          x-text="$store.g.queuedReviews > 0 ? 'No agent attached — review queued' : $store.g.agentActivity"></span><span class="top-pct" id="progressPct" style="display:none"></span><button class="btn icon top-settings" data-tip="Settings" data-tip-keys="⇧," @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
-          class="btn quiet danger reset-review" data-tip="Reset review" data-tip-keys="⇧R" aria-label="Reset review" @click="$store.g.reset()"><svg class="ic"><use href="#gly-refresh"></use></svg><span>Reset Review</span></button><button class="btn"
-          :disabled="$store.g.awaitingAgent" @click="$store.g.confirmSend()"><span
-            x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send to Agent'">Send to Agent</span> <kbd x-keys>⇧S</kbd></button></div>
+      <div class="actions"><span class="top-pct" id="progressPct" style="display:none"></span><button class="btn icon top-settings" data-tip="Settings" data-tip-keys="⇧," @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
+          class="btn quiet danger reset-review" data-tip="Reset review" data-tip-keys="⇧R" aria-label="Reset review" @click="$store.g.reset()"><svg class="ic"><use href="#gly-refresh"></use></svg><span>Reset review</span></button><span
+          class="top-done">100%</span><button class="btn send-review" :class="{primary: $store.g.reviewDone && !$store.g.awaitingAgent}"
+          :disabled="$store.g.awaitingAgent" @click="$store.g.confirmSend()"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg><span
+            x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send Review'">Send Review</span> <kbd x-keys>⇧S</kbd></button></div>
       <div class="top-progress" id="progressStrip" style="display:none"><i id="progressFill"></i></div>
     </header>
     <main class="main">

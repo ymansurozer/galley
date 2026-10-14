@@ -410,7 +410,7 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "⇧U",
-    desc: "Code / UI view",
+    desc: "Code / App view",
     group: "View",
     // Only with both lanes. From inside the app it arrives only while annotating (dispatchKey).
     when: () => navigable() && hasUi() && !uiOnly(),
@@ -496,14 +496,17 @@ const HOTKEYS: Hotkey[] = [
     group: "App",
     test: shift("R"),
     when: navigable,
+    // The server's reset clears the app's annotations with the comments, so a desk with an app
+    // says so.
     run: () =>
-      askConfirm("Reset the whole review? This clears every decision and comment.", () =>
-        S.reset?.(),
+      askConfirm(
+        `Reset the whole review? This clears every decision, sign-off${hasUi() ? ", comment and annotation" : " and comment"}.`,
+        () => S.reset?.(),
       ),
   },
   {
     combo: "⇧S",
-    desc: "Send to agent",
+    desc: "Send review",
     group: "App",
     test: shift("S"),
     when: navigable,
