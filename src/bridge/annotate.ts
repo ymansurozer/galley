@@ -55,10 +55,10 @@ const STYLE = `
     display: inline-flex; align-items: center; gap: 4px; height: 24px; min-width: 30px; padding: 0 8px;
     border-radius: ${PIN.radii.map((r) => `${r}px`).join(" ")}; background: ${PIN.change.color}; color: #fff;
     font: 700 12px/1 Geist, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 2px 5px rgba(0, 0, 0, .25);
-    transition: background .12s
+    transition: background .2s ease-out
   }
   .pin svg { width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round }
-  .pin:hover { background: #8f4400 }
+  .pin:hover { background: #8f4400; transition-duration: 0s }
   .pin.q { background: ${PIN.question.color} }
   .pin.q:hover { background: #0b5bc0 }
   .pin.sel, .pin.sel:hover { background: #1c1c1e }
@@ -154,6 +154,11 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
 
   // Created on first use, so a page that is never annotated never gets the host.
   let overlay: ReturnType<typeof buildOverlay> | null = null;
+  // What layout last wrote into the marks and the pick layers. Compared as written, not against
+  // innerHTML: the browser serializes a pin's <path/> glyph back as <path></path>, so that check never
+  // matched and every pass rebuilt the pins, the hovered one under the pointer.
+  let marksHtml = "";
+  let pickHtml = "";
   const ui = () => (overlay ??= buildOverlay());
 
   const placer = marksPlacer(
@@ -580,7 +585,7 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
       const cls = `pin${q}${sel ? " sel" : ""}${m.resolved ? " resolved" : ""}${m.waiting ? " waiting" : ""}`;
       html += pinAt(at.boxes[0], m.number, cls, m.question ? MESSAGE : FLAG, m.id);
     }
-    if (overlay.marks.innerHTML !== html) overlay.marks.innerHTML = html;
+    if (html !== marksHtml) overlay.marks.innerHTML = marksHtml = html;
     pins = [...overlay.marks.querySelectorAll<HTMLElement>(".pin")].map((el) => ({
       id: el.dataset.id ?? "",
       rect: rectOf(el),
@@ -588,24 +593,24 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     pinsMoved();
 
     const boxes = picked ? pickBoxes(picked) : [];
-    let pickHtml = "";
+    let nextPick = "";
     if (picked?.kind === "element")
       boxes.forEach(
-        (r, i) => (pickHtml += box(r, "pick", boxes.length > 1 ? `<i>${i + 1}</i>` : "")),
+        (r, i) => (nextPick += box(r, "pick", boxes.length > 1 ? `<i>${i + 1}</i>` : "")),
       );
     else if (picked?.kind === "region")
-      pickHtml += boxes.map((r) => box(r, "region picked")).join("");
-    else if (picked?.kind === "text") pickHtml += boxes.map((r) => box(r, "hl picked")).join("");
+      nextPick += boxes.map((r) => box(r, "region picked")).join("");
+    else if (picked?.kind === "text") nextPick += boxes.map((r) => box(r, "hl picked")).join("");
     // The pick's new pin, numbered as the annotation will be, where its mark's pin will sit.
-    if (boxes[0] && draftNumber !== null) pickHtml += pinAt(boxes[0], draftNumber, "pin draft");
+    if (boxes[0] && draftNumber !== null) nextPick += pinAt(boxes[0], draftNumber, "pin draft");
     pending.forEach((el, i) => {
-      if (el.isConnected) pickHtml += box(rectOf(el), "pick pending", `<i>${i + 1}</i>`);
+      if (el.isConnected) nextPick += box(rectOf(el), "pick pending", `<i>${i + 1}</i>`);
     });
     if (gesture?.range)
-      pickHtml += textRects(gesture.range)
+      nextPick += textRects(gesture.range)
         .map((r) => box(r, "hl picked"))
         .join("");
-    if (overlay.pick.innerHTML !== pickHtml) overlay.pick.innerHTML = pickHtml;
+    if (nextPick !== pickHtml) overlay.pick.innerHTML = pickHtml = nextPick;
 
     const n = pending.length;
     const chip = n

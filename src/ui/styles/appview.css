@@ -186,6 +186,7 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
+  transition: background-color 0.2s ease-out;
 }
 
 :is(.chrome .pagepin, .traypin) .ic {
@@ -194,9 +195,11 @@
   stroke-width: 2.6;
 }
 
-/* Hover steps the pin's colour toward the ink, as every button answers the pointer. */
+/* Hover steps the pin's colour toward the ink, as every button answers the pointer: at once on
+   the way in, easing back out. */
 :is(.chrome .pagepin, .traypin):hover {
   background: color-mix(in srgb, var(--pin) 82%, var(--ink));
+  transition-duration: 0s;
 }
 
 :is(.chrome .pagepin, .traypin).q {
