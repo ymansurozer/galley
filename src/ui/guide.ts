@@ -118,12 +118,6 @@ function seekFinishedWith(ix: FlowIndex): (i: number) => boolean {
   };
 }
 
-// Is there any unreviewed file left anywhere in the nav order?
-export function anyUnreviewed(): boolean {
-  const ix = flowIndex();
-  return navOrderWith(ix).some((i) => !seekFinishedWith(ix)(i));
-}
-
 // The next unreviewed file after `cur`, wrapping past the end — approve-advance's seek.
 // null when no unreviewed file remains (the caller falls back to the review-complete prompt).
 export function nextUnreviewedFileIndex(cur: number): number | null {

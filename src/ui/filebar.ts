@@ -183,7 +183,7 @@ export function renderFileBar(fd?: FileDiffMetadata, jumpable = true): HTMLEleme
     const tag = document.createElement("span");
     tag.className = "fb-tag";
     tag.textContent = "Unchanged";
-    el.replaceChildren(...lead, openEditorButton(), grow, tag);
+    mount(el, [...lead, openEditorButton(), grow, tag], null);
     return el;
   }
   // Rename+edit files (git -M): where the file moved from, right of the new path.
@@ -237,9 +237,17 @@ export function renderFileBar(fd?: FileDiffMetadata, jumpable = true): HTMLEleme
   counts.innerHTML = `<span class="a">+${add}</span><span class="d">−${del}</span>`;
   const sep = document.createElement("span");
   sep.className = "fb-sep";
-  el.replaceChildren(...lead, openEditorButton(), grow, counts, sep, fileActions(f.path, jumpable));
-  if (mini) el.appendChild(mini);
+  mount(el, [...lead, openEditorButton(), grow, counts, sep, fileActions(f.path, jumpable)], mini);
   return el;
+}
+
+// Swap the bar's contents but leave the pinned guide line where it is when it stays: detaching it
+// would replay its entrance and drop an open note's scroll, selection and focus.
+function mount(el: HTMLElement, kids: Node[], mini: HTMLElement | null) {
+  const keep = mini && mini.parentNode === el ? mini : null;
+  for (const c of Array.from(el.childNodes)) if (c !== keep) c.remove();
+  if (keep) keep.before(...kids);
+  else el.append(...kids, ...(mini ? [mini] : []));
 }
 
 // The row after the file's last line: "End of <file> · next: <file> ⇧→" and the file's sign-off,

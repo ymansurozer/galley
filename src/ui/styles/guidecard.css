@@ -51,6 +51,21 @@
   color: var(--orange-ink);
 }
 
+/* The guide skims the whole file: quiet, the opposite of the flag's amber. */
+.gc-skim-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.gc-skim-mark .ic {
+  width: 11px;
+  height: 11px;
+}
+
 /* The orientation is the main reading of a guided review: ink, a step above the bar's text. */
 .gc-orient.md {
   margin-top: 0;
@@ -127,6 +142,10 @@
 
 .file-bar > .guide-mini.pinned {
   display: block;
+}
+
+/* The entrance plays on a pin or an open only (guidecard.ts adds .entering), never on a render. */
+:is(.guide-mini, .gm-full).entering {
   animation: gm-in 0.18s var(--ease);
 }
 
@@ -269,15 +288,14 @@
 
 .guide-mini.open .gm-full {
   display: block;
-  animation: gm-in 0.18s var(--ease);
 }
 
 .gm-full .gc-head {
   display: none;
 }
 
-/* Phone widths: a tighter card, and the pinned line drops its inline flag (the full note keeps
-   it). */
+/* Phone widths: a tighter card, and the pinned line's flag shrinks to its glyph (the full note
+   keeps the text). */
 @media (max-width: 760px) {
   #diff > .guide-card {
     gap: 10px;
@@ -289,6 +307,11 @@
   }
 
   .gm-flag {
+    flex: 0 0 auto;
+    max-width: none;
+  }
+
+  .gm-flag > .md {
     display: none;
   }
 

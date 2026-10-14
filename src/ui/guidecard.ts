@@ -27,11 +27,25 @@ function bookIcon(): HTMLElement {
   return tile;
 }
 
-// "Guide · <category>", the category amber when the file is flagged.
+// "Guide · <category>", the category amber when the file is flagged, then a skim mark when the
+// guide skims the whole file.
 function heading(entry: GuideFile): HTMLElement {
   const h = el("span", "gc-head", "Guide · ");
   h.appendChild(el("span", "gc-cat" + (entry.flag ? " crit" : ""), entry.category));
+  if (entry.skim) {
+    const mark = el("span", "gc-skim-mark");
+    mark.innerHTML = `<svg class="ic"><use href="#gly-collapse-all"></use></svg>`;
+    mark.append("skimmed");
+    h.appendChild(mark);
+  }
   return h;
+}
+
+// A skimmed entry's reason, in the orientation's place when the guide gives none. The heading's
+// mark already says "skimmed" when it shows.
+function skimText(entry: GuideFile): string {
+  const reason = entry.skimReason ?? "";
+  return entry.skim ? reason : `skimmed · ${reason}`;
 }
 
 // The full note: orientation (or the skim reason a whole-file skim may give instead), the flag,
@@ -44,8 +58,7 @@ function fullBody(entry: GuideFile): HTMLElement {
     const o = el("div", "gc-orient md");
     o.innerHTML = renderMarkdown(entry.orientation);
     body.appendChild(o);
-  } else if (entry.skimReason)
-    body.appendChild(el("div", "gc-skim", `skimmed · ${entry.skimReason}`));
+  } else if (entry.skimReason) body.appendChild(el("div", "gc-skim", skimText(entry)));
   if (entry.flag) {
     const f = el("div", "gc-flag");
     f.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><div class="md">${renderMarkdown(entry.flag)}</div>`;
@@ -79,6 +92,9 @@ let mini: HTMLElement | null = null;
 let pinned = false;
 let open = false;
 let shownFor = "";
+// What the pinned line was last built from: a render that changes none of it (a poll, a decision,
+// a comment) keeps the line as it is, an open note's scroll and focus included.
+let builtFrom = "";
 let io: IntersectionObserver | null = null;
 let tracked: HTMLElement | null = null;
 
@@ -102,19 +118,23 @@ export function guideMini(): HTMLElement | null {
   }
   if (!entry) return null;
   const m = guideMiniElement();
+  const stale = guideStale();
+  const from = JSON.stringify([path, entry, stale]);
+  if (from === builtFrom && m.firstChild) return m;
+  builtFrom = from;
   const line = el("div", "gm-line");
   line.appendChild(bookIcon());
   line.appendChild(heading(entry));
   const orient = el("span", "gm-orient" + (entry.orientation ? " md" : " skim"));
   if (entry.orientation) orient.innerHTML = renderMarkdown(entry.orientation);
-  else if (entry.skimReason) orient.textContent = `skimmed · ${entry.skimReason}`;
+  else if (entry.skimReason) orient.textContent = skimText(entry);
   line.appendChild(orient);
   if (entry.flag) {
     const f = el("span", "gm-flag");
     f.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><span class="md">${renderMarkdown(entry.flag)}</span>`;
     line.appendChild(f);
   }
-  if (guideStale()) {
+  if (stale) {
     const s = el("span", "gm-stale");
     s.title = STALE;
     s.append(el("span", "gc-stale-dot"), "stale");
@@ -137,10 +157,22 @@ export function guideMini(): HTMLElement | null {
   return m;
 }
 
+// Replay the entrance on `target`: only on a pin or an open, never on a render.
+function enter(target: Element | null | undefined) {
+  if (!target) return;
+  target.classList.remove("entering");
+  void (target as HTMLElement).offsetWidth; // restart the animation
+  target.classList.add("entering");
+  target.addEventListener("animationend", () => target.classList.remove("entering"), {
+    once: true,
+  });
+}
+
 function setPinned(p: boolean) {
   if (p === pinned) return;
   pinned = p;
   mini?.classList.toggle("pinned", p);
+  if (p) enter(mini);
   // Back at the top the card is in view again, so an expanded copy has nothing to add.
   if (!p) setOpen(false);
   syncFileBarHeight();
@@ -155,6 +187,7 @@ function setOpen(o: boolean) {
   if (o === open) return;
   open = o;
   mini?.classList.toggle("open", o);
+  if (o) enter(mini?.querySelector(".gm-full"));
   mini?.querySelector(".gm-toggle")?.setAttribute("aria-expanded", String(o));
   if (o) document.addEventListener("click", outside, true);
   else document.removeEventListener("click", outside, true);
@@ -180,7 +213,8 @@ export function trackGuideCard(card: HTMLElement | null) {
   }
   const barH = fileBar()?.offsetHeight ?? 0;
   io = new IntersectionObserver(
-    ([e]) => {
+    (entries) => {
+      const e = entries.at(-1);
       if (!e?.rootBounds || !e.target.isConnected) return;
       setPinned(!e.isIntersecting && e.boundingClientRect.bottom <= e.rootBounds.top + 0.5);
     },
