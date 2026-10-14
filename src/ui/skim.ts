@@ -3,6 +3,7 @@ import { currentChanges, currentFile } from "./changes";
 import { render } from "./render";
 import { isFullySkimmed } from "./skim-derive";
 import { diffShadowRoot } from "./diff-dom";
+import { hideBetween, misalignedColumns, SKIM_HIDDEN, type DiffColumn } from "./skim-dom";
 import type { ChangeState, GuideFile } from "./types";
 
 // ── Skimmable review (issue 06) ──────────────────────────────────────────────
@@ -193,6 +194,12 @@ export function renderMovedPure() {
 // they pin the block's band on each side without measuring — we hide every cell strictly between
 // them (the change rows on one side, the paired unlabeled filler rows on the other, plus the
 // gutters). Measurement was tried and abandoned: rects aren't laid out yet in afterRender.
+//
+// Invariant: an annotation is TWO rows in @pierre — a [data-line-annotation] row in the content
+// track and a [data-gutter-buffer="annotation"] spacer in the gutter — and a collapse keeps both
+// (the strip is one such annotation). Keeping only the content row leaves the gutter a row short
+// per collapsed block, so every line number below it sits one row above its code. hideBetween
+// holds that rule; the closing check below flags any column whose tracks end up different heights.
 export function applySkimCollapse() {
   const blocks = currentChanges().filter((c) => isBlockSkimCollapsed(c));
   const shadow = diffShadowRoot();
@@ -203,26 +210,20 @@ export function applySkimCollapse() {
     if (blocks.length) console.debug("[skim] collapse skipped: diff shadow not ready");
     return;
   }
-  for (const el of shadow.querySelectorAll<HTMLElement>("[data-skim-hidden]")) {
+  for (const el of shadow.querySelectorAll<HTMLElement>(`[${SKIM_HIDDEN}]`)) {
     el.style.display = "";
-    el.removeAttribute("data-skim-hidden");
+    el.removeAttribute(SKIM_HIDDEN);
   }
   if (!blocks.length) return;
-  const columns = Array.from(shadow.querySelectorAll("pre[data-diff] code[data-code]")).map(
-    (code) => ({
-      content: code.querySelector<HTMLElement>("[data-content]"),
-      gutter: code.querySelector<HTMLElement>("[data-gutter]"),
-    }),
-  );
+  const columns: DiffColumn[] = Array.from(
+    shadow.querySelectorAll("pre[data-diff] code[data-code]"),
+  ).map((code) => ({
+    content: code.querySelector<HTMLElement>("[data-content]"),
+    gutter: code.querySelector<HTMLElement>("[data-gutter]"),
+  }));
   const isContext = (el?: Element | null) =>
     !!el && (el.getAttribute("data-line-type") ?? "").startsWith("context");
   let hidden = 0;
-  const hide = (el?: HTMLElement) => {
-    if (!el) return;
-    el.style.display = "none";
-    el.setAttribute("data-skim-hidden", "1");
-    hidden++;
-  };
   for (const block of blocks) {
     const type = block.side === "additions" ? "change-addition" : "change-deletion";
     const lo = block.displayLineNumber ?? block.lineNumber;
@@ -249,29 +250,13 @@ export function applySkimCollapse() {
     const beforeLi = lower > 0 ? sibs[lower - 1]!.getAttribute("data-line-index") : null;
     const afterLi =
       upper < sibs.length - 1 ? sibs[upper + 1]!.getAttribute("data-line-index") : null;
-    // In every column's gutter AND content track, hide the rows strictly between the two
-    // bounding context lines (matched by their shared data-line-index): the block's change
-    // rows on one side and, in split, the paired filler rows on the other. Each track is
-    // located independently so no gutter/content index alignment is assumed. The annotation
-    // rows ([data-line-annotation]) are kept — that's where the skim strip lives.
-    for (const col of columns) {
-      for (const track of [col.gutter, col.content]) {
-        if (!track) continue;
-        const kids = Array.from(track.children) as HTMLElement[];
-        const idxOf = (li: string) =>
-          kids.findIndex((k) => k.getAttribute("data-line-index") === li);
-        const start = beforeLi ? idxOf(beforeLi) : -1;
-        const end = afterLi ? idxOf(afterLi) : kids.length;
-        // A bound the diff placed only on the other side isn't in this track — skip rather
-        // than risk hiding from the wrong edge.
-        if ((beforeLi && start === -1) || (afterLi && end === -1)) continue;
-        for (let j = start + 1; j < end; j++) {
-          if (!kids[j]!.hasAttribute("data-line-annotation")) hide(kids[j]);
-        }
-      }
-    }
+    hidden += hideBetween(columns, beforeLi, afterLi);
   }
   // Rows to collapse but none hidden = the anchor/context lookup missed (shape drift in
   // @pierre's DOM). Surface it instead of silently leaving the block expanded.
   if (!hidden) console.debug(`[skim] collapse hid nothing for ${blocks.length} block(s)`);
+  const drifted = misalignedColumns(columns);
+  if (drifted.length) {
+    console.debug(`[skim] collapse left gutter and content misaligned in column(s) ${drifted}`);
+  }
 }
