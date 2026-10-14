@@ -319,28 +319,32 @@ function markCursorChange() {
 }
 
 // The rail is an overlay in #diff's scrolled content, so it moves with the rows and never shifts
-// the code, in either layout. It spans the change's rows (the cursor's measured, content-relative
-// rows: a split row holds both sides) down to the bottom of its control's row.
+// the code, in either layout. It runs from the change's first row to the bottom of its last row
+// or its control's row, whichever is lower. The cursor's row list says which rows are the
+// change's (a split row holds both sides); their edges are measured now, since the list's cached
+// tops can lag a reflow it wasn't invalidated for.
 function placeRail(diff: HTMLElement, change?: ChangeState, control?: HTMLElement | null) {
   const span = change && D.fileDiff ? changeSpan(change, D.fileDiff) : null;
-  const held = span
-    ? rows().filter(
-        (r) =>
-          spanHolds(span, r.side, r.line) || (!!r.alt && spanHolds(span, r.alt.side, r.alt.line)),
-      )
-    : [];
+  const holds = (r: Row) =>
+    !!span &&
+    (spanHolds(span, r.side, r.line) || (!!r.alt && spanHolds(span, r.alt.side, r.alt.line)));
+  let held = rows().filter(holds);
+  if (held.some((r) => !r.el.isConnected)) {
+    invalidateCursorRows();
+    held = rows().filter(holds);
+  }
   if (!held.length) {
     rail?.remove();
     return;
   }
-  const top = held[0].top;
-  let bottom = Math.max(...held.map((r) => r.top + r.height));
+  const origin = diff.getBoundingClientRect().top - diff.scrollTop;
   const row = control?.closest(".annotation");
-  if (row)
-    bottom = Math.max(
-      bottom,
-      row.getBoundingClientRect().bottom - diff.getBoundingClientRect().top + diff.scrollTop,
-    );
+  const top = held[0].el.getBoundingClientRect().top - origin;
+  const bottom =
+    Math.max(
+      held[held.length - 1].el.getBoundingClientRect().bottom,
+      row?.getBoundingClientRect().bottom ?? 0,
+    ) - origin;
   rail ??= Object.assign(document.createElement("div"), { className: "change-rail" });
   rail.style.top = `${top}px`;
   rail.style.height = `${bottom - top}px`;
