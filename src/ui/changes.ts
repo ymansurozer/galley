@@ -1,7 +1,7 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { S, D, persist } from "./store";
 import { cur } from "./contents";
-import { buildLineMap } from "./linemap";
+import { anchorSelection, buildLineMap, identityLineMap } from "./linemap";
 import { blockAt, changePosition, replayPositions } from "./replay";
 import { inStep } from "./steps";
 import { acceptSignedOffBlocks, changeStableKey } from "./decisions-derive";
@@ -210,4 +210,13 @@ export function toDisplayLine(side: Side, line: number): number {
 }
 export function fromDisplayLine(side: Side, line: number): number {
   return D.lineMap ? D.lineMap.fromDisplay(side, line) : line;
+}
+// What a selection on rendered rows anchors to — the side and raw line of the code the row shows
+// (linemap.ts anchorAt): a row of a resolved block shows one version in both gutters. Every site
+// turning a selection or the cursor into a comment anchor reads through these.
+export function rowAnchor(side: Side, line: number): { side: Side; line: number } {
+  return (D.lineMap ?? identityLineMap()).anchorAt(side, line);
+}
+export function selectionAnchor(side: Side, line: number, end?: number) {
+  return anchorSelection(D.lineMap ?? identityLineMap(), side, line, end);
 }

@@ -19,6 +19,14 @@ export interface FoldRun {
   last: boolean;
 }
 
+// An expander's label. @pierre's wording ("12 unmodified lines") would hide that other parts'
+// changes sit in those lines, so the label names them. Every run holds at least one folded hunk,
+// so every fold says so; @pierre's own separators, the only folds of unchanged lines alone, keep
+// their wording.
+export function foldLabel(run: FoldRun): string {
+  return `${run.lines} line${run.lines === 1 ? "" : "s"} · other parts`;
+}
+
 // The line count an @pierre unchanged-lines separator shows ("8 unmodified lines"), or null for a
 // row that isn't one (a "simple" or "metadata" separator has no count and stays put).
 function separatorLines(row: Element): number | null {

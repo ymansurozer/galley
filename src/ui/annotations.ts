@@ -5,7 +5,7 @@ import {
   currentFile,
   inCurrentStep,
   toDisplayLine,
-  fromDisplayLine,
+  rowAnchor,
 } from "./changes";
 import { isUnanchored } from "./unanchored";
 import { acceptChange } from "./decisions";
@@ -127,8 +127,8 @@ export function annotations(): AnnotationInput[] {
   // comment still needs its own row. S.selected is display space; groups are keyed raw.
   const composers: AnnotationInput[] = [];
   if (file && S.composerOpen && !S.editingCommentId && !composerInUi()) {
-    const rawSel = fromDisplayLine(S.selected.side, S.selected.lineNumber);
-    const group = groups.get(`${S.selected.side}:${rawSel}`);
+    const rawSel = rowAnchor(S.selected.side, S.selected.lineNumber);
+    const group = groups.get(`${rawSel.side}:${rawSel.line}`);
     const openThreadHere = !!group && group.some((c) => c.status === "open");
     if (!openThreadHere)
       composers.push({

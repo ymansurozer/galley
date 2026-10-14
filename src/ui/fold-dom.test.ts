@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { clearFolds, foldHunks, type FoldRun } from "./fold-dom";
+import { clearFolds, foldHunks, foldLabel, type FoldRun } from "./fold-dom";
 import { misalignedColumns, type DiffColumn } from "./skim-dom";
 
 // @pierre's shape for a part view of a file with four hunks, in collapse mode: an unchanged-lines
@@ -203,4 +203,10 @@ test("rows the reviewer unfolded between two folded hunks keep them apart", () =
   });
   assert.deepEqual(visible(columns[0]!.content).slice(3, 7), ["ctx10", "fold1", "ctx19", "fold2"]);
   assertAligned(columns);
+});
+
+test("a fold's label counts every line it hides and says other parts' changes are in them", () => {
+  const run = (lines: number): FoldRun => ({ hunks: [1], lines, first: false, last: false });
+  assert.equal(foldLabel(run(5 + 3 + 4)), "12 lines · other parts");
+  assert.equal(foldLabel(run(1)), "1 line · other parts");
 });

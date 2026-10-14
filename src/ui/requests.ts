@@ -1,5 +1,5 @@
 import { S, $, toast } from "./store";
-import { currentFile, flowIndex, fromDisplayLine, toDisplayLine } from "./changes";
+import { currentFile, flowIndex, rowAnchor, toDisplayLine } from "./changes";
 import { isUnanchored } from "./unanchored";
 import { flashThread, jumpToBlocker } from "./blockers";
 import { cursorOn, cursorReset, cursorSelection } from "./cursor";
@@ -69,8 +69,9 @@ function here(place: ReturnType<typeof placer>): RequestStop | null {
     (!sel || (!last.unanchored && cursorOn(last.side, toDisplayLine(last.side, last.lineNumber))))
   )
     return last;
-  const pos: Pick<RequestStop, "side" | "lineNumber" | "unanchored"> = sel
-    ? { side: sel.side, lineNumber: fromDisplayLine(sel.side, sel.lineNumber), unanchored: false }
+  const at = sel && rowAnchor(sel.side, sel.lineNumber);
+  const pos: Pick<RequestStop, "side" | "lineNumber" | "unanchored"> = at
+    ? { side: at.side, lineNumber: at.line, unanchored: false }
     : { side: "deletions", lineNumber: 0, unanchored: true };
   const step = currentStep();
   return {
