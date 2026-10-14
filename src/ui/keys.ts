@@ -17,6 +17,7 @@ import {
 import { stepOpenRequest } from "./requests";
 import { closeBlockers } from "./blockers";
 import { closeGuideCard } from "./guidecard";
+import { closeThreadCard } from "./rests";
 import type { ForwardedKey } from "./types";
 import {
   cursorMoveLine,
@@ -105,6 +106,8 @@ function escape() {
   // blockers list as they open — see installBlockers). Then the guide card opened over the code.
   if (closeBlockers()) return;
   if (closeGuideCard()) return;
+  // The open thread card, once its composer (below) has closed: Esc closes a reply first.
+  if (!S.composerOpen && !S.editingCommentId && closeThreadCard()) return;
   if (S.composerOpen || S.editingCommentId) {
     // A code composer also drops the line highlight it was anchored to.
     if (!composerInUi()) cursorReset();

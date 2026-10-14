@@ -195,7 +195,8 @@ function setOpen(o: boolean) {
 
 // Esc's layer for the expanded card (keys.ts). False when it isn't open.
 export function closeGuideCard(): boolean {
-  if (!open) return false;
+  // The App view hides it: Esc there belongs to the app's own layers.
+  if (!open || S.view !== "code") return false;
   setOpen(false);
   return true;
 }
