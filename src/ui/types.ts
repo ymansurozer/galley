@@ -299,9 +299,6 @@ export interface Store {
   // file mode: how a markdown file is shown — "rendered" (comark/markdown-it preview,
   // comment on blocks) or "source" (@pierre/diffs raw/diff).
   fileView: "rendered" | "source";
-  // True once the diff pane is scrolled past its header — reveals the floating Approve button
-  // so sign-off is reachable without scrolling back up to the header. Reset on every file switch.
-  diffScrolled: boolean;
   // Per-session skim expand state: change ids (block-level) and `file:<path>` keys (file-level)
   // the reviewer expanded. Not persisted — collapse is display-only and resets each session.
   skimExpanded: Set<string>;
@@ -360,18 +357,13 @@ export interface Store {
   setSidebarTab?: (tab: Store["sidebarTab"]) => void;
   rowClick?: (r: TreeRow) => void;
   setStyle?: (style: DiffStyle) => void;
-  setFileView?: (view: "rendered" | "source") => void;
+  setFileView?: (view: "rendered" | "source") => Promise<void>;
   isMarkdownFile?: () => boolean;
-  // Sign off on the current file from the floating button (same action as the header ⇧A).
-  approveFile?: () => void;
   // A sidebar row's status icon: sign the file off in place, or reset a finished one. statusHint
   // labels the icon with what a click will do, read on hover/focus rather than bound per row.
   statusClick?: (path: string, e: MouseEvent) => void;
   statusHint?: (el: HTMLElement, path: string) => void;
   runToastAction?: () => void;
-  // Drives the floating Approve button: null hides it (overview, preview, or finished file),
-  // else the pending file's sign-off flavor — "clean" (Approve) or "changes" (Mark Reviewed).
-  fabState?: () => "clean" | "changes" | null;
   splitApplies?: () => boolean;
   applySettings?: () => void;
   openInEditor?: () => Promise<void>;

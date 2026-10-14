@@ -147,6 +147,22 @@ function ensureCursor(): Row | undefined {
   return r;
 }
 
+// Flash a jumped-to line so the eye finds it: its gutter and code cells, which share a
+// data-line-index within the column (`<code>`) the row was found in. The [data-flash] animation
+// lives in render.ts's in-shadow CSS. The marker comes off when the animation ends, so a later
+// re-render that reuses the cells doesn't replay it.
+function flashRow(r: Row) {
+  const li = r.el.getAttribute("data-line-index");
+  const col = r.el.closest("code");
+  if (!li || !col) return;
+  for (const el of col.querySelectorAll<HTMLElement>(`[data-line-index="${li}"]`)) {
+    el.removeAttribute("data-flash");
+    void el.offsetWidth; // restart the animation
+    el.setAttribute("data-flash", "");
+    el.addEventListener("animationend", () => el.removeAttribute("data-flash"), { once: true });
+  }
+}
+
 // Land the cursor on a specific rendered line (display space) and center it. Context rows merge
 // to a single entry (additions primary, deletions twin in `alt`), so fall back to a line-only
 // match before giving up.
@@ -161,11 +177,33 @@ function landAt(side: Side, line: number): boolean {
   return true;
 }
 
-// Jump used by the blockers list. Retries once across two frames so a just-triggered
-// collapsed-region expansion (which rerenders) has laid out its rows.
+// Flash the cursor's line a frame after a jump lands. A jump that just opened the file lands while
+// @pierre may still be re-rendering its rows (unfolding a thread's region swaps the cells), so the
+// flash goes on whichever cells hold the line once that settles — re-measured if the cached ones
+// left the page.
+function flashCursorLine() {
+  requestAnimationFrame(() => {
+    const at = cur;
+    if (!at) return;
+    let r = rows().find((x) => matches(x, at.side, at.line));
+    if (r && !r.el.isConnected) {
+      invalidateCursorRows();
+      r = rows().find((x) => matches(x, at.side, at.line));
+    }
+    if (r) flashRow(r);
+  });
+}
+
+// Jump used by the blockers list and the change-request walk: land and flash. Retries once across
+// two frames so a just-triggered collapsed-region expansion (which rerenders) has laid out its rows.
 export function cursorJumpTo(side: Side, line: number) {
-  if (!landAt(side, line))
-    requestAnimationFrame(() => requestAnimationFrame(() => landAt(side, line)));
+  if (landAt(side, line)) flashCursorLine();
+  else
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (landAt(side, line)) flashCursorLine();
+      }),
+    );
 }
 
 // Whether this DISPLAY line has a rendered row: exactly, not landAt's line-only fallback, whose

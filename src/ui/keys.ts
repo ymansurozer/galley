@@ -15,6 +15,7 @@ import {
   toggleAppMode,
 } from "./uilane";
 import { stepOpenRequest } from "./requests";
+import { closeBlockers } from "./blockers";
 import type { ForwardedKey } from "./types";
 import {
   cursorMoveLine,
@@ -94,6 +95,9 @@ function escape() {
     closeShot();
     return;
   }
+  // The popovers over the code: above everything in it, below the dialogs (which close them as
+  // they open — see installBlockers).
+  if (closeBlockers()) return;
   if (S.composerOpen || S.editingCommentId) {
     // A code composer also drops the line highlight it was anchored to.
     if (!composerInUi()) cursorReset();
@@ -382,7 +386,7 @@ const HOTKEYS: Hotkey[] = [
   // View
   {
     combo: "v",
-    desc: "Split / Stacked",
+    desc: "Unified / Split",
     group: "View",
     test: k("v"),
     when: inDiff,
