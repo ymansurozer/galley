@@ -2,6 +2,27 @@ import type { Guide, GuideFile } from "./types.js";
 
 export type GuideValidation = { ok: true; guide: Guide } | { ok: false; reason: string };
 
+type PartLines = NonNullable<GuideFile["part"]>["lines"];
+
+// A part's `lines`: a non-empty array of single line numbers and [start, end] pairs, a reversed
+// pair ordered ascending (as skimBlocks spans are). null when the shape is wrong.
+function partLines(raw: unknown): PartLines | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const lines: PartLines = [];
+  for (const span of raw) {
+    if (typeof span === "number" && Number.isFinite(span)) lines.push(span);
+    else if (
+      Array.isArray(span) &&
+      span.length === 2 &&
+      span.every((n) => typeof n === "number" && Number.isFinite(n))
+    ) {
+      const [a, b] = span as [number, number];
+      lines.push(a <= b ? [a, b] : [b, a]);
+    } else return null;
+  }
+  return lines;
+}
+
 // Validate + normalize an agent-supplied guide. Required: a non-empty `overview` and a
 // non-empty `files` array whose every entry has a `path` and (unless `skim: true`) an
 // `orientation`. `order` and `category` are optional (default to the entry's position /
@@ -93,7 +114,45 @@ export function validateGuide(input: unknown): GuideValidation {
         };
       file.movedFrom = f.movedFrom;
     }
+    // Guide parts: shape only here — whether each span claims a change block, and whether two
+    // parts claim the same one, is diff-aware (resolveParts in state.ts). A part narrows the
+    // entry to some of the file's blocks, so it can't sit with a whole-file skim, nor with
+    // movedFrom (a merged move has no rawDiff section for the spans to resolve against).
+    if (f.part !== undefined) {
+      const part = f.part as Record<string, unknown> | null;
+      if (!part || typeof part !== "object" || Array.isArray(part))
+        return {
+          ok: false,
+          reason: `guide.files[${i}].part must be an object with a title and lines`,
+        };
+      if (typeof part.title !== "string" || !part.title.trim())
+        return { ok: false, reason: `guide.files[${i}].part.title must be a non-empty string` };
+      const lines = partLines(part.lines);
+      if (!lines)
+        return {
+          ok: false,
+          reason: `guide.files[${i}].part.lines must be a non-empty array of line numbers and [start, end] pairs`,
+        };
+      for (const field of ["skim", "movedFrom"] as const)
+        if (file[field] !== undefined)
+          return { ok: false, reason: `guide.files[${i}] cannot set both part and ${field}` };
+      file.part = { title: part.title, lines };
+    }
     files.push(file);
+  }
+  // A path listed more than once is a split file, and a split file is split all the way: an entry
+  // without a part would claim the whole file a second time, and two steps for one path would
+  // collide in the walkthrough and navigation.
+  const partless = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const [i, file] of files.entries()) {
+    if (!file.part && !partless.has(file.path)) partless.set(file.path, i);
+    if (seen.has(file.path) && partless.has(file.path))
+      return {
+        ok: false,
+        reason: `guide lists "${file.path}" more than once, so every entry for it needs a part (guide.files[${partless.get(file.path)}] has none)`,
+      };
+    seen.add(file.path);
   }
   files.sort((a, b) => a.order - b.order);
   const guide: Guide = { overview: g.overview, files };

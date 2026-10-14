@@ -21,7 +21,7 @@ import {
   persistReview,
   readDeskLock,
   resolveMovedFrom,
-  resolveSkim,
+  resolveGuide,
   reviewDir,
   sanitizeSession,
   stablePort,
@@ -351,7 +351,14 @@ async function runReload(args: Record<string, string | boolean>) {
     body: JSON.stringify(guide ? { guide } : {}),
   }).catch(() => null);
   if (!res || !res.ok) {
-    console.error("Reload failed — is the desk still running?");
+    // A desk that answered with an error (a new guide that doesn't fit the diff) says why —
+    // naming the path, part and span the agent has to fix. Only silence means it's gone.
+    const body = (await res?.json().catch(() => null)) as { error?: string; fix?: string } | null;
+    console.error(
+      body?.error
+        ? `${body.error}${body.fix ? `\n${body.fix}` : ""}`
+        : "Reload failed — is the desk still running?",
+    );
     process.exitCode = 1;
     return;
   }
@@ -639,27 +646,27 @@ async function runDesk(
     // Stamp the diff hash the guide was generated against; if a later reload advances the
     // diff past it, the desk flags the guide as possibly stale (slice 05).
     state.guide = { ...newGuide, baseDiffHash: state.baseDiffHash };
-    // Resolve skim spans against the fresh diff and stamp the collapsed blocks. Strict at
-    // initial attach: an unresolvable span aborts the launch naming the offending field, like
-    // any other invalid-guide input.
+    // Resolve skim and part spans against the fresh diff and stamp the blocks they claim. Strict
+    // at initial attach: an unresolvable span (or two parts claiming one block) aborts the launch
+    // naming the offending field, like any other invalid-guide input.
     // state.rawDiff shares identity with base.rawDiff, so pass the parse seeded on `base` — the
-    // reload/launch parses the diff once, shared across build + skim resolution (issue 06).
-    const skim = resolveSkim(
+    // reload/launch parses the diff once, shared across build + guide resolution (issue 06).
+    const resolved = resolveGuide(
       state.rawDiff,
       state.changes,
       state.guide,
       { strict: true },
       parsedDiffOf(base),
     );
-    if (!skim.ok) {
-      console.error(`Invalid guide: ${skim.reason}.`);
+    if (!resolved.ok) {
+      console.error(`Invalid guide: ${resolved.reason}.`);
       process.exitCode = 1;
       return;
     }
   } else if (state.guide) {
     // A guide carried forward by the merge (restart without --guide): re-resolve leniently
-    // against the new diff — stale spans drop rather than abort (see resolveSkim).
-    resolveSkim(state.rawDiff, state.changes, state.guide, { strict: false }, parsedDiffOf(base));
+    // against the new diff — stale spans drop rather than abort (see resolveSkim, resolveParts).
+    resolveGuide(state.rawDiff, state.changes, state.guide, { strict: false }, parsedDiffOf(base));
   }
   if (mode === "repo") await syncGitState(state);
   await persistReview(state);

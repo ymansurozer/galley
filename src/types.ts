@@ -91,6 +91,10 @@ export type ChangeState = {
   // reviewer-owned and never rides /api/save; a rewritten block loses the id it was
   // stamped under and the skim drops. `reason` is the agent's short note ("import-only").
   skim?: { reason?: string };
+  // Server-stamped when a guide part (GuideFile.part) claims this block: the index of the owning
+  // entry in the stored, order-sorted guide.files. Absent = no part claims it (the file's Rest
+  // step). Like skim, re-derived on every attach/reload and never rides /api/save.
+  part?: number;
 };
 
 // An explicit, durable record of a user's accept/reject on a change block, keyed
@@ -177,6 +181,13 @@ export type GuideFile = {
   // 01's moved badge. Working repo mode only; mutually exclusive with skimBlocks (both resolve
   // against the diff, and a merged entry has no rawDiff section).
   movedFrom?: string;
+  // Splits a file's diff into review steps: the same path listed once per part, each entry with
+  // its own category/orientation/flag. `lines` are new-file-side spans ([start, end] or a single
+  // line), resolved like skimBlocks to the change blocks they touch (resolveParts stamps
+  // ChangeState.part). A split file is split all the way — every entry for the path carries a
+  // part — and a part never combines with a whole-file `skim` or `movedFrom`. Blocks no part
+  // claims form the file's "Rest" step.
+  part?: { title: string; lines: Array<[number, number] | number> };
 };
 
 // The guided review the coding agent attaches (the desk renders it, runs no model).

@@ -285,6 +285,26 @@ function skimRangesForHunk(h: DiffHunk): Array<{ stableKey: string; lo: number; 
   return out;
 }
 
+type BlockRange = { stableKey: string; lo: number; hi: number };
+
+// Every change block's new-side range, by path — what a guide's line spans (skimBlocks, part
+// lines) resolve against.
+function blockRangesByPath(parsed: DiffFile[]): Map<string, BlockRange[]> {
+  const rangesByPath = new Map<string, BlockRange[]>();
+  for (const f of parsed) {
+    const filePath = f.newPath ?? f.oldPath ?? "unknown";
+    const ranges = rangesByPath.get(filePath) ?? [];
+    for (const h of f.hunks) ranges.push(...skimRangesForHunk(h));
+    rangesByPath.set(filePath, ranges);
+  }
+  return rangesByPath;
+}
+
+// The blocks a new-side span [a, b] touches: any overlap claims the whole block.
+function blocksInSpan(ranges: BlockRange[] | undefined, a: number, b: number): BlockRange[] {
+  return ranges?.filter((r) => a <= r.hi && b >= r.lo) ?? [];
+}
+
 // Resolve a guide's skimBlocks (new-file-side line spans) to the change blocks they enclose and
 // stamp `skim` onto those ChangeState records. Diff-aware, so it lives here rather than in the
 // pure validateGuide. Display-only: it never touches decisions/status. `strict` (initial attach
@@ -304,20 +324,14 @@ export function resolveSkim(
   preparsed?: DiffFile[],
 ): SkimResolution {
   for (const c of changes) delete c.skim;
-  const rangesByPath = new Map<string, Array<{ stableKey: string; lo: number; hi: number }>>();
-  for (const f of preparsed ?? parseUnifiedDiff(rawDiff)) {
-    const filePath = f.newPath ?? f.oldPath ?? "unknown";
-    const ranges = rangesByPath.get(filePath) ?? [];
-    for (const h of f.hunks) ranges.push(...skimRangesForHunk(h));
-    rangesByPath.set(filePath, ranges);
-  }
+  const rangesByPath = blockRangesByPath(preparsed ?? parseUnifiedDiff(rawDiff));
   const changeByKey = new Map(changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
   for (const file of guide.files) {
     if (!file.skimBlocks?.length) continue;
     const ranges = rangesByPath.get(file.path);
     for (const span of file.skimBlocks) {
       const [a, b] = span.lines;
-      const matched = ranges?.filter((r) => a <= r.hi && b >= r.lo) ?? [];
+      const matched = blocksInSpan(ranges, a, b);
       if (matched.length === 0) {
         if (opts.strict)
           return {
@@ -333,6 +347,78 @@ export function resolveSkim(
     }
   }
   return { ok: true };
+}
+
+// Resolve a guide's parts (GuideFile.part line spans) to the change blocks they touch and stamp
+// each block's `part` with the owning entry's index in guide.files — the same span→block rule as
+// skimBlocks. `strict` (a NEW guide: launch with --guide, reload --guide) rejects a span that
+// matches no block and a block two parts claim, naming the path, the part titles and the span or
+// block lines, so a bad split is caught before it reaches the reviewer. Non-strict (the same guide
+// carried across a reload or restart) re-runs the spans against the moved diff: an unmatched span
+// drops and a contested block stays with the earlier entry — whatever no part keeps falls to the
+// file's Rest step. Idempotent: clears prior stamps first. `preparsed` as in resolveSkim.
+export function resolveParts(
+  rawDiff: string,
+  changes: ChangeState[],
+  guide: Guide,
+  opts: { strict: boolean },
+  preparsed?: DiffFile[],
+): SkimResolution {
+  for (const c of changes) delete c.part;
+  const rangesByPath = blockRangesByPath(preparsed ?? parseUnifiedDiff(rawDiff));
+  const changeByKey = new Map(changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
+  // Which entry claimed each block (by change key) — to name both sides of an overlap.
+  const owner = new Map<string, number>();
+  for (const [gi, file] of guide.files.entries()) {
+    if (!file.part) continue;
+    const ranges = rangesByPath.get(file.path);
+    for (const span of file.part.lines) {
+      const [a, b] = typeof span === "number" ? [span, span] : span;
+      const matched = blocksInSpan(ranges, a, b);
+      if (matched.length === 0) {
+        if (opts.strict) {
+          const where = typeof span === "number" ? `line ${span}` : `span [${a}, ${b}]`;
+          return {
+            ok: false,
+            reason: `guide part "${file.part.title}" on "${file.path}": ${where} matches no change in the diff`,
+          };
+        }
+        continue;
+      }
+      for (const r of matched) {
+        const key = `${file.path}:${r.stableKey}`;
+        const prior = owner.get(key);
+        if (prior !== undefined && prior !== gi) {
+          if (opts.strict) {
+            const lines = r.lo === r.hi ? `line ${r.lo}` : `lines ${r.lo}-${r.hi}`;
+            return {
+              ok: false,
+              reason: `guide parts "${guide.files[prior]!.part!.title}" and "${file.part.title}" on "${file.path}" both claim the change at ${lines}`,
+            };
+          }
+          continue;
+        }
+        owner.set(key, gi);
+        const change = changeByKey.get(key);
+        if (change) change.part = gi;
+      }
+    }
+  }
+  return { ok: true };
+}
+
+// Every diff-aware guide check that stamps change blocks — skims, then parts — over one parse.
+// The attach and carry-forward paths call this rather than each resolver.
+export function resolveGuide(
+  rawDiff: string,
+  changes: ChangeState[],
+  guide: Guide,
+  opts: { strict: boolean },
+  preparsed?: DiffFile[],
+): SkimResolution {
+  const parsed = preparsed ?? parseUnifiedDiff(rawDiff);
+  const skim = resolveSkim(rawDiff, changes, guide, opts, parsed);
+  return skim.ok ? resolveParts(rawDiff, changes, guide, opts, parsed) : skim;
 }
 
 export type MovedResolution = { ok: true } | { ok: false; reason: string };

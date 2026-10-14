@@ -106,6 +106,13 @@ try {
   git("config", "user.email", "s@s.dev");
   git("config", "user.name", "smoke");
   writeFileSync(path.join(tmp, "a.txt"), "one\ntwo\nthree\n");
+  // Two edits far enough apart to form two change blocks (lines 3 and 25) — the file a guide
+  // splits into two parts.
+  const bLines = (edit) =>
+    Array.from({ length: 30 }, (_, i) =>
+      edit && (i === 2 || i === 24) ? `B${i + 1}!` : `b${i + 1}`,
+    ).join("\n") + "\n";
+  writeFileSync(path.join(tmp, "b.txt"), bLines(false));
   // Two oversized fixtures (issue 05): committed at 6000 lines, rewritten whole in the working
   // tree so each diff clears the >5000-changed-line threshold and gets stamped `oversized`.
   const bigLines = (tag) =>
@@ -115,6 +122,7 @@ try {
   git("add", "-A");
   git("commit", "-q", "-m", "init");
   writeFileSync(path.join(tmp, "a.txt"), "one\nCHANGED\nthree\n");
+  writeFileSync(path.join(tmp, "b.txt"), bLines(true));
   writeFileSync(path.join(tmp, "huge-approved.txt"), bigLines("edited"));
   writeFileSync(path.join(tmp, "huge-rejected.txt"), bigLines("edited"));
 
@@ -327,8 +335,74 @@ try {
   assert.equal(badReload.status, 422, "unresolvable skim span rejected");
   const badBody = await badReload.json();
   assert.ok(badBody.error?.includes("a.txt"), "rejection names the offending file");
-  rmSync(guideDir, { recursive: true, force: true });
   console.log("✓ reload with an unresolvable skim span → 422 naming the entry");
+
+  // Guide parts: split b.txt's two change blocks into two steps in different categories. Each
+  // block is stamped with the index of the guide entry whose part claims it.
+  const partsPath = path.join(guideDir, "parts.json");
+  const partsGuide = (bottomLines) => ({
+    overview: "Smoke parts.",
+    files: [
+      {
+        path: "b.txt",
+        category: "Top",
+        orientation: "The top edit.",
+        part: { title: "Top edit", lines: [3] },
+      },
+      { path: "a.txt", category: "Other file", orientation: "The changed file." },
+      {
+        path: "b.txt",
+        category: "Bottom",
+        orientation: "The bottom edit.",
+        part: { title: "Bottom edit", lines: bottomLines },
+      },
+    ],
+  });
+  writeFileSync(partsPath, JSON.stringify(partsGuide([[24, 26]])));
+  const split = JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", partsPath));
+  assert.ok(split.ok, "reload with a split guide accepted");
+  const splitState = await getJson("/api/state");
+  assert.deepEqual(
+    splitState.guide.files.map((f) => [f.path, f.part?.title ?? null]),
+    [
+      ["b.txt", "Top edit"],
+      ["a.txt", null],
+      ["b.txt", "Bottom edit"],
+    ],
+    "the guide keeps one entry per part",
+  );
+  assert.deepEqual(
+    splitState.changes
+      .filter((c) => c.path === "b.txt")
+      .map((c) => [c.lineNumber, c.part])
+      .sort((x, y) => x[0] - y[0]),
+    [
+      [3, 0],
+      [25, 2],
+    ],
+    "each block is stamped with its part's guide entry",
+  );
+  console.log("✓ reload --guide with a split file → each block stamped with its part");
+
+  // A part span that resolves to no change block fails the reload at the CLI, naming the path,
+  // the part title and the span, and leaves the desk on the guide it had.
+  writeFileSync(partsPath, JSON.stringify(partsGuide([99])));
+  const badSplit = spawnSync(
+    "node",
+    [CLI, "reload", "--repo", tmp, "--session", ID, "--guide", partsPath],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.equal(badSplit.status, 1, "an unmatched part span exits non-zero");
+  assert.match(
+    badSplit.stderr,
+    /guide part "Bottom edit" on "b\.txt": line 99 matches no change/,
+    "the error names the path, the part title and the span",
+  );
+  const keptState = await getJson("/api/state");
+  assert.deepEqual(keptState.guide.files[2].part.lines, [[24, 26]], "the desk keeps its guide");
+  assert.equal(keptState.changes.find((c) => c.path === "b.txt" && c.lineNumber === 25)?.part, 2);
+  rmSync(guideDir, { recursive: true, force: true });
+  console.log("✓ reload --guide with an unmatched part span → exits 1 naming path, part, span");
 
   // human asks a question → `galley await` yields a question event
   await post("/api/ask", {

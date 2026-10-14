@@ -24,6 +24,8 @@ import {
   reanchorComments,
   readGlobalSettings,
   resolveMovedFrom,
+  resolveGuide,
+  resolveParts,
   resolveSkim,
   reviewDir,
   sanitizeSession,
@@ -1361,6 +1363,120 @@ test("reload parses the unified diff exactly once, shared across build + skim (i
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+// ── resolveParts: guide parts → ChangeState.part stamping ────────────────────
+// SKIM_DIFF's two blocks: the imports run (new lines 3-5) and the core() rewrite (new lines 8-9).
+const IMPORTS = "additions:3:0:3";
+const CORE = "additions:8:1:2";
+
+function partsGuide(
+  ...parts: Array<[title: string, lines: Array<[number, number] | number>]>
+): Guide {
+  return {
+    overview: "o",
+    files: parts.map(([title, lines], i) => ({
+      path: "app.ts",
+      order: i,
+      category: `C${i}`,
+      orientation: title,
+      part: { title, lines },
+    })),
+  };
+}
+const partOf = (changes: ChangeState[], stableKey: string) =>
+  changes.find((c) => c.stableKey === stableKey)!.part;
+
+test("resolveParts stamps each block with the index of the guide entry whose part claims it", () => {
+  const changes = changesFromDiff(SKIM_DIFF);
+  const r = resolveParts(SKIM_DIFF, changes, partsGuide(["Imports", [[3, 5]]], ["Core", [9]]), {
+    strict: true,
+  });
+  assert.deepEqual(r, { ok: true });
+  assert.equal(partOf(changes, IMPORTS), 0);
+  assert.equal(partOf(changes, CORE), 1);
+});
+
+test("resolveParts leaves a block no part claims unstamped (the file's Rest)", () => {
+  const changes = changesFromDiff(SKIM_DIFF);
+  assert.ok(resolveParts(SKIM_DIFF, changes, partsGuide(["Imports", [4]]), { strict: true }).ok);
+  assert.equal(partOf(changes, IMPORTS), 0);
+  assert.equal(partOf(changes, CORE), undefined);
+});
+
+test("resolveParts (strict) rejects a span that matches no block, naming path, part title and span", () => {
+  const r = resolveParts(
+    SKIM_DIFF,
+    changesFromDiff(SKIM_DIFF),
+    partsGuide(["Imports", [[3, 5]]], ["Core", [[100, 104]]]),
+    { strict: true },
+  );
+  assert.deepEqual(r, {
+    ok: false,
+    reason: 'guide part "Core" on "app.ts": span [100, 104] matches no change in the diff',
+  });
+  const single = resolveParts(SKIM_DIFF, changesFromDiff(SKIM_DIFF), partsGuide(["Core", [1]]), {
+    strict: true,
+  });
+  assert.deepEqual(single, {
+    ok: false,
+    reason: 'guide part "Core" on "app.ts": line 1 matches no change in the diff',
+  });
+});
+
+test("resolveParts (strict) rejects a part on a file absent from the diff", () => {
+  const guide = partsGuide(["Ghost", [3]]);
+  guide.files[0]!.path = "ghost.ts";
+  const r = resolveParts(SKIM_DIFF, changesFromDiff(SKIM_DIFF), guide, { strict: true });
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.match(r.reason, /"Ghost" on "ghost\.ts"/);
+});
+
+test("resolveParts (strict) rejects two parts claiming one block, naming both and the block's lines", () => {
+  const r = resolveParts(
+    SKIM_DIFF,
+    changesFromDiff(SKIM_DIFF),
+    partsGuide(["Imports", [[3, 5]]], ["Core", [5, [8, 9]]]),
+    { strict: true },
+  );
+  assert.deepEqual(r, {
+    ok: false,
+    reason: 'guide parts "Imports" and "Core" on "app.ts" both claim the change at lines 3-5',
+  });
+});
+
+test("resolveParts (lenient) drops an unmatched span and lets the earlier part keep a contested block", () => {
+  const changes = changesFromDiff(SKIM_DIFF);
+  const r = resolveParts(
+    SKIM_DIFF,
+    changes,
+    partsGuide(["Imports", [[3, 5], 100]], ["Core", [5, [8, 9]]]),
+    { strict: false },
+  );
+  assert.deepEqual(r, { ok: true });
+  assert.equal(partOf(changes, IMPORTS), 0);
+  assert.equal(partOf(changes, CORE), 1);
+});
+
+test("resolveParts clears prior stamps so re-resolution follows the new guide", () => {
+  const changes = changesFromDiff(SKIM_DIFF);
+  resolveParts(SKIM_DIFF, changes, partsGuide(["Imports", [3]], ["Core", [8]]), { strict: true });
+  resolveParts(SKIM_DIFF, changes, partsGuide(["Core", [8]]), { strict: true });
+  assert.equal(partOf(changes, IMPORTS), undefined);
+  assert.equal(partOf(changes, CORE), 0);
+});
+
+test("resolveGuide resolves skims and parts together and fails on either", () => {
+  const guide = partsGuide(["Imports", [[3, 5]]], ["Core", [8]]);
+  guide.files[0]!.skimBlocks = [{ lines: [3, 5], reason: "imports" }];
+  const changes = changesFromDiff(SKIM_DIFF);
+  assert.deepEqual(resolveGuide(SKIM_DIFF, changes, guide, { strict: true }), { ok: true });
+  assert.deepEqual(changes.find((c) => c.stableKey === IMPORTS)!.skim, { reason: "imports" });
+  assert.equal(partOf(changes, CORE), 1);
+  guide.files[1]!.part!.lines = [100];
+  const bad = resolveGuide(SKIM_DIFF, changesFromDiff(SKIM_DIFF), guide, { strict: true });
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.match(bad.reason, /"Core" on "app\.ts": line 100/);
 });
 
 test("skim never changes approval derivations (display-only)", () => {

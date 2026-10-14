@@ -69,6 +69,14 @@ const ANCHORS = [
   // focused-review definition + flag (issue 04)
   "focused review",
   "mechanical churn skimmed",
+  // guide parts: one file split into steps, its rules, the Rest step, and a fresh guide on regroup
+  "part? — split a file",
+  "part: { title, lines }",
+  "A split file is split all the way",
+  "no two parts may claim the same change block",
+  '"Rest of <file>" step',
+  "move code from one part to another",
+  "for a part, its path, title and span",
   // the running app: --ui / galley ui, loopback-only, UI-only desks, never auto-reloaded
   "--ui <url>",
   "galley ui <url>",
