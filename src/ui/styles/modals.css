@@ -1,0 +1,198 @@
+/* ── Dialogs: Settings / Shortcuts, Confirm, Send, the annotation screenshot ── */
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: var(--scrim);
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-backdrop.show {
+  display: flex;
+}
+
+.modal {
+  width: 420px;
+  max-width: calc(100vw - 24px);
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: var(--window);
+  box-shadow: var(--shadow-float);
+  padding: 20px 22px 18px;
+}
+
+.modal-backdrop.show .modal {
+  animation: modal-in 0.32s var(--spring);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+}
+
+.modal h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.modal p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.modal.help {
+  width: 640px;
+  max-width: 92vw;
+}
+
+/* The Shortcuts tab: generated from the key table (keys.ts helpGroups). Caps in a fixed column so
+   the descriptions line up. */
+.help-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 28px;
+}
+
+.help-col {
+  break-inside: avoid;
+  margin-bottom: 6px;
+}
+
+.help-h {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-3);
+  margin: 12px 0 4px;
+}
+
+.help-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--sep);
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.help-row .keycaps {
+  min-width: 58px;
+}
+
+.modal.confirm {
+  width: 380px;
+}
+
+.modal.send textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 84px;
+  margin-top: 14px;
+  padding: 8px 10px;
+  font-size: var(--text-md);
+  resize: vertical;
+}
+
+.modal.settings {
+  width: 560px;
+  max-height: 82vh;
+  overflow: auto;
+}
+
+/* Settings ↔ Shortcuts: a segmented control heading the dialog. */
+.set-tabs {
+  display: flex;
+  width: max-content;
+  margin: 0 auto 18px;
+}
+
+.set-tabs > button {
+  min-width: 96px;
+}
+
+.set-pane.help-grid {
+  margin-top: 2px;
+}
+
+.modal.settings .set-section {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  margin: 20px 0 6px 2px;
+}
+
+.modal.settings .set-section:first-of-type {
+  margin-top: 4px;
+}
+
+/* Each section is one grouped form: rows on a raised plate, split by hairlines. */
+.set-grid {
+  display: grid;
+  gap: 0;
+  padding: 0 12px;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: 0 0 0 0.5px var(--sep-strong);
+}
+
+.set-grid label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  padding: 5px 0;
+  font-size: var(--text-md);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.set-grid label + label {
+  border-top: 1px solid var(--sep);
+}
+
+.set-grid label.check {
+  justify-content: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.set-grid select,
+.set-grid input[type="number"],
+.set-grid input[type="text"] {
+  width: 180px;
+  min-width: 0;
+  flex: 0 0 auto;
+  font-size: var(--text-sm);
+}
+
+.set-grid input[type="number"],
+.set-grid input[type="text"] {
+  height: 24px;
+  padding: 0 8px;
+}
+
+.set-grid input[type="number"] {
+  min-width: 0;
+  width: 80px;
+}
+
+.set-grid input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}

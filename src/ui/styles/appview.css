@@ -1,0 +1,403 @@
+/* ── UI lane: the Code / UI switch and the UI view (the proxied app) ─────────────────────── */
+/* The UI view replaces the file tree and the diff; the tree's Settings entry moves up into the
+   header (as on single-file desks), and review progress — a code-lane measure — steps aside. */
+.app.view-ui .tree,
+.app.view-ui .resizer,
+.app.view-ui .tree-backdrop,
+.app.view-ui .nav-toggle,
+.app.view-ui .guidebar,
+.app.view-ui .diff-area,
+.app.view-ui .top-progress,
+.app.view-ui .top-pct {
+  display: none !important;
+}
+
+.app.view-ui .actions .top-settings {
+  display: inline-flex;
+}
+
+.uiview {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* The code view keeps a loaded app laid out in the box the UI view shows it in (the centre
+   column beside the annotation sidebar, placed on .main), unseen and inert, so it warms in the
+   background at the stage's real size and the first switch re-lays out nothing. */
+.app:not(.view-ui) .uiview {
+  position: absolute;
+  inset: 0 var(--annside-w) 0 0;
+  visibility: hidden;
+}
+
+/* Browser-chrome bar: sits in the guide bar's slot, same height and surface. */
+.chrome {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--subbar-h);
+  padding: 6px 10px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--sep);
+  font-size: var(--text-sm);
+}
+
+.chrome .grp {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+/* Back / forward / refresh and the page note: quiet icon buttons, like a toolbar's. */
+.chrome .sq {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.chrome .sq:not(:disabled):hover {
+  color: var(--ink);
+  background: var(--fill-2);
+}
+
+.chrome .sq:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The address bar: a recessed field. */
+.chrome .addr {
+  flex: 1 1 auto;
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  margin: 0;
+  padding: 0 4px 0 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--fill-2);
+  transition: box-shadow 0.15s;
+}
+
+.chrome .addr:focus-within {
+  box-shadow:
+    inset 0 0 0 0.5px var(--blue),
+    0 0 0 3px var(--blue-wash);
+}
+
+.chrome .addr .host {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.chrome .addr input {
+  flex: 1 1 auto;
+  min-width: 40px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  padding: 0;
+  outline: none;
+}
+
+.chrome .seg > button {
+  padding: 0 8px;
+}
+
+.modal.shot .seg {
+  font-size: var(--text-xs);
+}
+
+.chrome .vpsize {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A page annotation's pin: in the address bar, since it has no spot on the page. Tinted by
+   kind like the page's pins (orange change request, blue question). */
+.chrome .pagepins {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 3px;
+}
+
+.chrome .pagepin {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  display: inline-grid;
+  place-items: center;
+  background: var(--orange);
+  color: var(--on-fill);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  cursor: pointer;
+}
+
+.chrome .pagepin.q {
+  background: var(--blue);
+}
+
+.chrome .pagepin.sel {
+  box-shadow:
+    0 0 0 2px var(--canvas),
+    0 0 0 3.5px var(--blue);
+}
+
+/* After `galley reload`: the app is never reloaded under the reviewer — this asks. */
+.pill-refresh {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--blue-wash);
+  color: var(--blue-ink);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  animation: pill-in 0.4s var(--spring);
+}
+
+.pill-refresh:hover {
+  background: color-mix(in srgb, var(--blue) 22%, transparent);
+}
+
+.pill-refresh .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blue);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% {
+    box-shadow: 0 0 0 4px var(--blue-wash);
+  }
+}
+
+@keyframes pill-in {
+  from {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+}
+
+/* Stage: the app frame. Fit fills it; a viewport preset renders the iframe at its real size,
+   centred and scaled down to fit (appview.ts sizeFrame), over a dotted ground. */
+.stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  container: stage / inline-size;
+  overflow: hidden;
+  background: var(--canvas);
+}
+
+.stage.preset {
+  background-image: radial-gradient(var(--sep) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+.stage .frame {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  background: #fff;
+  overflow: hidden;
+}
+
+.stage.preset .frame {
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 0.5px var(--sep-strong),
+    0 12px 40px rgb(0 0 0 / 0.28);
+}
+
+.stage.preset.mobile .frame {
+  border-radius: 22px;
+  box-shadow:
+    0 0 0 6px var(--fill-3),
+    0 0 0 6.5px var(--sep-strong),
+    0 12px 40px rgb(0 0 0 / 0.28);
+}
+
+.stage .frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.stage-note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  background: var(--canvas);
+}
+
+/* The UI lane's open change-request count, on the collapsed sidebar's rail. Orange like a change
+   request; ghosted at zero. The header's lane switch carries no count. */
+.lane-count {
+  min-width: 17px;
+  height: 16px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: var(--radius-pill);
+  display: inline-grid;
+  place-items: center;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--orange-ink);
+  background: var(--orange-wash);
+}
+
+.lane-count.zero {
+  color: var(--ink-3);
+  background: var(--fill-2);
+}
+
+/* The rail's count of questions waiting on the agent: blue like a question, shown only when
+   there are some. */
+.lane-count.waiting {
+  color: var(--blue-ink);
+  background: var(--blue-wash);
+}
+
+/* Interact / Annotate: a segmented control; Annotate lights up blue so the mode reads at a
+   glance. */
+.chrome .mode > button.active.ann {
+  background: var(--blue-wash);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--blue) 45%, transparent);
+  color: var(--blue-ink);
+}
+
+/* Annotate draws a blue ring around the app and a hint pill naming the gestures. */
+.stage .frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px transparent;
+  transition: box-shadow 0.15s;
+}
+
+.stage.annotate .frame::after {
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+.mode-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100% - 24px);
+  padding: 4px 4px 4px 13px;
+  border-radius: var(--radius-pill);
+  background: var(--window);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, var(--blue) 50%, transparent),
+    0 10px 30px rgb(0 0 0 / 0.25);
+  pointer-events: none;
+}
+
+.mode-hint b {
+  margin-right: 2px;
+  color: var(--blue-ink);
+  font-weight: 600;
+}
+
+/* Each tip is a key or gesture chip, then what it does. */
+.mode-hint .tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mode-hint button {
+  pointer-events: auto;
+  height: 24px;
+  padding: 0 10px 0 5px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.mode-hint button:hover {
+  color: var(--ink);
+  background: var(--fill-2);
+}
+
+/* Narrow stages drop tips, least needed first: the page button is in the chrome bar, and
+   adding to a pick is the rarest gesture. Clicking and the way out always stay. */
+@container stage (max-width: 760px) {
+  .mode-hint .t-page {
+    display: none;
+  }
+}
+
+@container stage (max-width: 680px) {
+  .mode-hint .t-add {
+    display: none;
+  }
+}
+
+@container stage (max-width: 520px) {
+  .mode-hint .t-quote {
+    display: none;
+  }
+}
+
+@container stage (max-width: 420px) {
+  .mode-hint .t-region {
+    display: none;
+  }
+}

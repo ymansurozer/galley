@@ -1,0 +1,610 @@
+/* ── The annotation sidebar (the "Quiet" design) ─────────────────────────────────────────
+   Calm by default: colour appears only where kind needs it. One axis (--ann-ax) carries page
+   names, bodies and the resolved toggle; numbers hang in the gutter to its left like footnote
+   marks. The thread inside an expanded row is the code lane's and isn't restyled here — only
+   the space around it is. The sidebar's column width is a variable: the code view lays a
+   warmed app out beside the same space. */
+.app {
+  --annside-w: 360px;
+}
+
+.app.annotations-closed {
+  --annside-w: 40px;
+}
+
+.app.view-ui .main {
+  grid-template-columns: minmax(0, 1fr) var(--annside-w);
+}
+
+.annside {
+  --ann-ax: 40px;
+  --ann-change: var(--orange-ink);
+  --ann-question: var(--blue-ink);
+  --ann-faint: var(--ink-3);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  background: var(--sidebar);
+  border-left: 1px solid var(--sep);
+}
+
+.ann-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.annotations-closed .ann-panel {
+  display: none;
+}
+
+.ann-top {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--subbar-h);
+  padding: 0 7px 0 12px;
+  border-bottom: 1px solid var(--sep);
+}
+
+.ann-top .ttl {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.ann-top .cnt {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ann-top .cnt .waiting {
+  color: var(--ann-question);
+}
+
+.ann-top .grow {
+  flex: 1;
+}
+
+.ann-top .sq,
+.ann-rail {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.ann-top .sq {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: var(--radius);
+}
+
+.ann-top .sq:hover {
+  color: var(--ink);
+  background: var(--fill-2);
+}
+
+.ann-rail {
+  display: none;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 0;
+}
+
+.ann-rail:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.ann-rail .lane-count {
+  margin-left: 0;
+}
+
+.ann-rail .vt {
+  writing-mode: vertical-rl;
+  font-size: var(--text-xs);
+  letter-spacing: 0.03em;
+}
+
+/* The rail runs the page's full height, so its tip can't open below it: there it would be out
+   of sight and make the page taller than the window. It opens to the left, by the icon. */
+.ann-rail[data-tip]::after {
+  top: 6px;
+  left: auto;
+  right: calc(100% + 6px);
+  transform: none;
+}
+
+.annotations-closed .ann-rail {
+  display: flex;
+}
+
+.annside-backdrop {
+  display: none;
+}
+
+/* The gutter is kept so a scrollbar that appears when a row expands doesn't narrow the rows.
+   uilane.ts keeps rows in place itself (its gaps), so the browser's scroll anchoring stays out
+   of it rather than correcting the same move twice. */
+.ann-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+  padding: 2px 0 72px;
+}
+
+.ann-empty {
+  margin: 0;
+  padding: 14px 12px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+/* Page groups: one line each, separated by space rather than rules. The current page is a dot
+   hanging in the number gutter and a full-ink name; title and route live in the tooltip. */
+.ann-page {
+  padding: 12px 0 4px;
+}
+
+.ann-page + .ann-page {
+  padding-top: 18px;
+}
+
+.ann-head {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 14px 7px var(--ann-ax);
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: var(--text-xs);
+  line-height: 16px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.ann-page.here .ann-head::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--ann-ax) - 13px);
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-2);
+}
+
+.ann-page-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.ann-page.here .ann-page-name,
+.ann-head:hover .ann-page-name {
+  color: var(--ink);
+}
+
+.ann-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Not checked since the last reload: one faint word on the head, never on the rows. */
+.ann-unchecked {
+  flex: 0 0 auto;
+  color: var(--ann-faint);
+  font-size: var(--text-xs);
+}
+
+.ann-head:focus-visible {
+  outline: 1px solid var(--sep-strong);
+  outline-offset: -1px;
+}
+
+/* Rows: a tabular numeral tinted by kind, then the body's first line. No glyphs, no state
+   words: the tooltip carries the state. */
+.ann-row {
+  display: grid;
+  grid-template-columns: var(--ann-ax) minmax(0, 1fr);
+  align-items: baseline;
+  min-height: 30px;
+  padding: 7px 14px 7px 0;
+  font-size: var(--text-sm);
+  line-height: 16px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.ann-row:hover {
+  background: var(--fill);
+}
+
+.ann-row.sel {
+  color: var(--ink);
+}
+
+.ann-num {
+  justify-self: end;
+  padding-right: 12px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.ann-row.k-change .ann-num {
+  color: var(--ann-change);
+}
+
+.ann-row.k-question .ann-num {
+  color: var(--ann-question);
+}
+
+.ann-body {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Resolved: one quiet toggle on the axis; revealed rows dimmed, numeral untinted. */
+.ann-show-resolved {
+  display: block;
+  width: 100%;
+  padding: 5px 14px 5px var(--ann-ax);
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--ann-faint);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.ann-show-resolved:hover {
+  color: var(--ink);
+}
+
+.ann-row.resolved {
+  color: var(--ink-2);
+}
+
+.ann-row.resolved .ann-num {
+  color: var(--ink-3);
+}
+
+.ann-row.resolved.sel {
+  color: var(--ink);
+}
+
+/* Expanded: one block set apart from its neighbours. A ground runs behind the row, its context
+   line and its thread, with an edge in the kind's colour down its left; the row heads it.
+   Expanding moves nothing already on screen: the row keeps its collapsed box and type, the
+   edge is a shadow, and only what opens below the row takes space. */
+.ann-item {
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  background: var(--fill-2);
+}
+
+.ann-item.k-change {
+  box-shadow: inset 2px 0 0 var(--ann-change);
+}
+
+.ann-item.k-question {
+  box-shadow: inset 2px 0 0 var(--ann-question);
+}
+
+.ann-item.resolved {
+  box-shadow: inset 2px 0 0 var(--sep-strong);
+}
+
+.ann-item .ann-row:hover {
+  background: none;
+}
+
+.ann-item .annotation {
+  width: auto;
+  margin: 0 6px;
+}
+
+/* The expanded row's one muted line of context, its parts text links. */
+.ann-ctx {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  margin-top: -3px;
+  padding: 0 14px 8px var(--ann-ax);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  color: var(--ink-3);
+}
+
+.ann-src {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  text-underline-offset: 2px;
+}
+
+button.ann-src {
+  cursor: pointer;
+}
+
+button.ann-src:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--sep-strong);
+}
+
+/* The screenshot's part of the line: "capturing…" and "capture failed" stay ghost text; the
+   stored pair is a link like the source's. */
+.ann-shot {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-underline-offset: 2px;
+}
+
+button.ann-shot {
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+button.ann-shot:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--sep-strong);
+}
+
+/* Its target wasn't found on the page: the line's last word, text like the rest. */
+.ann-unplaced {
+  flex: 0 0 auto;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* The enlarged screenshot: a viewport fills the dialog's width, a small crop grows to about
+   half of it, and either shrinks to fit the window's height. The frame hugs the image. */
+.modal.shot {
+  display: flex;
+  flex-direction: column;
+  width: 880px;
+  max-width: 94vw;
+  max-height: 92vh;
+}
+
+.modal.shot h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--text-sm);
+}
+
+.modal.shot .seg {
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.shot-frame {
+  align-self: center;
+  max-width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 0.5px var(--sep-strong);
+}
+
+.shot-frame img {
+  display: block;
+  min-width: min(440px, 80vw);
+  max-width: 100%;
+  max-height: calc(92vh - 120px);
+  object-fit: contain;
+}
+
+/* The floating composer: beside the picked element, its card the code lane's composer. */
+.ucomposer {
+  position: fixed;
+  z-index: 40;
+  display: none;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  padding: 10px;
+  border-radius: var(--radius-xl);
+  background: var(--window);
+  box-shadow: var(--shadow-float);
+}
+
+.ucomposer.show {
+  display: block;
+}
+
+.ucomposer .composer-card {
+  margin: 0;
+  max-width: none;
+}
+
+.uc-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin: 0 2px 8px;
+}
+
+.uc-num {
+  flex: 0 0 auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  display: inline-grid;
+  place-items: center;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  background: var(--fill-3);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--sep-strong);
+}
+
+.uc-target {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+
+.uc-more {
+  flex: 0 0 auto;
+  color: var(--ink-2);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
+.uc-close {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.uc-close:hover {
+  color: var(--ink);
+}
+
+.uc-src {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 2px 8px;
+}
+
+/* A text annotation's quote, under the composer's head: three lines at most. */
+.uc-quote {
+  margin: 0 2px 8px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--orange);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in oklab, var(--orange) 6%, transparent);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+.src-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--fill-2);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+button.src-chip {
+  cursor: pointer;
+}
+
+button.src-chip:hover {
+  color: var(--ink);
+  background: var(--fill-3);
+}
+
+.src-chip .ic {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  color: var(--blue);
+}
+
+/* The Send dialog's receipt, split by lane: a grouped form, one row per lane. */
+.modal .lanes {
+  margin-top: 14px;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: 0 0 0 0.5px var(--sep-strong);
+}
+
+.modal .lane {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 10px;
+  padding: 9px 11px;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.modal .lane + .lane {
+  border-top: 1px solid var(--sep);
+}
+
+.modal .lane > b {
+  padding-top: 1px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.modal .lane .sub {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}

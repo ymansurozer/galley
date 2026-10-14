@@ -1,0 +1,538 @@
+.annotation {
+  font-family: var(--sans);
+  position: relative;
+  width: 100%;
+  min-height: 30px;
+  max-width: none;
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.annotation.resolved {
+  opacity: 0.62;
+}
+
+.annotation.resolved .comment-box {
+  padding: 7px 12px;
+}
+
+.annotation .comment-box {
+  position: relative;
+  padding: 11px 16px 12px;
+}
+
+.annotation .thread-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 6px;
+  align-items: center;
+  border-top: 1px solid var(--sep);
+  padding-top: 8px;
+  margin-top: 12px;
+}
+
+.annotation .thread-intent {
+  background: var(--orange-wash);
+  color: var(--orange-ink);
+  border-radius: var(--radius-xs);
+  padding: 2px 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 15px;
+}
+
+/* Reply / Resolve / Reopen: small neutral push buttons; Resolve and Reopen say which way in
+   their ink. */
+.annotation .thread-actions button,
+.annotation.resolved .reopen-inline {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  border: 0;
+  background: var(--raised);
+  box-shadow: var(--shadow-control);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  padding: 0 9px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.annotation .thread-actions button:hover,
+.annotation.resolved .reopen-inline:hover {
+  background-image: linear-gradient(var(--fill), var(--fill));
+}
+
+.annotation .thread-actions .resolve-thread {
+  color: var(--green-ink);
+}
+
+.annotation .thread-actions .reopen-thread,
+.annotation.resolved .reopen-inline {
+  color: var(--orange-ink);
+}
+
+.annotation.resolved .reopen-inline {
+  margin-left: 6px;
+}
+
+/* Each message reads as a small card so a back-and-forth Q&A thread is scannable: the agent's
+   replies carry a blue rail down a straight left edge. A ~76ch measure so the body reads as
+   prose, not a form field. */
+.annotation .msg {
+  position: relative;
+  max-width: 76ch;
+  margin: 0 0 10px 0;
+  padding: 11px 14px 12px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: 0 0 0 0.5px var(--sep-strong);
+}
+
+.annotation .msg.agent {
+  border-left: 3px solid var(--blue);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  padding-left: 11px;
+}
+
+.annotation .msg:last-child {
+  margin-bottom: 0;
+}
+
+.annotation .thread-summary {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 20px;
+}
+
+.annotation .thread-summary b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.annotation.resolved .thread-actions {
+  display: none;
+}
+
+.annotation .meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 5px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+
+/* Out of the meta line's flow: hidden actions that still took their width wrapped the badge and
+   time onto a second line in narrow threads (the UI lane's sidebar, a narrow diff). On hover
+   they sit over the line's right end, on the message's own ground. */
+.annotation .msg-actions {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  gap: 2px;
+  padding-left: 6px;
+  background: var(--raised);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.annotation .msg:hover .msg-actions {
+  opacity: 1;
+}
+
+.annotation .msg-actions button {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  border-radius: var(--radius-sm);
+  padding: 0 7px;
+  font-size: var(--text-2xs);
+  font-weight: 500;
+}
+
+.annotation .msg-actions button:hover {
+  color: var(--ink);
+  background: var(--fill-2);
+}
+
+.annotation .msg-actions .delete-comment:hover {
+  color: var(--red-ink);
+  background: var(--red-wash);
+}
+
+/* Turn into ask / change request. In a narrow thread (the UI lane's sidebar, a narrow diff) its
+   label would cover the meta line's badge, so it shrinks to a glyph and names itself in a
+   tooltip (tooltip.ts shows a tip only when the label isn't on screen). */
+.annotation .msg {
+  container: msg / inline-size;
+}
+
+.annotation .turn-comment .turn-ic {
+  display: none;
+  width: 11px;
+  height: 11px;
+  margin: 2px 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@container msg (max-width: 400px) {
+  .annotation .msg-actions .turn-comment {
+    padding: 0 5px;
+  }
+
+  .annotation .turn-comment .turn-ic {
+    display: block;
+  }
+
+  .annotation .turn-comment .turn-label {
+    display: none;
+  }
+}
+
+/* The change-request pill (questions carry none). */
+.annotation .intent-badge {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  line-height: 15px;
+}
+
+.annotation .intent-badge.a {
+  color: var(--orange-ink);
+  background: var(--orange-wash);
+}
+
+.annotation .awaiting-answer {
+  margin-top: 6px;
+  color: var(--blue-ink);
+  font-size: var(--text-xs);
+}
+
+.annotation .awaiting-answer::before {
+  content: "◷ ";
+}
+
+/* The activity line is the informative part — full ink, brighter than the label. */
+.annotation .awaiting-answer .agent-activity {
+  color: var(--ink);
+}
+
+.annotation .awaiting-answer.queued {
+  color: var(--orange-ink);
+}
+
+.annotation .author {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.annotation .author.agent {
+  color: var(--blue-ink);
+}
+
+.annotation time {
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  color: var(--ink-3);
+}
+
+.annotation p {
+  margin: 7px 0 0;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.annotation .msg.agent p {
+  color: var(--ink);
+}
+
+.md {
+  color: var(--ink);
+  line-height: 1.55;
+  font-size: var(--text-sm);
+  margin-top: 6px;
+  overflow-wrap: break-word;
+}
+
+.annotation .msg.agent .md {
+  color: var(--ink);
+}
+
+/* The message body reads as prose at the reading scale. Scoped to the thread — the base
+   .md (rendered markdown files) keeps its own smaller size. Both flow through the type
+   tokens, so the Settings font/size knobs still apply. */
+.annotation .md {
+  font-size: var(--text-md);
+  line-height: 1.6;
+}
+
+.annotation .md code {
+  font-size: var(--text-sm);
+  background: var(--fill-2);
+  border-radius: var(--radius-xs);
+  padding: 0.5px 4px;
+}
+
+/* Inline composer (new comment / reply): the same card family as a message, so replying
+   feels like adding the next message rather than summoning a dialog. */
+.annotation .composer-card {
+  max-width: 76ch;
+  margin: 0 0 10px;
+  padding: 10px 14px 11px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: 0 0 0 0.5px var(--sep-strong);
+  transition: box-shadow 0.15s;
+}
+
+.annotation .composer-card:focus-within {
+  box-shadow:
+    0 0 0 0.5px var(--blue),
+    0 0 0 3.5px var(--blue-wash);
+}
+
+.annotation .composer-input {
+  width: 100%;
+  min-height: 54px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  padding: 0;
+  resize: vertical;
+}
+
+.annotation .composer-input:focus,
+.annotation .composer-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.annotation .composer-input::placeholder {
+  color: var(--ink-3);
+}
+
+.annotation .crow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--sep);
+}
+
+.annotation .crow .spacer {
+  flex: 1;
+}
+
+/* Composer buttons: small; the two intents are tinted by the badge mapping — Ask blue
+   (question), Request change orange. */
+.annotation .cbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  border: 0;
+  background: var(--raised);
+  box-shadow: var(--shadow-control);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  padding: 0 6px 0 9px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.annotation .cbtn:hover {
+  background-image: linear-gradient(var(--fill), var(--fill));
+}
+
+.annotation .cbtn.cancel {
+  padding-right: 9px;
+}
+
+.annotation .cbtn.ask {
+  background: var(--blue-wash);
+  box-shadow: none;
+  color: var(--blue-ink);
+}
+
+.annotation .cbtn.req {
+  background: var(--orange-wash);
+  box-shadow: none;
+  color: var(--orange-ink);
+}
+
+.annotation .cbtn.ask:hover {
+  background: color-mix(in srgb, var(--blue) 22%, transparent);
+}
+
+.annotation .cbtn.req:hover {
+  background: color-mix(in srgb, var(--orange) 22%, transparent);
+}
+
+/* Inline edit: the message body swaps for a textarea inside the same card (orange ring). */
+.annotation .msg.editing {
+  box-shadow:
+    0 0 0 0.5px var(--orange),
+    0 0 0 3.5px var(--orange-wash);
+}
+
+.annotation .msg.editing .msg-actions {
+  display: none;
+}
+
+.annotation .composer-edit {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--field);
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  padding: 7px 9px;
+  resize: vertical;
+}
+
+.annotation .composer-edit:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+}
+
+.annotation .editrow {
+  border-top: 0;
+  padding-top: 6px;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md p {
+  margin: 6px 0;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 10px 0 6px;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.md h1 {
+  font-size: var(--text-lg);
+}
+
+.md h2 {
+  font-size: var(--text-lg);
+}
+
+.md h3 {
+  font-size: var(--text-md);
+}
+
+.md h4 {
+  font-size: var(--text-sm);
+}
+
+.md ul,
+.md ol {
+  margin: 6px 0;
+  padding-left: 0;
+  list-style-position: inside;
+}
+
+.md li {
+  margin: 2px 0;
+}
+
+.md li > ul,
+.md li > ol {
+  margin: 2px 0 2px 1.2em;
+}
+
+.md a {
+  color: var(--blue-ink);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--blue-ink) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+.md code {
+  background: var(--fill-2);
+  border-radius: var(--radius-xs);
+  padding: 1px 4px;
+  font-size: var(--text-xs);
+}
+
+.md pre {
+  background: var(--fill);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  overflow: auto;
+  margin: 8px 0;
+}
+
+.md pre.shiki {
+  background: var(--fill);
+}
+
+.md pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.md blockquote {
+  margin: 6px 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--sep-strong);
+  color: var(--ink-2);
+}
+
+.md img {
+  max-width: 100%;
+}
+
+.md table {
+  border-collapse: collapse;
+  margin: 6px 0;
+}
+
+.md th,
+.md td {
+  border: 1px solid var(--sep);
+  padding: 3px 7px;
+}

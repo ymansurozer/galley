@@ -27,6 +27,7 @@ import type {
   ThreadMessage,
   ReviewComment,
 } from "./types";
+import { keycapsHtml } from "./keycaps";
 
 export function annotations(): AnnotationInput[] {
   const threads: AnnotationInput[] = [];
@@ -245,17 +246,17 @@ export function buildCommentThread(
             const editing = S.editingCommentId === m.id;
             const edited =
               m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
+            // Only a change request wears a badge; a question reads as a plain message (its
+            // awaiting line says when it's still waiting on the agent).
             const badge =
-              own && m.intent === "question"
-                ? '<span class="intent-badge q">Question</span>'
-                : own && m.intent === "action"
-                  ? '<span class="intent-badge a">Change requested</span>'
-                  : "";
+              own && m.intent === "action"
+                ? '<span class="intent-badge a">Change requested</span>'
+                : "";
             const awaiting = own && m.intent === "question" && !answered(m, c.comments);
             // Only the opening message carries the thread's kind, so only it turns.
             const into = i === 0 ? turnsInto(m) : null;
             const label = into === "question" ? "Turn into ask" : "Turn into change request";
-            // The glyph stands in for the label in a narrow thread (index.html, .turn-comment).
+            // The glyph stands in for the label in a narrow thread (styles/threads.css, .turn-comment).
             const turn = into
               ? `<button class="turn-comment" data-id="${m.id}" aria-label="${label}" data-tip="${label}" data-tip-align="end"><svg class="turn-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5.5h9.5M10 3l2.5 2.5L10 8M13 10.5H3.5M6 8l-2.5 2.5L6 13"/></svg><span class="turn-label">${label}</span></button>`
               : "";
@@ -344,7 +345,7 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   const el = document.createElement("div");
   el.className = `annotation ${c.type === "thread" && c.status === "resolved" ? "resolved" : ""}`;
   if (c.type === "change") {
-    el.innerHTML = `<div class="change-actions"><button class="reject">Undo <kbd>⇧N</kbd></button><button class="accept">Keep <kbd>⇧Y</kbd></button></div>`;
+    el.innerHTML = `<div class="change-actions"><button class="reject">Undo ${keycapsHtml("⇧N")}</button><button class="accept">Keep ${keycapsHtml("⇧Y")}</button></div>`;
   } else {
     el.appendChild(buildCommentThread(c, lineThread(c)));
     // The change on the thread's line keeps its decision bar right under the hunk, above the
@@ -352,7 +353,7 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     if (change) {
       const ca = document.createElement("div");
       ca.className = "change-actions";
-      ca.innerHTML = `<button class="reject">Undo <kbd>⇧N</kbd></button><button class="accept">Keep <kbd>⇧Y</kbd></button>`;
+      ca.innerHTML = `<button class="reject">Undo ${keycapsHtml("⇧N")}</button><button class="accept">Keep ${keycapsHtml("⇧Y")}</button>`;
       el.prepend(ca);
     }
   }

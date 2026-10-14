@@ -1,0 +1,175 @@
+/* ── The guide's Overview page: a document on the canvas ── */
+.guide-overview {
+  min-height: 100%;
+  display: grid;
+  place-items: start center;
+  padding: 40px 30px;
+}
+
+.guide-overview .go-card {
+  width: min(680px, 100%);
+  padding: 0;
+}
+
+.guide-overview h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+.guide-overview .go-sub {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  margin-bottom: 16px;
+}
+
+/* Focused-review badge (issue 04): a muted pill telling the human churn was deliberately skimmed. */
+.guide-overview .go-focused {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 0 16px;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 11px;
+  background: var(--fill-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.guide-overview .go-focused .ic {
+  width: 13px;
+  height: 13px;
+  color: var(--ink-2);
+}
+
+.guide-overview .go-overview {
+  color: var(--ink);
+  line-height: 1.6;
+  margin: 0 0 16px;
+  font-size: var(--text-lg);
+  text-wrap: pretty;
+}
+
+.guide-overview .go-pr {
+  border-radius: var(--radius-lg);
+  background: var(--fill);
+  padding: 12px 14px;
+  margin: 0 0 18px;
+}
+
+.guide-overview .go-pr b {
+  color: var(--ink-3);
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.guide-overview .go-pr .md {
+  margin-top: 0;
+}
+
+.guide-overview .go-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.guide-overview .go-meta {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.guide-overview .go-stale {
+  margin: 12px 0 18px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  background: var(--orange-wash);
+  color: var(--orange-ink);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.guide-overview .go-stale code {
+  background: var(--fill-2);
+  border-radius: var(--radius-xs);
+  padding: 0 4px;
+}
+
+/* ── Toast and the go-to-line pill: a banner floating over the bottom of the desk ── */
+.toast,
+.goline {
+  position: absolute;
+  left: 50%;
+  bottom: 46px;
+  z-index: 25;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+  background: var(--window);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.toast.show,
+.goline.show {
+  display: flex;
+  animation: banner-in 0.4s var(--spring);
+}
+
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+}
+
+.toast:has(.toast-action:not([style*="none"])) {
+  padding-right: 5px;
+}
+
+.toast-action {
+  height: 22px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--blue-wash);
+  color: var(--blue-ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: color-mix(in srgb, var(--blue) 22%, transparent);
+}
+
+/* Go-to-line: a mode indicator for pending typed digits. */
+.goline b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.goline .goline-hint {
+  color: var(--ink-2);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  font-weight: 400;
+}

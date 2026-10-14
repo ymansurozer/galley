@@ -137,12 +137,12 @@ export function treeRows(): TreeRow[] {
     // A changed test stays revealed for its whole lifecycle (like any changed file) so it doesn't
     // vanish from the tree the moment it's approved — only *unchanged* sibling tests stay folded.
     const changedTests = !isTest && file.tests.some((t) => t.changed);
-    // The parent filename reads as "needs attention" (cyan) only while a changed test is still
+    // The parent filename reads as "needs attention" (full ink) only while a changed test is still
     // pending; once every changed test is signed off, the parent goes neutral (dealt with).
     const pendingChangedTests =
       !isTest && file.tests.some((t) => t.changed && ix.reviewState(t.path) === "pending");
-    // "Changed" (cyan) filename = still needs attention: a pending changed file, or a child test
-    // that's still pending. Approved / changes-requested files read as neutral (dealt with).
+    // "Changed" (full-ink) filename = still needs attention: a pending changed file, or a child
+    // test that's still pending. Approved / changes-requested files read as neutral (dealt with).
     const changedish = (file.changed && state === "pending") || pendingChangedTests;
     const testOpen = hasTests && (S.expandedDirs.has(`tests:${file.path}`) || changedTests);
     // A file with tests shows the test-toggle caret instead of a badge only when it's otherwise
@@ -187,8 +187,8 @@ export function treeRows(): TreeRow[] {
   }
 
   // A flat, muted row for a fully-skimmed file inside the collapsed group: no state badge and no
-  // "changed" cyan (it's out of the flow), just the skim indicator. Clicking opens it like any
-  // file — its file/block skim strips render as issue 06 built.
+  // "changed" full-ink name (it's out of the flow), just the skim indicator. Clicking opens it like
+  // any file — its file/block skim strips render as issue 06 built.
   function skimFileRow(path: string): FileRow {
     const index = changed.get(path);
     return {

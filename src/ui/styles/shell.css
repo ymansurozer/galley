@@ -1,0 +1,421 @@
+.app {
+  height: 100%;
+  display: grid;
+  /* Tall enough that the topbar buttons keep clear air above the progress strip riding
+     the bar's bottom edge. */
+  grid-template-rows: 48px 1fr;
+}
+
+/* ── Top bar: what is under review and the hand-back ── */
+.top {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--sep);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/* Review progress: a fill strip riding the topbar's bottom edge (covers the border as it
+   advances) + the "% reviewed" label beside the actions. progress.ts drives both. */
+.top-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  pointer-events: none;
+}
+
+.top-progress > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--green);
+  border-radius: 0 2px 2px 0;
+  transition: width 0.45s var(--ease);
+}
+
+.top-progress.pulse > i {
+  animation: prog-pulse 0.8s var(--ease);
+}
+
+@keyframes prog-pulse {
+  0% {
+    filter: brightness(1.4);
+    box-shadow: 0 0 10px 0 var(--green);
+  }
+
+  100% {
+    filter: brightness(1);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.top-pct {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.brand span {
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+/* The project under review (the main worktree's folder): a filesystem name, so mono like the
+   paths elsewhere in the chrome, and quiet beside the wordmark. It's the brand's only shrinking
+   part — at narrow widths it truncates and its tooltip carries the full name. */
+.brand .brand-project {
+  min-width: 0;
+  padding-left: 9px;
+  border-left: 1px solid var(--sep-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  line-height: 14px;
+}
+
+.brand-logo {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+}
+
+/* Hamburger that opens the off-canvas file drawer — the topbar's only tree affordance once
+   the tree goes off-canvas. Hidden by default; revealed only under the ≤1100px media query
+   (and re-hidden in single-file / file-mode, which have no tree). */
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin-left: -4px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.nav-toggle:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+/* Scrim behind the open file drawer; CSS-gated to narrow widths (see media query). */
+.tree-backdrop {
+  display: none;
+}
+
+.toggles {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
+.actions {
+  justify-self: end;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.lane-switch > button .ic {
+  width: 13px;
+  height: 13px;
+}
+
+/* The review's open change requests, in the top bar: a click (or ]) walks to the next one.
+   Quiet beside Send; orange is the change-request color the tree's flag badge wears. Narrow,
+   it keeps the flag and the count; narrower still it would push the actions onto two lines, so
+   it leaves the bar to them (] still walks). */
+.actions .req-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  padding: 0 8px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.actions .req-chip .ic {
+  color: var(--orange);
+}
+
+.actions .req-chip b {
+  margin-right: -2px;
+  color: var(--orange-ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions .req-chip:hover {
+  color: var(--ink);
+  background: var(--orange-wash);
+}
+
+@media (max-width: 1100px) {
+  .actions .req-chip .req-label,
+  .actions .req-chip .keycaps {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .actions .req-chip {
+    display: none;
+  }
+}
+
+/* Reset Review's glyph stands in for its label on a phone. */
+.reset-review > .ic {
+  display: none;
+}
+
+/* Phone widths: the top bar keeps every control but compacts them — the wordmark gives way, the
+   lane switch keeps its icons, Reset Review its glyph, and the buttons drop their keycaps (their
+   tooltips still carry them). */
+@media (max-width: 760px) {
+  .top {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .brand-logo,
+  .brand > span {
+    display: none !important;
+  }
+
+  .lane-switch > button > span,
+  .reset-review > span,
+  .top .btn .keycaps {
+    display: none;
+  }
+
+  .lane-switch > button {
+    padding: 0 9px;
+  }
+
+  .reset-review > .ic {
+    display: block;
+  }
+
+  .top .btn {
+    padding: 0 10px;
+    font-size: var(--text-sm);
+  }
+
+  .top .reset-review {
+    width: 28px;
+    padding: 0;
+  }
+}
+
+.actions .agent-status {
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--blue-ink);
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actions .agent-status.queued {
+  color: var(--orange-ink);
+}
+
+.actions .top-settings {
+  display: none;
+}
+
+body.single .actions .top-settings,
+body.file-mode .actions .top-settings {
+  display: inline-flex;
+}
+
+/* No tree exists in these modes (tree is display:none below), so suppress the drawer toggle. */
+body.single .nav-toggle,
+body.file-mode .nav-toggle {
+  display: none !important;
+}
+
+.main {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--left-width, 280px) 1px minmax(0, 1fr);
+  position: relative;
+}
+
+/* ── Sidebar: navigation, on the window's material ── */
+.tree {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 10px;
+  background: var(--sidebar-material);
+}
+
+#files,
+#walk {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Settings lives docked at the sidebar's far bottom; the topbar twin (.top-settings)
+   shows only when the tree is hidden (single-column / file mode) so it stays reachable. */
+.tree-settings {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: auto -10px -10px;
+  padding: 10px 14px;
+  border: 0;
+  border-top: 1px solid var(--sep);
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.tree-settings:hover {
+  color: var(--ink);
+  background: var(--fill);
+}
+
+.tree-settings .keycaps {
+  margin-left: auto;
+}
+
+.resizer {
+  background: var(--sep);
+  cursor: col-resize;
+  min-width: 1px;
+  position: relative;
+  transition: background-color 0.15s;
+}
+
+.resizer:before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+}
+
+.resizer:hover,
+.resizer.dragging {
+  background: var(--blue);
+}
+
+.center {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+[x-cloak] {
+  display: none !important;
+}
+
+/* Until the first state is in, the desk doesn't know which lanes it has: only the brand shows,
+   so neither lane's chrome flashes before the other's. */
+.app.booting .nav-toggle,
+.app.booting .toggles,
+.app.booting .actions,
+.app.booting .main {
+  visibility: hidden;
+}
+
+/* ── Guide bar: Overview and file stepping, above the diff ── */
+.guidebar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  height: var(--subbar-h);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--sep);
+  font-size: var(--text-sm);
+}
+
+.guidebar .gb-acts {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.guidebar .gb-home,
+.guidebar .gb-nav {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-lg);
+}
+
+.guidebar .gb-home:hover,
+.guidebar .gb-nav:not(:disabled):hover {
+  color: var(--ink);
+  background: var(--fill-2);
+}
+
+.guidebar .gb-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.guidebar .gb-fill {
+  flex: 1 1 auto;
+}
+
+.guidebar .gb-stale {
+  flex: 0 0 auto;
+  color: var(--orange-ink);
+  font-size: var(--text-xs);
+}

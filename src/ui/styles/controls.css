@@ -1,0 +1,306 @@
+/* ── Shared controls ───────────────────────────────────────────────────────────────────────
+   The pieces every surface is built from: push buttons, segmented controls, fields, keycaps,
+   tooltips. Surfaces size or place them; the look lives here.
+
+   Attention has one owner. In the code view the only filled button is the open file's
+   Approve (green) / Mark Reviewed (orange); a dialog's default action is filled blue. Everything
+   else is neutral (a raised push button) or quiet (text until hovered). */
+
+/* Push button: neutral by default. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--raised);
+  box-shadow: var(--shadow-control);
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    box-shadow 0.15s;
+}
+
+.btn:hover {
+  background-image: linear-gradient(var(--fill), var(--fill));
+}
+
+.btn:active {
+  background-image: linear-gradient(var(--fill-3), var(--fill-3));
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  background-image: none;
+}
+
+/* Filled: the one action the surface is for. A filled button names its ground in --btn-bg,
+   --btn-bg-hover and --btn-bg-pressed (the *-fill tokens); .btn.primary is blue, the file's
+   sign-off green or orange (decisions.css). */
+.btn.primary {
+  --btn-bg: var(--blue-fill);
+  --btn-bg-hover: var(--blue-fill-hover);
+  --btn-bg-pressed: var(--blue-fill-pressed);
+  background: var(--btn-bg);
+  color: var(--on-fill);
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.2),
+    0 1px 2px rgb(0 0 0 / 0.2);
+}
+
+/* Hover steps the ground (the *-fill-hover token) and haloes it in its own hue. */
+.btn.primary:hover {
+  background: var(--btn-bg-hover);
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.25),
+    0 0 0 3px color-mix(in srgb, var(--btn-bg-hover) 28%, transparent);
+}
+
+.btn.primary:active {
+  background: var(--btn-bg-pressed);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
+}
+
+.btn.primary:disabled {
+  background: var(--btn-bg);
+}
+
+:is(.btn.primary, .fill):focus-visible {
+  outline: 2px solid var(--btn-bg-hover);
+  outline-offset: 2px;
+}
+
+/* Quiet: text that becomes a button under the pointer. */
+.btn.quiet,
+.btn.icon {
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-2);
+}
+
+.btn.quiet:hover,
+.btn.icon:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.btn.icon {
+  width: 28px;
+  padding: 0;
+}
+
+/* Destructive and quiet (Reset Review): the danger shows on hover. */
+.btn.danger:hover {
+  background: var(--red-wash);
+  color: var(--red-ink);
+}
+
+/* Small: inline in a card, a bar or a thread. */
+.btn.sm {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+/* Segmented control: a recessed track, the chosen segment a raised thumb. */
+.seg {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  gap: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--fill-2);
+}
+
+.seg > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.2s var(--ease),
+    color 0.15s;
+}
+
+.seg > button:hover {
+  color: var(--ink);
+}
+
+.seg > button.active {
+  background: var(--thumb);
+  color: var(--ink);
+  box-shadow: var(--shadow-thumb);
+}
+
+.seg > button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.seg > button:disabled.active {
+  opacity: 0.6;
+}
+
+/* Extra small: inside a bar that is itself small (the file header). */
+.seg.xs {
+  padding: 1.5px;
+  border-radius: var(--radius-sm);
+}
+
+.seg.xs > button {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: var(--text-xs);
+}
+
+/* Text fields. */
+textarea,
+input {
+  color: var(--ink);
+  background: var(--field);
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+  transition: box-shadow 0.15s;
+}
+
+/* Selects read as Mac pop-up buttons: a raised control with an up/down chevron. */
+select {
+  appearance: none;
+  height: 24px;
+  padding: 0 24px 0 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--raised)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 12'%3E%3Cpath d='M1.5 4.5 4 2l2.5 2.5M1.5 7.5 4 10l2.5-2.5' fill='none' stroke='%238e8e93' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    no-repeat right 8px center / 7px 11px;
+  box-shadow: var(--shadow-control);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+textarea,
+input {
+  width: 100%;
+  padding: 8px;
+}
+
+textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+:is(textarea, input, select):focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 0.5px var(--blue),
+    0 0 0 3px var(--blue-wash);
+}
+
+input[type="checkbox"] {
+  box-shadow: none;
+  accent-color: var(--blue);
+}
+
+/* Keycaps: every shortcut on screen is drawn by keycaps.ts — one cap per key, modifiers first,
+   letters upper-cased (a Mac keyboard's legend). */
+.keycaps {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  vertical-align: middle;
+  white-space: nowrap;
+  pointer-events: none;
+  font: inherit;
+}
+
+.cap {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--cap);
+  box-shadow: var(--shadow-cap);
+  color: var(--ink-2);
+  font: 500 10px/1 var(--sans);
+  letter-spacing: 0;
+}
+
+/* Modifier and arrow glyphs a size up, so ⇧ and ↵ stay legible beside a letter. */
+.cap.glyph {
+  font-size: 12px;
+}
+
+/* On a filled button the caps go translucent white; on a tinted one they take its ink. */
+:is(.btn.primary, .fill) .cap {
+  background: rgb(255 255 255 / 0.16);
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.22);
+  color: var(--on-fill);
+  font-weight: 600;
+}
+
+.tint .cap {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, currentColor 40%, transparent);
+  color: inherit;
+}
+
+/* Fast custom tooltip (the native title waits ~1.5s), drawn by tooltip.ts for any element with
+   data-tip: the label, then its shortcut as keycaps. */
+.tooltip {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(320px, calc(100vw - 12px));
+  padding: 4px 6px 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--window);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.tooltip.show {
+  opacity: 1;
+}
+
+.tooltip:not(:has(.keycaps)) {
+  padding-right: 8px;
+}

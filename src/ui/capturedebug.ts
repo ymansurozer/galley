@@ -21,8 +21,8 @@ export function installCaptureDebug() {
       </form>
       <p data-status></p>
       <div style="display:grid;gap:12px;margin-top:10px;justify-items:start">
-        <figure style="margin:0"><img data-crop style="max-width:100%;border:1px solid var(--line)"><figcaption data-crop-cap></figcaption></figure>
-        <figure style="margin:0"><img data-viewport style="max-width:100%;border:1px solid var(--line)"><figcaption data-viewport-cap></figcaption></figure>
+        <figure style="margin:0"><img data-crop style="max-width:100%;border:1px solid var(--sep)"><figcaption data-crop-cap></figcaption></figure>
+        <figure style="margin:0"><img data-viewport style="max-width:100%;border:1px solid var(--sep)"><figcaption data-viewport-cap></figcaption></figure>
       </div>
     </div>`;
   document.body.append(backdrop);
