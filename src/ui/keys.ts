@@ -485,7 +485,7 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "⇧R",
-    desc: "Reset review",
+    desc: "Reset Review",
     group: "App",
     test: shift("R"),
     when: navigable,

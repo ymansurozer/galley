@@ -1,6 +1,7 @@
 /* ── UI lane: the Code / UI switch and the UI view (the proxied app) ─────────────────────── */
-/* The UI view replaces the file tree and the diff; the tree's Settings entry moves up into the
-   header (as on single-file desks), and review progress — a code-lane measure — steps aside. */
+/* The UI view replaces the file tree and the diff, and review progress (a code-lane measure)
+   steps aside. Settings stays ⇧, away; only a UI-only desk, which never shows the tree's Settings
+   row, keeps the gear in the header (as on single-file desks). */
 .app.view-ui .tree,
 .app.view-ui .resizer,
 .app.view-ui .tree-backdrop,
@@ -12,7 +13,7 @@
   display: none !important;
 }
 
-.app.view-ui .actions .top-settings {
+.app.ui-only .actions .top-settings {
   display: inline-flex;
 }
 
