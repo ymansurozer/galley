@@ -114,6 +114,8 @@ export function deriveChanges(
         // Server-stamped skim rides on the change's identity; carry it across client
         // re-derivation. A rewritten block gets a new id → no prev → skim drops on its own.
         skim: prev?.skim,
+        // The guide part that claims the block rides the same identity (absent = Rest).
+        part: prev?.part,
       });
     });
   });

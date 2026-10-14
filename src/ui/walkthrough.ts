@@ -1,4 +1,5 @@
-import type { DiffHunk, GuideFile } from "../types";
+import type { ChangeState, DiffHunk, GuideFile } from "../types";
+import { slotOutOfFlow, stepPlan, type Step, type StepSlot } from "./steps";
 import type { FileReviewState } from "./types";
 
 // Pure data for the Walkthrough sidebar tab and the Overview file list — no store import
@@ -39,12 +40,26 @@ export function lineStats(files: FileLike[]): Map<string, LineStat> {
   return m;
 }
 
+// One change block's +added/−removed, read off its stableKey. The key is
+// `side:line:deletions:additions` — built the same way server-side (git.ts
+// changeStableKeyFromBlock) and in the tab (decisions-derive.ts changeStableKey) — so a part's
+// counts come from blocks the tab already holds, with no diff walk. This couples the counts to
+// that key format: a key of any other shape counts nothing.
+export function blockLineStat(c: Pick<ChangeState, "stableKey">): LineStat {
+  const m = c.stableKey?.match(/^(?:additions|deletions):\d+:(\d+):(\d+)$/);
+  return m ? { added: Number(m[2]), removed: Number(m[1]) } : { added: 0, removed: 0 };
+}
+
 export type WalkFile = {
   path: string;
   // dir + name === path; the templates dim the dir and emphasize the basename.
   dir: string;
   name: string;
   fileIndex: number;
+  // The step this row opens (steps.ts): a part's guide-entry index, "rest" for the blocks no part
+  // claims, absent for the whole file. partTitle is the part's title ("" otherwise).
+  part?: Step["part"];
+  partTitle: string;
   orientation: string; // guide markdown ("" for unlisted files and orientation-less skims)
   flag: string; // flag note ("" = not flagged); presence raises the flag icon
   skim: boolean; // the guide marked the whole file skimmable → a muted indicator
@@ -65,30 +80,42 @@ export type WalkGroup = {
   total: number;
 };
 
-// Run-length grouping: categories and files in guide order, with a new section started each
-// time the category changes from the previous *shown* file — so a category the agent lists
+// Run-length grouping: categories and steps in guide order, with a new section started each
+// time the category changes from the previous *shown* row — so a category the agent lists
 // non-contiguously yields separate sections instead of folding back up, and these surfaces
-// mirror guideOrder() exactly. Guide entries absent from the diff are skipped (same rule as
-// guideOrder); diff files absent from the guide land in a trailing "Other" group — so these
+// mirror the guided step order (stepPlan) exactly. A split file gives a row per part, each under
+// its own entry's category. Guide entries absent from the diff are skipped; diff files absent
+// from the guide, and each split file's Rest, land in a trailing "Other" group — so these
 // surfaces always cover everything the progress strip counts and the two can never disagree.
+// `changesOf` supplies a path's change blocks (with their server-stamped `part`/`skim`).
 export function walkthroughGroups(
   guideFiles: GuideFile[],
   files: FileLike[],
   stateOf: (path: string) => FileReviewState,
   fullySkimmed: (path: string) => boolean = () => false,
+  changesOf: (path: string) => ChangeState[] = () => [],
 ): WalkGroup[] {
   const stats = lineStats(files);
-  const index = new Map(files.map((f, i) => [f.path, i] as const));
-  const mkFile = (path: string, fileIndex: number, g?: GuideFile): WalkFile => {
+  const mkFile = ({ step, path, entry: g, blocks }: StepSlot): WalkFile => {
     const name = path.split("/").pop() || path;
-    const s = stats.get(path) ?? { added: 0, removed: 0 };
-    const fl = files[fileIndex];
+    let s = stats.get(path) ?? { added: 0, removed: 0 };
+    if (blocks) {
+      s = { added: 0, removed: 0 };
+      for (const b of blocks) {
+        const bs = blockLineStat(b);
+        s.added += bs.added;
+        s.removed += bs.removed;
+      }
+    }
+    const fl = files[step.fileIndex];
     const moved = fl?.oldPath && fl?.newPath && fl.oldPath !== fl.newPath ? fl.oldPath : "";
     return {
       path,
       dir: path.slice(0, path.length - name.length),
       name,
-      fileIndex,
+      fileIndex: step.fileIndex,
+      part: step.part,
+      partTitle: g?.part?.title ?? "",
       orientation: g?.orientation ?? "",
       flag: g?.flag ?? "",
       skim: !!g?.skim,
@@ -116,35 +143,32 @@ export function walkthroughGroups(
     if (f.state !== "pending") grp.done++;
   };
   const groups: WalkGroup[] = [];
-  const listed = new Set<string>();
-  // Fully-skimmed files leave their normal group (guide category or Other) and gather in one
-  // trailing collapsed "Skimmed" group (issue 07). Collected here, appended last.
+  const plan = stepPlan(guideFiles, files, changesOf);
+  // Fully-skimmed steps leave their normal group (guide category or Other) and gather in one
+  // trailing collapsed "Skimmed" group (issue 07) — per step, so an all-skimmed part goes while
+  // its file's other parts stay. Collected here, appended last.
   const skimmed = mkGroup("Skimmed", false, true);
-  // Track only the current group: a skipped file (not in the diff) leaves no visible gap, so
-  // it must not split a run — hence the category compare happens against the last *shown* file.
+  // Track only the current group: a skipped entry (not in the diff) leaves no visible gap, so
+  // it must not split a run — hence the category compare happens against the last *shown* row.
   let cur: WalkGroup | null = null;
-  for (const g of guideFiles) {
-    listed.add(g.path);
-    const i = index.get(g.path);
-    if (i === undefined) continue;
-    if (fullySkimmed(g.path)) {
-      add(skimmed, mkFile(g.path, i, g));
+  for (const slot of plan.listed) {
+    if (slotOutOfFlow(slot, fullySkimmed)) {
+      add(skimmed, mkFile(slot));
       continue;
     }
-    // A skimmed file must not carry the run forward — compare/open the category off shown,
-    // in-flow files only, so a skimmed file between two same-category files can't split them.
-    if (!cur || cur.category !== g.category) {
-      cur = mkGroup(g.category, false);
+    // A skimmed row must not carry the run forward — compare/open the category off shown,
+    // in-flow rows only, so a skimmed file between two same-category files can't split them.
+    // Every listed slot carries its guide entry.
+    const category = slot.entry!.category;
+    if (!cur || cur.category !== category) {
+      cur = mkGroup(category, false);
       groups.push(cur);
     }
-    add(cur, mkFile(g.path, i, g));
+    add(cur, mkFile(slot));
   }
   const other = mkGroup("Other", true);
-  files.forEach((f, i) => {
-    if (listed.has(f.path)) return;
-    if (fullySkimmed(f.path)) add(skimmed, mkFile(f.path, i));
-    else add(other, mkFile(f.path, i));
-  });
+  for (const slot of plan.other)
+    add(slotOutOfFlow(slot, fullySkimmed) ? skimmed : other, mkFile(slot));
   if (other.total) groups.push(other);
   if (skimmed.total) groups.push(skimmed);
   return groups;
@@ -168,7 +192,7 @@ export type WalkRow =
       added: number;
       removed: number;
       complete: boolean;
-      jumpIndex: number; // diff index a header click selects (first pending in the group, else its first)
+      jump: Step; // the step a header click opens (first pending in the group, else its first)
     }
   | (WalkFile & { kind: "file"; key: string; cls: string; style: string });
 
@@ -197,7 +221,7 @@ export function walkRows(
       added: g.added,
       removed: g.removed,
       complete: g.done === g.total,
-      jumpIndex: target.fileIndex,
+      jump: { fileIndex: target.fileIndex, part: target.part },
     });
     // A collapsed Skimmed group hides its file rows until expanded; every other group is
     // always open.
@@ -206,10 +230,20 @@ export function walkRows(
       rows.push({
         ...f,
         kind: "file",
-        key: `file:${f.path}`,
+        key: walkKey(f.path, f.part),
         cls: f.path === activePath ? "active" : "",
         style: "--depth:1",
       });
   });
   return rows;
+}
+
+// A Walkthrough row's key, one per step: `file:<path>` for a whole file, `part:<entry>:<path>`
+// for a part, `rest:<path>` for a split file's Rest. applyActiveRow (tree.ts) finds rows by it.
+export function walkKey(path: string, part: Step["part"]): string {
+  return part === undefined
+    ? `file:${path}`
+    : part === "rest"
+      ? `rest:${path}`
+      : `part:${part}:${path}`;
 }

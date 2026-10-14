@@ -33,17 +33,18 @@ import { setMarkdownTheme } from "./markdown";
 import { ensureIcons } from "./icons";
 import {
   hasGuide,
-  firstGuideIndex,
+  firstGuideStep,
   currentGuideEntry,
   currentFileName,
+  currentStep,
   showGuideBar,
   guideStale,
-  nextFileIndex,
-  prevFileIndex,
-  nextWrapIndex,
-  prevWrapIndex,
+  nextStep,
+  prevStep,
+  nextWrapStep,
+  prevWrapStep,
   anyUnreviewed,
-  navOrder,
+  navSteps,
   walkthroughRows,
 } from "./guide";
 import { refreshBaseTitle, reviewStats } from "./progress";
@@ -85,6 +86,7 @@ import {
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { openRequests, stepOpenRequest } from "./requests";
 import { uuid } from "./uuid";
+import type { Step } from "./steps";
 import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
 // Close the inline composer when clicking outside it (unless it has unsaved text). The
@@ -141,8 +143,9 @@ installKeys();
 S.treeRows = treeRows;
 // Update the lightweight state synchronously (so the tree active-row + guide bar repaint
 // immediately — the click feels instant), then run the heavier diff render via deferRender,
-// which shows the "Rendering…" indicator only for a cold open of a big file.
-S.selectFile = async (i) => {
+// which shows the "Rendering…" indicator only for a cold open of a big file. A step is a file, or
+// one part of a file the guide splits (steps.ts); the Files tree opens files whole (selectFile).
+const selectStep = async ({ fileIndex: i, part }: Step) => {
   if (i < 0 || !S.state.files[i]) return; // ignore out-of-range selections
   // Narrow-width drawer: opening a file is the drawer's whole purpose, so get it out of the
   // way. The single funnel for tree/walkthrough clicks + next/prev + guide nav; no-op when shut.
@@ -152,6 +155,7 @@ S.selectFile = async (i) => {
   S.preview = null;
   S.diffScrolled = false; // the new file renders at the top (see render.ts) — hide the floating action
   S.fileIndex = i;
+  S.stepPart = part;
   S.fileView = defaultFileView(S.state.files[i]);
   D.fileDiff = null;
   cursorReset(); // re-init the line cursor to the new file's first change
@@ -159,12 +163,14 @@ S.selectFile = async (i) => {
   // (the "active" class left the row models; see applyActiveRow in tree.ts).
   applyActiveRow();
   const rendered = deferRender();
-  // Quietly warm the next file in review order (guide order when guided, else tree order — the
-  // exact resolution keyboard nav uses) so the common next-file step never waits on the wire.
-  const n = nextFileIndex(i);
-  if (n !== null) prefetchContents(S.state.files[n]);
+  // Quietly warm the next step's file in review order (guide order when guided, else tree order —
+  // the exact resolution keyboard nav uses) so the common next step never waits on the wire.
+  const n = nextStep(currentStep());
+  if (n !== null) prefetchContents(S.state.files[n.fileIndex]);
   await rendered;
 };
+S.selectStep = selectStep;
+S.selectFile = (i) => selectStep({ fileIndex: i });
 // Open any repo file (incl. unchanged ones) for read/comment: fetch its contents and show it
 // as a plain view (old === new → no diff blocks). Comments anchor to it like any file.
 S.previewFile = async (path) => {
@@ -285,8 +291,8 @@ S.openSettings = () => {
 S.closeSettings = () => {
   S.settingsOpen = false;
 };
-// Guided review: ⌂ returns to the Overview page; Start enters the per-file flow at the
-// first file in the guide's order.
+// Guided review: ⌂ returns to the Overview page; Start enters the step-by-step flow at the
+// first step in the guide's order.
 S.hasGuide = hasGuide;
 S.openOverview = () => {
   S.overviewOpen = true;
@@ -294,53 +300,52 @@ S.openOverview = () => {
 };
 S.startGuided = () => {
   S.overviewOpen = false;
-  S.selectFile?.(firstGuideIndex());
+  S.selectStep?.(firstGuideStep());
 };
 // Top guide-bar getters (the bar is Alpine chrome, reactive on fileIndex/overviewOpen).
 S.showGuideBar = showGuideBar;
 S.guideStale = guideStale;
 S.curGuide = currentGuideEntry;
 S.curFileName = currentFileName;
-// Guided navigation: the Overview is the position before the first file. From it, Next
-// enters the first file and Prev is a no-op; within files, Prev off the first → Overview.
+// Guided navigation: the Overview is the position before the first step. From it, Next
+// enters the first step and Prev is a no-op; within steps, Prev off the first → Overview.
 S.guideNext = () => {
   if (S.overviewOpen) {
     S.startGuided?.();
     return;
   }
-  // Off the last file, wrap to the first unreviewed file (else cycle to the first) instead
-  // of dead-ending, so skipped files are surfaced.
-  const n = nextFileIndex(S.fileIndex);
-  const target = n !== null ? n : nextWrapIndex();
-  if (target !== null) S.selectFile?.(target);
+  // Off the last step, wrap to the first unreviewed step (else cycle to the first) instead
+  // of dead-ending, so skipped steps are surfaced.
+  const target = nextStep(currentStep()) ?? nextWrapStep();
+  if (target !== null) S.selectStep?.(target);
 };
 S.guidePrev = () => {
-  // Stepping back from the Overview (the position before the first file) wraps to the end —
-  // the last unreviewed file, else the last file.
+  // Stepping back from the Overview (the position before the first step) wraps to the end —
+  // the last unreviewed step, else the last step.
   if (S.overviewOpen) {
-    const w = prevWrapIndex();
-    if (w !== null) S.selectFile?.(w);
+    const w = prevWrapStep();
+    if (w !== null) S.selectStep?.(w);
     return;
   }
-  // Off the first file, drop to the Overview (unchanged); the wrap happens from there.
-  const p = prevFileIndex(S.fileIndex);
+  // Off the first step, drop to the Overview (unchanged); the wrap happens from there.
+  const p = prevStep(currentStep());
   if (p === null) S.openOverview?.();
-  else S.selectFile?.(p);
+  else S.selectStep?.(p);
 };
 // The nav buttons dim only when the review is fully signed off (nothing left to wrap to) —
 // while unreviewed work remains, next/prev stay live because they now seek it.
 S.guideAtStart = () => !!S.overviewOpen && !anyUnreviewed();
-S.guideAtLast = () => !S.overviewOpen && nextFileIndex(S.fileIndex) === null && !anyUnreviewed();
-// Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else the
-// Files tree's top-to-bottom order (see nextFileIndex).
+S.guideAtLast = () => !S.overviewOpen && nextStep(currentStep()) === null && !anyUnreviewed();
+// Review-order stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else the
+// Files tree's top-to-bottom order (see nextStep).
 S.nextFile = () => {
   if (hasGuide() || S.overviewOpen) {
     S.guideNext?.();
     return;
   }
   // Off the last file, wrap to the first unreviewed file (else the first file).
-  const target = nextFileIndex(S.fileIndex) ?? nextWrapIndex();
-  if (target !== null) S.selectFile?.(target);
+  const target = nextStep(currentStep()) ?? nextWrapStep();
+  if (target !== null) S.selectStep?.(target);
 };
 S.prevFile = () => {
   if (hasGuide() || S.overviewOpen) {
@@ -349,8 +354,8 @@ S.prevFile = () => {
   }
   // Off the first file, wrap to the last unreviewed file (else the last file). Without a guide
   // there's no Overview to step back into, so the wrap applies straight from the first file.
-  const target = prevFileIndex(S.fileIndex) ?? prevWrapIndex();
-  if (target !== null) S.selectFile?.(target);
+  const target = prevStep(currentStep()) ?? prevWrapStep();
+  if (target !== null) S.selectStep?.(target);
 };
 // Tree-order file stepping (⇧↑/⇧↓) — walk the file rows as shown in the tree (skip folders),
 // selecting the prev/next one (preview for unchanged files).
@@ -611,7 +616,7 @@ S.selected = {
 // Without a guide, open on the first file in review order — the Files tree's top row — not the
 // first in the diff's own order, which can sit near the tree's bottom and make the first approve
 // wrap to the top. (A guided desk opens on the Overview; a reload keeps the reviewer's file.)
-if (!hasGuide()) S.fileIndex = navOrder()[0] ?? 0;
+if (!hasGuide()) S.fileIndex = navSteps()[0]?.fileIndex ?? 0;
 if (S.state.files[S.fileIndex]) S.fileView = defaultFileView(S.state.files[S.fileIndex]);
 // With a guide attached, land on the Overview page (the guided entry point) and open the
 // sidebar on the user's preferred pane (`w` toggles it per-session from there).

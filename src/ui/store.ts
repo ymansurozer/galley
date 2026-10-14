@@ -16,6 +16,7 @@ export const S: Store = Alpine.reactive<Store>({
   // not localStorage — origins change with the random port, files don't.
   diffStyle: "split",
   fileIndex: 0,
+  stepPart: undefined,
   preview: null,
   rendering: false,
   awaitingAgent: false,
