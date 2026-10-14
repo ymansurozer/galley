@@ -233,6 +233,10 @@ export function lineThread(c: ThreadMeta): ThreadControls {
       openComposer();
     },
     setStatus: (status) => {
+      // Resolving closes the thread's own reply composer while it holds no draft: there's nothing
+      // left to reply to, and it would come back on the line as a new comment. A draft stays.
+      if (status === "resolved" && composerTargets(c.side, c.lineNumber) && !S.composerBody.trim())
+        S.composerOpen = false;
       S.state.comments
         .filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber)
         .forEach((x) => (x.status = status));
