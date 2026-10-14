@@ -343,7 +343,7 @@
               <div class="help-col">
                 <div class="help-h" x-text="grp.group"></div>
                 <template x-for="it in grp.items" :key="it.combo">
-                  <div class="help-row"><kbd x-keys="it.combo"></kbd><span x-text="it.desc"></span></div>
+                  <div class="help-row"><span x-text="it.desc"></span><kbd x-keys="it.combo"></kbd></div>
                 </template>
               </div>
             </template>

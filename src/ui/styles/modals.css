@@ -126,56 +126,25 @@
   resize: vertical;
 }
 
-.modal.help {
-  width: 640px;
-  max-width: 92vw;
-}
-
-/* The Shortcuts tab: generated from the key table (keys.ts helpGroups). Caps in a fixed column so
-   the descriptions line up. */
-.help-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 28px;
-}
-
-.help-col {
-  break-inside: avoid;
-  margin-bottom: 6px;
-}
-
-.help-h {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--ink-3);
-  margin: 12px 0 4px;
-}
-
-.help-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 0;
-  border-bottom: 1px solid var(--sep);
-  font-size: var(--text-sm);
-  color: var(--ink);
-}
-
-.help-row .keycaps {
-  min-width: 58px;
-}
-
 .modal.confirm {
   width: 380px;
 }
 
+/* Settings: a long sheet that scrolls under its Done footer. */
 .modal.settings {
-  width: 560px;
-  max-height: 82vh;
-  overflow: auto;
+  padding-bottom: 0;
 }
 
-/* Settings ↔ Shortcuts: a segmented control heading the dialog. */
+.modal.settings .modal-actions {
+  position: sticky;
+  bottom: 0;
+  margin: 16px -22px 0;
+  padding: 12px 22px 16px;
+  border-top: 1px solid var(--sep);
+  background: var(--window);
+}
+
+/* Settings ↔ Shortcuts: a segmented control heading the sheet. */
 .set-tabs {
   display: flex;
   width: max-content;
@@ -186,15 +155,11 @@
   min-width: 96px;
 }
 
-.set-pane.help-grid {
-  margin-top: 2px;
-}
-
 .modal.settings .set-section {
   color: var(--ink-3);
   font-size: var(--text-xs);
   font-weight: 600;
-  margin: 20px 0 6px 2px;
+  margin: 20px 0 6px 4px;
 }
 
 .modal.settings .set-section:first-of-type {
@@ -205,7 +170,7 @@
 .set-grid {
   display: grid;
   gap: 0;
-  padding: 0 12px;
+  padding: 0 14px;
   border-radius: var(--radius-lg);
   background: var(--raised);
   box-shadow: 0 0 0 0.5px var(--sep-strong);
@@ -253,7 +218,58 @@
   width: 80px;
 }
 
+/* Phone widths: the controls narrow to one shared column and a long label wraps beside it. */
+@media (max-width: 600px) {
+  .set-grid label {
+    white-space: normal;
+  }
+
+  .set-grid select,
+  .set-grid input[type="text"] {
+    width: 156px;
+  }
+}
+
 .set-grid input[type="checkbox"] {
   width: auto;
   margin: 0;
+}
+
+/* The Shortcuts tab: generated from the key table (keys.ts helpGroups). Each group's heading
+   spans the sheet and its shortcuts flow two to a row, the action on the left and its caps at
+   the right, so the eye runs from what to how. */
+.help-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 28px;
+}
+
+.help-h {
+  grid-column: 1 / -1;
+  margin: 16px 0 4px 4px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.help-col:first-child .help-h {
+  margin-top: 0;
+}
+
+.help-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--sep);
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 600px) {
+  .help-col {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
