@@ -111,27 +111,39 @@ export function stepEntry(
   return g && !g.part ? g : null;
 }
 
-// Where a whole-file step sits in guided stepping: an unsplit file is its own step; a split file
-// opened whole (from the Files tree) steps as if from its first step in walkthrough order.
-export function anchorStep(slots: StepSlot[], cur: Step): Step {
-  if (cur.part !== undefined) return cur;
-  return slots.find((s) => s.step.fileIndex === cur.fileIndex)?.step ?? cur;
+// Where `cur` sits in guided stepping and seeking, and which band it walks (out of the flow or
+// in it). A part, a Rest step or an unsplit file is its own position and band. A split file opened
+// whole (from the Files tree) sits at its first step in walkthrough order but walks the in-flow
+// band unless every one of its steps left the flow — so a fully skimmed first part doesn't
+// strand it in the Skimmed band.
+export function anchorStep(
+  slots: StepSlot[],
+  cur: Step,
+  outOfFlow: (s: Step) => boolean,
+): { at: Step; band: boolean } {
+  const own = cur.part === undefined ? slots.filter((s) => s.step.fileIndex === cur.fileIndex) : [];
+  if (!own.length) return { at: cur, band: outOfFlow(cur) };
+  return { at: own[0]!.step, band: own.every((s) => outOfFlow(s.step)) };
 }
 
-// The order plain next/prev walks from `cur` (already anchored): the guide's own steps when `cur`
-// is one of them, else the file array with each file expanded to its steps (parts in guide order,
-// then Rest) — so from an unlisted file or a Rest step, "next" is the next file down, as it was
-// before parts existed.
-export function stepOrder(plan: { listed: StepSlot[]; other: StepSlot[] }, cur: Step): Step[] {
-  const key = stepKey(cur);
-  if (plan.listed.some((s) => stepKey(s.step) === key)) return plan.listed.map((s) => s.step);
-  const byFile = new Map<number, Step[]>();
-  for (const s of [...plan.listed, ...plan.other]) {
-    let steps = byFile.get(s.step.fileIndex);
-    if (!steps) byFile.set(s.step.fileIndex, (steps = []));
-    steps.push(s.step);
-  }
-  return [...byFile.keys()].sort((a, b) => a - b).flatMap((i) => byFile.get(i)!);
+// Plain next (dir 1) / prev (dir -1) in a guided review: one order — the walkthrough's, guide
+// steps then the Other group's (unlisted files and Rest steps) — so the two are exact inverses,
+// passing over steps in the other band. null off either end; the caller wraps or opens the
+// Overview.
+export function neighborStep(
+  plan: { listed: StepSlot[]; other: StepSlot[] },
+  cur: Step,
+  dir: 1 | -1,
+  outOfFlow: (s: Step) => boolean,
+): Step | null {
+  const slots = [...plan.listed, ...plan.other];
+  const { at, band } = anchorStep(slots, cur, outOfFlow);
+  return adjacentStep(
+    slots.map((s) => s.step),
+    at,
+    dir,
+    (s) => outOfFlow(s) !== band,
+  );
 }
 
 // The step before (dir -1) or after (dir 1) `cur` in `order`, passing over steps `skip` rejects.

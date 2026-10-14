@@ -651,13 +651,7 @@ async function runDesk(
     // naming the offending field, like any other invalid-guide input.
     // state.rawDiff shares identity with base.rawDiff, so pass the parse seeded on `base` — the
     // reload/launch parses the diff once, shared across build + guide resolution (issue 06).
-    const resolved = resolveGuide(
-      state.rawDiff,
-      state.changes,
-      state.guide,
-      { strict: true },
-      parsedDiffOf(base),
-    );
+    const resolved = resolveGuide(state, state.guide, { strict: true }, parsedDiffOf(base));
     if (!resolved.ok) {
       console.error(`Invalid guide: ${resolved.reason}.`);
       process.exitCode = 1;
@@ -666,7 +660,7 @@ async function runDesk(
   } else if (state.guide) {
     // A guide carried forward by the merge (restart without --guide): re-resolve leniently
     // against the new diff — stale spans drop rather than abort (see resolveSkim, resolveParts).
-    resolveGuide(state.rawDiff, state.changes, state.guide, { strict: false }, parsedDiffOf(base));
+    resolveGuide(state, state.guide, { strict: false }, parsedDiffOf(base));
   }
   if (mode === "repo") await syncGitState(state);
   await persistReview(state);

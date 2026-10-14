@@ -3,14 +3,13 @@ import assert from "node:assert/strict";
 import type { ChangeState, GuideFile } from "../types.js";
 import { nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek.js";
 import {
-  adjacentStep,
   anchorStep,
   carryStep,
+  neighborStep,
   planSteps,
   slotOutOfFlow,
   stepEntry,
   stepKey,
-  stepOrder,
   stepPlan,
   type Step,
 } from "./steps.js";
@@ -97,44 +96,86 @@ test("stepPlan counts a block stamped for another file's entry as unclaimed", ()
   );
 });
 
-test("next/prev from a part walk the guide's steps, through both parts of the split file", () => {
-  const p = plan();
-  const none = () => false;
-  const order = stepOrder(p, { fileIndex: 1, part: 0 });
-  assert.deepEqual(keys(order), ["1:0", "0", "1:2"]);
-  assert.equal(stepKey(adjacentStep(order, { fileIndex: 1, part: 0 }, 1, none)!), "0");
-  assert.equal(stepKey(adjacentStep(order, { fileIndex: 0 }, 1, none)!), "1:2");
-  assert.equal(adjacentStep(order, { fileIndex: 1, part: 2 }, 1, none), null); // caller wraps
-  assert.equal(adjacentStep(order, { fileIndex: 1, part: 0 }, -1, none), null); // → Overview
-});
+// Out-of-flow per step, read off the plan's slots (no whole file is skimmed in these fixtures).
+const outOf = (p: ReturnType<typeof stepPlan>) => {
+  const slots = [...p.listed, ...p.other];
+  return (s: Step) => {
+    const slot = slots.find((x) => stepKey(x.step) === stepKey(s));
+    return !!slot && slotOutOfFlow(slot, () => false);
+  };
+};
 
-test("next/prev from a Rest step or an unlisted file walk the file array, expanded to steps", () => {
+test("next/prev walk one order — guide steps, then Rest and unlisted files — as exact inverses", () => {
   const p = plan();
-  const order = stepOrder(p, { fileIndex: 1, part: "rest" });
-  assert.deepEqual(keys(order), ["0", "1:0", "1:2", "1:rest", "2", "3"]);
-  assert.equal(stepKey(adjacentStep(order, { fileIndex: 1, part: "rest" }, 1, () => false)!), "2");
-  assert.equal(stepKey(adjacentStep(order, { fileIndex: 2 }, -1, () => false)!), "1:rest");
+  const out = outOf(p);
+  const steps = planSteps(p, () => true);
+  assert.deepEqual(keys(steps), ["1:0", "0", "1:2", "1:rest", "2", "3"]);
+  for (let i = 0; i + 1 < steps.length; i++) {
+    assert.deepEqual(neighborStep(p, steps[i]!, 1, out), steps[i + 1], `next from ${i}`);
+    assert.deepEqual(neighborStep(p, steps[i + 1]!, -1, out), steps[i], `prev from ${i + 1}`);
+  }
+  assert.equal(neighborStep(p, { fileIndex: 3 }, 1, out), null); // the caller wraps
+  assert.equal(neighborStep(p, { fileIndex: 1, part: 0 }, -1, out), null); // → the Overview
 });
 
 test("stepping skips steps out of the band — a fully skimmed part is passed over", () => {
-  const skimmedFees = [block("fees", 0, true), block("lockout", 2), block("loose")];
-  const p = plan(skimmedFees);
-  const slots = [...p.listed, ...p.other];
-  const out = (s: Step) =>
-    slotOutOfFlow(slots.find((x) => stepKey(x.step) === stepKey(s))!, () => false);
+  const p = plan([block("fees", 0, true), block("lockout", 2), block("loose")]);
+  const out = outOf(p);
   assert.equal(out({ fileIndex: 1, part: 0 }), true, "the all-skimmed part left the flow");
   assert.equal(out({ fileIndex: 1, part: 2 }), false, "its sibling part didn't");
-  const order = stepOrder(p, { fileIndex: 0 });
-  assert.equal(adjacentStep(order, { fileIndex: 0 }, -1, out), null, "nothing in-band before a.ts");
+  assert.equal(neighborStep(p, { fileIndex: 0 }, -1, out), null, "nothing in-band before a.ts");
+  // Opened from the Skimmed group, the part steps within its own band — where it is alone.
+  assert.equal(neighborStep(p, { fileIndex: 1, part: 0 }, 1, out), null);
 });
 
 test("a split file opened whole steps as if from its first step", () => {
   const p = plan();
+  const out = outOf(p);
   const slots = [...p.listed, ...p.other];
-  assert.deepEqual(anchorStep(slots, { fileIndex: 1 }), { fileIndex: 1, part: 0 });
+  assert.deepEqual(anchorStep(slots, { fileIndex: 1 }, out), {
+    at: { fileIndex: 1, part: 0 },
+    band: false,
+  });
   // Unsplit files and part steps are their own anchor.
-  assert.deepEqual(anchorStep(slots, { fileIndex: 0 }), { fileIndex: 0 });
-  assert.deepEqual(anchorStep(slots, { fileIndex: 1, part: 2 }), { fileIndex: 1, part: 2 });
+  assert.deepEqual(anchorStep(slots, { fileIndex: 0 }, out), { at: { fileIndex: 0 }, band: false });
+  assert.deepEqual(anchorStep(slots, { fileIndex: 1, part: 2 }, out), {
+    at: { fileIndex: 1, part: 2 },
+    band: false,
+  });
+  assert.deepEqual(neighborStep(p, { fileIndex: 1 }, 1, out), { fileIndex: 0 });
+  assert.equal(neighborStep(p, { fileIndex: 1 }, -1, out), null);
+});
+
+test("a split file opened whole steps in the flow even when its first part is skimmed", () => {
+  //   files: 0 w.ts · 1 f.ts · 2 x.ts     guide: w.ts · f.ts "Fees" (all skimmed) · x.ts · f.ts "Lock"
+  const fPart = (title: string): GuideFile => ({
+    path: "f.ts",
+    order: 0,
+    category: "C",
+    orientation: title,
+    part: { title, lines: [1] },
+  });
+  const whole = (path: string): GuideFile => ({ path, order: 0, category: "C", orientation: path });
+  const blocks = [
+    { ...block("fees", 1, true), path: "f.ts" },
+    { ...block("lock", 3), path: "f.ts" },
+  ];
+  const p = stepPlan(
+    [whole("w.ts"), fPart("Fees"), whole("x.ts"), fPart("Lock")],
+    [{ path: "w.ts" }, { path: "f.ts" }, { path: "x.ts" }],
+    (path) => (path === "f.ts" ? blocks : []),
+  );
+  const out = outOf(p);
+  assert.deepEqual(neighborStep(p, { fileIndex: 1 }, 1, out), { fileIndex: 2 }, "⇧→ = x.ts");
+  assert.deepEqual(neighborStep(p, { fileIndex: 1 }, -1, out), { fileIndex: 0 }, "⇧← = w.ts");
+  // Only when every part is skimmed does the whole-file view walk the Skimmed band.
+  const allSkimmed = [blocks[0]!, { ...blocks[1]!, skim: {} }];
+  const q = stepPlan(
+    [whole("w.ts"), fPart("Fees"), whole("x.ts"), fPart("Lock")],
+    [{ path: "w.ts" }, { path: "f.ts" }, { path: "x.ts" }],
+    (path) => (path === "f.ts" ? allSkimmed : []),
+  );
+  assert.deepEqual(neighborStep(q, { fileIndex: 1 }, 1, outOf(q)), { fileIndex: 1, part: 3 });
 });
 
 test("seeks walk every in-flow step in walkthrough order, wrapping through parts and Rest", () => {

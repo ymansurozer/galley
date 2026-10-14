@@ -816,10 +816,16 @@
       line-height: 1.6
     }
 
-    /* A skimmed file's reason, in the orientation's place when the guide omits one; and on a split
-       file's Rest or whole-file view, what the view holds in place of a part's orientation. */
-    .ghdr .ghdr-skim,
+    /* A skimmed file's reason, in the orientation's place when the guide omits one. */
+    .ghdr .ghdr-skim {
+      color: var(--muted);
+      font-size: var(--text-sm)
+    }
+
+    /* On a split file's Rest or whole-file view, one muted line under the file name (past the 15px
+       icon and the row's 8px gap) says what the view holds, in place of a part's guidance card. */
     .ghdr .ghdr-note {
+      margin-left: 23px;
       color: var(--muted);
       font-size: var(--text-sm)
     }

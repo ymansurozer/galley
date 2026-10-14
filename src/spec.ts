@@ -258,18 +258,20 @@ One JSON object:
     "renamed old → new · no changes" row (see the collapse note above).
   - part? — split a file that mixes unrelated concerns into separate review steps: list the same
     path once per concern, each entry with part: { title, lines } and its own category, order,
-    orientation and flag. title (non-empty) names the concern ("Fee charging"); lines is a
-    non-empty array of new-file-side [start, end] spans and single line numbers, each resolved
-    like skimBlocks to the change block(s) it touches. Each part is its own walkthrough step, in
-    its entry's category; the reviewer opening the file from the Files tree still sees it whole.
-    A split file is split all the way — every entry for the path carries a part. A part may carry
-    skimBlocks (a part whose blocks are all skimmed joins the Skimmed group) but not \`skim\` or
-    \`movedFrom\`. Change blocks no part claims gather in an automatic "Rest of <file>" step in the
-    trailing Other group, so nothing is lost. Parts split by change block: two concerns with no
-    unchanged line between them form one block — give it to the main concern and say so in that
-    part's orientation. When your edits between rounds move code from one part to another (or
-    add a concern), send a fresh guide with \`galley reload --guide <new>\`: a carried-forward
-    guide re-resolves its spans leniently, and a block it can't place falls to Rest.
+    orientation and flag. title (non-empty, distinct among the file's parts) names the concern
+    ("Fee charging"); lines is a non-empty array of new-file-side [start, end] spans and single
+    line numbers, each resolved like skimBlocks to the change block(s) it touches. Each part is its
+    own walkthrough step, in its entry's category; the reviewer opening the file from the Files
+    tree still sees it whole. A split file is split all the way — every entry for the path carries
+    a part. A part may carry skimBlocks over its own (or unclaimed) blocks — a part whose blocks
+    are all skimmed joins the Skimmed group — but not \`skim\` or \`movedFrom\`. Change blocks no
+    part claims gather in an automatic "Rest of <file>" step in the trailing Other group, so
+    nothing is lost. Parts split by change block: two concerns with no unchanged line between them
+    form one block — give it to the main concern and say so in that part's orientation. A new
+    untracked file is one whole-file change, so it can't be split. When your edits between rounds
+    move code from one part to another (or add a concern), send a fresh guide with
+    \`galley reload --guide <new>\`: a carried-forward guide re-resolves its spans leniently, and a
+    block it can't place falls to Rest.
 - focused? — top-level boolean; badges the overview ("focused review — mechanical churn skimmed")
   so the human knows attention was deliberately shaped. Display-only.
 A skimmed block collapses behind a one-click "expand" strip (nothing is ever hidden). A file skimmed
@@ -291,9 +293,10 @@ this default churn policy without item-by-item instruction:
 Validation: beyond the (required, non-empty) fields above — a file's \`path\` must appear in the
 diff; each skimBlocks span must resolve to a change block; \`movedFrom\` must name a full deletion
 paired with the untracked addition at \`path\`, in working repo mode, not combined with skimBlocks;
-a path listed more than once needs a part on every entry; each part span must resolve to a change
-block, no two parts may claim the same change block, and a part can't combine with \`skim\` or
-\`movedFrom\`; \`focused\` must be a boolean. An unreadable file, invalid JSON, or any violation
+a path listed more than once needs a part on every entry, each with its own title; each part span
+must resolve to a change block (so a new untracked file can't be split), no two parts may claim the
+same change block, a part's skimBlocks may not reach another part's block, and a part can't combine
+with \`skim\` or \`movedFrom\`; \`focused\` must be a boolean. An unreadable file, invalid JSON, or any violation
 aborts the launch (or \`galley reload --guide\`, leaving the desk as it was) naming the offending
 field — for a part, its path, title and span.
 

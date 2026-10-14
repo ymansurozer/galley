@@ -8,11 +8,11 @@ import {
   adjacentStep,
   anchorStep,
   carryStep,
+  neighborStep,
   planSteps,
   slotOutOfFlow,
   stepEntry,
   stepKey,
-  stepOrder,
   stepPlan,
   type Step,
 } from "./steps";
@@ -70,16 +70,15 @@ type Nav = ReturnType<typeof navWith>;
 // top-to-bottom order; with one it's the walkthrough's: the guide's steps followed by the Other
 // group (each changed file the guide DIDN'T list, and each split file's Rest), in file-array
 // order — so the seek reaches unlisted files and never dead-ends on a partial guide. Steps out of
-// the flow are excluded (issue 07): this is the single choke point that keeps the wrap/approve-
-// advance seeks off them. Plain mid-list stepping (nextStep) reads its own band order, not this.
-function navStepsWith(nav: Nav, keepOutOfFlow = false): Step[] {
-  if (nav.plan) return planSteps(nav.plan, (s) => keepOutOfFlow || !nav.outOfFlow(s.step));
+// the flow are excluded (issue 07) unless `keep` says otherwise: this is the single choke point
+// that keeps the wrap/approve-advance seeks off them. Plain mid-list stepping (nextStep) walks the
+// same order but in its own band.
+function navStepsWith(nav: Nav, keep = (s: Step) => !nav.outOfFlow(s)): Step[] {
+  if (nav.plan) return planSteps(nav.plan, (s) => keep(s.step));
   const n = S.state?.files?.length ?? 0;
-  return navFileOrder(
-    n,
-    treeOrder(nav.ix),
-    (i) => keepOutOfFlow || !nav.outOfFlow({ fileIndex: i }),
-  ).map((fileIndex) => ({ fileIndex }));
+  return navFileOrder(n, treeOrder(nav.ix), (i) => keep({ fileIndex: i })).map((fileIndex) => ({
+    fileIndex,
+  }));
 }
 export function navSteps(): Step[] {
   return navStepsWith(navWith(flowIndex()));
@@ -89,7 +88,7 @@ export function navSteps(): Step[] {
 // crosses files in. A skimmed file left the flow, but an open request on it still waits to be
 // checked.
 export function reviewSteps(): Step[] {
-  return navStepsWith(navWith(flowIndex()), true);
+  return navStepsWith(navWith(flowIndex()), () => true);
 }
 
 // Where "Start guided review" lands — the first in-flow step in nav order (fully-skimmed steps
@@ -105,15 +104,13 @@ export function firstGuideStep(): Step {
 // group's siblings stay reachable. Off either band's end returns null and the caller wraps
 // (guideNext/guidePrev), where the wrap seeks (navSteps) only ever target the in-flow band.
 // The order: without a guide the Files tree's top-to-bottom order, so "next" is the row below;
-// with one, see stepOrder. A split file opened whole steps as if from its first step.
+// with one, the walkthrough's (see neighborStep).
 function stepFrom(cur: Step, dir: 1 | -1): Step | null {
   const nav = navWith(flowIndex());
-  const at = nav.plan ? anchorStep(nav.slots, cur) : { fileIndex: cur.fileIndex };
-  const order = nav.plan
-    ? stepOrder(nav.plan, at)
-    : treeOrder(nav.ix).map((fileIndex) => ({ fileIndex }));
-  const band = nav.outOfFlow(at);
-  return adjacentStep(order, at, dir, (s) => nav.outOfFlow(s) !== band);
+  if (nav.plan) return neighborStep(nav.plan, cur, dir, nav.outOfFlow);
+  const band = nav.outOfFlow(cur);
+  const order = treeOrder(nav.ix).map((fileIndex) => ({ fileIndex }));
+  return adjacentStep(order, cur, dir, (s) => nav.outOfFlow(s) !== band);
 }
 
 // The next step to review after `cur`: the next in-band step in step order. null when `cur` is
@@ -132,8 +129,9 @@ export function prevStep(cur: Step): Step | null {
 function seekStep(
   nav: Nav,
   run: (order: string[], finished: (key: string) => boolean) => string | null,
+  keep?: (s: Step) => boolean,
 ): Step | null {
-  const byKey = new Map(navStepsWith(nav).map((s) => [stepKey(s), s] as const));
+  const byKey = new Map(navStepsWith(nav, keep).map((s) => [stepKey(s), s] as const));
   const key = run([...byKey.keys()], (k) => {
     const s = byKey.get(k);
     return !!s && nav.finished(s);
@@ -149,10 +147,17 @@ export function anyUnreviewed(): boolean {
 
 // The next unreviewed step after `cur`, wrapping past the end — approve-advance's seek.
 // null when no unreviewed step remains (the caller falls back to the review-complete prompt).
+// A split file opened whole seeks from its first step's place (see anchorStep), kept in the order
+// even when that step left the flow so the seek doesn't restart from the top.
 export function nextUnreviewedStep(cur: Step): Step | null {
   const nav = navWith(flowIndex());
-  const at = nav.plan ? anchorStep(nav.slots, cur) : cur;
-  return seekStep(nav, (order, finished) => nextUnreviewed(order, stepKey(at), finished));
+  const from = stepKey(nav.plan ? anchorStep(nav.slots, cur, nav.outOfFlow).at : cur);
+  const anchored = from !== stepKey(cur);
+  return seekStep(
+    nav,
+    (order, finished) => nextUnreviewed(order, from, finished),
+    (s) => !nav.outOfFlow(s) || (anchored && stepKey(s) === from),
+  );
 }
 
 // Where plain "next" lands when it steps off the last step: first unreviewed, else first step.

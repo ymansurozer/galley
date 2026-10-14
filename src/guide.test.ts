@@ -198,6 +198,22 @@ test("validateGuide rejects a split file with an entry that has no part, naming 
   if (!plain.ok) assert.match(plain.reason, /a\.ts/);
 });
 
+test("validateGuide rejects two parts of one file with the same title, naming path and title", () => {
+  const r = validateGuide({
+    overview: "o",
+    files: [
+      partEntry("Fees", [3]),
+      { path: "other.ts", orientation: "s", part: { title: "Fees", lines: [1] } },
+      partEntry("Fees", [9]),
+    ],
+  });
+  assert.deepEqual(r, {
+    ok: false,
+    reason:
+      'guide.files[2] repeats part "Fees" on "src/account.ts" — each part of a file needs its own title',
+  });
+});
+
 test("validateGuide rejects part combined with skim or movedFrom, naming the field", () => {
   const withSkim = validateGuide({
     overview: "o",
@@ -205,7 +221,7 @@ test("validateGuide rejects part combined with skim or movedFrom, naming the fie
   });
   assert.deepEqual(withSkim, {
     ok: false,
-    reason: "guide.files[0] cannot set both part and skim",
+    reason: 'guide.files[0] (part "Fees" on "src/account.ts") cannot set both part and skim',
   });
   const withMove = validateGuide({
     overview: "o",
@@ -213,7 +229,7 @@ test("validateGuide rejects part combined with skim or movedFrom, naming the fie
   });
   assert.deepEqual(withMove, {
     ok: false,
-    reason: "guide.files[0] cannot set both part and movedFrom",
+    reason: 'guide.files[0] (part "Fees" on "src/account.ts") cannot set both part and movedFrom',
   });
 });
 
@@ -221,14 +237,14 @@ test("validateGuide rejects a part with a blank title, naming the field", () => 
   for (const title of [undefined, "", "   ", 7])
     assert.deepEqual(validateGuide({ overview: "o", files: [partEntry(title, [3])] }), {
       ok: false,
-      reason: "guide.files[0].part.title must be a non-empty string",
+      reason: 'guide.files[0].part.title (on "src/account.ts") must be a non-empty string',
     });
 });
 
 test("validateGuide rejects empty or malformed part lines, naming the field", () => {
   const bad = (lines: unknown) => validateGuide({ overview: "o", files: [partEntry("P", lines)] });
   const reason =
-    "guide.files[0].part.lines must be a non-empty array of line numbers and [start, end] pairs";
+    'guide.files[0].part.lines (part "P" on "src/account.ts") must be a non-empty array of line numbers and [start, end] pairs';
   for (const lines of [undefined, [], "3", 3, [[1, 2, 3]], [[1]], ["x"], [[1, "2"]], [NaN]])
     assert.deepEqual(bad(lines), { ok: false, reason }, JSON.stringify(lines));
   // part itself must be an object
@@ -236,7 +252,7 @@ test("validateGuide rejects empty or malformed part lines, naming the field", ()
     validateGuide({ overview: "o", files: [{ path: "a.ts", orientation: "s", part: "x" }] }),
     {
       ok: false,
-      reason: "guide.files[0].part must be an object with a title and lines",
+      reason: 'guide.files[0].part (on "a.ts") must be an object with a title and lines',
     },
   );
 });

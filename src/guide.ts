@@ -118,33 +118,44 @@ export function validateGuide(input: unknown): GuideValidation {
     // parts claim the same one, is diff-aware (resolveParts in state.ts). A part narrows the
     // entry to some of the file's blocks, so it can't sit with a whole-file skim, nor with
     // movedFrom (a merged move has no rawDiff section for the spans to resolve against).
+    // Every part error names the path, and the part's title once it has a usable one.
     if (f.part !== undefined) {
       const part = f.part as Record<string, unknown> | null;
+      const on = `on "${f.path}"`;
       if (!part || typeof part !== "object" || Array.isArray(part))
         return {
           ok: false,
-          reason: `guide.files[${i}].part must be an object with a title and lines`,
+          reason: `guide.files[${i}].part (${on}) must be an object with a title and lines`,
         };
       if (typeof part.title !== "string" || !part.title.trim())
-        return { ok: false, reason: `guide.files[${i}].part.title must be a non-empty string` };
+        return {
+          ok: false,
+          reason: `guide.files[${i}].part.title (${on}) must be a non-empty string`,
+        };
+      const named = `part "${part.title}" ${on}`;
       const lines = partLines(part.lines);
       if (!lines)
         return {
           ok: false,
-          reason: `guide.files[${i}].part.lines must be a non-empty array of line numbers and [start, end] pairs`,
+          reason: `guide.files[${i}].part.lines (${named}) must be a non-empty array of line numbers and [start, end] pairs`,
         };
       for (const field of ["skim", "movedFrom"] as const)
         if (file[field] !== undefined)
-          return { ok: false, reason: `guide.files[${i}] cannot set both part and ${field}` };
+          return {
+            ok: false,
+            reason: `guide.files[${i}] (${named}) cannot set both part and ${field}`,
+          };
       file.part = { title: part.title, lines };
     }
     files.push(file);
   }
   // A path listed more than once is a split file, and a split file is split all the way: an entry
   // without a part would claim the whole file a second time, and two steps for one path would
-  // collide in the walkthrough and navigation.
+  // collide in the walkthrough and navigation. Its part titles are distinct, since the desk
+  // re-finds the reviewer's part by title when a reload or a new guide moves the entries.
   const partless = new Map<string, number>();
   const seen = new Set<string>();
+  const titles = new Set<string>();
   for (const [i, file] of files.entries()) {
     if (!file.part && !partless.has(file.path)) partless.set(file.path, i);
     if (seen.has(file.path) && partless.has(file.path))
@@ -153,6 +164,14 @@ export function validateGuide(input: unknown): GuideValidation {
         reason: `guide lists "${file.path}" more than once, so every entry for it needs a part (guide.files[${partless.get(file.path)}] has none)`,
       };
     seen.add(file.path);
+    if (!file.part) continue;
+    const title = JSON.stringify([file.path, file.part.title]);
+    if (titles.has(title))
+      return {
+        ok: false,
+        reason: `guide.files[${i}] repeats part "${file.part.title}" on "${file.path}" — each part of a file needs its own title`,
+      };
+    titles.add(title);
   }
   files.sort((a, b) => a.order - b.order);
   const guide: Guide = { overview: g.overview, files };

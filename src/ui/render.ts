@@ -553,9 +553,8 @@ async function renderCenter() {
       }
       wrap.appendChild(guide);
     } else if (S.stepPart === "rest" || parts.length) {
-      // No single part speaks for these, so no orientation: say what the view holds instead.
-      const guide = document.createElement("div");
-      guide.className = "ghdr-guide";
+      // No single part speaks for these, so no orientation card — one muted line says what the
+      // view holds, so it never reads as the agent's guidance.
       const note = document.createElement("div");
       note.className = "ghdr-note";
       const base = currentFile().path.split("/").pop();
@@ -563,8 +562,7 @@ async function renderCenter() {
         S.stepPart === "rest"
           ? `Rest of ${base}: the changes no part of the guide covers.`
           : `Split into ${parts.length} part${parts.length === 1 ? "" : "s"}: ${parts.join(" · ")}`;
-      guide.appendChild(note);
-      wrap.appendChild(guide);
+      wrap.appendChild(note);
     }
     // Open threads whose anchor line no longer renders — shown as the diff's first row,
     // below the action bar, so they stay actionable (they block approval until resolved).

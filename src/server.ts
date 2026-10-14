@@ -972,13 +972,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           const parsed = parsedDiffOf(base);
           if (validatedGuide) {
             merged.guide = { ...validatedGuide, baseDiffHash: merged.baseDiffHash };
-            const resolved = resolveGuide(
-              merged.rawDiff,
-              merged.changes,
-              merged.guide,
-              { strict: true },
-              parsed,
-            );
+            const resolved = resolveGuide(merged, merged.guide, { strict: true }, parsed);
             if (!resolved.ok)
               return fail(
                 res,
@@ -988,7 +982,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
                 "Run `galley spec` for the guided-review schema.",
               );
           } else if (merged.guide) {
-            resolveGuide(merged.rawDiff, merged.changes, merged.guide, { strict: false }, parsed);
+            resolveGuide(merged, merged.guide, { strict: false }, parsed);
           }
           if (merged.baseDiffHash !== state.baseDiffHash)
             priorDiff = { baseDiffHash: state.baseDiffHash, changes: state.changes };
