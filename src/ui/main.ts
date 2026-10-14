@@ -84,6 +84,7 @@ import {
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { updateAwaitingDom } from "./annotations";
+import { threadKey } from "./rests";
 import { openRequest, requestRows } from "./requests";
 import { uuid } from "./uuid";
 import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
@@ -540,6 +541,9 @@ const submitComment = (intent: "question" | "action") => {
   };
   S.state.comments.push(c);
   S.composerOpen = false;
+  // The thread just written in stays open as its card (a new one opens), so the reviewer sees
+  // what they sent and what comes back.
+  S.openThread = threadKey(c);
   render();
   persist();
   if (intent === "question") {
