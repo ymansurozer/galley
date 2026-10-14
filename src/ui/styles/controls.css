@@ -276,30 +276,3 @@ input[type="checkbox"] {
 .tooltip:not(:has(.keycaps)) {
   padding-right: 8px;
 }
-
-.show {
-  opacity: 1;
-}
-
-.tooltip:not(:has(.keycaps)) {
-  padding-right: 8px;
-}
-
-/* Count badge: a small pill beside a label. */
-.badge-count {
-  min-width: 18px;
-  height: 16px;
-  padding: 0 5px;
-  border-radius: 8px;
-  background: var(--fill-2);
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  line-height: 16px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.show {
-  display: block;
-}

@@ -272,7 +272,7 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "1–9",
-    desc: "Go to line (↵ jump, esc cancel)",
+    desc: "Go to a line (type its number)",
     group: "Navigate",
     test: (e) => /^[0-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey,
     when: inDiff,

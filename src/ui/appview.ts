@@ -342,7 +342,8 @@ export function adoptUiTarget(ui: ReviewState["ui"]) {
   }
   if (S.app.loaded) loadApp(targetRoute());
   else warmApp();
-  toast(before ? "App target changed" : "App attached — ⇧U shows it");
+  if (before) toast("App target changed");
+  else toast("App attached — show it with", undefined, "⇧U");
 }
 
 // Keep the view legal for the desk's current shape (after init, a reload, or a target change).

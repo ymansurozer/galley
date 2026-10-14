@@ -379,7 +379,7 @@
           <div class="modal-actions"><button class="btn" @click="$store.g.closeShot()">Close <kbd x-keys>Esc</kbd></button></div>
         </div>
       </div>
-      <div class="toast" id="toast" :class="{show: $store.g.toastMsg}"><span x-text="$store.g.toastMsg">saved</span><button
+      <div class="toast" id="toast" :class="{show: $store.g.toastMsg}"><span x-text="$store.g.toastMsg">saved</span><kbd x-keys="$store.g.toastKeys" x-show="$store.g.toastKeys"></kbd><button
           type="button" class="toast-action" x-show="$store.g.toastAction" x-text="$store.g.toastAction"
           @click="$store.g.runToastAction()"></button></div>
       <div class="goline" :class="{show: $store.g.golineBuffer}">Go to line&nbsp;<b

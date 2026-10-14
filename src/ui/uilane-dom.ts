@@ -80,7 +80,9 @@ export function composerHead(
           .map((el) => el.selector)
           .join("\n");
   const close = node(doc, "button", "uc-close");
-  close.title = "Cancel (Esc)";
+  close.setAttribute("aria-label", "Cancel");
+  close.dataset.tip = "Cancel";
+  close.dataset.tipKeys = "Esc";
   close.append(keycapsNode(doc, "Esc"));
   close.onclick = cancel;
   head.append(num, target);

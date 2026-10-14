@@ -256,6 +256,8 @@ export interface Store {
   toastMsg: string;
   // The toast's action button label ("Undo"), "" for a plain toast (store.ts toast()).
   toastAction: string;
+  // A shortcut the toast names, drawn as keycaps after its text ("" for none).
+  toastKeys: string;
   // Pending "go to line" digits typed in the diff ("" = inactive). Drives the goline pill;
   // ↵ / idle timeout commits the jump, Esc cancels (see cursor.ts goline section).
   golineBuffer: string;

@@ -6,8 +6,10 @@ import { keycapsNode } from "./keycaps";
 // above it when there's no room below, and beside an element too tall for either (the annotation
 // rail). A tip with no shortcut that would only repeat the element's visible text stays hidden —
 // which is how a narrow thread's glyph-only "Turn into…" button gets its tip and the labelled
-// one doesn't.
+// one doesn't. A re-render can replace the target under a resting pointer (the poll rebuilds the
+// diff header), so a showing tip checks that its target is still on the page.
 const DELAY_MS = 180;
+const WATCH_MS = 250;
 const GAP = 6;
 const EDGE = 6;
 
@@ -18,9 +20,11 @@ export function installTooltips() {
   document.body.appendChild(tip);
   let target: HTMLElement | null = null;
   let timer = 0;
+  let watch = 0;
 
   const hide = () => {
     clearTimeout(timer);
+    clearInterval(watch);
     target = null;
     tip.classList.remove("show");
   };
@@ -45,6 +49,9 @@ export function installTooltips() {
     tip.style.left = `${Math.max(EDGE, Math.min(left, innerWidth - w - EDGE))}px`;
     tip.style.top = `${top}px`;
     tip.classList.add("show");
+    watch = window.setInterval(() => {
+      if (!el.isConnected) hide();
+    }, WATCH_MS);
   };
 
   document.addEventListener("pointerover", (e) => {
