@@ -74,6 +74,22 @@ export function flashThread(el: HTMLElement) {
   el.classList.add("flash");
 }
 
+// A thread on a diff row: the cursor brings its line into view, and its card flashes beside it.
+// Two frames late, so an unfold's re-render has drawn the card first.
+function flashLineThread(side: Side, lineNumber: number) {
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      const el = $("diff").querySelector<HTMLElement>(
+        `.annotation[data-thread="${side}:${lineNumber}"]`,
+      );
+      if (!el) return;
+      el.classList.remove("flash");
+      void el.offsetWidth; // restart the animation
+      el.classList.add("flash");
+    }),
+  );
+}
+
 export function jumpToBlocker(b: Blocker) {
   if (b.kind === "thread" && b.unanchored) {
     // The thread lives in the strip above the diff, not on a row.
@@ -93,6 +109,7 @@ export function jumpToBlocker(b: Blocker) {
     // line that already renders would widen the run on every jump to it.
     if (!isRendered(b.side, line)) revealLine(b.side, b.lineNumber);
     cursorJumpTo(b.side, line);
+    flashLineThread(b.side, b.lineNumber);
     return;
   }
   const pos = decisionDisplayPos(b.decision);

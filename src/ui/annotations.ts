@@ -183,8 +183,9 @@ export function updateAwaitingDom() {
     if (activity && activity.textContent !== text) activity.textContent = text;
   }
   // Only a change request draws a held band, so the review's sent state alone decides it.
+  const hide = !showsHeld(true, S.awaitingAgent);
   for (const el of document.querySelectorAll<HTMLElement>(".tc-band.held"))
-    el.hidden = !showsHeld(true, S.awaitingAgent);
+    if (el.hidden !== hide) el.hidden = hide;
 }
 
 function awaitingHtml() {
@@ -462,6 +463,7 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   if (c.type === "change") {
     el.innerHTML = `<div class="change-actions"><button class="reject">Undo ${keycapsHtml("⇧N")}</button><button class="accept">Keep ${keycapsHtml("⇧Y")}</button></div>`;
   } else {
+    el.dataset.thread = `${c.side}:${c.lineNumber}`; // the jump target (blockers.ts flashes it)
     el.appendChild(threadCard(c));
     // The change on the thread's line keeps its decision bar right under the hunk, above the
     // thread, as when the two render as separate annotations.

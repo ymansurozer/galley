@@ -52,6 +52,27 @@
   --tc-ink: var(--ink-2);
 }
 
+/* A jump to a thread (`]`, the blockers list, the sidebar's rows) flashes its card: an orange
+   ring that fades back to the card's own edge. A ring, not a ground: the card's ground is opaque,
+   so the wrapper's own flash (decisions.css) would only show beside it, and stays off. */
+@keyframes card-flash {
+  0%,
+  25% {
+    box-shadow:
+      0 0 0 1px var(--orange),
+      0 0 0 5px color-mix(in srgb, var(--orange) 30%, transparent);
+  }
+}
+
+.flash > .thread-card {
+  animation: card-flash 1.2s var(--ease);
+}
+
+.unanchored-strip .annotation.flash:has(> .thread-card),
+.md-file .md-thread.flash:has(> .thread-card) {
+  animation: none;
+}
+
 /* Header: the kind in its hue, its state, the line at the right. */
 .tc-head {
   display: flex;

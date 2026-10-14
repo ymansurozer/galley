@@ -101,7 +101,7 @@ document.addEventListener(
   (e) => {
     if (!S.composerOpen) return;
     const target = e.target as HTMLElement;
-    if (target.closest?.(".composer-card, .msg-edit")) return;
+    if (target.closest?.(".composer-card, .msg-edit, .thread-card.k-new")) return;
     // Defer the closing render: this fires on pointerdown, before the click reaches a diff
     // control (Keep/Undo/Reply). Rendering now rebuilds the diff and destroys that control,
     // so the browser drops the pending click and the user's press is swallowed.
