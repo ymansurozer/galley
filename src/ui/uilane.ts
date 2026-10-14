@@ -570,8 +570,11 @@ export function placePinCard() {
   }
   const pin = pinRects.get(a.id);
   const id = CSS.escape(a.id);
-  const deskPin = document.querySelector(`.pagepin[data-id="${id}"], .traypin[data-id="${id}"]`);
-  const anchor = pin ? fromAppViewport(pin) : deskPin ? deskPin.getBoundingClientRect() : null;
+  // A desk pin that isn't laid out (its tray still hidden) has no box to anchor to.
+  const deskPin = document
+    .querySelector(`.pagepin[data-id="${id}"], .traypin[data-id="${id}"]`)
+    ?.getBoundingClientRect();
+  const anchor = pin ? fromAppViewport(pin) : deskPin?.width ? deskPin : null;
   const placed = host.style.visibility !== "hidden";
   if (!anchor) {
     if (placed) return;
@@ -665,6 +668,10 @@ export function placeFloatingComposer() {
 export const uiSendSummary = () => sendSummary(annotationsOf());
 
 export function installUiLane() {
+  // The tray shows a pin once this visit's page reports it unplaced, seconds after a step may have
+  // opened its card at the stage's corner: as the tray appears or changes, the card moves onto it.
+  const tray = document.querySelector(".unplaced-tray");
+  if (tray) new ResizeObserver(() => placePinCard()).observe(tray);
   // A primary press outside the open pin card closes it: not on the card, a composer, a pin in the
   // tray (it opens and closes the card itself), the browser chrome (a preset or a reload keeps it on
   // its pin; leaving the page hides it), or the screenshot it opened. A press in the app reaches the
