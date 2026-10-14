@@ -140,6 +140,17 @@ document.querySelectorAll<HTMLElement>("[data-resize]").forEach((handle) => {
   };
 });
 
+// Crossing the drawer breakpoint moves the tree between its docked column and the off-canvas
+// drawer (styles/responsive.css). That isn't the drawer opening or closing, so it mustn't play the
+// drawer's slide: the docked tree would sweep out across the canvas for a beat.
+matchMedia("(max-width: 1100px)").addEventListener("change", () => {
+  const tree = document.querySelector<HTMLElement>(".tree");
+  if (!tree) return;
+  tree.classList.add("no-slide");
+  void tree.offsetWidth; // commit the move with transitions off
+  tree.classList.remove("no-slide");
+});
+
 // Keyboard shortcuts: a central scope-aware dispatcher (keys.ts) is the single source of truth.
 installKeys();
 installTooltips();
