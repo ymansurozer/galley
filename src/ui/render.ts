@@ -414,10 +414,13 @@ async function renderCenter() {
     // margin keeps a scrolled-to line clear of the sticky file bar (diff.css does the same for the
     // light DOM and defines --jump-top, which inherits into the shadow). [data-flash] is a
     // jumped-to line (cursor.ts flashRow): an orange wash over its own tint that fades, like a
-    // thread's flash off the rows (decisions.css). previewCSS (empty unless previewing)
+    // thread's flash off the rows (decisions.css). An annotation row keeps its own ground when
+    // its line is selected or hovered: the selection tints the code line alone, so a card reads
+    // the same against the row behind it either way. previewCSS (empty unless previewing)
     // neutralizes addition styling to context, in-shadow.
     unsafeCSS:
       "[data-code]{scrollbar-gutter:auto}" +
+      "[data-line-annotation],[data-gutter-buffer=annotation]{--diffs-line-bg:var(--diffs-annotation-bg)}" +
       "[data-line-type]{scroll-margin-top:var(--jump-top,0px)}" +
       "[data-flash]{animation:galley-flash 1.2s ease-out}" +
       "@keyframes galley-flash{0%{box-shadow:inset 0 0 0 100vmax color-mix(in srgb,var(--orange) 25%,transparent)}}" +
