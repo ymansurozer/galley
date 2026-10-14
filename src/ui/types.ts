@@ -202,17 +202,7 @@ export type SkimMeta = {
   label: string;
   collapsed: boolean;
 };
-// The threads that gather under one line (thread-groups.ts), as one annotation at the group's
-// last display line. Each thread carries its display line. Which one is open is read from the
-// store as the slots fill (rests.ts), not carried here: Pierre's own re-renders (an expansion)
-// replay the last render's metadata.
-export type GroupMeta = {
-  type: "group";
-  side: Side;
-  lineNumber: number;
-  threads: (ThreadMeta & { display: number })[];
-};
-export type AnnotationMeta = GroupMeta | ChangeMeta | ComposerMeta | SkimMeta;
+export type AnnotationMeta = ThreadMeta | ChangeMeta | ComposerMeta | SkimMeta;
 export type AnnotationInput = { side: Side; lineNumber: number; metadata: AnnotationMeta };
 
 // ── @pierre/diffs imperative island ────────────────────────────────────────
@@ -312,8 +302,9 @@ export interface Store {
   // The sidebar's Change requests list is expanded. Per-session, starts expanded; `]` / `[`
   // expand it, so the list they step through stays in sight.
   requestsOpen: boolean;
-  // The one thread open as a card (rests.ts threadKey: path, side and raw line); every other
-  // thread rests as a row. Per-session; a reply or edit makes its own thread the open one.
+  // The one resolved thread expanded as its card (rests.ts threadKey: path, side and raw line);
+  // every other resolved thread rests as a row, and open threads always show as cards.
+  // Per-session.
   openThread: string | null;
   // Narrow widths (≤1100px): the file tree is an off-canvas left drawer, hidden by default so
   // the diff owns the screen. Toggled by the header hamburger / ⇧B; auto-closed on file select.

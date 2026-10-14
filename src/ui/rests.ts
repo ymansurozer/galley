@@ -1,19 +1,20 @@
 import { S, $, esc, toast } from "./store";
-import { awaitingParts, KINDS, threadCard } from "./annotations";
-import { cursorPlace, cursorRowEl, invalidateCursorRows, rowAt } from "./cursor";
-import { diffShadowRoot } from "./diff-dom";
-import { lineLabel, questionWaiting, threadKind } from "./thread-derive";
+import { KINDS, threadCard } from "./annotations";
+import { cursorPlace, cursorRowEl, invalidateCursorRows } from "./cursor";
+import { lineLabel } from "./thread-derive";
 import { firstLine } from "./uilane-derive";
 import type { CommentSurface } from "./markdown";
-import type { GroupMeta, Side, ThreadMeta } from "./types";
+import type { Side, ThreadMeta } from "./types";
 
-// ── Thread rests ─────────────────────────────────────────────────────────────
-// Every thread rests as a one-line row under its line, and the one in S.openThread opens as its
-// card in place. Each thread renders into a slot (in a diff group, the unanchored block, or the
-// rendered markdown view); opening and closing refill the slots involved in place instead of
-// re-rendering the diff. They're our own light-DOM nodes, and Pierre's resize observer keeps
-// split view's two sides level as their height changes. A full render rebuilds every slot from
-// the store, so the two paths agree.
+// ── Thread cards, and resolved rests ─────────────────────────────────────────
+// An open thread always shows as its card, under its own line. A resolved one rests as a muted
+// one-line row, and the one in S.openThread expands to its card in place: a click on its row, or
+// the cursor landing on its line; Esc or a click on the card's header folds it back. Each thread
+// renders into a slot (under a diff line, in the unanchored block, or in the rendered markdown
+// view); expanding and folding refill only the slots involved instead of re-rendering the diff.
+// They're our own light-DOM nodes, and Pierre's resize observer keeps split view's two sides
+// level as their height changes. A full render rebuilds every slot from the store, so the two
+// paths agree.
 
 export const threadKey = (t: { path: string; side: Side; lineNumber: number }) =>
   `${t.path}\n${t.side}:${t.lineNumber}`;
@@ -23,72 +24,71 @@ const slotThread = new WeakMap<
   { t: ThreadMeta; lost: boolean; surface: CommentSurface }
 >();
 
-// A slot for a thread: its rest, or its card when open. `lost`: the thread is in the unanchored
-// block, its line struck through. `surface`: where it renders, the diff by default (markdown.ts).
+// A slot for a thread: its card, or its rest while it's resolved and folded. `lost`: the thread is
+// in the unanchored block, its line struck through. `surface`: where it renders, the diff by
+// default (markdown.ts).
 export function threadSlot(t: ThreadMeta, lost = false, surface: CommentSurface = "code") {
   const slot = document.createElement("div");
-  slot.className = "thread-slot";
+  slot.className = "thread-slot" + (t.status === "resolved" ? " resolved" : "");
   slot.dataset.thread = `${t.side}:${t.lineNumber}`;
   slot.dataset.key = threadKey(t);
   slotThread.set(slot, { t, lost, surface });
-  fill(slot, slot.dataset.key === S.openThread);
+  fill(slot);
   return slot;
 }
 
-function fill(slot: HTMLElement, open: boolean) {
+function fill(slot: HTMLElement) {
   const { t, lost, surface } = slotThread.get(slot)!; // every slot is registered as it's made
-  slot.replaceChildren(open ? threadCard(t, lost, surface) : rest(t, lost, slot.dataset.key!));
+  const key = slot.dataset.key!; // set with the slot
+  if (t.status === "resolved" && key !== S.openThread) {
+    slot.replaceChildren(rest(t, key));
+    return;
+  }
+  const card = threadCard(t, lost, surface);
+  // An expanded resolved card folds back on a click on its header.
+  if (t.status === "resolved")
+    card.querySelector(".tc-head")!.addEventListener("click", () => openThread(null));
+  slot.replaceChildren(card);
 }
 
-// One line: the state glyph, who spoke last, the first line of what they said, the count. A
-// resolved thread shows what it was about instead: its opening message, muted.
-function rest(t: ThreadMeta, lost: boolean, key: string): HTMLElement {
-  const kind = threadKind(t.status, t.comments);
-  const waiting = kind !== "resolved" && questionWaiting(t.comments);
-  // A thread holds at least the comment that started it.
-  const m = (kind === "resolved" ? t.comments[0] : t.comments.at(-1))!;
-  const agent = m.role === "agent";
-  const glyph = waiting
-    ? `<span class="rest-glyph awaiting-answer${awaitingParts().queued ? " queued" : ""}"><span class="tc-spin"></span></span>`
-    : `<span class="rest-glyph">${KINDS[kind].glyph}</span>`;
-  const loc = lineLabel(t.lineNumber, t.comments[0]?.endLine);
+// A resolved thread at rest: a ✓, who opened it, the first line of what they said, the count.
+function rest(t: ThreadMeta, key: string): HTMLElement {
+  const m = t.comments[0]!; // a thread holds at least the comment that started it
   const b = document.createElement("button");
   b.type = "button";
-  b.className = `rest k-${kind}`;
-  b.title = `${loc} · ${KINDS[kind].label} — open`;
-  b.innerHTML = `${glyph}${lost ? `<span class="rest-loc"><s>${loc}</s></span>` : ""}<span class="rest-who${agent ? " agent" : ""}">${agent ? "Agent" : "You"}</span><span class="rest-text">${esc(firstLine(m.body))}</span><span class="rest-n">${t.comments.length}</span>`;
+  b.className = "rest";
+  b.title = `${lineLabel(t.lineNumber, m.endLine)} · Resolved — open`;
+  b.innerHTML = `<span class="rest-glyph">${KINDS.resolved.glyph}</span><span class="rest-who">${m.role === "agent" ? "Agent" : "You"}</span><span class="rest-text">${esc(firstLine(m.body))}</span><span class="rest-n">${t.comments.length}</span>`;
   b.onclick = () => {
-    // The cursor follows a click onto the thread's line, so r, ↵ and c act on the open card.
+    // The cursor follows a click onto the thread's line, so r, ↵ and c act on the card.
     const slot = b.closest<HTMLElement>(".thread-slot");
-    const side = slot?.closest<HTMLElement>(".thread-group")?.dataset.side as Side | undefined;
     openThread(key);
-    if (side && slot?.dataset.line && S.openThread === key) cursorPlace(side, +slot.dataset.line);
+    if (slot?.dataset.side && slot.dataset.line && S.openThread === key)
+      cursorPlace(slot.dataset.side as Side, +slot.dataset.line);
   };
   return b;
 }
 
-// The annotation for a group of threads gathered under its last line.
-export function threadGroupElement(g: GroupMeta): HTMLElement {
+// The annotation for a thread under its line in the diff (`display`: where that line renders).
+export function threadAnnotation(t: ThreadMeta, display: number): HTMLElement {
   const el = document.createElement("div");
   // Classic indicators draw +/− signs ahead of the code, so the code column sits further in.
   el.className =
-    "annotation thread-group" + (S.settings.diffIndicators === "classic" ? " signs" : "");
-  el.dataset.side = g.side;
-  for (const t of g.threads) {
-    const slot = threadSlot(t);
-    slot.dataset.line = String(t.display);
-    el.append(slot);
-  }
+    "annotation line-thread" + (S.settings.diffIndicators === "classic" ? " signs" : "");
+  const slot = threadSlot(t);
+  slot.dataset.side = t.side;
+  slot.dataset.line = String(display);
+  el.append(slot);
   return el;
 }
 
-// Open a thread as its card (null: none), closing the one open before. Only those two slots
-// change. A card holding a reply or an edit with text in it stays open, since closing it would
-// hide the draft; an empty one closes with its card.
+// Expand a resolved thread as its card (null: none), folding the one expanded before. Only those
+// two slots change. A card holding an edit with text in it stays, since folding it would hide the
+// draft; an empty one closes with it.
 export function openThread(key: string | null) {
   const was = S.openThread;
   if (was === key) return;
-  const slots = [...document.querySelectorAll<HTMLElement>(".thread-slot")];
+  const slots = [...document.querySelectorAll<HTMLElement>(".thread-slot.resolved")];
   const drafting = slots.find(
     (s) => s.dataset.key === was && s.querySelector(".js-composer-focus"),
   );
@@ -113,25 +113,25 @@ export function openThread(key: string | null) {
       ? row
       : slots.find((s) => s.dataset.key === key && s.closest("#diff")),
   );
-  for (const slot of slots)
-    if (slot.dataset.key === was || slot.dataset.key === key) fill(slot, slot.dataset.key === key);
+  for (const slot of slots) if (slot.dataset.key === was || slot.dataset.key === key) fill(slot);
   keepHeldPlace();
   invalidateCursorRows();
 }
 
-// The line the reviewer is looking at keeps its place on screen while rows open and close around
-// it: the cursor's when it's in view, else the slot opening. Split view's other column levels a
-// frame later (Pierre's resize observer), so the re-placing that follows holds it again, for a
-// moment only: a later render or resize mustn't pull the view back. A jump's own scroll wins: it
-// holds the row it landed on (cursor.ts landAt), or clears the hold before scrolling smoothly
-// (blockers.ts), which a hold would cut short.
+// The line the reviewer is looking at keeps its place on screen while a card expands or folds
+// around it: the cursor's when it's in view, else the slot expanding. Split view's other column
+// levels a frame later (Pierre's resize observer), so the re-placing that follows holds it again,
+// for a moment only: a later render or resize mustn't pull the view back. A jump's own scroll
+// wins: it holds the row it landed on (cursor.ts landAt), or clears the hold before scrolling
+// smoothly (blockers.ts), which a hold would cut short.
 let held: { el: HTMLElement; top: number; until: number } | null = null;
 
 export function holdPlace(el: HTMLElement | null | undefined) {
   held = el ? { el, top: el.getBoundingClientRect().top, until: performance.now() + 300 } : null;
 }
 
-function keepHeldPlace() {
+// Re-applied whenever the rows move (cursor.ts invalidateCursorRows).
+export function keepHeldPlace() {
   if (!held || !held.el.isConnected || performance.now() > held.until) {
     held = null;
     return;
@@ -139,83 +139,40 @@ function keepHeldPlace() {
   $("diff").scrollTop += held.el.getBoundingClientRect().top - held.top;
 }
 
-// What follows the rows moving (cursor.ts invalidateCursorRows): the held place, then the marks.
-export function followRows() {
-  keepHeldPlace();
-  placeThreadMarks();
-}
-
-// The cursor landed on a display line: the thread anchored there opens. False when none is.
+// The cursor landed on a display line: a resolved thread anchored there expands. False when none
+// rests there.
 export function openThreadAt(side: Side, line: number): boolean {
   const slot = $("diff").querySelector<HTMLElement>(
-    `.thread-group[data-side="${side}"] .thread-slot[data-line="${line}"]`,
+    `.line-thread .thread-slot.resolved[data-side="${side}"][data-line="${line}"]`,
   );
   if (!slot) return false;
   openThread(slot.dataset.key!); // every slot carries its key
   return true;
 }
 
-// A reply or an edit closing in the open card hands the cursor to the card's line (keys.ts Esc),
-// so r, ↵ and c still act on that thread. False when the open composer isn't in a diff card.
-export function cursorToOpenThread(): boolean {
-  const slot = [...$("diff").querySelectorAll<HTMLElement>(".thread-group .thread-slot")].find(
-    (s) => s.dataset.key === S.openThread && s.querySelector(".js-composer-focus"),
-  );
-  const side = slot?.closest<HTMLElement>(".thread-group")?.dataset.side as Side | undefined;
-  if (!slot || !side) return false;
-  cursorPlace(side, Number(slot.dataset.line));
+// A reply or an edit closing in a diff card hands the cursor to the card's line (keys.ts Esc), so
+// r, ↵ and c still act on that thread. False when the open composer isn't in a diff card.
+export function cursorToComposingThread(): boolean {
+  const slot = $("diff")
+    .querySelector(".line-thread .js-composer-focus")
+    ?.closest<HTMLElement>(".thread-slot");
+  if (!slot?.dataset.side) return false;
+  cursorPlace(slot.dataset.side as Side, Number(slot.dataset.line));
   return true;
 }
 
-// Esc's layer for the open card (keys.ts): close it. False when no card is showing, the App view
-// hiding the code included.
+// Esc's layer for an expanded resolved card (keys.ts): fold it. False when none is showing, the
+// App view hiding the code included.
 export function closeThreadCard(): boolean {
   const key = S.openThread;
   if (
     S.view !== "code" ||
     !key ||
-    ![...document.querySelectorAll<HTMLElement>(".thread-slot")].some((s) => s.dataset.key === key)
+    ![...document.querySelectorAll<HTMLElement>(".thread-slot.resolved")].some(
+      (s) => s.dataset.key === key,
+    )
   )
     return false;
   openThread(null);
   return true;
-}
-
-// The marks that tie a group's rows to their lines: each row repeats its line number in the
-// number column. One overlay in #diff's scrolled content, like the change rail, placed from the
-// cursor's row geometry whenever the rows move (invalidateCursorRows), never on scroll.
-let marks: HTMLElement | null = null;
-
-function placeThreadMarks() {
-  const diff = $("diff");
-  const groups = diff.querySelectorAll<HTMLElement>(".thread-group");
-  if (!groups.length) {
-    marks?.remove();
-    return;
-  }
-  const box = diff.getBoundingClientRect();
-  const y0 = box.top - diff.scrollTop;
-  const x0 = box.left - diff.scrollLeft;
-  let html = "";
-  for (const g of groups) {
-    const side = g.dataset.side as Side; // set with the group
-    const slots = [...g.querySelectorAll<HTMLElement>(":scope > .thread-slot")];
-    // The number column, read off the first anchor line's own number cell.
-    const num = slots
-      .map((s) => rowAt(side, Number(s.dataset.line))?.el)
-      .find((x) => !!x)
-      ?.getBoundingClientRect();
-    if (!num) continue; // its lines are folded or skimmed away
-    for (const s of slots) {
-      const r = s.getBoundingClientRect();
-      const mid = r.top + Math.min(r.height, 24) / 2 - y0;
-      html += `<b class="tm-num" style="left:${num.left - x0}px;width:${num.width}px;top:${mid}px">${s.dataset.line}</b>`;
-    }
-  }
-  marks ??= Object.assign(document.createElement("div"), { className: "thread-marks" });
-  marks.innerHTML = html;
-  // In the code theme's number colour, which needn't follow the appearance.
-  const host = diffShadowRoot()?.host;
-  if (host) marks.style.color = getComputedStyle(host).getPropertyValue("--diffs-fg-number");
-  if (marks.parentElement !== diff) diff.append(marks);
 }

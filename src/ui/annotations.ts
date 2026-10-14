@@ -1,4 +1,4 @@
-import { S, D, esc, toast, persist } from "./store";
+import { S, esc, toast, persist } from "./store";
 import {
   currentComments,
   currentChanges,
@@ -21,10 +21,12 @@ import {
 import { render } from "./render";
 import { isBlockSkimCollapsed, skimStripLabel, toggleSkimBlock } from "./skim";
 import { firstLine, turnsInto } from "./uilane-derive";
-import { agentPresence } from "./topbar-derive";
 import { asksChange } from "./requests-derive";
 import {
+  intentPill,
   lineLabel,
+  messageWaiting,
+  questionStatus,
   questionWaiting,
   showsHeld,
   threadKind,
@@ -39,11 +41,10 @@ import type {
 } from "./types";
 import { keycapsHtml } from "./keycaps";
 import { cursorChangeId } from "./cursor";
-import { diffLayout, threadGroups } from "./thread-groups";
-import { threadGroupElement, threadKey, threadSlot } from "./rests";
+import { threadAnnotation, threadKey, threadSlot } from "./rests";
 
 export function annotations(): AnnotationInput[] {
-  const lineThreads: (ThreadMeta & { line: number })[] = [];
+  const threads: AnnotationInput[] = [];
   const groups = new Map<string, ReviewComment[]>();
   for (const c of currentComments()) {
     const key = `${c.side}:${c.lineNumber}`;
@@ -70,32 +71,20 @@ export function annotations(): AnnotationInput[] {
       status: comments.some((c) => c.status === "open") ? "open" : "resolved",
       comments,
     };
-    lineThreads.push({ ...t, line: t.lineNumber });
+    // The annotation goes to @pierre in DISPLAY coordinates (it matches rendered gutter numbers);
+    // the thread keeps its raw line so thread actions filter comments correctly.
+    threads.push({ side: t.side, lineNumber: toDisplayLine(t.side, t.lineNumber), metadata: t });
   }
-  // A reply or an edit happens in its thread's card, so that thread is the open one.
-  const editing = S.editingCommentId
-    ? S.state.comments.find((c) => c.id === S.editingCommentId && c.path === file?.path)
-    : undefined;
-  // Any open thread on the composer's line hosts the reply, a lost one in the unanchored block too
-  // (a group of comments holds at least one).
+  // A thread showing as its card on the composer's line hosts the reply: an open one (a lost one
+  // in the unanchored block too), or the expanded resolved one (a group holds at least one comment).
   const replying =
-    S.composerOpen && !editing && !composerInUi()
+    S.composerOpen && !S.editingCommentId && !composerInUi()
       ? [...groups.values()].find(
           (cs) =>
-            cs.some((c) => c.status === "open") && composerTargets(cs[0]!.side, cs[0]!.lineNumber),
-        )?.[0]
+            (cs.some((c) => c.status === "open") || threadKey(cs[0]!) === S.openThread) &&
+            composerTargets(cs[0]!.side, cs[0]!.lineNumber),
+        )
       : undefined;
-  const composing = editing ?? replying;
-  if (composing) S.openThread = threadKey(composing);
-  // One annotation per group of nearby threads, at its last line. It goes to @pierre in DISPLAY
-  // coordinates (it matches rendered gutter numbers); the threads keep their raw lines so thread
-  // actions filter comments correctly.
-  const layout = D.fileDiff ? diffLayout(D.fileDiff) : { changes: [], hunks: [] };
-  const threads: AnnotationInput[] = threadGroups(lineThreads, toDisplayLine, layout).map((g) => ({
-    side: g.side,
-    lineNumber: g.line,
-    metadata: { type: "group", side: g.side, lineNumber: g.line, threads: g.threads },
-  }));
   const changes: AnnotationInput[] = [];
   // Only the step's own blocks render as changes (another step's are plain code in a part view).
   for (const ch of currentChanges().filter((ch) => ch.status === "pending" && inCurrentStep(ch))) {
@@ -159,28 +148,19 @@ export function annotations(): AnnotationInput[] {
   return [...changes, ...threads, ...composers];
 }
 
-// The waiting band under an unanswered question has three states, derived per poll tick from
-// the desk-liveness fields: queued (the question never reached an agent — nothing is awaiting),
-// active (delivered, and the agent posted a `galley status` line), or plain waiting. It's the top
-// bar's presence rule (topbar-derive) asked about this one question, sent review or not, so the
-// two never disagree. Desk-global by design: one desk, one agent.
-export function awaitingParts() {
-  const presence = agentPresence({
-    awaitingAgent: false,
-    queuedReviews: 0,
+// The status line under an unanswered question, from the desk-liveness fields each poll tick
+// (thread-derive questionStatus).
+export const awaitingParts = () =>
+  questionStatus({
+    awaitingAgent: S.awaitingAgent,
+    queuedReviews: S.queuedReviews,
     queuedQuestions: S.queuedQuestions,
     activity: S.agentActivity,
-    unansweredAsks: 1,
   });
-  // "Working · <activity>" splits into its label and the activity, which reads brighter.
-  const [label = "Working", ...activity] =
-    presence.kind === "hidden" ? [] : presence.line.split(" · ");
-  return { queued: presence.kind === "notAttached", label, activity: activity.join(" · ") };
-}
 
-// Patch every mounted waiting band in place, and show or hide the held bands. Called from the
+// Patch every mounted question status in place, and show or hide the held chips. Called from the
 // 1.5s poll and on Send: activity/presence changes alone must not trigger a full render() (it
-// rebuilds the diff DOM), so the bands are updated directly.
+// rebuilds the diff DOM), so they're updated directly.
 export function updateAwaitingDom() {
   const parts = awaitingParts();
   for (const el of document.querySelectorAll(".awaiting-answer")) {
@@ -191,15 +171,15 @@ export function updateAwaitingDom() {
     const text = parts.activity ? ` · ${parts.activity}` : "";
     if (activity && activity.textContent !== text) activity.textContent = text;
   }
-  // Only a change request draws a held band, so the review's sent state alone decides it.
+  // Only a change request draws a held chip, so the review's sent state alone decides it.
   const hide = !showsHeld(true, S.awaitingAgent);
-  for (const el of document.querySelectorAll<HTMLElement>(".tc-band.held"))
+  for (const el of document.querySelectorAll<HTMLElement>(".tc-held"))
     if (el.hidden !== hide) el.hidden = hide;
 }
 
 function awaitingHtml() {
   const parts = awaitingParts();
-  return `<div class="tc-band awaiting-answer${parts.queued ? " queued" : ""}"><span class="tc-spin" aria-hidden="true"></span><span><span class="awaiting-label">${esc(parts.label)}</span><span class="agent-activity">${parts.activity ? esc(` · ${parts.activity}`) : ""}</span></span></div>`;
+  return `<div class="msg-status awaiting-answer${parts.queued ? " queued" : ""}"><span class="tc-spin" aria-hidden="true"></span><span><span class="awaiting-label">${esc(parts.label)}</span><span class="agent-activity">${parts.activity ? esc(` · ${parts.activity}`) : ""}</span></span></div>`;
 }
 
 // Coarse relative time for a message ("now", "5m ago", "3h ago", "2d ago", else a date). The
@@ -244,13 +224,14 @@ export function lineThread(c: ThreadMeta): ThreadControls {
     setStatus: (status) => {
       // Resolving rests the thread and closes its own reply composer while it holds no draft:
       // there's nothing left to reply to, and it would come back on the line as a new comment. A
-      // draft stays, and so does its card.
-      if (
-        status === "resolved" &&
-        !(composerTargets(c.side, c.lineNumber) && S.composerBody.trim())
-      ) {
-        if (composerTargets(c.side, c.lineNumber)) S.composerOpen = false;
-        if (S.openThread === threadKey(c)) S.openThread = null;
+      // draft stays, and so does its card, now as the expanded resolved one.
+      if (status === "resolved") {
+        const mine = composerTargets(c.side, c.lineNumber);
+        if (mine && S.composerBody.trim()) S.openThread = threadKey(c);
+        else {
+          if (mine) S.composerOpen = false;
+          if (S.openThread === threadKey(c)) S.openThread = null;
+        }
       }
       S.state.comments
         .filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber)
@@ -283,9 +264,8 @@ export const KINDS: Record<ThreadKind, { label: string; glyph: string }> = {
 };
 
 // A thread as its card draws it. A code thread's card names what it is and where it sits in a
-// header (`loc`, struck through when the thread lost its line), and closes with the held band
-// while its change request waits for Send. The UI lane's row names its annotation itself, so it
-// passes no head.
+// header (`loc`, struck through when the thread lost its line), chipped "Held for Send" while its
+// change request waits for Send. The UI lane's pin card names its annotation's number there.
 export type ThreadView = {
   status: "open" | "resolved";
   comments: ThreadMessage[];
@@ -307,14 +287,18 @@ function headHtml(c: ThreadView, head: NonNullable<ThreadView["head"]>) {
         : c.comments.at(-1)?.role === "agent"
           ? "answered"
           : "";
-  return `<div class="tc-head"><span class="tc-kind">${glyph}${label}</span>${state ? `<span class="tc-state">· ${state}</span>` : ""}${locHtml(head)}</div>`;
+  // Held for Send hides once the review is sent: the agent has it then (updateAwaitingDom).
+  const held = head.held
+    ? `<span class="tc-held"${showsHeld(true, S.awaitingAgent) ? "" : " hidden"}>Held for Send</span>`
+    : "";
+  return `<div class="tc-head"><span class="tc-kind">${glyph}${label}</span>${state ? `<span class="tc-state">· ${state}</span>` : ""}${held}${locHtml(head)}</div>`;
 }
 
 // The card for one thread: its header, the messages (each with its author's avatar, and the
-// reviewer's own with Edit / Delete / Turn into), the band its state ends in, then Reply… and
-// Resolve. A resolved thread rests as one line with Reopen. The one thread component: the diff
-// annotations, the unanchored block, the markdown-file view (mdfile.ts) and the UI lane's
-// annotation sidebar (uilane.ts) all render through it.
+// reviewer's own with Edit / Delete / Turn into; a question waiting on the agent says so under
+// it), then Reply… and Resolve. A resolved thread rests as one line with Reopen. The one thread
+// component: the diff annotations, the unanchored block, the markdown-file view (mdfile.ts) and
+// the UI lane's pin card (uilane.ts) all render through it.
 export function buildCommentThread(
   c: ThreadView,
   controls: ThreadControls,
@@ -334,18 +318,19 @@ export function buildCommentThread(
     reopen.onclick = () => controls.setStatus("open");
     return box;
   }
+  const resolved = c.status === "resolved";
   const messages = c.comments
     .map((m, i) => {
       const own = m.role !== "agent";
       const editing = S.editingCommentId === m.id;
       const edited = m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
-      // Only a change request wears a badge; a question reads as a plain message (the waiting
-      // band says when it's still waiting on the agent). A change request's own card says so in
-      // its header, so its opening message needs none.
+      const pill = intentPill(m, i, c.head?.kind);
       const badge =
-        own && m.intent === "action" && !(i === 0 && c.head?.kind === "change")
+        pill === "change"
           ? '<span class="intent-badge a">Change requested</span>'
-          : "";
+          : pill === "question"
+            ? '<span class="intent-badge q">Question</span>'
+            : "";
       // Only the opening message carries the thread's kind, so only it turns.
       const into = i === 0 ? turnsInto(m) : null;
       const label = into === "question" ? "Turn into ask" : "Turn into change request";
@@ -360,22 +345,18 @@ export function buildCommentThread(
       // The body is left empty for the message being edited — buildEditor replaces it
       // below (it needs live DOM wiring, not an innerHTML string).
       const body = editing ? "" : `<div class="md">${renderCommentBody(m, surface)}</div>`;
-      return `<div class="msg${own ? "" : " agent"}${editing ? " editing" : ""}" data-id="${m.id}"><div class="meta">${own ? AVATAR.you : AVATAR.agent}<span class="author${own ? "" : " agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div>${body}</div>`;
+      // A question waiting on the agent carries its status under it (live-patched by
+      // updateAwaitingDom) until an agent reply lands after it.
+      const status = !resolved && !editing && messageWaiting(m, c.comments) ? awaitingHtml() : "";
+      return `<div class="msg${own ? "" : " agent"}${editing ? " editing" : ""}" data-id="${m.id}"><div class="meta">${own ? AVATAR.you : AVATAR.agent}<span class="author${own ? "" : " agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div>${body}${status}</div>`;
     })
     .join("");
-  // The bands: waiting on the agent (live-patched by updateAwaitingDom), then held for Send. A
-  // held band hides once the review is sent: the agent has it then.
-  const resolved = c.status === "resolved";
-  const waiting = !resolved && questionWaiting(c.comments) ? awaitingHtml() : "";
-  const held = c.head?.held
-    ? `<div class="tc-band held"${showsHeld(c.head.held, S.awaitingAgent) ? "" : " hidden"}>${sprite("flag")}<span>Held — goes with Send</span></div>`
-    : "";
-  // Reply… hides while its own composer is open (only Resolve stays); the composer sits between
-  // the bands and the actions. A resolved thread's card offers Reopen instead.
+  // Reply… hides while its own composer is open (only Resolve stays). A resolved thread's card
+  // offers Reopen instead.
   const foot = resolved
     ? '<div class="thread-actions"><span class="tc-kept">Resolved — kept here for reference</span><button class="reopen-inline">Reopen</button></div>'
     : `<div class="thread-actions">${replyOpen ? "" : '<button class="reply-thread">Reply…</button>'}<button class="resolve-thread">Resolve</button></div>`;
-  box.innerHTML = `${c.head ? headHtml(c, c.head) : ""}${messages}${waiting}${held}${foot}`;
+  box.innerHTML = `${c.head ? headHtml(c, c.head) : ""}${messages}${foot}`;
   // Mount the in-place editor into the message being edited.
   if (S.editingCommentId) {
     const msgEl = box.querySelector(`.msg[data-id="${S.editingCommentId}"]`);
@@ -509,5 +490,5 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     el.appendChild(control);
     return el;
   }
-  return threadGroupElement(c);
+  return threadAnnotation(c, toDisplayLine(c.side, c.lineNumber));
 }

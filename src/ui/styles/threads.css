@@ -1,9 +1,9 @@
 /* ── Thread cards ────────────────────────────────────────────────────────────────────────────
-   A thread is one card: a header naming what it is and its line, the messages with their authors'
-   avatars, the band its state ends in, then Reply… and Resolve. In the diff it sits in the code
-   column under its line (Pierre slots it into its light DOM, so these rules reach it), capped at
-   a reading width. The unanchored block, the rendered markdown view and the UI lane's annotation
-   list draw the same card. --tc names the kind's hue: blue for a question or the agent, orange
+   A thread is one card: a header naming what it is, whether it's held and its line, the messages
+   with their authors' avatars (a waiting question's status under it), then Reply… and Resolve. In
+   the diff it sits in the code column under its line (Pierre slots it into its light DOM, so these
+   rules reach it), capped at a reading width. The unanchored block, the rendered markdown view and
+   the UI lane's pin card draw the same card. --tc names the kind's hue: blue for a question or the agent, orange
    for a change request. */
 .annotation {
   font-family: var(--sans);
@@ -15,15 +15,13 @@
   color: var(--ink);
 }
 
-/* Room around the rests and cards in the code column. A group stacks its threads: rests, and
-   the one open card in its place. */
-/* Their left edge is the code text's, as the Undo | Keep control's is (decisions.css): @pierre
+/* Room around a thread under its line in the code column: its card, or its rest while it's
+   resolved. Their left edge is the code text's, as the Undo | Keep control's is (decisions.css): @pierre
    insets each line by its gap, or by 2ch of the code font where it draws classic +/− signs. The
    row is set in the code's face so `ch` measures the same; the rests and cards set their own. */
-.annotation:is(.thread-group, .composer-annotation) {
+.annotation:is(.line-thread, .composer-annotation) {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   padding: 4px 16px 6px var(--diffs-gap-inline, 8px);
   font-family: var(--mono);
   font-size: var(--code-size, 12.5px);
@@ -32,11 +30,11 @@
   contain: inline-size;
 }
 
-.annotation:is(.thread-group, .composer-annotation).signs {
+.annotation:is(.line-thread, .composer-annotation).signs {
   padding-left: 2ch;
 }
 
-.thread-group:has(.thread-card) {
+.line-thread:has(.thread-card) {
   padding-block: 6px 8px;
 }
 
@@ -46,15 +44,14 @@
 }
 
 @media (max-width: 760px) {
-  .annotation:is(.thread-group, .composer-annotation) {
+  .annotation:is(.line-thread, .composer-annotation) {
     padding-right: 8px;
   }
 }
 
-/* ── Rests: a thread at rest is one line under its line ──
-   Its state glyph, who spoke last, the first line of what they said, and the count, tinted by
-   what the thread is: a change request orange, a question waiting with a turning ring, the
-   agent's word blue. A resolved thread rests muted, on its opening message. */
+/* ── Rests: a resolved thread is one muted line under its line ──
+   A ✓, who opened it, the first line of what they said, and the count. A click, or the cursor
+   landing on its line, expands it to its card (rests.ts). */
 .rest {
   display: flex;
   align-items: center;
@@ -66,25 +63,23 @@
   padding: 0 9px;
   border: 0;
   border-radius: var(--radius);
-  background: var(--raised);
-  box-shadow: 0 0 0 0.5px var(--sep-strong);
-  color: var(--ink-2);
+  background: transparent;
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+  color: var(--ink-3);
   font-family: var(--sans);
   font-size: var(--text-sm);
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
-  transition:
-    background-color 0.15s,
-    box-shadow 0.15s;
+  transition: background-color 0.15s;
 }
 
 .rest:hover {
-  background-image: linear-gradient(var(--fill-2), var(--fill-2));
+  background-color: var(--fill-2);
 }
 
 .rest:active {
-  background-image: linear-gradient(var(--fill-2), var(--fill-2));
+  background-color: var(--fill-3);
 }
 
 .rest-glyph {
@@ -93,7 +88,6 @@
   place-items: center;
   width: 14px;
   height: 14px;
-  color: var(--blue);
 }
 
 .rest-glyph .ic {
@@ -101,39 +95,9 @@
   height: 13px;
 }
 
-.rest-glyph.awaiting-answer {
-  color: var(--blue);
-}
-
-.rest-glyph.awaiting-answer.queued {
-  color: var(--orange);
-}
-
-.rest-glyph .tc-spin {
-  margin: 0;
-}
-
-.rest.k-change .rest-glyph,
-.rest.k-change .rest-text {
-  color: var(--orange-ink);
-}
-
-.rest.k-change .rest-glyph {
-  color: var(--orange);
-}
-
-.rest.k-note .rest-glyph {
-  color: var(--ink-2);
-}
-
 .rest-who {
   flex: 0 0 auto;
-  color: var(--ink);
   font-weight: 600;
-}
-
-.rest-who.agent {
-  color: var(--blue-ink);
 }
 
 .rest-text {
@@ -145,47 +109,8 @@
 
 .rest-n {
   flex: 0 0 auto;
-  color: var(--ink-3);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
-}
-
-.rest-loc {
-  flex: 0 0 auto;
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: var(--text-2xs);
-}
-
-.rest.k-resolved {
-  background: transparent;
-  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
-  color: var(--ink-3);
-}
-
-.rest.k-resolved .rest-glyph,
-.rest.k-resolved .rest-who {
-  color: var(--ink-3);
-}
-
-/* The marks tying a group's rows to their lines (rests.ts placeThreadMarks): each row's line
-   number repeated in the number column, in the code theme's number colour. Over the code, under
-   the sticky bar; the pointer passes through. */
-.thread-marks {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 3;
-  pointer-events: none;
-}
-
-.tm-num {
-  position: absolute;
-  padding-right: 8px;
-  transform: translateY(-50%);
-  font: 500 var(--text-2xs) / 1 var(--mono);
-  text-align: right;
-  opacity: 0.8;
 }
 
 .thread-card {
@@ -231,7 +156,7 @@
   animation: card-flash 1.2s var(--ease);
 }
 
-/* Header: the kind in its hue, its state, the line at the right. */
+/* Header: the kind in its hue, its state, the held chip, the line at the right. */
 .tc-head {
   display: flex;
   align-items: center;
@@ -260,6 +185,17 @@
   text-overflow: ellipsis;
   color: var(--ink-3);
   font-weight: 500;
+}
+
+/* Held for Send: a quiet chip while a change request waits for the review to go (the `hidden`
+   attribute takes it away once it's sent). */
+.tc-held {
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--orange-band);
+  color: var(--orange-ink);
+  font-size: var(--text-2xs);
+  line-height: 16px;
 }
 
 .tc-loc {
@@ -337,7 +273,7 @@
   color: var(--ink-3);
 }
 
-/* The change-request pill (questions carry none). */
+/* A message's intent, where the thread's kind doesn't say it (thread-derive intentPill). */
 .thread-card .intent-badge {
   padding: 0 6px;
   border-radius: var(--radius-sm);
@@ -349,6 +285,11 @@
 .thread-card .intent-badge.a {
   color: var(--orange-ink);
   background: var(--orange-wash);
+}
+
+.thread-card .intent-badge.q {
+  color: var(--blue-ink);
+  background: var(--blue-wash);
 }
 
 .md {
@@ -451,43 +392,25 @@
   }
 }
 
-/* Bands: the state the card ends in, edge to edge. Waiting on the agent is blue (amber when no
-   agent will pick the question up); a change request held for Send is orange. */
-.tc-band {
+/* A question's status, under it until the agent answers: working in blue, amber when no agent
+   will pick the question up. On its hue's -band, so it stands off the card in either scheme. */
+.msg-status {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  margin: 10px -12px 0;
-  padding: 7px 12px 8px;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--blue-band);
+  color: var(--blue-ink);
   font-size: var(--text-xs);
   line-height: 1.4;
 }
 
-/* A held band hides while the review is sent (updateAwaitingDom toggles `hidden`); the display
-   above would otherwise override the attribute. */
-.tc-band[hidden] {
-  display: none;
-}
-
-.tc-band .ic {
-  flex: 0 0 auto;
-  width: 12px;
-  height: 12px;
-  margin-top: 1px;
-}
-
-.tc-band.held {
-  background: var(--orange-wash);
-  color: var(--orange-ink);
-}
-
-.tc-band.awaiting-answer {
-  background: var(--blue-wash);
-  color: var(--blue-ink);
-}
-
-.tc-band.awaiting-answer.queued {
-  background: var(--orange-wash);
+.msg-status.queued {
+  background: var(--orange-band);
   color: var(--orange-ink);
 }
 
@@ -650,7 +573,6 @@
 /* The composer (a new comment, a reply, the UI lane's floating one): a field and the two
    intents under it, Ask in blue (question), Request change in orange. */
 .thread-card .meta + .composer-card,
-.thread-card .tc-band + .composer-card,
 .thread-card .msg + .composer-card {
   margin-top: 10px;
 }

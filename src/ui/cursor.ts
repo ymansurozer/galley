@@ -7,7 +7,7 @@ import { openCommentComposer } from "./selection";
 import { render } from "./render";
 import { diffShadowRoot } from "./diff-dom";
 import { type Row, mergeRows, rowMatches as matches } from "./cursor-rows";
-import { followRows, holdPlace, openThreadAt, threadKey } from "./rests";
+import { holdPlace, keepHeldPlace, openThreadAt, threadKey } from "./rests";
 
 // ── The diff line cursor ─────────────────────────────────────────────────────
 // Keyboard review needs a "current line" the diff doesn't otherwise have. We keep it as a
@@ -35,14 +35,14 @@ let cached: Row[] | null = null;
 export function invalidateCursorRows() {
   cached = null;
   watchColumns();
-  // The rows just moved (a render, an expansion, a resize, a card opening): the rail and the
-  // thread rows follow once they've laid out.
+  // The rows just moved (a render, an expansion, a resize, a card opening): the rail and the held
+  // place follow once they've laid out.
   if (!followQueued) {
     followQueued = true;
     requestAnimationFrame(() => {
       followQueued = false;
       if (rail?.isConnected) markCursorChange();
-      followRows();
+      keepHeldPlace();
     });
   }
 }
@@ -67,10 +67,6 @@ function watchColumns() {
       columns.observe(code);
     }
 }
-
-// The row showing a display line (either column of a context row), for the thread marks.
-export const rowAt = (side: Side, line: number): Row | undefined =>
-  rows().find((r) => matches(r, side, line));
 
 // The cursor's row element, which an opening card keeps in place on screen (rests.ts).
 export const cursorRowEl = (): HTMLElement | null =>
@@ -137,11 +133,11 @@ function landOn(r: Row | undefined, scroll = true) {
   paint(r);
   if (scroll) r.el.scrollIntoView({ block: "nearest" });
   markCursorChange();
-  // A thread on the line opens: on either column of a context row.
+  // A resolved thread on the line expands: on either column of a context row.
   if (!openThreadAt(r.side, r.line) && r.alt) openThreadAt(r.alt.side, r.alt.line);
 }
 
-// Put the cursor on a line without scrolling: a thread opened by a click on its row.
+// Put the cursor on a line without scrolling: a resolved thread expanded by a click on its rest.
 export function cursorPlace(side: Side, line: number) {
   landOn(
     rows().find((r) => matches(r, side, line)),
@@ -373,7 +369,7 @@ export function cursorChangeId(): string | null {
 // down its rows and its control (decisions.css). Only the affected controls' class and the rail's
 // box change, never the diff, so it's cheap enough for every cursor move.
 let rail: HTMLElement | null = null;
-// A frame's re-placing of the rail and the thread marks is queued (invalidateCursorRows).
+// A frame's re-placing of the rail and the held place is queued (invalidateCursorRows).
 let followQueued = false;
 
 function markCursorChange() {

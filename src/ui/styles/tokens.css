@@ -7,7 +7,8 @@
      orange — change request, flag, rename
      red    — deleted, destructive
    Each hue has a solid (fills, rails, icons), an -ink (text on the page) and a -wash (a tinted
-   ground).
+   ground). Blue and orange also have a -band: the ground of a thread's state inside its card (a
+   question's status, the held chip), which has to stand off the raised card, not just the page.
 
    Two colour schemes, dark and light, each declared for a scope:
    - The chrome follows Settings → Appearance: dark is the default (:root), and data-theme="light"
@@ -120,6 +121,9 @@
   --red: #ff453a;
   --red-ink: #ff6b62;
   --red-wash: rgb(255 69 58 / 0.13);
+  /* Over --raised, its -ink holds 4.5:1 or better: orange 5.5, blue 4.9. */
+  --orange-band: rgb(255 159 10 / 0.24);
+  --blue-band: rgb(10 132 255 / 0.26);
 
   /* Filled buttons: the ground under a white label, at rest / hover / pressed. Dark deepens
      the hues so the label holds 4.5:1 or better on a dark desk — green 5.3 / 4.6 / 6.5, orange
@@ -193,6 +197,9 @@
   --red: #ff3b30;
   --red-ink: #c22a20;
   --red-wash: rgb(255 59 48 / 0.08);
+  /* On white the hue carries the band; orange stays at its wash, where its ink is at 4.5:1. */
+  --orange-band: rgb(255 149 0 / 0.1);
+  --blue-band: rgb(0 122 255 / 0.12);
 
   /* Light keeps the system hues, as a Mac accent button does; hover and pressed step deeper. */
   --green-fill: #34c759;
