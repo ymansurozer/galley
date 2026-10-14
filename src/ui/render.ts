@@ -362,11 +362,13 @@ async function renderCenter() {
   const diffIndicators = previewing ? "none" : S.settings.diffIndicators;
   const opts = {
     // The code theme is the user's pick regardless of appearance (the settings dropdown groups
-    // dark and light themes; mixing is allowed). Both slots get it — themeType only decides
-    // which slot @pierre reads plus its own chrome colours, which follow the theme's own scheme
-    // like everything else drawn in the code canvas.
+    // dark and light themes; mixing is allowed). Both slots get it, so themeType only picks
+    // which of @pierre's own mixes tint the rows (its colour-scheme). Its light mixes, always:
+    // its dark ones tint changed lines 20% against 12% and lift plain rows and separators off
+    // the theme's background, which washes a dark canvas out. The light ones keep a dark theme's
+    // canvas dark, and are a light theme's own.
     theme: { dark: S.settings.theme, light: S.settings.theme },
-    themeType: codeScheme(S.settings.theme),
+    themeType: "light" as const,
     diffStyle,
     diffIndicators,
     expandUnchanged,
