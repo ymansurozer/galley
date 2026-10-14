@@ -55,9 +55,11 @@ const ANCHORS = [
   // a whole-file skim needs no orientation; everything else, skimBlocks-only included, does
   "normally omits orientation",
   "skimBlocks-only ones included",
-  // skimmable review (issue 06) — the fields and the "only on request / opposite of flag" rule
+  // skimmable review (issue 06) — the fields, how a skim follows its block across reloads, and the
+  // "only on request / opposite of flag" rule
   "skimBlocks?",
   "new-file-side [start, end] span",
+  "a skim follows its block's content",
   "Skim LOWERS attention",
   "When to skim",
   // fully-skimmed files leave the flow (issue 07)
