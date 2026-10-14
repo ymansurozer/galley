@@ -91,11 +91,15 @@ async function land(stop: RequestStop) {
   if (md || strip) cursorReset();
   if (md) flashThread(md);
   else
-    jumpToBlocker({
-      kind: "thread",
-      side: stop.side,
-      lineNumber: stop.lineNumber,
-      preview: "",
-      unanchored: !!strip,
-    });
+    await jumpToBlocker(
+      {
+        kind: "thread",
+        side: stop.side,
+        lineNumber: stop.lineNumber,
+        preview: "",
+        unanchored: !!strip,
+      },
+      // Opening the thread's part renders again: the reviewer may move on meanwhile too.
+      () => last === stop,
+    );
 }

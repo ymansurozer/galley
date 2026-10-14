@@ -397,6 +397,7 @@ async function renderCenter() {
     cacheKey: f.contentHash || ckey(cur.newContents),
   };
   let fd: FileDiffMetadata;
+  let rawFd: FileDiffMetadata | null = null;
   if (viewOnly) {
     fd = D.parseDiffFromFile({ name: newName, contents: "", cacheKey: "∅" }, newF);
     D.lineMap = null;
@@ -405,7 +406,7 @@ async function renderCenter() {
     // Changes (identity, raw anchors) derive from the raw diff; the rendered diff is the
     // decision-replayed one, so display anchors must be re-read from it (resolutions
     // renumber lines — see linemap.ts).
-    const rawFd = D.parseDiffFromFile(oldF, newF);
+    rawFd = D.parseDiffFromFile(oldF, newF);
     ensureChangesFromFileDiff(rawFd);
     fd = replayDecisions(rawFd);
     syncDisplayAnchors(fd);
@@ -419,6 +420,7 @@ async function renderCenter() {
     ? "[data-code]{--diffs-bg-addition-override:var(--diffs-bg-context);--diffs-bg-addition-emphasis-override:var(--diffs-bg-context);--diffs-bg-addition-number-override:var(--diffs-bg-context-gutter);--diffs-fg-number-addition-override:var(--diffs-fg-number)}"
     : "";
   D.fileDiff = fd;
+  D.rawFileDiff = rawFd;
   applyLayoutClasses();
   // The per-file sign-off action in the diff header. Unfinished → one context button:
   // "Approve" (clean) or "Mark reviewed" (has a rejected hunk / open requested-change), which

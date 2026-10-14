@@ -157,7 +157,7 @@ const selectStep = async ({ fileIndex: i, part }: Step) => {
   S.fileIndex = i;
   S.stepPart = part;
   S.fileView = defaultFileView(S.state.files[i]);
-  D.fileDiff = null;
+  D.fileDiff = D.rawFileDiff = null;
   cursorReset(); // re-init the line cursor to the new file's first change
   // Move the sidebar highlight in place — switching files no longer rebuilds the row lists
   // (the "active" class left the row models; see applyActiveRow in tree.ts).
@@ -194,7 +194,7 @@ S.previewFile = async (path) => {
       removed: 0,
       previewContents: r.contents,
     };
-    D.fileDiff = null;
+    D.fileDiff = D.rawFileDiff = null;
     cursorReset();
     await render();
   } catch {
@@ -247,7 +247,7 @@ S.setStyle = (style) => {
 };
 S.setFileView = (view) => {
   S.fileView = view;
-  D.fileDiff = null;
+  D.fileDiff = D.rawFileDiff = null;
   render();
 };
 // Floating sign-off button (mirrors the header's ⇧A action): shown only once the diff is
@@ -541,7 +541,7 @@ S.reset = async () => {
   const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" });
   if (r.state) {
     S.state = r.state;
-    D.fileDiff = null;
+    D.fileDiff = D.rawFileDiff = null;
     render();
   }
   toast("Reset review");

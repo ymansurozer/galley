@@ -3,6 +3,7 @@ import {
   currentComments,
   currentChanges,
   currentFile,
+  inCurrentStep,
   toDisplayLine,
   fromDisplayLine,
 } from "./changes";
@@ -55,7 +56,10 @@ export function annotations(): AnnotationInput[] {
     const change = verdicts
       ? currentChanges().find(
           (ch) =>
-            ch.status === "pending" && ch.side === first.side && ch.lineNumber === first.lineNumber,
+            ch.status === "pending" &&
+            ch.side === first.side &&
+            ch.lineNumber === first.lineNumber &&
+            inCurrentStep(ch),
         )
       : undefined;
     if (change) seen.add(change.id);
@@ -76,7 +80,11 @@ export function annotations(): AnnotationInput[] {
     });
   }
   const changes: AnnotationInput[] = [];
-  for (const ch of currentChanges().filter((ch) => ch.status === "pending" && !seen.has(ch.id))) {
+  // Only the step's own blocks render as changes (another step's are plain code in a part view).
+  const pending = currentChanges().filter(
+    (ch) => ch.status === "pending" && !seen.has(ch.id) && inCurrentStep(ch),
+  );
+  for (const ch of pending) {
     const anchor = ch.displayEndLine ?? toDisplayLine(ch.side, ch.endLine ?? ch.lineNumber);
     // A skimmable block gets a collapse/expand strip. While collapsed, skim.ts hides its rows
     // and the strip stands in for it — so suppress the decision bar (it returns on expand).

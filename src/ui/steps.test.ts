@@ -4,7 +4,9 @@ import type { ChangeState, GuideFile } from "../types.js";
 import { nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek.js";
 import {
   anchorStep,
+  blockStep,
   carryStep,
+  inStep,
   neighborStep,
   planSteps,
   slotOutOfFlow,
@@ -218,4 +220,25 @@ test("carryStep re-finds the part by path and title after the guide's indices mo
   const claimed = stepPlan(swapped, FILES, changesOf([block("fees", 1), block("lockout", 2)]));
   assert.deepEqual(carryStep(claimed, 1, "rest", undefined), { fileIndex: 1 });
   assert.deepEqual(carryStep(p, 0, undefined, undefined), { fileIndex: 0 });
+});
+
+test("inStep shows every block whole, a part's own blocks in a part, and unclaimed ones in Rest", () => {
+  const stale = block("stale", 1); // a.ts's entry: unclaimed, as stepPlan counts it
+  const shows = (part: Step["part"]) =>
+    [...SPLIT, stale].filter((c) => inStep(GUIDE, part, c)).map((c) => c.stableKey);
+  assert.deepEqual(shows(undefined), ["fees", "lockout", "loose", "stale"]);
+  assert.deepEqual(shows(0), ["fees"]);
+  assert.deepEqual(shows(2), ["lockout"]);
+  assert.deepEqual(shows("rest"), ["loose", "stale"]);
+});
+
+test("blockStep opens a block's part, its file's Rest when no part claims it, else the file", () => {
+  const [fees, lockout, loose] = SPLIT as [ChangeState, ChangeState, ChangeState];
+  assert.deepEqual(blockStep(GUIDE, 1, fees), { fileIndex: 1, part: 0 });
+  assert.deepEqual(blockStep(GUIDE, 1, lockout), { fileIndex: 1, part: 2 });
+  assert.deepEqual(blockStep(GUIDE, 1, loose), { fileIndex: 1, part: "rest" });
+  assert.deepEqual(blockStep(GUIDE, 1, block("stale", 1)), { fileIndex: 1, part: "rest" });
+  // An unsplit file has no parts: its blocks belong to the whole file.
+  const a: ChangeState = { ...block("x"), id: "a.ts:x", path: "a.ts" };
+  assert.deepEqual(blockStep(GUIDE, 0, a), { fileIndex: 0 });
 });
