@@ -167,26 +167,28 @@
   border-radius: var(--radius-pill);
   display: inline-grid;
   place-items: center;
-  background: var(--orange);
+  --pin: var(--orange);
+  background: var(--pin);
   color: var(--on-fill);
   font-family: var(--sans);
   font-size: var(--text-2xs);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: transform 0.12s;
+  transition: background-color 0.12s;
 }
 
+/* Hover steps the pin's colour toward the ink, as every button answers the pointer. */
 :is(.chrome .pagepin, .traypin):hover {
-  transform: scale(1.12);
+  background: color-mix(in srgb, var(--pin) 82%, var(--ink));
 }
 
 :is(.chrome .pagepin, .traypin).q {
-  background: var(--blue);
+  --pin: var(--blue);
 }
 
 :is(.chrome .pagepin, .traypin).resolved {
-  background: var(--fill-3);
+  --pin: var(--fill-3);
   color: var(--ink-2);
 }
 

@@ -355,7 +355,6 @@
 
 .st-btn:hover {
   background: var(--fill-2);
-  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
 }
 
 .st-btn:active {

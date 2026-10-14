@@ -44,8 +44,6 @@ button.ann-src {
 
 button.ann-src:hover {
   color: var(--ink);
-  text-decoration: underline;
-  text-decoration-color: var(--sep-strong);
 }
 
 /* The screenshot's part of the line: "capturing…" and "capture failed" stay ghost text; the
@@ -68,8 +66,6 @@ button.ann-shot {
 
 button.ann-shot:hover {
   color: var(--ink);
-  text-decoration: underline;
-  text-decoration-color: var(--sep-strong);
 }
 
 /* Its target wasn't found on the page: the line's last word, text like the rest. */
