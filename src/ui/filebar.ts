@@ -113,15 +113,15 @@ function openEditorButton(): HTMLElement {
   return b;
 }
 
-// The step's one filled button: Approve File (clean, green) or Mark Reviewed (it carries a
-// rejected change or an open change request, orange). Either signs off the step on screen (a part,
-// a Rest, or the file whole) and advances. The end
-// row's copy (`filled` false) is a neutral push button, so the code view keeps one filled button
-// when both are on screen.
-function signOffButton(objections: boolean, filled = true): HTMLElement {
+// The step's one filled button: Approve File, or Approve Part on a part or Rest step (clean,
+// green), or Mark Reviewed (it carries a rejected change or an open change request, orange).
+// Either signs off the step on screen and advances. The end row's copy (`filled` false) is a
+// neutral push button, so the code view keeps one filled button when both are on screen.
+function signOffButton(objections: boolean, part: boolean, filled = true): HTMLElement {
   const b = document.createElement("button");
   b.className = filled ? "signoff fill" + (objections ? " warn" : "") : "btn";
-  b.innerHTML = `${objections ? "Mark Reviewed" : "Approve File"} ${keycapsHtml("⇧A")}`;
+  const label = objections ? "Mark Reviewed" : part ? "Approve Part" : "Approve File";
+  b.innerHTML = `${label} ${keycapsHtml("⇧A")}`;
   b.onclick = () => approveCurrentStep();
   return b;
 }
@@ -181,7 +181,7 @@ function fileActions(path: string, jumpable: boolean): HTMLElement {
       wrap.appendChild(b);
     } else if (a === "blockers") {
       if (chip) wrap.appendChild(chip);
-    } else if (a === "approve" || a === "mark") wrap.appendChild(signOffButton(a === "mark"));
+    } else if (a === "approve" || a === "mark") wrap.appendChild(signOffButton(a === "mark", part));
     else wrap.appendChild(signedOffState(a === "reviewed"));
   }
   return wrap;
@@ -319,8 +319,8 @@ export function fileEnd(): HTMLElement {
     go.onclick = () => S.nextFile?.();
     text.append(" · next: ", go, keycapsNode(document, "⇧→"));
   }
-  const { finished, objections } = stepStand(path);
-  row.append(text, finished ? signedOffState(objections) : signOffButton(objections, false));
+  const { part, finished, objections } = stepStand(path);
+  row.append(text, finished ? signedOffState(objections) : signOffButton(objections, part, false));
   return row;
 }
 
