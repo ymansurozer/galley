@@ -18,7 +18,20 @@ function sideLineCount(file: ReviewFile, side: ReviewComment["side"]): number {
   if (cur.path !== file.path) return Infinity;
   const contents = side === "deletions" ? cur.oldContents : cur.newContents;
   if (!contents) return 0;
-  return contents.split("\n").length;
+  return lineCount(side, contents);
+}
+
+// The check runs once per comment, so each side's count is kept for its contents: a new fetch
+// recounts.
+const counts: Partial<Record<ReviewComment["side"], { text: string; n: number }>> = {};
+
+function lineCount(side: ReviewComment["side"], text: string): number {
+  const kept = counts[side];
+  if (kept?.text === text) return kept.n;
+  let n = 1;
+  for (let i = text.indexOf("\n"); i !== -1; i = text.indexOf("\n", i + 1)) n++;
+  counts[side] = { text, n };
+  return n;
 }
 
 // Re-anchoring (reanchorComments, server-side on reload) sets `unanchored` explicitly;
