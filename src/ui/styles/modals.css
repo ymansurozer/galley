@@ -1,36 +1,59 @@
-/* ── Dialogs: Settings / Shortcuts, Confirm, Send, the annotation screenshot ── */
+/* ── Sheets: Send, Confirm, Settings / Shortcuts, the annotation screenshot ──
+   Every dialog is a sheet hanging from the top bar's bottom edge, the way a Mac sheet drops from
+   its window's toolbar: a squared top, a rounded foot, sliding down on a spring. The scrim dims
+   the desk under the bar and clips the sheet as it slides, so it emerges from under the bar. */
 .modal-backdrop {
   position: absolute;
   inset: 0;
   z-index: 20;
-  background: var(--scrim);
   display: none;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  overflow: hidden;
+  background: var(--scrim);
 }
 
 .modal-backdrop.show {
   display: flex;
+  animation: scrim-in 0.3s var(--ease);
+}
+
+@keyframes scrim-in {
+  from {
+    background-color: transparent;
+  }
+}
+
+/* Wide code view: the top bar covers the canvas only and sits over .main's first row
+   (shell.css). The scrim takes .main's second row, so the bar stays lit, and pads past the
+   sidebar so the sheet centres under the bar it hangs from while the scrim still covers the
+   sidebar. An absolutely placed grid child's containing block is its grid area. */
+@media (min-width: 1101px) {
+  body:not(.single, .file-mode) .app:not(.view-ui) .modal-backdrop {
+    grid-area: 2 / 1 / 3 / -1;
+    padding-left: calc(var(--left-width, 280px) + 1px);
+  }
 }
 
 .modal {
-  width: 420px;
-  max-width: calc(100vw - 24px);
+  width: 560px;
+  max-width: calc(100% - 24px);
+  max-height: calc(100% - 24px);
+  overflow: auto;
   border: 0;
-  border-radius: var(--radius-xl);
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
   background: var(--window);
   box-shadow: var(--shadow-float);
   padding: 20px 22px 18px;
 }
 
 .modal-backdrop.show .modal {
-  animation: modal-in 0.32s var(--spring);
+  animation: sheet-in 0.5s var(--spring);
 }
 
-@keyframes modal-in {
+@keyframes sheet-in {
   from {
-    opacity: 0;
-    transform: translateY(-6px) scale(0.97);
+    transform: translateY(calc(-100% - 24px));
   }
 }
 
@@ -41,18 +64,66 @@
   letter-spacing: -0.01em;
 }
 
+/* The sheet's lead: the question a Confirm asks, the receipt a Send reads back. */
 .modal p {
   margin: 0;
-  color: var(--ink-2);
-  font-size: var(--text-md);
-  line-height: 1.5;
+  color: var(--ink);
+  font-size: var(--text-lg);
+  font-weight: 500;
+  line-height: 1.45;
+  text-wrap: pretty;
 }
 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 16px;
+}
+
+/* The Send sheet's receipt, split by lane: a grouped form, one row per lane, the lane named in a
+   quiet column. */
+.modal .lanes {
+  margin-top: 14px;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: 0 0 0 0.5px var(--sep-strong);
+}
+
+.modal .lane {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.modal .lane + .lane {
+  border-top: 1px solid var(--sep);
+}
+
+.modal .lane > b {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.modal .lane .sub {
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+
+.modal.send textarea {
+  display: block;
+  min-height: 72px;
+  margin-top: 14px;
+  padding: 8px 10px;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-md);
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .modal.help {
@@ -96,16 +167,6 @@
 
 .modal.confirm {
   width: 380px;
-}
-
-.modal.send textarea {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 84px;
-  margin-top: 14px;
-  padding: 8px 10px;
-  font-size: var(--text-md);
-  resize: vertical;
 }
 
 .modal.settings {

@@ -574,37 +574,3 @@ button.src-chip:hover {
   height: 12px;
   color: var(--blue);
 }
-
-/* The Send dialog's receipt, split by lane: a grouped form, one row per lane. */
-.modal .lanes {
-  margin-top: 14px;
-  border-radius: var(--radius-lg);
-  background: var(--raised);
-  box-shadow: 0 0 0 0.5px var(--sep-strong);
-}
-
-.modal .lane {
-  display: grid;
-  grid-template-columns: 44px 1fr;
-  gap: 10px;
-  padding: 9px 11px;
-  font-size: var(--text-sm);
-  color: var(--ink);
-  line-height: 1.5;
-}
-
-.modal .lane + .lane {
-  border-top: 1px solid var(--sep);
-}
-
-.modal .lane > b {
-  padding-top: 1px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--ink-3);
-}
-
-.modal .lane .sub {
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-}
