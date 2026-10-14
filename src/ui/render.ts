@@ -41,6 +41,7 @@ import {
   toggleFileSkim,
 } from "./skim";
 import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
+import { applyHunkFolds } from "./fold";
 import { diffShadowRoot } from "./diff-dom";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -644,7 +645,10 @@ async function renderCenter() {
       // The rendered rows just changed (mount, update, or @pierre's own expandHunk rerender —
       // which never routes through our render()), so the cursor's cached row list is stale.
       invalidateCursorRows();
-      if (phase !== "unmount") applySkimCollapse();
+      if (phase !== "unmount") {
+        applySkimCollapse();
+        applyHunkFolds();
+      }
     },
     // @pierre reserves a right-side gutter via `scrollbar-gutter: stable` on the code grid
     // (for a vertical scrollbar it hides) — drop it so rows fill the full width. previewCSS
@@ -659,9 +663,13 @@ async function renderCenter() {
   // though the runtime shape (side/lineNumber/metadata) is exactly what it reads.
   const anns = () => annotations() as DiffLineAnnotation<AnnotationMeta>[];
   const afterRender = () => {
-    // Collapse skimmed blocks by hiding their rows — synchronous (before paint) so there's no
-    // expand-then-collapse flash, and re-run every render so it survives @pierre re-renders.
-    if (!previewing) applySkimCollapse();
+    // Collapse skimmed blocks and fold other parts' hunks by hiding their rows — synchronous
+    // (before paint) so there's no expand-then-collapse flash, and re-run every render so it
+    // survives @pierre re-renders.
+    if (!previewing) {
+      applySkimCollapse();
+      applyHunkFolds();
+    }
     setTimeout(() => attachDiffSelectionHandlers(), 0);
     // Unfold collapsed regions hiding an open comment thread (once per rendered diff).
     if (!previewing) revealThreadLines(key);

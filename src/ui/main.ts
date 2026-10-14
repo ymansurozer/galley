@@ -23,6 +23,7 @@ import { approveCurrentFile, toggleSignOff } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
+import { resetFolds } from "./fold";
 import { render, deferRender } from "./render";
 import { cur, prefetchContents } from "./contents";
 import { adoptDeskStatus, pollState } from "./poll";
@@ -158,6 +159,7 @@ const selectStep = async ({ fileIndex: i, part }: Step) => {
   S.stepPart = part;
   S.fileView = defaultFileView(S.state.files[i]);
   D.fileDiff = D.rawFileDiff = null;
+  resetFolds(); // re-opening a part starts with other parts' hunks folded
   cursorReset(); // re-init the line cursor to the new file's first change
   // Move the sidebar highlight in place — switching files no longer rebuilds the row lists
   // (the "active" class left the row models; see applyActiveRow in tree.ts).
