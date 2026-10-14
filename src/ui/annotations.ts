@@ -467,13 +467,12 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     (el.querySelector(".skim-toggle") as HTMLButtonElement).onclick = () => toggleSkimBlock(c.id);
     return el;
   }
-  // A pending change's Keep | Undo, under its last changed line. Every control carries its
-  // keycaps; only the one the cursor marks shows them (cursor.ts markCursorChange).
+  // A pending change's Keep | Undo, under its last changed line at the right of its column.
+  // Every control carries its keycaps; only the one the cursor marks shows them (cursor.ts
+  // markCursorChange).
   if (c.type === "change") {
     const el = document.createElement("div");
-    // Classic indicators draw +/− signs ahead of the code, so the code column sits further in.
-    el.className =
-      "annotation verdict-row" + (S.settings.diffIndicators === "classic" ? " signs" : "");
+    el.className = "annotation verdict-row";
     const control = document.createElement("div");
     control.className = "verdict seg xs" + (c.id === cursorChangeId() ? " at-cursor" : "");
     control.dataset.change = c.id;

@@ -16,9 +16,9 @@
 }
 
 /* Room around a thread under its line in the code column: its card, or its rest while it's
-   resolved. Their left edge is the code text's, as the Undo | Keep control's is (decisions.css): @pierre
-   insets each line by its gap, or by 2ch of the code font where it draws classic +/− signs. The
-   row is set in the code's face so `ch` measures the same; the rests and cards set their own. */
+   resolved. Their left edge is the code text's: @pierre insets each line by its gap, or by 2ch of
+   the code font where it draws classic +/− signs. The row is set in the code's face so `ch`
+   measures the same; the rests and cards set their own. */
 .annotation:is(.line-thread, .composer-annotation) {
   display: flex;
   flex-direction: column;

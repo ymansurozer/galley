@@ -1,22 +1,20 @@
 /* ── A pending change's Keep | Undo (annotations.ts) ──
-   A compact segmented control under the change's last changed line, set at the code column and
-   quiet at rest. The change holding the cursor (cursor.ts markCursorChange) gets a firmer track,
-   its keycaps, and a rail down its rows. */
-/* At the code column: @pierre insets each line by its gap (8px), or by 2ch of the code font where
-   it draws classic +/− signs. The row is set in the code's face so `ch` measures the same. */
+   A compact segmented control under the change's last changed line, quiet at rest. The change
+   holding the cursor (cursor.ts markCursorChange) gets a firmer track, its keycaps, and a rail
+   down its rows. */
+/* At the right of its column (in split, its own pane), inset from the edge as a thread card is
+   (threads.css .line-thread). */
 .verdict-row {
+  display: flex;
+  justify-content: flex-end;
   min-height: 0;
-  padding: 3px 16px 6px var(--diffs-gap-inline, 8px);
-  font-family: var(--mono);
-  font-size: var(--code-size, 12.5px);
+  padding: 3px 16px 6px 8px;
 }
 
-.verdict-row.signs {
-  padding-left: 2ch;
-}
-
-.verdict {
-  font-family: var(--sans);
+@media (max-width: 760px) {
+  .verdict-row {
+    padding-right: 8px;
+  }
 }
 
 /* Its own raised ground, not a tint: the code theme is picked apart from the appearance, so the
