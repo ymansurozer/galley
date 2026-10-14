@@ -1,214 +1,3 @@
-/* Guided custom diff header (renderCustomHeader): row 1 = icon + file + counts + actions
-   (preserves @pierre's look); below it the guidance card = category label + markdown prose.
-   It sits on the canvas like a file bar, set off by a hairline. */
-.ghdr {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  padding: 8px 16px;
-  box-sizing: border-box;
-  background: var(--canvas);
-  border-bottom: 1px solid var(--sep);
-  font-family: var(--sans);
-  font-size: var(--text-sm);
-}
-
-.ghdr .ghdr-row1 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 28px;
-}
-
-/* The guide's note on this file: a quiet tinted block, read before the code. */
-.ghdr .ghdr-guide {
-  align-self: flex-start;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-left: 6.5px;
-  margin-bottom: 2px;
-  max-width: 78ch;
-  padding: 10px 14px 12px;
-  background: var(--fill);
-  border-radius: var(--radius-lg);
-}
-
-.ghdr .ghdr-grow {
-  flex: 1 1 auto;
-}
-
-.ghdr .ghdr-icon {
-  flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-  fill: currentColor;
-  color: var(--ct-color, var(--ink-2));
-}
-
-.ghdr .ghdr-cat {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-
-.ghdr .ghdr-cat.crit {
-  color: var(--orange-ink);
-}
-
-.ghdr .ghdr-file {
-  flex: 0 0 auto;
-  color: var(--ink);
-  font-family: var(--mono);
-  font-weight: 600;
-}
-
-/* "moved from <old>" note beside a renamed file's new path (git -M). */
-.ghdr .ghdr-moved {
-  flex: 0 1 auto;
-  margin-left: 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--mono);
-  font-size: var(--text-2xs);
-  color: var(--orange-ink);
-}
-
-/* Split / Stacked beside the filename: an extra-small segmented control, so the filename leads. */
-.ghdr .ghdr-layout {
-  margin-left: 8px;
-}
-
-/* Open-in-editor: icon-only and quiet — a file-scoped action. */
-.ghdr .ghdr-open {
-  flex: 0 0 auto;
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  margin-left: 2px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--ink-2);
-  border-radius: var(--radius-sm);
-}
-
-.ghdr .ghdr-open:hover {
-  color: var(--ink);
-  background: var(--fill-2);
-}
-
-.ghdr .ghdr-open .ic {
-  width: 13px;
-  height: 13px;
-}
-
-/* The guidance is the primary reading content of a guided review — ink, not muted,
-   one step above the header's text-sm. */
-.ghdr .ghdr-expl.md {
-  margin-top: 0;
-  max-width: 72ch;
-  color: var(--ink);
-  font-size: var(--text-md);
-  line-height: 1.6;
-}
-
-/* A skimmed file's reason, in the orientation's place when the guide omits one. */
-.ghdr .ghdr-skim {
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-}
-
-/* The flag is an orange callout (not a bare text row) — the one thing on the card that says
-   "decide this before approving". */
-.ghdr .ghdr-flag {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  max-width: 74ch;
-  margin-top: 5px;
-  padding: 9px 12px;
-  background: var(--orange-wash);
-  border-radius: var(--radius);
-  color: var(--orange-ink);
-}
-
-.ghdr .ghdr-flag > .ic {
-  width: 13px;
-  height: 13px;
-  margin-top: 3px;
-  fill: currentColor;
-}
-
-.ghdr .ghdr-flag .md {
-  margin-top: 0;
-  color: var(--orange-ink);
-  font-size: var(--text-md);
-  font-weight: 500;
-  line-height: 1.5;
-}
-
-.ghdr .ghdr-readonly {
-  flex: 0 0 auto;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: 10px;
-  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  line-height: 20px;
-}
-
-.ghdr .ghdr-counts {
-  flex: 0 0 auto;
-  display: inline-flex;
-  font-family: var(--mono);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  gap: var(--churn-gap);
-}
-
-.ghdr .ghdr-counts .a {
-  color: var(--green-ink);
-}
-
-.ghdr .ghdr-counts .d {
-  color: var(--red-ink);
-}
-
-.ghdr .ghdr-actions {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* Phone widths: the path truncates and the file's actions wrap to a line of their own, so the
-   header never runs past the screen. */
-@media (max-width: 760px) {
-  .ghdr .ghdr-row1 {
-    flex-wrap: wrap;
-    row-gap: 6px;
-  }
-
-  .ghdr .ghdr-file {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .ghdr .ghdr-actions {
-    margin-left: auto;
-  }
-}
-
 #diff {
   flex: 1;
   min-height: 0;
@@ -217,6 +6,15 @@
   padding: 0;
   /* @pierre reserves a right-side scrollbar gutter; we scroll on #diff itself, so drop it */
   --diffs-scrollbar-gutter-override: 0px;
+}
+
+/* Whatever scrolls into view under the sticky file bar lands below it, not under it (filebar.ts
+   measures the bar; @pierre's rows get the same margin in its shadow, render.ts). It's a margin
+   on the targets, not scroll-padding on #diff: padding would also cover the bar itself, and
+   focusing one of its buttons would scroll the diff to "reveal" it. */
+#diff > :not(.file-bar),
+#diff > :not(.file-bar) * {
+  scroll-margin-top: var(--file-bar-h, 0px);
 }
 
 #diff > * {
@@ -232,19 +30,6 @@
   flex: 1;
   min-height: 0;
   display: flex;
-}
-
-/* Floating sign-off: the header's Approve/Mark-reviewed scrolls out of view on a long file,
-   so mirror it in the SAME spot — pinned to the diff pane's top-right — revealed once scrolled
-   (diffScrolled). Styled like the header's .diff-header-action so it reads as the same button
-   staying put, not a new affordance; a soft shadow lifts it off the code it floats over. */
-.diff-fab {
-  position: absolute;
-  top: 12px;
-  right: 20px;
-  z-index: 9;
-  font-family: var(--sans);
-  cursor: pointer;
 }
 
 /* VSCode-style change overview: green/red ticks mapping the whole file to the gutter,

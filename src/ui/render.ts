@@ -1,5 +1,4 @@
 import type { DiffLineAnnotation, FileDiffMetadata } from "@pierre/diffs";
-import { getIconForType, SVGSpriteSheet } from "@pierre/diffs";
 import { S, D, $, esc } from "./store";
 import { cur, loadCurrentContents, peekContents } from "./contents";
 import {
@@ -8,43 +7,33 @@ import {
   ensureChangesFromFileDiff,
   replayDecisions,
   syncDisplayAnchors,
-  fileFinished,
-  fileObjections,
 } from "./changes";
 import type { AnnotationMeta } from "./types";
 import { applyActiveRow, applyLayoutClasses } from "./tree";
-import { annotations, renderAnnotation, unanchoredBlock } from "./annotations";
+import { annotations, renderAnnotation } from "./annotations";
 import { restoreComposerFocus } from "./composer";
 import { renderUiLane } from "./uilane";
-import { unanchoredThreads } from "./unanchored";
 import { revealThreadLines } from "./expand";
 import {
   handleLineNumberClick,
   handleDiffSelection,
   attachDiffSelectionHandlers,
 } from "./selection";
-import { approveCurrentFile, resetReview } from "./decisions";
-import { blockersChip } from "./blockers";
 import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
-import { renderMarkdown } from "./markdown";
 import { cursorResync, cursorReset, invalidateCursorRows } from "./cursor";
-import { hasGuide, renderOverview, currentGuideEntry } from "./guide";
+import { hasGuide, renderOverview } from "./guide";
 import { updateProgress } from "./progress";
 import {
   applySkimCollapse,
   fileMovedPure,
-  isFileSkim,
   isFileSkimCollapsed,
-  movedFrom,
   renderFileSkim,
   renderMovedPure,
-  toggleFileSkim,
 } from "./skim";
 import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
 import { diffShadowRoot } from "./diff-dom";
-import { keycapsHtml } from "./keycaps";
+import { fileEnd, fileLead, renderFileBar } from "./filebar";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
 // side (the new side reuses the server's contentHash). Same content → same key → cache hit.
 function ckey(s: string): string {
@@ -115,88 +104,8 @@ export function diffKey(previewing: boolean): string {
     S.settings.theme,
     // appearance flips @pierre's themeType, so a cached diff must invalidate on it
     S.settings.appearance,
-    !!currentGuideEntry(),
   ]);
 }
-// @pierre mounts its icon sprite into each diff's shadow root, so a light-DOM `<use>` can't
-// reach it. Inject the same sprite into the document once so our custom header can reuse
-// @pierre's exact change-type icons.
-let spriteInjected = false;
-function ensureSprite() {
-  if (spriteInjected) return;
-  const holder = document.createElement("div");
-  holder.innerHTML = SVGSpriteSheet;
-  const svg = holder.firstElementChild;
-  // Out of the flow, like icons.ts's sprite: an inline svg after .app adds a line box below the
-  // full-height layout, and a jump scrolling a row into view would scroll the page by that much.
-  svg?.setAttribute("style", "position:absolute");
-  if (svg) document.body.appendChild(svg);
-  spriteInjected = true;
-}
-// Change-type accent color, shared by the header icon and the guidance blockquote line.
-function ctColor(type: string | undefined): string {
-  switch (type) {
-    case "new":
-      return "var(--green)";
-    case "change":
-      return "var(--blue)";
-    case "deleted":
-      return "var(--red)";
-    case "rename-pure":
-    case "rename-changed":
-      return "var(--orange)";
-    default:
-      return "var(--ink-2)";
-  }
-}
-// @pierre's change-type icon as light-DOM SVG (the lib's createIconElement returns HAST).
-function changeIcon(type: string | undefined): SVGElement {
-  ensureSprite();
-  const t = type ?? "file";
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("width", "16");
-  svg.setAttribute("height", "16");
-  svg.setAttribute("viewBox", "0 0 16 16");
-  svg.setAttribute("class", "ghdr-icon");
-  svg.setAttribute("data-change-icon", t);
-  const use = document.createElementNS(SVG_NS, "use");
-  use.setAttribute("href", "#" + (getIconForType(t as never) || "diffs-icon-file-code"));
-  svg.appendChild(use);
-  return svg;
-}
-
-// Subtle Split/Stacked segmented control that lives in the diff header (right of the filename).
-// Kept low-contrast so it doesn't compete with the filename; clicking re-renders the diff,
-// which rebuilds this control with the new active state.
-function layoutToggle(): HTMLElement {
-  const wrap = document.createElement("span");
-  wrap.className = "ghdr-layout seg xs";
-  wrap.dataset.tip = "Split / Stacked";
-  wrap.dataset.tipKeys = "v";
-  const mk = (label: string, style: "split" | "unified") => {
-    const b = document.createElement("button");
-    b.textContent = label;
-    if (S.diffStyle === style) b.className = "active";
-    b.onclick = () => S.setStyle?.(style);
-    wrap.appendChild(b);
-  };
-  mk("Split", "split");
-  mk("Stacked", "unified");
-  return wrap;
-}
-
-// Icon-only "jump to this file in the local editor" button — file-scoped, so it lives in
-// the file header rather than the app chrome (the top bar is for review-final actions).
-function openEditorButton(): HTMLElement {
-  const b = document.createElement("button");
-  b.className = "ghdr-open";
-  b.dataset.tip = "Open in editor";
-  b.dataset.tipKeys = "⇧E";
-  b.innerHTML = `<svg class="ic"><use href="#gly-open-editor"></use></svg>`;
-  b.onclick = () => S.openInEditor?.();
-  return b;
-}
-
 export function clearOverviewRuler() {
   const o = $("ovr");
   o.classList.remove("show");
@@ -297,6 +206,12 @@ async function renderCenter() {
   const dropInstance = () => {
     D.instance = null;
   };
+  // Every file view opens under the file's bar; a view that wrote #diff wholesale gets it back on
+  // top. (The Overview and the empty centre aren't a file, so they have none.) The oversized card
+  // and the contents error have no rows a blocker could jump to — reaching one would mean silently
+  // loading the diff the card holds back, or the contents that just failed — so their bars carry
+  // no blockers chip.
+  const withBar = (jumpable = true) => host.prepend(renderFileBar(undefined, jumpable));
   // Guided review: the Overview page takes over the center until a file is selected.
   if (S.overviewOpen && hasGuide()) {
     cursorReset();
@@ -326,6 +241,7 @@ async function renderCenter() {
     D.lineMap = null;
     applyLayoutClasses();
     renderOversizedCard();
+    withBar(false);
     return;
   }
   // Pull this file's contents from the per-file endpoint before rendering anything that reads
@@ -341,6 +257,7 @@ async function renderCenter() {
     D.lineMap = null;
     applyLayoutClasses();
     renderContentsError(f.path);
+    withBar(false);
     return;
   }
   // Markdown file in rendered mode: formatted preview with block-anchored comments,
@@ -356,6 +273,8 @@ async function renderCenter() {
     D.lineMap = null; // markdown anchors are block lines, not diff gutter numbers
     applyLayoutClasses();
     renderMarkdownFile();
+    withBar();
+    host.append(fileEnd());
     return;
   }
   // A pure rename (identical content, distinct paths) has no diff to show — render the muted
@@ -366,6 +285,7 @@ async function renderCenter() {
     D.lineMap = null;
     applyLayoutClasses();
     renderMovedPure();
+    withBar();
     return;
   }
   // A skim-flagged file collapses its whole diff behind one expandable strip (guide-driven,
@@ -376,6 +296,7 @@ async function renderCenter() {
     D.lineMap = null;
     applyLayoutClasses();
     renderFileSkim();
+    withBar();
     return;
   }
   // @pierre renders nothing for a zero-change diff, so a whole-file view (a new file, or a
@@ -421,158 +342,6 @@ async function renderCenter() {
     : "";
   D.fileDiff = fd;
   applyLayoutClasses();
-  // The per-file sign-off action in the diff header. Unfinished → one context button:
-  // "Approve" (clean) or "Mark reviewed" (has a rejected hunk / open requested-change), which
-  // accepts pending hunks, signs off, and advances. Finished → a state pill + Reset to undo.
-  const headerActions = () => {
-    const wrap = document.createElement("span");
-    const filePath = currentFile().path;
-    const reset = () => {
-      const b = document.createElement("button");
-      b.className = "diff-header-action undo";
-      b.textContent = "Reset";
-      b.onclick = () => resetReview(filePath);
-      return b;
-    };
-    // The chip lists what keeps the file from Approved (rejected hunks, open change
-    // requests) with jump-to actions — rendered whenever objections exist, finished or not.
-    const chip = blockersChip();
-    // A skim-flagged file that's been expanded gets a quiet re-collapse control (the counterpart
-    // to the collapsed strip's Expand), so the reviewer can fold it back after a look.
-    if (isFileSkim(filePath) && !isFileSkimCollapsed(filePath)) {
-      const collapse = document.createElement("button");
-      collapse.className = "diff-header-action skim-collapse";
-      collapse.textContent = "Collapse";
-      collapse.title = "Collapse this skimmed file";
-      collapse.onclick = () => toggleFileSkim(filePath);
-      wrap.appendChild(collapse);
-    }
-    if (fileFinished(filePath)) {
-      // The file-tree badge carries the approved / changes-requested state; the header just
-      // offers a quiet Reset to undo the sign-off (plus the blockers chip when relevant).
-      if (chip) wrap.appendChild(chip);
-      wrap.appendChild(reset());
-    } else {
-      const objections = fileObjections(filePath);
-      // Reset (clear in-progress hunk decisions) sits on the left; Approve is always far right.
-      if (S.state.decisionFiles?.includes(filePath)) wrap.appendChild(reset());
-      if (chip) wrap.appendChild(chip);
-      const button = document.createElement("button");
-      button.className = "diff-header-action fill" + (objections ? " warn" : "");
-      button.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} ${keycapsHtml("⇧A")}`;
-      button.onclick = () => approveCurrentFile();
-      wrap.appendChild(button);
-    }
-    return wrap;
-  };
-  // Our custom diff header (all changed-file modes): row 1 preserves @pierre's look —
-  // change-type icon + filename + a subtle Split/Stacked toggle + counts + actions. With a
-  // guide, row 2 (left-aligned) adds the category + AI guidance.
-  const fileHeader = (file: FileDiffMetadata) => {
-    const entry = currentGuideEntry();
-    const wrap = document.createElement("div");
-    wrap.className = "ghdr";
-    wrap.style.setProperty("--ct-color", ctColor(file?.type));
-
-    const row1 = document.createElement("div");
-    row1.className = "ghdr-row1";
-    row1.appendChild(changeIcon(file?.type));
-    const name = document.createElement("span");
-    name.className = "ghdr-file";
-    name.textContent = currentFile().path;
-    row1.appendChild(name);
-    // Rename+edit files (git -M): note where the file moved from, right of the new path.
-    const from = movedFrom(currentFile().path);
-    if (from) {
-      const moved = document.createElement("span");
-      moved.className = "ghdr-moved";
-      moved.title = `moved from ${from}`;
-      moved.textContent = `moved from ${from}`;
-      row1.appendChild(moved);
-    }
-    // Layout toggle right of the filename — only when Split actually applies (a two-sided diff).
-    if (currentSplittable()) row1.appendChild(layoutToggle());
-    row1.appendChild(openEditorButton());
-    const grow = document.createElement("span");
-    grow.className = "ghdr-grow";
-    row1.appendChild(grow);
-    let add = 0,
-      del = 0;
-    for (const h of file?.hunks ?? []) {
-      add += h.additionLines ?? 0;
-      del += h.deletionLines ?? 0;
-    }
-    const counts = document.createElement("span");
-    counts.className = "ghdr-counts";
-    counts.innerHTML = `<span class="a">+${add}</span><span class="d">−${del}</span>`;
-    row1.appendChild(counts);
-    const acts = headerActions();
-    acts.className = "ghdr-actions";
-    row1.appendChild(acts);
-    wrap.appendChild(row1);
-
-    if (entry) {
-      // Group the AI guidance into a subtle card, set apart from the filename row + the code.
-      // The prose fields render as markdown (renderMarkdown sanitizes) — the guidance is the
-      // main reading content of a guided review, so identifiers/lists the agent writes survive.
-      const guide = document.createElement("div");
-      guide.className = "ghdr-guide";
-      const chip = document.createElement("span");
-      chip.className = "ghdr-cat" + (entry.flag ? " crit" : "");
-      chip.textContent = entry.category;
-      guide.appendChild(chip);
-      // A whole-file skim entry may omit its orientation; the skim reason (if any) takes the
-      // slot. Only the expanded file reaches this header — the collapsed strip shows the reason.
-      if (entry.orientation) {
-        const expl = document.createElement("div");
-        expl.className = "ghdr-expl md";
-        expl.innerHTML = renderMarkdown(entry.orientation);
-        guide.appendChild(expl);
-      } else if (entry.skimReason) {
-        const why = document.createElement("div");
-        why.className = "ghdr-skim";
-        why.textContent = `skimmed · ${entry.skimReason}`;
-        guide.appendChild(why);
-      }
-      // A flagged file gets its own readable callout within the card.
-      if (entry.flag) {
-        const flag = document.createElement("div");
-        flag.className = "ghdr-flag";
-        flag.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><div class="md">${renderMarkdown(entry.flag)}</div>`;
-        guide.appendChild(flag);
-      }
-      wrap.appendChild(guide);
-    }
-    // Open threads whose anchor line no longer renders — shown as the diff's first row,
-    // below the action bar, so they stay actionable (they block approval until resolved).
-    const orphans = unanchoredThreads();
-    if (orphans.length) wrap.appendChild(unanchoredBlock(orphans));
-    return wrap;
-  };
-  // Preview gets its own minimal header: a neutral file icon + path + a read-only tag — no
-  // +/- counts, change-type icon, or guidance (all of which would mislabel an unchanged file
-  // rendered as one-sided content). The Approve / Reset actions don't apply to a preview.
-  const previewHeader = () => {
-    const wrap = document.createElement("div");
-    wrap.className = "ghdr";
-    const row1 = document.createElement("div");
-    row1.className = "ghdr-row1";
-    row1.appendChild(changeIcon("file"));
-    const name = document.createElement("span");
-    name.className = "ghdr-file";
-    name.textContent = currentFile().path;
-    row1.appendChild(name);
-    row1.appendChild(openEditorButton());
-    const grow = document.createElement("span");
-    grow.className = "ghdr-grow";
-    row1.appendChild(grow);
-    const tag = document.createElement("span");
-    tag.className = "ghdr-readonly";
-    tag.textContent = "Unchanged";
-    row1.appendChild(tag);
-    wrap.appendChild(row1);
-    return wrap;
-  };
   const diffStyle = currentSplittable() ? S.diffStyle : "unified";
   const expandUnchanged = S.settings.unchangedLines === "expand";
   const diffIndicators = previewing ? "none" : S.settings.diffIndicators;
@@ -595,7 +364,8 @@ async function renderCenter() {
     onLineSelectionChange: handleDiffSelection,
     onLineSelected: handleDiffSelection,
     onLineSelectionEnd: handleDiffSelection,
-    renderHeaderMetadata: headerActions,
+    // The file's header is ours (filebar.ts), mounted above this wrapper as #diff's sticky bar.
+    disableFileHeader: true,
     // @pierre's own post-render signal — fires once the diff rows are committed to the shadow
     // DOM (mount and every update). This is where skim collapse must run: on a COLD mount the
     // render() promise resolves before the rows are queryable, so the afterRender pass below
@@ -608,12 +378,18 @@ async function renderCenter() {
       if (phase !== "unmount") applySkimCollapse();
     },
     // @pierre reserves a right-side gutter via `scrollbar-gutter: stable` on the code grid
-    // (for a vertical scrollbar it hides) — drop it so rows fill the full width. previewCSS
-    // (empty unless previewing) neutralizes addition styling to context, in-shadow.
-    unsafeCSS: "[data-code]{scrollbar-gutter:auto}" + previewCSS,
-    // Preview → minimal read-only header; otherwise our custom file header (icon + filename +
-    // layout toggle + counts + actions, plus guidance when a guide is attached).
-    renderCustomHeader: previewing ? previewHeader : fileHeader,
+    // (for a vertical scrollbar it hides) — drop it so rows fill the full width. The rows' scroll
+    // margin keeps a scrolled-to line clear of the sticky file bar (diff.css does the same for
+    // the light DOM; --file-bar-h inherits into the shadow). [data-flash] is a jumped-to line
+    // (cursor.ts flashRow): an orange wash over its own tint that fades, like a thread's flash
+    // off the rows (decisions.css). previewCSS (empty unless previewing) neutralizes addition
+    // styling to context, in-shadow.
+    unsafeCSS:
+      "[data-code]{scrollbar-gutter:auto}" +
+      "[data-line-type]{scroll-margin-top:var(--file-bar-h,0px)}" +
+      "[data-flash]{animation:galley-flash 1.2s ease-out}" +
+      "@keyframes galley-flash{0%{box-shadow:inset 0 0 0 100vmax color-mix(in srgb,var(--orange) 25%,transparent)}}" +
+      previewCSS,
   };
   // annotations() is our own AnnotationInput[]; the lib's DiffLineAnnotation<T> is a
   // discriminated union whose assignability check rejects our union-typed metadata,
@@ -650,11 +426,22 @@ async function renderCenter() {
   }
   D.diffCache.set(key, entry);
   D.instance = entry.inst;
-  // Mount only this file's wrapper (replaceChildren detaches the previously-active wrapper —
-  // it lives on in the Map — and removes any overview/markdown content). Skip when it's already
-  // the sole child (a same-file re-render) so we don't detach/reattach and reset scroll.
-  const mountedNew = host.firstElementChild !== entry.wrapper || host.childElementCount !== 1;
-  if (mountedNew) host.replaceChildren(entry.wrapper);
+  // Mount this file's wrapper between its bar + lead and its end row (replaceChildren detaches
+  // the previously-active wrapper — it lives on in the Map — and removes any overview/markdown
+  // content). A same-file re-render leaves the wrapper attached and swaps only what surrounds it,
+  // so the diff isn't detached/reattached and the scroll stays put. A preview has neither lead nor
+  // end row: it isn't in the review.
+  const bar = renderFileBar(fd);
+  const lead = previewing ? null : fileLead();
+  const end = previewing ? null : fileEnd();
+  const mountedNew = entry.wrapper.parentNode !== host;
+  if (mountedNew)
+    host.replaceChildren(bar, ...(lead ? [lead] : []), entry.wrapper, ...(end ? [end] : []));
+  else {
+    for (const el of Array.from(host.children)) if (el !== bar && el !== entry.wrapper) el.remove();
+    if (lead) entry.wrapper.before(lead);
+    if (end) entry.wrapper.after(end);
+  }
   entry.inst.setLineAnnotations?.(anns());
   await entry.inst.render({
     fileDiff: fd,
