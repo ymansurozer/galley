@@ -80,7 +80,7 @@
         </div>
         <!-- Above either list: the Overview (a guided desk's, on either tab and in the App view) and the
              open change requests (both tabs, a guide-less desk, and the App view). -->
-        <div class="side-nav">
+        <div class="side-nav" x-show="($store.g.hasGuide && $store.g.hasGuide()) || $store.g.requests.length">
           <!-- "active" while the Overview shows, patched like the file rows' (applyActiveRow). -->
           <div class="node overview-row" data-key="overview" x-show="$store.g.hasGuide && $store.g.hasGuide()"
             @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg><span class="nm">Overview</span><kbd x-keys>o</kbd></div>

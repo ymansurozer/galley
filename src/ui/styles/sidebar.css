@@ -210,8 +210,13 @@
   margin-left: auto;
 }
 
+/* The sidebar reads as three parts: the switch, the nav block (the Overview and the change
+   requests), and the list. The switch keeps 8px under it, the nav block 10px, on either tab; an
+   empty nav block (a guide-less desk with no requests) hides, so the list keeps the switch's
+   place. */
 .side-nav {
   flex: 0 0 auto;
+  margin-bottom: 10px;
 }
 
 /* Open change requests, code and app: a row that folds the list under it, its count, and `]`,
@@ -278,13 +283,18 @@
   color: var(--ink);
 }
 
-/* A category heading is a jump target too: a click opens the group's first file still to do. */
+/* A category heading is a jump target too: a click opens the group's first file still to do. The
+   first one sits right under the nav block, whose own gap sets it off. */
 .node.walk-cat {
   height: 24px;
   margin-top: 10px;
   color: var(--ink-3);
   font-size: var(--text-xs);
   font-weight: 600;
+}
+
+#walk > .node:first-of-type {
+  margin-top: 0;
 }
 
 .node.walk-cat:hover {
