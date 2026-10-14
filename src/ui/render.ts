@@ -116,11 +116,11 @@ export function clearOverviewRuler() {
 // failure). Names the file and points at a desk reload; the rest of the desk stays live, so the
 // reviewer can navigate to other files while this one is unresolvable.
 function renderContentsError(path: string) {
-  $("diff").innerHTML = `<div class="file-skim"><div class="file-skim-strip moved">
-    <svg class="ic"><use href="#gly-flag"></use></svg>
-    <span>couldn't load <span class="file-skim-name">${esc(path)}</span></span>
-    <span class="file-skim-meta">reload the desk to retry</span>
-  </div></div>`;
+  $("diff").innerHTML = `<div class="contents-error">
+    <svg class="ic"><use href="#gly-warn"></use></svg>
+    <span>couldn't load <span class="contents-error-path">${esc(path)}</span></span>
+    <span class="contents-error-meta">reload the desk to retry</span>
+  </div>`;
 }
 
 // VSCode-style change overview: map every change row's position in the scrolled content to a

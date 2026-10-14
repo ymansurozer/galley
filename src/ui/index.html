@@ -350,12 +350,12 @@
               </select></label><label>Editor command<input type="text" placeholder="code -g {file}:{line}"
                 x-model="$store.g.settings.editorCommand" @change="$store.g.applySettings()"></label></div>
           </div>
-          <div class="set-pane help-grid" x-show="$store.g.settingsTab==='shortcuts'" x-cloak>
+          <div class="set-pane" x-show="$store.g.settingsTab==='shortcuts'" x-cloak>
             <template x-for="grp in $store.g.helpGroups()" :key="grp.group">
               <div class="help-col">
                 <div class="help-h" x-text="grp.group"></div>
                 <template x-for="it in grp.items" :key="it.combo">
-                  <div class="help-row"><kbd x-keys="it.combo"></kbd><span x-text="it.desc"></span></div>
+                  <div class="help-row"><span x-text="it.desc"></span><kbd x-keys="it.combo"></kbd></div>
                 </template>
               </div>
             </template>
