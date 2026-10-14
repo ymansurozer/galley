@@ -140,13 +140,13 @@ test("markShape draws a region as its dashed box and text as its highlighted lin
 });
 
 test("markShape keeps the pin on screen at the viewport's edges, as the page's pins are", () => {
-  // A 20 px pin centred on a corner needs 11 px (its radius and a pixel) to stay whole.
+  // The bubble rises 26 px above its tail and runs about 44 px to its right.
   assert.deepEqual(markShape("element", [{ x: 0, y: 4, width: 50, height: 20 }], VIEW).pin, {
-    x: 11,
-    y: 11,
+    x: 2,
+    y: 26,
   });
   assert.deepEqual(markShape("region", [{ x: 1438, y: 300, width: 50, height: 20 }], VIEW).pin, {
-    x: 1429,
+    x: 1396,
     y: 300,
   });
 });

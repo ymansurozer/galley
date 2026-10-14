@@ -362,14 +362,15 @@ export type ForwardedKey = { key: string; code: string; shiftKey: boolean; altKe
 // Interact: the app gets every click and key. Annotate: the bridge takes the pointer, and a click
 // picks the element under it, a drag a box or the text it runs over.
 export type AppMode = "interact" | "annotate";
-// A numbered pin the bridge draws on the current page, with its target's mark: amber for a change
-// request, cyan for a question.
+// A numbered pin the bridge draws on the current page, with its target's mark: a change request's
+// flag on orange, a question's message on blue. A question still waiting on the agent pulses.
 export type UiMark = {
   id: string;
   number: number;
   target: UiMarkTarget;
   resolved: boolean;
   question: boolean;
+  waiting: boolean;
 };
 // An element as the bridge finds it again: where its source said it was rendered, the selector it
 // was captured with, what it showed (tag, text, else accessible name, and its classes) to check a

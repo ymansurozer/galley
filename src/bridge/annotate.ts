@@ -1,6 +1,6 @@
 import type { AppMode, BridgeMessage, PickedTarget, PinRect, Rect, UiMark } from "../types";
 import { OVERLAY_ATTR } from "./capture";
-import { unionRect } from "./crop";
+import { PIN, pinCorner, unionRect } from "./crop";
 import { CAPS, describeElement, labelOf, targetOf } from "./describe";
 import { marksPlacer } from "./placement";
 import { located } from "./refind";
@@ -51,18 +51,27 @@ const STYLE = `
   .hl { background: rgba(224, 175, 104, .34); border-radius: 2px }
   .region.resolved, .hl.resolved { opacity: .35 }
   .pin {
-    position: fixed; pointer-events: auto; cursor: pointer; transform: translate(-50%, -50%); min-width: 20px; height: 20px;
-    padding: 0 5px; border-radius: 999px; display: grid; place-items: center; background: #e0af68; color: #050608;
-    font: 700 11px/1 Geist, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 0 0 2px #fff, 0 2px 8px rgba(0, 0, 0, .35);
-    transition: transform .12s
+    position: fixed; pointer-events: auto; cursor: pointer; transform: translate(-2px, calc(-100% - 2px));
+    display: inline-flex; align-items: center; gap: 4px; height: 24px; min-width: 30px; padding: 0 8px;
+    border-radius: ${PIN.radii.map((r) => `${r}px`).join(" ")}; background: ${PIN.change.color}; color: #fff;
+    font: 700 12px/1 Geist, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 2px 5px rgba(0, 0, 0, .25);
+    transition: background .12s
   }
-  .pin:hover { transform: translate(-50%, -50%) scale(1.12) }
-  .pin.sel { transform: translate(-50%, -50%) scale(1.2); box-shadow: 0 0 0 2px #fff, 0 0 0 5px rgba(0, 168, 255, .45), 0 2px 8px rgba(0, 0, 0, .35) }
-  .pin.q { background: #00a8ff }
+  .pin svg { width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round }
+  .pin:hover { background: #8f4400 }
+  .pin.q { background: ${PIN.question.color} }
+  .pin.q:hover { background: #0b5bc0 }
+  .pin.sel, .pin.sel:hover { background: #1c1c1e }
+  .pin.waiting::after {
+    content: ""; position: absolute; inset: -5px; border-radius: inherit; border: 2px solid #0a72e8; opacity: 0;
+    animation: ping 1.6s ease-out infinite; pointer-events: none
+  }
+  @keyframes ping { 0% { opacity: .55; transform: scale(.85) } 100% { opacity: 0; transform: scale(1.35) } }
+  @media (prefers-reduced-motion: reduce) { .pin.waiting::after { animation: none } }
   .outline.q { border-color: #00a8ff }
   .region.q, .region.picked { border-color: #00a8ff; background: rgba(0, 168, 255, .09) }
   .hl.q, .hl.picked { background: rgba(0, 168, 255, .3) }
-  .pin.resolved { background: #e5e5e5; color: #737373 }
+  .pin.resolved { filter: grayscale(1); opacity: .55 }
   .pin.draft { background: #00a8ff; pointer-events: none }
   #chip {
     position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%); display: none; padding: 7px 12px;
@@ -75,6 +84,11 @@ const STYLE = `
     border-radius: 3px; background: #0b0e0f; color: #8a9396
   }
 `;
+
+// The pins' glyphs: a change request's flag, a question's message.
+const glyph = (d: string) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+const FLAG = glyph(PIN.change.glyph);
+const MESSAGE = glyph(PIN.question.glyph);
 
 // Keys that scroll the page: they still reach it in Annotate mode.
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
@@ -523,12 +537,12 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
   const box = (r: Rect, cls: string, inner = "") =>
     `<div class="box ${cls}" style="left:${r.x}px;top:${r.y}px;width:${r.width}px;height:${r.height}px">${inner}</div>`;
 
-  // A numbered pin on a target's top-left corner, kept on screen.
-  const pinAt = (r: Rect, number: number, cls: string, id?: string) => {
-    const x = Math.max(11, Math.min(innerWidth - 11, r.x));
-    const y = Math.max(11, r.y);
+  // A numbered pin on a target's top-left corner: a speech bubble whose tail (its tight bottom-left
+  // corner) sits on the corner, kept on screen. A kind's glyph leads the number.
+  const pinAt = (r: Rect, number: number, cls: string, icon = "", id?: string) => {
+    const { x, y } = pinCorner(r, innerWidth);
     const data = id ? ` data-id="${escapeHtml(id)}"` : "";
-    return `<div class="${cls}"${data} title="#${number}" style="left:${x}px;top:${y}px">${number}</div>`;
+    return `<div class="${cls}"${data} title="#${number}" style="left:${x}px;top:${y}px">${icon}${number}</div>`;
   };
 
   // Where the pick is now: its elements, its box (moved with its first element), or its text.
@@ -563,8 +577,8 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
       if (m.target.kind === "region") html += box(at.boxes[0], `region${tone}`);
       else if (m.target.kind === "text") for (const r of at.boxes) html += box(r, `hl${tone}`);
       else if (sel) for (const r of at.boxes) html += box(r, `outline${q}`);
-      const cls = `pin${q}${sel ? " sel" : ""}${m.resolved ? " resolved" : ""}`;
-      html += pinAt(at.boxes[0], m.number, cls, m.id);
+      const cls = `pin${q}${sel ? " sel" : ""}${m.resolved ? " resolved" : ""}${m.waiting ? " waiting" : ""}`;
+      html += pinAt(at.boxes[0], m.number, cls, m.question ? MESSAGE : FLAG, m.id);
     }
     if (overlay.marks.innerHTML !== html) overlay.marks.innerHTML = html;
     pins = [...overlay.marks.querySelectorAll<HTMLElement>(".pin")].map((el) => ({

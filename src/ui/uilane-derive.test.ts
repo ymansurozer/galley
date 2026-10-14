@@ -109,11 +109,22 @@ test("the page gets pins for all its annotations, the resolved ones dimmed", () 
     },
     resolved: false,
     question: false,
+    waiting: false,
   });
   assert.equal(
     marksFor([ann("q", 4, "/p", { intent: "question" })], "/p")[0]!.question,
     true,
     "a question's pin is drawn as one",
+  );
+  const asked = ann("w", 5, "/p", {
+    intent: "question",
+    comments: [msg("w1", "user", T0, "question")],
+  });
+  assert.equal(marksFor([asked], "/p")[0]!.waiting, true, "a waiting question's pin pulses");
+  assert.equal(
+    marksFor([{ ...asked, status: "resolved" }], "/p")[0]!.waiting,
+    false,
+    "a resolved one doesn't",
   );
   assert.deepEqual(
     marksFor(list, "/p").map((m) => [m.id, m.resolved]),
@@ -135,8 +146,8 @@ test("the tray holds this page's annotations that weren't found on it, by number
     ann("page", 6, "/p", { placement: "unplaced", target: { kind: "page" } }),
   ];
   assert.deepEqual(trayPins(list, "/p", "u1"), [
-    { id: "u1", number: 2, question: true, resolved: false, selected: true },
-    { id: "u2", number: 5, question: false, resolved: true, selected: false },
+    { id: "u1", number: 2, question: true, resolved: false, waiting: false, selected: true },
+    { id: "u2", number: 5, question: false, resolved: true, waiting: false, selected: false },
   ]);
   assert.deepEqual(trayPins(list, "/r", null), []);
 });
@@ -180,7 +191,7 @@ test("each kind's pin finds its target its own way, and a page annotation's pin 
     ],
   );
   assert.deepEqual(pageMarks(list, "/p", null), [
-    { id: "pg", number: 5, question: false, resolved: false, selected: false },
+    { id: "pg", number: 5, question: false, resolved: false, waiting: false, selected: false },
   ]);
   assert.deepEqual(pageMarks(list, "/q", null), []);
   const resolved = ann("pr", 6, "/p", { target: { kind: "page" }, status: "resolved" });
