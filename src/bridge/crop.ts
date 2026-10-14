@@ -55,11 +55,23 @@ export const PIN = {
   question: { color: "#0a72e8", glyph: "M7.9 20A9 9 0 1 0 4 16.1L2 22Z" },
 };
 
+// About how wide the bubble is for `number`: 8 px in, the 12 px glyph, 4 px, about 8 px a digit of
+// the 12 px bold number, 8 px out.
+export const pinWidth = (number: number) => 31 + 8 * String(number).length;
+
 // Where a pin's tail goes for a target's first box: its top-left corner, kept so the bubble stays on
-// screen (26 px of room above it, and about 44 px to its right for a two-digit number).
-export const pinCorner = (r: Rect, viewWidth: number) => ({
-  x: Math.max(2, Math.min(viewWidth - 44, r.x)),
+// screen (26 px of room above it, and `width` to its right; 44 px suits a two-digit number).
+export const pinCorner = (r: Rect, viewWidth: number, width = 44) => ({
+  x: Math.max(2, Math.min(viewWidth - width, r.x)),
   y: Math.max(26, r.y),
+});
+
+// The bubble's own box for a pin whose tail sits at `pin`, so a crop can hold it whole.
+export const pinBox = (pin: { x: number; y: number }, number: number): Rect => ({
+  x: pin.x - 2,
+  y: pin.y - 2 - PIN.height,
+  width: pinWidth(number),
+  height: PIN.height,
 });
 
 // The smallest box holding all of `rects`.
@@ -85,6 +97,7 @@ export function markShape(
   kind: UiMarkTarget["kind"],
   boxes: readonly [Rect, ...Rect[]],
   view: { width: number; height: number },
+  number?: number,
 ) {
   const style = kind === "element" ? "outline" : kind === "region" ? "dashed" : "highlight";
   const [first] = boxes;
@@ -96,6 +109,6 @@ export function markShape(
           ? { x: b.x - 2, y: b.y - 2, width: b.width + 4, height: b.height + 4 }
           : b,
     })),
-    pin: pinCorner(first, view.width),
+    pin: pinCorner(first, view.width, number === undefined ? undefined : pinWidth(number)),
   };
 }

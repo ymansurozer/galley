@@ -1,6 +1,6 @@
 import { domToCanvas } from "modern-screenshot";
 import type { BridgeShot, Rect } from "../types";
-import { PIN, atRenderScroll, cropFrame, markShape, unionRect } from "./crop";
+import { PIN, atRenderScroll, cropFrame, markShape, pinBox, unionRect } from "./crop";
 import { CAPS } from "./describe";
 import type { Located } from "./refind";
 
@@ -65,9 +65,15 @@ export async function capturePage(
   });
   const move = (b: Rect): Rect => ({ ...b, x: b.x + moved.x, y: b.y + moved.y });
   const boxes = target && ([move(target.boxes[0]), ...target.boxes.slice(1).map(move)] as const);
-  const frame = boxes && cropFrame(unionRect(boxes), view, dpr);
-  if (mark && frame && target && boxes)
-    drawMark(canvas, markShape(target.kind, boxes, view), dpr, mark);
+  const shape = mark && target && boxes ? markShape(target.kind, boxes, view, mark.number) : null;
+  // The crop is there only while the target is on screen; then it holds the drawn pin whole too,
+  // since a wide number on a small target would otherwise run past the padding.
+  const onScreen = boxes && cropFrame(unionRect(boxes), view, dpr);
+  const frame =
+    onScreen && boxes && shape && mark
+      ? cropFrame(unionRect([...boxes, pinBox(shape.pin, mark.number)]), view, dpr)
+      : onScreen;
+  if (mark && frame && shape) drawMark(canvas, shape, dpr, mark);
   const [viewport, crop] = await Promise.all([
     toPng(canvas),
     frame ? toPng(cut(canvas, frame)) : null,

@@ -1,6 +1,6 @@
 import type { AppMode, BridgeMessage, PickedTarget, PinRect, Rect, UiMark } from "../types";
 import { OVERLAY_ATTR } from "./capture";
-import { PIN, pinCorner, unionRect } from "./crop";
+import { PIN, pinCorner, pinWidth, unionRect } from "./crop";
 import { CAPS, describeElement, labelOf, targetOf } from "./describe";
 import { marksPlacer } from "./placement";
 import { located } from "./refind";
@@ -545,7 +545,7 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
   // A numbered pin on a target's top-left corner: a speech bubble whose tail (its tight bottom-left
   // corner) sits on the corner, kept on screen. A kind's glyph leads the number.
   const pinAt = (r: Rect, number: number, cls: string, icon = "", id?: string) => {
-    const { x, y } = pinCorner(r, innerWidth);
+    const { x, y } = pinCorner(r, innerWidth, pinWidth(number));
     const data = id ? ` data-id="${escapeHtml(id)}"` : "";
     return `<div class="${cls}"${data} title="#${number}" style="left:${x}px;top:${y}px">${icon}${number}</div>`;
   };

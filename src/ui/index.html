@@ -86,8 +86,9 @@
           <!-- "active" while the Overview shows, patched like the file rows' (applyActiveRow). -->
           <div class="node overview-row" data-key="overview" x-show="$store.g.hasGuide && $store.g.hasGuide()"
             @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg><span class="nm">Overview</span><kbd x-keys>o</kbd></div>
-          <div class="node cr-head" x-show="$store.g.requests.length" x-cloak role="button" :aria-expanded="$store.g.requestsOpen"
-            @click="$store.g.requestsOpen = !$store.g.requestsOpen"><svg class="ic flag"><use href="#gly-flag"></use></svg><span
+          <div class="node cr-head" x-show="$store.g.requests.length" x-cloak role="button" tabindex="0" :aria-expanded="$store.g.requestsOpen"
+            @click="$store.g.requestsOpen = !$store.g.requestsOpen" @keydown.enter.stop.prevent="$store.g.requestsOpen = !$store.g.requestsOpen"
+            @keydown.space.stop.prevent="$store.g.requestsOpen = !$store.g.requestsOpen"><svg class="ic flag"><use href="#gly-flag"></use></svg><span
               class="nm">Change requests</span><svg class="ic chev" :class="{open: $store.g.requestsOpen}"><use href="#gly-chevron"></use></svg><span
               class="cr-count" x-text="$store.g.requests.length"></span><kbd x-keys>]</kbd></div>
           <div class="cr-list" x-show="$store.g.requestsOpen && $store.g.requests.length" x-cloak>

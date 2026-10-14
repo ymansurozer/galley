@@ -107,7 +107,7 @@ export function updateProgress() {
     d.progress,
     slot
       ? {
-          weight: d.weight(slot),
+          weight: d.aheadWeight(slot),
           outOfFlow: slotOutOfFlow(slot, (p) => d.ix.outOfFlow.has(p)),
           state: d.ix.stepState(slot),
         }

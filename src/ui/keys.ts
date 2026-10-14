@@ -8,6 +8,7 @@ import {
   annotatePage,
   clearPendingPicks,
   closeShot,
+  pinCardShowing,
   selectAnnotation,
   setAppMode,
   stepAnnotation,
@@ -97,7 +98,7 @@ function escape() {
     return;
   }
   // The open pin card over the app, unless a composer in it is open: that goes first, then the card.
-  if (inUiView() && S.selectedAnnotation && !(S.composerOpen && composerInUi())) {
+  if (inUiView() && pinCardShowing() && !(S.composerOpen && composerInUi())) {
     selectAnnotation(null);
     return;
   }

@@ -106,6 +106,13 @@ export const toggleAppMode = () => setAppMode(S.appMode === "annotate" ? "intera
 // it isn't, the reviewer is told why nothing is outlined.
 let revealing: string | null = null;
 
+// Whether the selected annotation's card is showing: it shows only while the app is on its page,
+// so a selection left behind on another page is invisible and Esc passes it by.
+export function pinCardShowing() {
+  const a = find(S.selectedAnnotation);
+  return !!a && S.view === "ui" && a.page.route === S.app.route;
+}
+
 // Select an annotation, opening its card and outlining its target, taking the app to its page
 // first. Null closes the card. A reply or edit open in another thread is set aside with its text.
 export function selectAnnotation(id: string | null) {

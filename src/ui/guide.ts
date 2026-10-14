@@ -287,8 +287,9 @@ export function progressDetail() {
     steps = 0,
     stepsDone = 0,
     parts = false;
+  const slots = flowSlots(ix);
   // Fully-skimmed steps carry no progress weight — they left the flow (issue 07).
-  for (const slot of flowSlots(ix)) {
+  for (const slot of slots) {
     const w = weight(slot);
     total += w;
     steps++;
@@ -310,6 +311,13 @@ export function progressDetail() {
     byLines: !byFiles,
     ix,
     weight,
+    // What ⇧A on the open step would add. A file the guide splits, opened whole, signs off its
+    // still-pending parts — those are what progress counts, not the file's own line count.
+    aheadWeight(slot: Pick<StepSlot, "path" | "blocks">) {
+      const parts = slot.blocks ? [] : slots.filter((s) => s.path === slot.path && s.blocks);
+      if (!parts.length) return weight(slot);
+      return parts.reduce((n, s) => n + (ix.stepState(s) === "pending" ? weight(s) : 0), 0);
+    },
   };
 }
 

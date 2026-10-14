@@ -50,9 +50,7 @@
   --btn-bg-pressed: var(--blue-fill-pressed);
   background: var(--btn-bg);
   color: var(--on-fill);
-  box-shadow:
-    inset 0 0.5px 0 rgb(255 255 255 / 0.2),
-    0 1px 2px rgb(0 0 0 / 0.2);
+  box-shadow: var(--shadow-fill);
 }
 
 /* Hover and press step the ground (the *-fill-hover and *-fill-pressed tokens). */
