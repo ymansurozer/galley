@@ -284,6 +284,12 @@
   line-height: 1.4;
 }
 
+/* A held band hides while the review is sent (updateAwaitingDom toggles `hidden`); the display
+   above would otherwise override the attribute. */
+.tc-band[hidden] {
+  display: none;
+}
+
 .tc-band .ic {
   flex: 0 0 auto;
   width: 12px;
