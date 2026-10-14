@@ -28,8 +28,10 @@
         <!-- Code / App lane switch, centred on the bar: only when the desk has a UI target and a diff.
              A single-lane desk shows no lane label. -->
         <div class="seg lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / App" data-tip-keys="⇧U"><button
-            :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg><span>Code</span></button><button
-            :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg><span>App</span></button></div>
+            :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg><span>Code</span><kbd
+              x-keys x-show="$store.g.view!=='code'">⇧U</kbd></button><button
+            :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg><span>App</span><kbd
+              x-keys x-show="$store.g.view==='code'">⇧U</kbd></button></div>
       </div>
       <div class="actions"><button class="btn icon top-settings" data-tip="Settings" data-tip-keys="⇧," @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button>
         <!-- The agent's presence (topbar-derive.ts): only while it has something in flight. -->
