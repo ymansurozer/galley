@@ -19,7 +19,10 @@ import {
   fromDisplayLine,
   fileFinished,
   fileObjections,
+  flowIndex,
 } from "./changes";
+import { allSignedOff } from "./flow-index";
+import { agentPresence, deskSubtitle, deskTitle, unansweredAsks } from "./topbar-derive";
 import { approveCurrentFile, toggleSignOff } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
@@ -372,6 +375,20 @@ S.treeStep = (dir) => {
 // The top bar's count of open change requests; a click steps to the next, as `]` does.
 S.openRequests = openRequests;
 S.nextRequest = () => stepOpenRequest(1);
+// The top bar: what is under review, the agent's presence, and whether Send Review is the next
+// step. The review is complete by the gate that opens the Send sheet after the last approval; a
+// desk with no files (UI-only) has no code review to complete.
+S.deskTitle = () => (S.state ? deskTitle(S.state) : "");
+S.deskSubtitle = () => (S.state ? deskSubtitle(S.state, uiOnly()) : "");
+S.agentPresence = () =>
+  agentPresence({
+    awaitingAgent: S.awaitingAgent,
+    queuedReviews: S.queuedReviews,
+    queuedQuestions: S.queuedQuestions,
+    activity: S.agentActivity,
+    unansweredAsks: unansweredAsks(S.state?.comments ?? [], S.state?.annotations ?? []),
+  });
+S.reviewComplete = () => !!S.state?.files.length && allSignedOff(S.state, flowIndex());
 // Keyboard help overlay + destructive-action confirm dialog (keys.ts owns the dialog state).
 S.helpGroups = helpGroups;
 S.confirmYes = confirmYes;

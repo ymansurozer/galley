@@ -33,6 +33,7 @@ import type {
   UiTarget,
 } from "../types";
 import type { WalkRow } from "./walkthrough";
+import type { Presence } from "./topbar-derive";
 
 export type Side = "additions" | "deletions";
 export type DiffStyle = "split" | "unified";
@@ -393,6 +394,12 @@ export interface Store {
   // The walk through open change requests (requests.ts): the top bar's count, and its next stop.
   openRequests?: () => number;
   nextRequest?: () => void;
+  // The top bar (topbar-derive.ts): its title and "project · mode" subtitle, the agent's presence,
+  // and whether every in-flow file is signed off (Send Review turns primary).
+  deskTitle?: () => string;
+  deskSubtitle?: () => string;
+  agentPresence?: () => Presence;
+  reviewComplete?: () => boolean;
   confirmYes?: () => void;
   confirmNo?: () => void;
   promptFinish?: () => void;
