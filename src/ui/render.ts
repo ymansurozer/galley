@@ -415,13 +415,10 @@ async function renderCenter() {
     // jumped-to line (cursor.ts flashRow): an orange wash over its own tint that fades, like a
     // thread's flash off the rows (decisions.css). An annotation row keeps its own ground when
     // its line is selected or hovered: the selection tints the code line alone, so a card reads
-    // the same against the row behind it either way. @pierre drops the diff's top padding under
-    // its own file header; ours (filebar.ts) sits outside its DOM with the guide card under it,
-    // so the padding is dropped here the same way and the first row meets the card (or the bar).
-    // previewCSS (empty unless previewing) neutralizes addition styling to context, in-shadow.
+    // the same against the row behind it either way. previewCSS (empty unless previewing)
+    // neutralizes addition styling to context, in-shadow.
     unsafeCSS:
       "[data-code]{scrollbar-gutter:auto}" +
-      "[data-code],[data-overflow=wrap]{padding-top:0}" +
       "[data-line-annotation],[data-gutter-buffer=annotation]{--diffs-line-bg:var(--diffs-annotation-bg)}" +
       "[data-line-type]{scroll-margin-top:var(--jump-top,0px)}" +
       "[data-flash]{animation:galley-flash 1.2s ease-out}" +
