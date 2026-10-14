@@ -86,6 +86,7 @@ import {
   waitingQuestions,
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
+import { updateAwaitingDom } from "./annotations";
 import { openRequest, requestRows } from "./requests";
 import { uuid } from "./uuid";
 import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
@@ -557,6 +558,8 @@ S.send = async (overallNote = "") => {
   });
   if (r && r.sent) {
     S.awaitingAgent = true;
+    // The change requests went with it: their held bands go now, not on the next poll.
+    updateAwaitingDom();
     toast("Sent to agent");
   } else toast("Could not send review");
 };

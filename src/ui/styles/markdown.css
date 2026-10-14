@@ -59,16 +59,26 @@
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 9%, transparent);
 }
 
-.md-thread {
-  margin: 6px 0 14px;
-  border-left: 2px solid color-mix(in srgb, var(--blue) 40%, transparent);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  background: var(--fill);
+/* A block comment: the thread's card under its block, in the document's own sans and size. */
+.md-file .md-thread {
+  margin: 6px 0 16px;
+  padding: 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
   cursor: default;
 }
 
-.md-file li > .md-thread {
-  margin-left: -6px;
+/* A message in it reads as a comment, not as the document around it. */
+.md-file .thread-card .md :is(p, ul, ol, blockquote) {
+  margin: 6px 0;
+}
+
+.md-file .thread-card .md > :first-child {
+  margin-top: 0;
+}
+
+.md-file .thread-card .md > :last-child {
+  margin-bottom: 0;
 }
 
 .md input[type="checkbox"] {

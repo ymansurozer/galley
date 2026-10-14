@@ -19,7 +19,15 @@ import {
 } from "./composer";
 import { render } from "./render";
 import { isBlockSkimCollapsed, skimStripLabel, toggleSkimBlock } from "./skim";
-import { answered, turnsInto } from "./uilane-derive";
+import { firstLine, turnsInto } from "./uilane-derive";
+import { asksChange } from "./requests-derive";
+import {
+  lineLabel,
+  questionWaiting,
+  showsHeld,
+  threadKind,
+  type ThreadKind,
+} from "./thread-derive";
 import type {
   AnnotationInput,
   AnnotationMeta,
@@ -154,9 +162,9 @@ export function awaitingParts() {
   };
 }
 
-// Patch every mounted waiting indicator in place. Called from the 1.5s poll:
-// activity/presence changes alone must not trigger a full render() (it rebuilds
-// the diff DOM), so the indicator spans are updated directly.
+// Patch every mounted waiting band in place, and show or hide the held bands. Called from the
+// 1.5s poll and on Send: activity/presence changes alone must not trigger a full render() (it
+// rebuilds the diff DOM), so the bands are updated directly.
 export function updateAwaitingDom() {
   const parts = awaitingParts();
   for (const el of document.querySelectorAll(".awaiting-answer")) {
@@ -167,11 +175,14 @@ export function updateAwaitingDom() {
     const text = parts.activity ? ` · ${parts.activity}` : "";
     if (activity && activity.textContent !== text) activity.textContent = text;
   }
+  // Only a change request draws a held band, so the review's sent state alone decides it.
+  for (const el of document.querySelectorAll<HTMLElement>(".tc-band.held"))
+    el.hidden = !showsHeld(true, S.awaitingAgent);
 }
 
 function awaitingHtml() {
   const parts = awaitingParts();
-  return `<div class="awaiting-answer${parts.queued ? " queued" : ""}"><span class="awaiting-label">${esc(parts.label)}</span><span class="agent-activity">${parts.activity ? esc(` · ${parts.activity}`) : ""}</span></div>`;
+  return `<div class="tc-band awaiting-answer${parts.queued ? " queued" : ""}"><span class="tc-spin" aria-hidden="true"></span><span><span class="awaiting-label">${esc(parts.label)}</span><span class="agent-activity">${parts.activity ? esc(` · ${parts.activity}`) : ""}</span></span></div>`;
 }
 
 // Coarse relative time for a message ("now", "5m ago", "3h ago", "2d ago", else a date). The
@@ -227,66 +238,116 @@ export function lineThread(c: ThreadMeta): ThreadControls {
   };
 }
 
-// The comment-box element for one thread (messages + reply/resolve/reopen + per-message
-// edit/delete). The one thread component: the diff annotations, the markdown-file view
-// (mdfile.ts) and the UI lane's annotation sidebar (uilane.ts) all render through it.
-export function buildCommentThread(
-  c: { status: "open" | "resolved"; comments: ThreadMessage[] },
-  controls: ThreadControls,
-): HTMLElement {
+// Glyphs the sprite doesn't carry: a question's bubble, and the two avatars.
+const BUBBLE =
+  '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7.4c0-2.7 2.5-4.65 5.5-4.65s5.5 1.95 5.5 4.65S11 12.05 8 12.05c-.6 0-1.15-.07-1.68-.2L3.4 13.3l.75-2.4C3.12 10 2.5 8.8 2.5 7.4Z"/></svg>';
+const AVATAR = {
+  you: '<span class="av"><svg viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><circle cx="5" cy="3.4" r="2"/><path d="M1.3 9.3c.4-2.1 1.9-3.2 3.7-3.2s3.3 1.1 3.7 3.2z"/></svg></span>',
+  agent:
+    '<span class="av agent"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.2 3 4.4 5 2.2 7M5.6 7.4h2.4"/></svg></span>',
+};
+const sprite = (id: string) => `<svg class="ic"><use href="#gly-${id}"></use></svg>`;
+const KINDS: Record<ThreadKind, { label: string; glyph: string }> = {
+  change: { label: "Change request", glyph: sprite("flag") },
+  question: { label: "Question", glyph: BUBBLE },
+  note: { label: "Note", glyph: sprite("page-note") },
+  agent: { label: "Agent note", glyph: sprite("page-note") },
+  resolved: { label: "Resolved", glyph: sprite("check") },
+};
+
+// A thread as its card draws it. A code thread's card names what it is and where it sits in a
+// header (`loc`, struck through when the thread lost its line), and closes with the held band
+// while its change request waits for Send. The UI lane's row names its annotation itself, so it
+// passes no head.
+export type ThreadView = {
+  status: "open" | "resolved";
+  comments: ThreadMessage[];
+  head?: { kind: ThreadKind; loc: string; lost?: boolean; held: boolean };
+};
+
+const locHtml = (head: { loc: string; lost?: boolean }) =>
+  head.lost
+    ? `<span class="tc-loc" title="This thread lost its line"><s>${esc(head.loc)}</s></span>`
+    : `<span class="tc-loc">${esc(head.loc)}</span>`;
+
+function headHtml(c: ThreadView, head: NonNullable<ThreadView["head"]>) {
+  const { label, glyph } = KINDS[head.kind];
+  const state =
+    head.kind !== "question"
+      ? ""
+      : questionWaiting(c.comments)
+        ? "waiting"
+        : c.comments.at(-1)?.role === "agent"
+          ? "answered"
+          : "";
+  return `<div class="tc-head"><span class="tc-kind">${glyph}${label}</span>${state ? `<span class="tc-state">· ${state}</span>` : ""}${locHtml(head)}</div>`;
+}
+
+// The card for one thread: its header, the messages (each with its author's avatar, and the
+// reviewer's own with Edit / Delete / Turn into), the band its state ends in, then Reply… and
+// Resolve. A resolved thread rests as one line with Reopen. The one thread component: the diff
+// annotations, the unanchored block, the markdown-file view (mdfile.ts) and the UI lane's
+// annotation sidebar (uilane.ts) all render through it.
+export function buildCommentThread(c: ThreadView, controls: ThreadControls): HTMLElement {
   const box = document.createElement("div");
-  box.className = "comment-box";
+  box.className = `comment-box thread-card${c.head ? ` k-${c.head.kind}` : ""}`;
   const replyOpen = controls.replying;
-  const messages =
-    c.status === "resolved"
-      ? `<div class="thread-summary"><b>${c.comments.length}</b> comment${c.comments.length === 1 ? "" : "s"} <span>(Resolved)</span><button class="reopen-inline">Reopen</button></div>`
-      : c.comments
-          .map((m, i) => {
-            const own = m.role !== "agent";
-            const editing = S.editingCommentId === m.id;
-            const edited =
-              m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
-            // Only a change request wears a badge; a question reads as a plain message (its
-            // awaiting line says when it's still waiting on the agent).
-            const badge =
-              own && m.intent === "action"
-                ? '<span class="intent-badge a">Change requested</span>'
-                : "";
-            const awaiting = own && m.intent === "question" && !answered(m, c.comments);
-            // Only the opening message carries the thread's kind, so only it turns.
-            const into = i === 0 ? turnsInto(m) : null;
-            const label = into === "question" ? "Turn into ask" : "Turn into change request";
-            // The glyph stands in for the label in a narrow thread (styles/threads.css, .turn-comment).
-            const turn = into
-              ? `<button class="turn-comment" data-id="${m.id}" aria-label="${label}" data-tip="${label}" data-tip-align="end"><svg class="turn-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5.5h9.5M10 3l2.5 2.5L10 8M13 10.5H3.5M6 8l-2.5 2.5L6 13"/></svg><span class="turn-label">${label}</span></button>`
-              : "";
-            const actions =
-              own && !editing
-                ? `<span class="msg-actions">${turn}<button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>`
-                : "";
-            // The body is left empty for the message being edited — buildEditor replaces it
-            // below (it needs live DOM wiring, not an innerHTML string).
-            const body = editing ? "" : `<div class="md">${renderCommentBody(m)}</div>`;
-            return `<div class="msg ${own ? "" : "agent"}${editing ? " editing" : ""}" data-id="${m.id}"><div class="meta"><span class="author ${own ? "" : "agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div>${body}${awaiting ? awaitingHtml() : ""}</div>`;
-          })
-          .join("");
-  // Reply hides while its own composer is open (only Resolve stays); the composer card sits
-  // between the last message and the action bar.
-  const foot =
-    c.status === "resolved"
-      ? '<div class="thread-actions"><button class="reopen-thread">Reopen</button></div>'
-      : replyOpen
-        ? '<div class="thread-actions"><button class="resolve-thread">Resolve</button></div>'
-        : '<div class="thread-actions"><button class="reply-thread">Reply</button><button class="resolve-thread">Resolve</button></div>';
-  box.innerHTML = `${messages}${foot}`;
+  if (c.status === "resolved") {
+    box.classList.add("resolved");
+    const n = c.comments.length;
+    const first = firstLine(c.comments[0]?.body ?? "");
+    box.innerHTML = `<div class="thread-summary">${KINDS.resolved.glyph}<b>Resolved</b><span class="tc-state">· ${n} message${n === 1 ? "" : "s"}</span><span class="tc-first">${esc(first)}</span>${c.head ? locHtml(c.head) : ""}<button class="reopen-inline">Reopen</button></div>`;
+    // The summary just written always carries Reopen.
+    const reopen = box.querySelector(".reopen-inline") as HTMLButtonElement;
+    reopen.onclick = () => controls.setStatus("open");
+    return box;
+  }
+  const messages = c.comments
+    .map((m, i) => {
+      const own = m.role !== "agent";
+      const editing = S.editingCommentId === m.id;
+      const edited = m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
+      // Only a change request wears a badge; a question reads as a plain message (the waiting
+      // band says when it's still waiting on the agent). A change request's own card says so in
+      // its header, so its opening message needs none.
+      const badge =
+        own && m.intent === "action" && !(i === 0 && c.head?.kind === "change")
+          ? '<span class="intent-badge a">Change requested</span>'
+          : "";
+      // Only the opening message carries the thread's kind, so only it turns.
+      const into = i === 0 ? turnsInto(m) : null;
+      const label = into === "question" ? "Turn into ask" : "Turn into change request";
+      // The glyph stands in for the label in a narrow thread (styles/threads.css, .turn-comment).
+      const turn = into
+        ? `<button class="turn-comment" data-id="${m.id}" aria-label="${label}" data-tip="${label}" data-tip-align="end"><svg class="turn-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5.5h9.5M10 3l2.5 2.5L10 8M13 10.5H3.5M6 8l-2.5 2.5L6 13"/></svg><span class="turn-label">${label}</span></button>`
+        : "";
+      const actions =
+        own && !editing
+          ? `<span class="msg-actions">${turn}<button class="edit-comment" data-id="${m.id}">Edit</button><button class="delete-comment" data-id="${m.id}">Delete</button></span>`
+          : "";
+      // The body is left empty for the message being edited — buildEditor replaces it
+      // below (it needs live DOM wiring, not an innerHTML string).
+      const body = editing ? "" : `<div class="md">${renderCommentBody(m)}</div>`;
+      return `<div class="msg${own ? "" : " agent"}${editing ? " editing" : ""}" data-id="${m.id}"><div class="meta">${own ? AVATAR.you : AVATAR.agent}<span class="author${own ? "" : " agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div>${body}</div>`;
+    })
+    .join("");
+  // The bands: waiting on the agent (live-patched by updateAwaitingDom), then held for Send. A
+  // held band hides once the review is sent: the agent has it then.
+  const waiting = questionWaiting(c.comments) ? awaitingHtml() : "";
+  const held = c.head?.held
+    ? `<div class="tc-band held"${showsHeld(c.head.held, S.awaitingAgent) ? "" : " hidden"}>${sprite("flag")}<span>Held — goes with Send</span></div>`
+    : "";
+  // Reply… hides while its own composer is open (only Resolve stays); the composer sits between
+  // the bands and the actions.
+  const foot = `<div class="thread-actions">${replyOpen ? "" : '<button class="reply-thread">Reply…</button>'}<button class="resolve-thread">Resolve</button></div>`;
+  box.innerHTML = `${c.head ? headHtml(c, c.head) : ""}${messages}${waiting}${held}${foot}`;
   // Mount the in-place editor into the message being edited.
-  if (S.editingCommentId && c.status !== "resolved") {
+  if (S.editingCommentId) {
     const msgEl = box.querySelector(`.msg[data-id="${S.editingCommentId}"]`);
     msgEl?.appendChild(buildEditor());
   }
   // Mount the reply composer above the action bar.
-  if (replyOpen && c.status !== "resolved")
-    box.querySelector(".thread-actions")?.before(buildComposer());
+  if (replyOpen) box.querySelector(".thread-actions")?.before(buildComposer());
   const reply = box.querySelector(".reply-thread") as HTMLButtonElement | null;
   if (reply) reply.onclick = controls.reply;
   box
@@ -307,11 +368,58 @@ export function buildCommentThread(
       (b) =>
         ((b as HTMLButtonElement).onclick = () => controls.remove((b as HTMLElement).dataset.id!)),
     );
-  const resolve = box.querySelector(".resolve-thread") as HTMLButtonElement | null;
-  if (resolve) resolve.onclick = () => controls.setStatus("resolved");
-  const reopen = box.querySelector(".reopen-thread,.reopen-inline") as HTMLButtonElement | null;
-  if (reopen) reopen.onclick = () => controls.setStatus("open");
+  // The footer always carries Resolve on an open thread.
+  const resolve = box.querySelector(".resolve-thread") as HTMLButtonElement;
+  resolve.onclick = () => controls.setStatus("resolved");
   return box;
+}
+
+// A code thread's card, wherever the thread shows: on its line in the diff, in the unanchored
+// block (`lost`), or under its block in the rendered markdown view.
+export function threadCard(t: ThreadMeta, lost = false): HTMLElement {
+  const asks = t.comments.some(asksChange);
+  const head = {
+    kind: threadKind(t.status, t.comments),
+    loc: lineLabel(t.lineNumber, t.comments[0]?.endLine),
+    lost,
+    held: asks,
+  };
+  return buildCommentThread({ ...t, head }, lineThread(t));
+}
+
+// The new-comment composer as a card at its line: what it is and where, then the reviewer's
+// composer. S.selected is display space; the header names the file's own line.
+export function composerCard(): HTMLElement {
+  const { side, lineNumber, endLine } = S.selected;
+  const loc = lineLabel(
+    fromDisplayLine(side, lineNumber),
+    endLine === undefined ? undefined : fromDisplayLine(side, endLine),
+  );
+  const card = document.createElement("div");
+  card.className = "comment-box thread-card k-new";
+  card.innerHTML = `<div class="tc-head"><span class="tc-kind">${BUBBLE}New comment</span>${locHtml({ loc })}</div><div class="meta">${AVATAR.you}<span class="author">You</span></div>`;
+  card.appendChild(buildComposer());
+  return card;
+}
+
+// Open threads whose anchor line no longer renders, as a block at the top of the diff: their
+// cards, the old line struck through, so they stay actionable (they block approval until
+// resolved). Each keeps `data-thread`, the target `]` / `[` and the blockers list jump to.
+export function unanchoredBlock(orphans: ThreadMeta[]): HTMLElement {
+  const block = document.createElement("div");
+  block.className = "unanchored-strip";
+  const head = document.createElement("div");
+  head.className = "unanchored-head";
+  head.innerHTML = `${sprite("warn")}<b>${orphans.length} comment thread${orphans.length === 1 ? "" : "s"} lost ${orphans.length === 1 ? "its" : "their"} place in this diff</b><span>resolve or reply here; ${orphans.length === 1 ? "it blocks" : "they block"} approval until then</span>`;
+  block.appendChild(head);
+  for (const t of orphans) {
+    const box = document.createElement("div");
+    box.className = "annotation";
+    box.dataset.thread = `${t.side}:${t.lineNumber}`;
+    box.appendChild(threadCard(t, true));
+    block.appendChild(box);
+  }
+  return block;
 }
 
 // `a` is @pierre/diffs' annotation callback argument (loose by contract); the
@@ -323,7 +431,7 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   if (c.type === "composer") {
     const el = document.createElement("div");
     el.className = "annotation composer-annotation";
-    el.appendChild(buildComposer());
+    el.appendChild(composerCard());
     return el;
   }
   // The skim collapse/expand strip standing in for a skimmable block (skim.ts hides the rows
@@ -343,11 +451,11 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
         ? S.state.changes.find((x) => x.id === c.changeId)
         : null;
   const el = document.createElement("div");
-  el.className = `annotation ${c.type === "thread" && c.status === "resolved" ? "resolved" : ""}`;
+  el.className = "annotation";
   if (c.type === "change") {
     el.innerHTML = `<div class="change-actions"><button class="reject">Undo ${keycapsHtml("⇧N")}</button><button class="accept">Keep ${keycapsHtml("⇧Y")}</button></div>`;
   } else {
-    el.appendChild(buildCommentThread(c, lineThread(c)));
+    el.appendChild(threadCard(c));
     // The change on the thread's line keeps its decision bar right under the hunk, above the
     // thread, as when the two render as separate annotations.
     if (change) {

@@ -13,7 +13,7 @@ import {
 } from "./changes";
 import type { AnnotationMeta } from "./types";
 import { applyActiveRow, applyLayoutClasses } from "./tree";
-import { annotations, renderAnnotation, buildCommentThread, lineThread } from "./annotations";
+import { annotations, renderAnnotation, unanchoredBlock } from "./annotations";
 import { restoreComposerFocus } from "./composer";
 import { renderUiLane } from "./uilane";
 import { unanchoredThreads } from "./unanchored";
@@ -546,23 +546,7 @@ async function renderCenter() {
     // Open threads whose anchor line no longer renders — shown as the diff's first row,
     // below the action bar, so they stay actionable (they block approval until resolved).
     const orphans = unanchoredThreads();
-    if (orphans.length) {
-      const strip = document.createElement("div");
-      strip.className = "unanchored-strip";
-      const head = document.createElement("div");
-      head.className = "unanchored-head";
-      head.textContent = `${orphans.length} comment thread${orphans.length === 1 ? "" : "s"} lost ${orphans.length === 1 ? "its" : "their"} place in this diff — resolve or reply here`;
-      strip.appendChild(head);
-      for (const t of orphans) {
-        // Reuse the annotation thread styling (it's all scoped under .annotation).
-        const box = document.createElement("div");
-        box.className = "annotation";
-        box.dataset.thread = `${t.side}:${t.lineNumber}`; // blockers jump target
-        box.appendChild(buildCommentThread(t, lineThread(t)));
-        strip.appendChild(box);
-      }
-      wrap.appendChild(strip);
-    }
+    if (orphans.length) wrap.appendChild(unanchoredBlock(orphans));
     return wrap;
   };
   // Preview gets its own minimal header: a neutral file icon + path + a read-only tag — no

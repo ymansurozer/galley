@@ -1,141 +1,208 @@
+/* ── Thread cards ────────────────────────────────────────────────────────────────────────────
+   A thread is one card: a header naming what it is and its line, the messages with their authors'
+   avatars, the band its state ends in, then Reply… and Resolve. In the diff it sits in the code
+   column under its line (Pierre slots it into its light DOM, so these rules reach it), capped at
+   a reading width. The unanchored block, the rendered markdown view and the UI lane's annotation
+   list draw the same card. --tc names the kind's hue: blue for a question or the agent, orange
+   for a change request. */
 .annotation {
   font-family: var(--sans);
   position: relative;
   width: 100%;
   min-height: 30px;
-  max-width: none;
   margin: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--ink);
-  border: 0;
-  box-shadow: none;
   padding: 0;
+  color: var(--ink);
 }
 
-.annotation.resolved {
-  opacity: 0.62;
+/* Room around a card in the code column. */
+.annotation:has(> .thread-card) {
+  padding: 6px 16px 8px 4px;
 }
 
-.annotation.resolved .comment-box {
-  padding: 7px 12px;
+@media (max-width: 760px) {
+  .annotation:has(> .thread-card) {
+    padding-right: 8px;
+  }
 }
 
-.annotation .comment-box {
+.thread-card {
+  --tc: var(--blue);
+  --tc-ink: var(--blue-ink);
   position: relative;
-  padding: 11px 16px 12px;
+  max-width: 680px;
+  padding: 8px 12px 11px;
+  border-radius: var(--radius-xl);
+  background: var(--raised);
+  box-shadow:
+    0 0 0 0.5px var(--sep-strong),
+    0 2px 8px rgb(0 0 0 / 0.12);
+  font-size: var(--text-sm);
+  line-height: 1.45;
 }
 
-.annotation .thread-actions {
+.thread-card.k-change {
+  --tc: var(--orange);
+  --tc-ink: var(--orange-ink);
+}
+
+.thread-card.k-note,
+.thread-card.k-new {
+  --tc: var(--ink-2);
+  --tc-ink: var(--ink-2);
+}
+
+/* Header: the kind in its hue, its state, the line at the right. */
+.tc-head {
   display: flex;
-  justify-content: flex-start;
-  gap: 6px;
   align-items: center;
-  border-top: 1px solid var(--sep);
-  padding-top: 8px;
-  margin-top: 12px;
-}
-
-.annotation .thread-intent {
-  background: var(--orange-wash);
-  color: var(--orange-ink);
-  border-radius: var(--radius-xs);
-  padding: 2px 6px;
+  gap: 6px;
+  min-width: 0;
+  height: 18px;
   font-size: var(--text-xs);
   font-weight: 600;
-  line-height: 15px;
+  white-space: nowrap;
 }
 
-/* Reply / Resolve / Reopen: small neutral push buttons; Resolve and Reopen say which way in
-   their ink. */
-.annotation .thread-actions button,
-.annotation.resolved .reopen-inline {
-  display: inline-flex;
+.tc-kind {
+  display: flex;
   align-items: center;
-  height: 22px;
-  border: 0;
-  background: var(--raised);
-  box-shadow: var(--shadow-control);
-  color: var(--ink);
-  border-radius: var(--radius-sm);
-  padding: 0 9px;
-  font-size: var(--text-xs);
+  gap: 5px;
+  color: var(--tc-ink);
+}
+
+.tc-kind .ic {
+  width: 13px;
+  height: 13px;
+}
+
+.tc-state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
   font-weight: 500;
 }
 
-.annotation .thread-actions button:hover,
-.annotation.resolved .reopen-inline:hover {
-  background-image: linear-gradient(var(--fill), var(--fill));
+.tc-loc {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
 }
 
-.annotation .thread-actions .resolve-thread {
-  color: var(--green-ink);
+/* A thread that lost its line: the old number, struck through. */
+.tc-loc s {
+  text-decoration-color: currentColor;
 }
 
-.annotation .thread-actions .reopen-thread,
-.annotation.resolved .reopen-inline {
-  color: var(--orange-ink);
-}
-
-.annotation.resolved .reopen-inline {
-  margin-left: 6px;
-}
-
-/* Each message reads as a small card so a back-and-forth Q&A thread is scannable: the agent's
-   replies carry a blue rail down a straight left edge. A ~76ch measure so the body reads as
-   prose, not a form field. */
-.annotation .msg {
+/* Messages: who and when on one line (avatar, name, the change-request pill, time), the body
+   under it. The agent's replies carry a square blue rail down the card's left edge. */
+.thread-card .msg {
   position: relative;
-  max-width: 76ch;
-  margin: 0 0 10px 0;
-  padding: 11px 14px 12px;
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: var(--raised);
-  box-shadow: 0 0 0 0.5px var(--sep-strong);
+  margin-top: 10px;
+  container: msg / inline-size;
 }
 
-.annotation .msg.agent {
-  border-left: 3px solid var(--blue);
-  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
-  padding-left: 11px;
+.tc-head + .msg {
+  margin-top: 7px;
 }
 
-.annotation .msg:last-child {
-  margin-bottom: 0;
+.thread-card .msg.agent {
+  margin-left: -12px;
+  padding-left: 10px;
+  border-left: 2px solid var(--blue);
 }
 
-.annotation .thread-summary {
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-  line-height: 20px;
-}
-
-.annotation .thread-summary b {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.annotation.resolved .thread-actions {
-  display: none;
-}
-
-.annotation .meta {
+.thread-card .meta {
   display: flex;
-  gap: 8px;
-  align-items: baseline;
-  margin-bottom: 5px;
-  color: var(--ink-2);
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+  color: var(--ink-3);
   font-size: var(--text-xs);
 }
 
-/* Out of the meta line's flow: hidden actions that still took their width wrapped the badge and
-   time onto a second line in narrow threads (the UI lane's sidebar, a narrow diff). On hover
-   they sit over the line's right end, on the message's own ground. */
-.annotation .msg-actions {
+.av {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--ink-3);
+  color: var(--on-fill);
+}
+
+.av.agent {
+  background: var(--blue-fill);
+}
+
+.av svg {
+  width: 10px;
+  height: 10px;
+}
+
+.thread-card .author {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.thread-card .author.agent {
+  color: var(--blue-ink);
+}
+
+.thread-card time {
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+/* The change-request pill (questions carry none). */
+.thread-card .intent-badge {
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.thread-card .intent-badge.a {
+  color: var(--orange-ink);
+  background: var(--orange-wash);
+}
+
+.md {
+  color: var(--ink);
+  line-height: 1.55;
+  font-size: var(--text-sm);
+  margin-top: 6px;
+  overflow-wrap: break-word;
+}
+
+/* The message body reads as prose at the reading scale. Scoped to the thread — the base
+   .md (rendered markdown files) keeps its own smaller size. Both flow through the type
+   tokens, so the Settings font/size knobs still apply. */
+.thread-card .md {
+  margin-top: 3px;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.thread-card .md code {
+  font-size: var(--text-sm);
+  background: var(--fill-2);
+  border-radius: var(--radius-xs);
+  padding: 0.5px 4px;
+}
+
+/* The reviewer's own message: Edit / Delete / Turn into, out of the meta line's flow so hidden
+   ones don't wrap it; on hover they sit over the line's right end, on the card's own ground. */
+.thread-card .msg-actions {
   position: absolute;
-  top: 8px;
-  right: 10px;
+  top: -2px;
+  right: -4px;
   display: flex;
   gap: 2px;
   padding-left: 6px;
@@ -144,11 +211,12 @@
   transition: opacity 0.12s;
 }
 
-.annotation .msg:hover .msg-actions {
+.thread-card .msg:hover .msg-actions,
+.thread-card .msg-actions:focus-within {
   opacity: 1;
 }
 
-.annotation .msg-actions button {
+.thread-card .msg-actions button {
   display: inline-flex;
   align-items: center;
   height: 20px;
@@ -161,12 +229,16 @@
   font-weight: 500;
 }
 
-.annotation .msg-actions button:hover {
+.thread-card .msg-actions button:hover {
   color: var(--ink);
   background: var(--fill-2);
 }
 
-.annotation .msg-actions .delete-comment:hover {
+.thread-card .msg-actions button:active {
+  background: var(--fill-3);
+}
+
+.thread-card .msg-actions .delete-comment:hover {
   color: var(--red-ink);
   background: var(--red-wash);
 }
@@ -174,11 +246,7 @@
 /* Turn into ask / change request. In a narrow thread (the UI lane's sidebar, a narrow diff) its
    label would cover the meta line's badge, so it shrinks to a glyph and names itself in a
    tooltip (tooltip.ts shows a tip only when the label isn't on screen). */
-.annotation .msg {
-  container: msg / inline-size;
-}
-
-.annotation .turn-comment .turn-ic {
+.thread-card .turn-comment .turn-ic {
   display: none;
   width: 11px;
   height: 11px;
@@ -191,145 +259,230 @@
 }
 
 @container msg (max-width: 400px) {
-  .annotation .msg-actions .turn-comment {
+  .thread-card .msg-actions .turn-comment {
     padding: 0 5px;
   }
 
-  .annotation .turn-comment .turn-ic {
+  .thread-card .turn-comment .turn-ic {
     display: block;
   }
 
-  .annotation .turn-comment .turn-label {
+  .thread-card .turn-comment .turn-label {
     display: none;
   }
 }
 
-/* The change-request pill (questions carry none). */
-.annotation .intent-badge {
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  line-height: 15px;
-}
-
-.annotation .intent-badge.a {
-  color: var(--orange-ink);
-  background: var(--orange-wash);
-}
-
-.annotation .awaiting-answer {
-  margin-top: 6px;
-  color: var(--blue-ink);
+/* Bands: the state the card ends in, edge to edge. Waiting on the agent is blue (amber when no
+   agent will pick the question up); a change request held for Send is orange. */
+.tc-band {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 10px -12px 0;
+  padding: 7px 12px 8px;
   font-size: var(--text-xs);
+  line-height: 1.4;
 }
 
-.annotation .awaiting-answer::before {
-  content: "◷ ";
+.tc-band .ic {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  margin-top: 1px;
+}
+
+.tc-band.held {
+  background: var(--orange-wash);
+  color: var(--orange-ink);
+}
+
+.tc-band.awaiting-answer {
+  background: var(--blue-wash);
+  color: var(--blue-ink);
+}
+
+.tc-band.awaiting-answer.queued {
+  background: var(--orange-wash);
+  color: var(--orange-ink);
+}
+
+.awaiting-answer .awaiting-label {
+  font-weight: 600;
 }
 
 /* The activity line is the informative part — full ink, brighter than the label. */
-.annotation .awaiting-answer .agent-activity {
+.awaiting-answer .agent-activity {
   color: var(--ink);
 }
 
-.annotation .awaiting-answer.queued {
-  color: var(--orange-ink);
+/* Working: a turning ring. Queued, nothing is working on it: the ring stands still, dotted. */
+.tc-spin {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  margin-top: 2px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: var(--radius-pill);
+  animation: tc-spin 0.9s linear infinite;
 }
 
-.annotation .author {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--ink);
+.queued .tc-spin {
+  border-style: dotted;
+  border-right-color: currentColor;
+  animation: none;
 }
 
-.annotation .author.agent {
-  color: var(--blue-ink);
+@keyframes tc-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-.annotation time {
-  font-family: var(--mono);
-  font-size: var(--text-2xs);
+/* Footer: Reply… reads as the field it opens; Resolve beside it. */
+.thread-card .thread-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.thread-card .reply-thread {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--field);
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
   color: var(--ink-3);
-}
-
-.annotation p {
-  margin: 7px 0 0;
-  color: var(--ink);
-  line-height: 1.5;
-}
-
-.annotation .msg.agent p {
-  color: var(--ink);
-}
-
-.md {
-  color: var(--ink);
-  line-height: 1.55;
   font-size: var(--text-sm);
-  margin-top: 6px;
-  overflow-wrap: break-word;
+  text-align: left;
+  cursor: text;
 }
 
-.annotation .msg.agent .md {
-  color: var(--ink);
+.thread-card .reply-thread:hover {
+  box-shadow: inset 0 0 0 0.5px var(--ink-3);
+  color: var(--ink-2);
 }
 
-/* The message body reads as prose at the reading scale. Scoped to the thread — the base
-   .md (rendered markdown files) keeps its own smaller size. Both flow through the type
-   tokens, so the Settings font/size knobs still apply. */
-.annotation .md {
-  font-size: var(--text-md);
-  line-height: 1.6;
-}
-
-.annotation .md code {
-  font-size: var(--text-sm);
+.thread-card .reply-thread:active {
   background: var(--fill-2);
-  border-radius: var(--radius-xs);
-  padding: 0.5px 4px;
 }
 
-/* Inline composer (new comment / reply): the same card family as a message, so replying
-   feels like adding the next message rather than summoning a dialog. */
-.annotation .composer-card {
-  max-width: 76ch;
-  margin: 0 0 10px;
-  padding: 10px 14px 11px;
+.thread-card .resolve-thread,
+.thread-card .reopen-inline {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  margin-left: auto;
+  padding: 0 10px;
   border: 0;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--raised);
-  box-shadow: 0 0 0 0.5px var(--sep-strong);
-  transition: box-shadow 0.15s;
+  box-shadow: var(--shadow-control);
+  color: var(--green-ink);
+  font-size: var(--text-sm);
+  font-weight: 500;
 }
 
-.annotation .composer-card:focus-within {
-  box-shadow:
-    0 0 0 0.5px var(--blue),
-    0 0 0 3.5px var(--blue-wash);
+.thread-card .resolve-thread:hover,
+.thread-card .reopen-inline:hover {
+  background-image: linear-gradient(var(--fill), var(--fill));
 }
 
-.annotation .composer-input {
-  width: 100%;
-  min-height: 54px;
-  border: 0;
+.thread-card .resolve-thread:active,
+.thread-card .reopen-inline:active {
+  background-image: linear-gradient(var(--fill-3), var(--fill-3));
+}
+
+/* A resolved thread rests as one muted line: what it was about, its line, and Reopen. */
+.thread-card.resolved {
+  padding: 4px 6px 4px 10px;
   background: transparent;
-  box-shadow: none;
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+}
+
+.thread-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.thread-summary > .ic {
+  width: 12px;
+  height: 12px;
+  color: var(--green-ink);
+}
+
+.thread-summary b {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.thread-summary .tc-first {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+}
+
+.thread-summary .tc-loc {
+  margin-left: 0;
+}
+
+.thread-card .thread-summary .reopen-inline {
+  height: 22px;
+  margin-left: 4px;
+  padding: 0 8px;
+  color: var(--orange-ink);
+  font-size: var(--text-xs);
+}
+
+/* The composer (a new comment, a reply, the UI lane's floating one): a field and the two
+   intents under it, Ask in blue (question), Request change in orange. */
+.thread-card .meta + .composer-card,
+.thread-card .tc-band + .composer-card,
+.thread-card .msg + .composer-card {
+  margin-top: 10px;
+}
+
+.thread-card.k-new .meta {
+  margin-top: 7px;
+}
+
+.composer-input {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--field);
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
   color: var(--ink);
   font-family: var(--sans);
   font-size: var(--text-md);
-  line-height: 1.6;
-  padding: 0;
+  line-height: 1.5;
   resize: vertical;
+  transition: box-shadow 0.15s;
 }
 
-.annotation .composer-input:focus,
-.annotation .composer-input:focus-visible {
+.composer-input:focus,
+.composer-input:focus-visible {
   outline: none;
-  box-shadow: none;
+  box-shadow:
+    inset 0 0 0 1px var(--blue),
+    0 0 0 3px var(--blue-wash);
 }
 
-.annotation .composer-input::placeholder {
+.composer-input::placeholder {
   color: var(--ink-3);
 }
 
@@ -338,16 +491,12 @@
   gap: 6px;
   align-items: center;
   margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--sep);
 }
 
 .annotation .crow .spacer {
   flex: 1;
 }
 
-/* Composer buttons: small; the two intents are tinted by the badge mapping — Ask blue
-   (question), Request change orange. */
 .annotation .cbtn {
   display: inline-flex;
   align-items: center;
@@ -365,6 +514,10 @@
 
 .annotation .cbtn:hover {
   background-image: linear-gradient(var(--fill), var(--fill));
+}
+
+.annotation .cbtn:active {
+  background-image: linear-gradient(var(--fill-3), var(--fill-3));
 }
 
 .annotation .cbtn.cancel {
@@ -391,41 +544,82 @@
   background: color-mix(in srgb, var(--orange) 22%, transparent);
 }
 
-/* Inline edit: the message body swaps for a textarea inside the same card (orange ring). */
-.annotation .msg.editing {
-  box-shadow:
-    0 0 0 0.5px var(--orange),
-    0 0 0 3.5px var(--orange-wash);
+.annotation .cbtn.ask:active {
+  background: color-mix(in srgb, var(--blue) 30%, transparent);
 }
 
-.annotation .msg.editing .msg-actions {
+.annotation .cbtn.req:active {
+  background: color-mix(in srgb, var(--orange) 30%, transparent);
+}
+
+/* Edit mode: the message body swaps for a field in place (orange: it changes what was sent),
+   with Cancel / Save under it. */
+.thread-card .msg.editing .msg-actions {
   display: none;
 }
 
-.annotation .composer-edit {
+.composer-edit {
+  display: block;
   width: 100%;
   min-height: 44px;
-  margin-top: 2px;
+  margin-top: 4px;
+  padding: 7px 10px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   background: var(--field);
-  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+  box-shadow:
+    inset 0 0 0 1px var(--orange),
+    0 0 0 3px var(--orange-wash);
   color: var(--ink);
   font-family: var(--sans);
   font-size: var(--text-md);
-  line-height: 1.6;
-  padding: 7px 9px;
+  line-height: 1.5;
   resize: vertical;
 }
 
-.annotation .composer-edit:focus {
+.composer-edit:focus,
+.composer-edit:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+  box-shadow:
+    inset 0 0 0 1px var(--orange),
+    0 0 0 3px var(--orange-wash);
 }
 
-.annotation .editrow {
-  border-top: 0;
-  padding-top: 6px;
+/* Open threads that lost their line: a block at the top of the diff, on a faint orange ground,
+   their cards in the same language, the old line numbers struck through. */
+.unanchored-strip {
+  margin: 4px 0;
+  padding: 8px 0 2px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--orange) 6%, transparent);
+  font-family: var(--sans);
+}
+
+.unanchored-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding: 0 12px 2px;
+  color: var(--orange-ink);
+  font-size: var(--text-xs);
+}
+
+.unanchored-head .ic {
+  width: 13px;
+  height: 13px;
+}
+
+.unanchored-head b {
+  font-weight: 600;
+}
+
+.unanchored-head span {
+  color: var(--ink-3);
+}
+
+.unanchored-strip .annotation {
+  padding: 6px 12px;
 }
 
 .md > :first-child {
