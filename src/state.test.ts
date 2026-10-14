@@ -913,6 +913,45 @@ test("carryParts: identical blocks keep their own parts, paired in document orde
   });
 });
 
+test("a split file that becomes a git rename on a reload keeps its parts at its new path", async () => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-rename-parts-")));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "app.ts"), committedLines.join("\n") + "\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    // A staged desk, so the rename below is one git detects (index vs HEAD).
+    const stage = async (file: string, lines: string[]) => {
+      await fs.writeFile(path.join(dir, file), lines.join("\n") + "\n");
+      gitq("add", "-A");
+      return (await buildReviewState(dir, { session: "s", staged: true }))!;
+    };
+    const before = stampParts(await stage("app.ts", edited({ 3: "A", 5: "B", 10: "C" })), {
+      3: 0,
+      5: 0,
+      10: 1,
+    });
+    gitq("mv", "app.ts", "moved.ts");
+    // The first block is rewritten too: it joins its part by that part's former lines.
+    const after = await stage("moved.ts", edited({ 3: "A2", 5: "B", 10: "C" }));
+    assert.equal(after.files[0]?.oldPath, "app.ts", "git sees a rename");
+    const merged = await mergeReviewState(after, before);
+    assert.deepEqual(
+      merged.changes.map((c) => [c.path, c.lineNumber, c.part]),
+      [
+        ["moved.ts", 3, 0],
+        ["moved.ts", 5, 0],
+        ["moved.ts", 10, 1],
+      ],
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 // ── resolveMovedFrom (issue 03) ──────────────────────────────────────────────
 // A guide-declared move: a.ts (a full working-tree deletion) + b.ts (an untracked addition,
 // edited so content differs) → one rename-changed entry at b.ts.

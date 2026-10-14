@@ -1407,25 +1407,27 @@ function signOffCoveredFiles(
 
 type Lines = { lo: number; hi: number };
 
-// Each change block's new-side lines by `path:stableKey`, off the hunks a review's files carry.
-function blockLinesByKey(files: DiffFile[]) {
+// Each change block's new-side lines by `path:stableKey`, off the hunks a review's files carry, with
+// a renamed path keyed at its new path.
+function blockLinesByKey(files: DiffFile[], renames = new Map<string, string>()) {
   const lines = new Map<string, Lines>();
   for (const [filePath, ranges] of blockRangesByPath(files))
-    for (const r of ranges) lines.set(`${filePath}:${r.stableKey}`, r);
+    for (const r of ranges) lines.set(`${renames.get(filePath) ?? filePath}:${r.stableKey}`, r);
   return lines;
 }
 
 // A guide carried across a reload or restart keeps each block's part (ChangeState.part) by content,
 // not by its spans: a block's lines move with every edit above it, so re-running the spans would
 // hand it to whichever part now claims those lines. A rebuilt block holding the content of a block
-// of the previous diff (`before`) on the same path is carried over with that block's part, or with
-// none (Rest), paired as decisions are (movedBlockKeys). Every other block, rewritten or new, joins
-// the part its nearest carried-over blocks above and below in the file both belong to. Failing
-// that, it joins the part of one of those two neighbours whose former extent it overlaps, when
-// exactly one does: the new-side lines from that part's first block to its last in `before`, moved
-// as far as the neighbour moved. That keeps an in-place fix to a part's first or last block in its
-// part even where another part borders it, while a block landing clear of both parts around it goes
-// to Rest. A part left with no block has no step.
+// of the previous diff (`before`) on the same path, or the path the file was renamed from, is
+// carried over with that block's part, or with none (Rest), paired as decisions are
+// (movedBlockKeys). Every other block, rewritten or new, joins the part its nearest carried-over
+// blocks above and below in the file both belong to. Failing that, it joins the part of one of
+// those two neighbours whose former extent it overlaps, when exactly one does: the new-side lines
+// from that part's first block to its last in `before`, moved as far as the neighbour moved. That
+// keeps an in-place fix to a part's first or last block in its part even where another part borders
+// it, while a block landing clear of both parts around it goes to Rest. A part left with no block
+// has no step.
 export function carryParts(
   rebuilt: Pick<ReviewState, "files" | "changes">,
   before: Pick<ReviewState, "files" | "changes">,
@@ -1433,17 +1435,20 @@ export function carryParts(
   for (const c of rebuilt.changes) delete c.part;
   if (!before.changes.some((c) => c.part !== undefined)) return;
   const keyOf = (c: ChangeState) => `${c.path}:${c.stableKey}`;
-  const priorAt = new Map(before.changes.map((c) => [keyOf(c), c]));
-  const prior = before.changes.map((c) => ({ key: keyOf(c), hash: c.contentHash }));
+  // A previous block's key, at its file's new path when this rebuild shows the file renamed.
+  const renames = renamesIn(rebuilt.files);
+  const priorKey = (c: ChangeState) => `${renames.get(c.path) ?? c.path}:${c.stableKey}`;
+  const priorAt = new Map(before.changes.map((c) => [priorKey(c), c]));
+  const prior = before.changes.map((c) => ({ key: priorKey(c), hash: c.contentHash }));
   // New key → the old key of the block that moved there.
   const movedFrom = new Map(
     [...movedBlockKeys(rebuilt.changes, prior, prior)].map(([from, to]) => [to, from]),
   );
   const nowLines = blockLinesByKey(rebuilt.files);
-  const priorLines = blockLinesByKey(before.files);
+  const priorLines = blockLinesByKey(before.files, renames);
   const extent = new Map<number, Lines>();
   for (const c of before.changes) {
-    const at = priorLines.get(keyOf(c));
+    const at = priorLines.get(priorKey(c));
     if (c.part === undefined || !at) continue;
     const e = extent.get(c.part) ?? at;
     extent.set(c.part, { lo: Math.min(e.lo, at.lo), hi: Math.max(e.hi, at.hi) });
@@ -1466,7 +1471,7 @@ export function carryParts(
     const part = n?.from?.part;
     if (!lines || !n?.from || part === undefined) return [];
     const e = extent.get(part);
-    const was = priorLines.get(keyOf(n.from));
+    const was = priorLines.get(priorKey(n.from));
     const now = nowLines.get(keyOf(n.change));
     if (!e || !was || !now) return [];
     const shift = now.lo - was.lo;
