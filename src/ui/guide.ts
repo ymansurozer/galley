@@ -178,31 +178,46 @@ export function walkthroughRows(): WalkRow[] {
 // than file count: "done" sums the LOC of files the reviewer finished (approved OR
 // changes-requested), "approved" the clean-signoff LOC.
 export function guideProgress(): { done: number; approved: number; total: number; pct: number } {
+  return progressDetail().progress;
+}
+
+// guideProgress with what it was built from, for the progress edge: the flow index (a file's
+// state, whether it left the flow), a file's weight, and the in-flow file counts. One pass each,
+// so the edge reads the open file and the hover numbers without rebuilding them.
+export function progressDetail() {
   const byLines = S.settings.progressBy !== "files";
   const loc = byLines ? locByPath() : null;
+  const weight = (path: string) => (byLines ? (loc!.get(path) ?? 1) : 1);
   // One flow-index pass for the whole loop (see flow-index.ts).
   const ix = flowIndex();
   let total = 0,
     done = 0,
-    approved = 0;
+    approved = 0,
+    files = 0,
+    filesDone = 0;
   for (const f of S.state?.files ?? []) {
     // Fully-skimmed files carry no progress weight — they left the flow (issue 07).
     if (ix.outOfFlow.has(f.path)) continue;
-    const w = byLines ? (loc!.get(f.path) ?? 1) : 1;
+    const w = weight(f.path);
     total += w;
+    files++;
     const st = ix.reviewState(f.path);
-    if (st !== "pending") done += w;
+    if (st !== "pending") {
+      done += w;
+      filesDone++;
+    }
     if (st === "approved") approved += w;
   }
   // total === 0 means every changed file is fully skimmed (a desk always has ≥1 file, and the
   // strip is hidden when there are none): nothing needs review, so the bar reads complete rather
   // than a misleading 0%.
-  return { done, approved, total, pct: total ? Math.round((done / total) * 100) : 100 };
-}
-
-// One file's weight in guideProgress: its changed lines, or 1 when progress counts files.
-export function progressWeight(path: string): number {
-  return S.settings.progressBy !== "files" ? (locByPath().get(path) ?? 1) : 1;
+  return {
+    progress: { done, approved, total, pct: total ? Math.round((done / total) * 100) : 100 },
+    files: { done: filesDone, total: files },
+    byLines,
+    ix,
+    weight,
+  };
 }
 
 // The guide entry for the file currently shown (or null) — drives the top guide bar.

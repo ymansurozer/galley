@@ -1,7 +1,6 @@
 import { S, $ } from "./store";
-import { guideProgress, progressWeight } from "./guide";
-import { fileReviewState, flowIndex } from "./changes";
-import { fileOutOfFlow } from "./skim";
+import { progressDetail } from "./guide";
+import { flowIndex } from "./changes";
 import { approvePreview, approveTag, progressSummary } from "./progress-derive";
 
 // Review progress lives on the top bar's bottom edge, with or without a guide: a quiet gauge with
@@ -31,7 +30,6 @@ let shown: { pct: number; byLines: boolean } | null = null;
 let riseUntil = 0;
 let riseTimer = 0;
 let swellTimer = 0;
-let hovering = false;
 const RISE_MS = 2000;
 const SWELL_MS = 300;
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -49,7 +47,7 @@ function showTag(figure: string, rest: string, rise: boolean) {
 
 function hideTag() {
   const tag = $("progressTag");
-  if (!tag.classList.contains("show")) return;
+  if (!tag.classList.contains("show") || tag.classList.contains("out")) return;
   tag.classList.add("out");
   tag.addEventListener(
     "animationend",
@@ -61,19 +59,16 @@ function hideTag() {
   );
 }
 
-// The hover tag: where progress stands, with the files (and lines) behind it. Its counts are
-// guideProgress's, and the files the same in-flow scope it weighs.
-function showSummary() {
-  if (!S.state?.files?.length || S.view === "ui") return;
-  const p = guideProgress();
-  const ix = flowIndex();
-  const scope = S.state.files.filter((f) => !ix.outOfFlow.has(f.path));
-  const files = {
-    done: scope.filter((f) => ix.reviewState(f.path) !== "pending").length,
-    total: scope.length,
-  };
-  const byLines = S.settings.progressBy !== "files";
-  const s = progressSummary(p.pct, files, byLines ? { done: p.done, total: p.total } : null);
+// Whether the pointer rests on the bar or the title, read live: a hidden bar (the App view) never
+// gets the pointerleave a kept flag would wait for.
+const hovered = () =>
+  $("progressStrip").matches(":hover") || !!document.querySelector(".top-name:hover");
+
+// The hover tag: where progress stands, with the files (and lines) behind it, all guideProgress's.
+function showSummary(d = progressDetail()) {
+  if (!S.state?.files?.length || S.view === "ui") return hideTag();
+  const p = d.progress;
+  const s = progressSummary(p.pct, d.files, d.byLines ? { done: p.done, total: p.total } : null);
   showTag(s.pct, ` · ${s.detail}`, false);
 }
 
@@ -84,7 +79,7 @@ function showRise(gain: number, to: number) {
   clearTimeout(riseTimer);
   riseTimer = window.setTimeout(() => {
     riseUntil = 0;
-    if (hovering) showSummary();
+    if (hovered()) showSummary();
     else hideTag();
   }, RISE_MS);
 }
@@ -99,12 +94,10 @@ function swell(strip: HTMLElement) {
 export function installProgress() {
   for (const el of [$("progressStrip"), document.querySelector(".top-name")]) {
     el?.addEventListener("pointerenter", () => {
-      hovering = true;
       if (performance.now() >= riseUntil) showSummary();
     });
     el?.addEventListener("pointerleave", () => {
-      hovering = false;
-      if (performance.now() >= riseUntil) hideTag();
+      if (performance.now() >= riseUntil && !hovered()) hideTag();
     });
   }
 }
@@ -120,19 +113,19 @@ export function updateProgress() {
     document.title = baseTitle;
     return;
   }
-  const p = guideProgress();
-  const pct = p.pct;
+  const d = progressDetail();
+  const { pct } = d.progress;
   document.title = pct >= 100 ? `✓ ${baseTitle}` : pct > 0 ? `(${pct}%) ${baseTitle}` : baseTitle;
   // The ⇧A tail: what approving the file open in the diff would add (not a preview, which isn't
   // in the review). CSS transitions glide the fill and the tail from where they stood.
   const file = S.view === "code" && !S.overviewOpen && !S.preview && S.state.files[S.fileIndex];
   const ahead = approvePreview(
-    p,
+    d.progress,
     file
       ? {
-          weight: progressWeight(file.path),
-          outOfFlow: fileOutOfFlow(file.path),
-          state: fileReviewState(file.path),
+          weight: d.weight(file.path),
+          outOfFlow: d.ix.outOfFlow.has(file.path),
+          state: d.ix.reviewState(file.path),
         }
       : null,
   );
@@ -142,13 +135,16 @@ export function updateProgress() {
   // A rise is a sign-off's moment: the bar swells while the fill glides, and the tag says what it
   // gained. The first paint and a switch of what progress counts by aren't moments, and a drop
   // just glides back (its toast says why).
-  const byLines = S.settings.progressBy !== "files";
-  const rise = shown?.byLines === byLines ? approveTag(shown.pct, pct) : null;
-  shown = { pct, byLines };
+  const rise = shown?.byLines === d.byLines ? approveTag(shown.pct, pct) : null;
+  shown = { pct, byLines: d.byLines };
   if (rise) {
     if (!reducedMotion.matches) swell(strip);
     showRise(rise.gain, rise.to);
-  } else if (hovering && performance.now() >= riseUntil) showSummary();
+  } else if (performance.now() >= riseUntil) {
+    // Past a rise's moment the tag follows the pointer, whatever happened while the bar was away.
+    if (hovered()) showSummary(d);
+    else hideTag();
+  }
 }
 
 // Whole-review numbers for the completion prompt — a small receipt of the work done.
