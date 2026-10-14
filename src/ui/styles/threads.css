@@ -197,7 +197,7 @@
 .tc-held {
   padding: 0 6px;
   border-radius: var(--radius-sm);
-  background: var(--orange-wash);
+  background: var(--orange-band);
   color: var(--orange-ink);
   font-size: var(--text-2xs);
   line-height: 16px;
@@ -398,18 +398,24 @@
 }
 
 /* A question's status, under it until the agent answers: working in blue, amber when no agent
-   will pick the question up. Plain ink on the card, so it reads in either code scheme. */
+   will pick the question up. On its hue's -band, so it stands off the card in either scheme. */
 .msg-status {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  margin-top: 5px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--blue-band);
   color: var(--blue-ink);
   font-size: var(--text-xs);
   line-height: 1.4;
 }
 
 .msg-status.queued {
+  background: var(--orange-band);
   color: var(--orange-ink);
 }
 
