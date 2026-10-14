@@ -207,8 +207,11 @@ async function renderCenter() {
     D.instance = null;
   };
   // Every file view opens under the file's bar; a view that wrote #diff wholesale gets it back on
-  // top. (The Overview and the empty centre aren't a file, so they have none.)
-  const withBar = () => host.prepend(renderFileBar());
+  // top. (The Overview and the empty centre aren't a file, so they have none.) The oversized card
+  // and the contents error have no rows a blocker could jump to — reaching one would mean silently
+  // loading the diff the card holds back, or the contents that just failed — so their bars carry
+  // no blockers chip.
+  const withBar = (jumpable = true) => host.prepend(renderFileBar(undefined, jumpable));
   // Guided review: the Overview page takes over the center until a file is selected.
   if (S.overviewOpen && hasGuide()) {
     cursorReset();
@@ -238,7 +241,7 @@ async function renderCenter() {
     D.lineMap = null;
     applyLayoutClasses();
     renderOversizedCard();
-    withBar();
+    withBar(false);
     return;
   }
   // Pull this file's contents from the per-file endpoint before rendering anything that reads
@@ -254,7 +257,7 @@ async function renderCenter() {
     D.lineMap = null;
     applyLayoutClasses();
     renderContentsError(f.path);
-    withBar();
+    withBar(false);
     return;
   }
   // Markdown file in rendered mode: formatted preview with block-anchored comments,

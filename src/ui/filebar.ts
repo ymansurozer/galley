@@ -10,7 +10,6 @@ import { currentGuideEntry, nextFileIndex } from "./guide";
 import { isFileSkim, isFileSkimCollapsed, movedFrom, toggleFileSkim } from "./skim";
 import { keycapsHtml, keycapsNode } from "./keycaps";
 import { fileBarActions, splitPath } from "./filebar-derive";
-import { isOversizedPlaceholder } from "./oversized";
 
 // ── The open file's bar ──────────────────────────────────────────────────────
 // One Galley-DOM header serves every file view (diff, skim strip, pure rename, oversized card,
@@ -118,15 +117,13 @@ function signedOffState(objections: boolean): HTMLElement {
 
 // The open file's actions, in fileBarActions' order. Every handler is the one the header has
 // always had: the per-file reset (its toast offers Undo), the blockers jump list, the skim
-// re-collapse, and the ⇧A sign-off.
-function fileActions(path: string): HTMLElement {
+// re-collapse, and the ⇧A sign-off. `jumpable` is false over a view with no rows to jump to.
+function fileActions(path: string, jumpable: boolean): HTMLElement {
   const wrap = document.createElement("span");
   wrap.className = "fb-actions";
   const finished = fileFinished(path);
   const objections = fileObjections(path);
-  // The oversized card has no rows to jump to, and reaching one would mean silently loading the
-  // diff the card exists to hold back, so it shows no blockers chip.
-  const chip = isOversizedPlaceholder() ? null : blockersChip();
+  const chip = jumpable ? blockersChip() : null;
   const actions = fileBarActions({
     finished,
     objections,
@@ -159,7 +156,9 @@ function fileActions(path: string): HTMLElement {
 // rendered (decision-replayed) diff when the view is @pierre's, so +/− track what's still on
 // screen; the other views count from the file's own stats. A preview bar is the path and an
 // "Unchanged" tag: an unchanged file isn't in the review, so it has no counts and no actions.
-export function renderFileBar(fd?: FileDiffMetadata): HTMLElement {
+// `jumpable` is false over a view whose blockers can't be reached (see render.ts): it hides the
+// blockers chip, whose rows would otherwise do nothing.
+export function renderFileBar(fd?: FileDiffMetadata, jumpable = true): HTMLElement {
   const el = barElement();
   const f = currentFile();
   const lead: Node[] = [pathLabel(f.path)];
@@ -223,7 +222,7 @@ export function renderFileBar(fd?: FileDiffMetadata): HTMLElement {
   counts.innerHTML = `<span class="a">+${add}</span><span class="d">−${del}</span>`;
   const sep = document.createElement("span");
   sep.className = "fb-sep";
-  el.replaceChildren(...lead, openEditorButton(), grow, counts, sep, fileActions(f.path));
+  el.replaceChildren(...lead, openEditorButton(), grow, counts, sep, fileActions(f.path, jumpable));
   return el;
 }
 
