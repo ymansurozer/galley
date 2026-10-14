@@ -77,6 +77,9 @@ export const AGENT_HEADER = "x-galley-agent";
 
 export type ServerOptions = {
   state: ReviewState;
+  // The diff of the review this desk resumed, which a tab left open across the restart is still on
+  // (mergeReviewerSave). Absent for a fresh review.
+  priorDiff?: Pick<ReviewState, "baseDiffHash" | "changes">;
   port?: number;
   // Bind address. Defaults to 127.0.0.1 (loopback-only) — the desk stays local unless explicitly
   // opted into a broader bind (--host / GALLEY_HOST). See resolveBinding for how this shapes the
@@ -444,6 +447,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       },
     ));
   let reloadGeneration = 0;
+  // The diff before the latest reload or restart that moved it, for saves from a tab still on it.
+  // Held in memory only; one diff back is as far as a tab's saves are carried (mergeReviewerSave).
+  let priorDiff = options.priorDiff;
 
   const deskStatus = (): DeskStatus => ({
     agentActivity: liveActivity(),
@@ -722,7 +728,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return await serialize(async () => {
           const body: unknown = JSON.parse(await readBody(req));
           const asked = askedQuestions();
-          mergeReviewerSave(state, body, saveStamp());
+          mergeReviewerSave(state, body, saveStamp(), priorDiff);
           withdrawQuestions(asked);
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
@@ -738,7 +744,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
           // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
           // full ReviewState keeps working because everything else in the body is ignored.
-          mergeReviewerSave(state, body, saveStamp());
+          mergeReviewerSave(state, body, saveStamp(), priorDiff);
           await syncGitState(state);
           const file = await persistReview(state);
           const sessionDir = path.dirname(file);
@@ -984,6 +990,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           } else if (merged.guide) {
             resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: false }, parsed);
           }
+          if (merged.baseDiffHash !== state.baseDiffHash)
+            priorDiff = { baseDiffHash: state.baseDiffHash, changes: state.changes };
           Object.assign(state, merged);
           await syncGitState(state);
           await persistReview(state);
