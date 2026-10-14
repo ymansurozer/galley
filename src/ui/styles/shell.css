@@ -7,12 +7,11 @@
 }
 
 /* ── Top bar: what is under review and the hand-back ──
-   [title] · [the agent's presence, centred in what's left] · [lane and file toggles] · [actions].
-   The controls never wrap or shrink; the title gives way first (it truncates), then the pill down
-   to its floor. Each part names its column and spaces itself with a margin rather than the grid's
-   gap, so a hidden pill leaves an empty column and no gap. The bar compacts by its own width (the
-   @container rules below), not the window's: beside a full-height sidebar it covers only the
-   canvas, which a wide sidebar narrows. */
+   [title] · [Code | App, centred on the bar] · [the agent's presence and the actions]. The side
+   columns share what's left equally, so the switch sits on the bar's centre; when the actions need
+   more than half, their column grows to them and the title gives way (it truncates). The controls
+   never wrap. The bar compacts by its own width (the @container rules below), not the window's:
+   beside a full-height sidebar it covers only the canvas, which a wide sidebar narrows. */
 .top {
   position: relative;
   /* Over .main, which a narrow bar's floating progress tag overlaps; under the dialogs (20), the
@@ -20,7 +19,8 @@
   z-index: 10;
   container: topbar / inline-size;
   display: grid;
-  grid-template-columns: minmax(0, max-content) minmax(auto, 1fr) max-content max-content;
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
+  column-gap: 12px;
   align-items: center;
   padding: 0 12px 0 14px;
   background: var(--canvas);
@@ -200,15 +200,12 @@ body.file-mode .top-logo,
 /* The agent's presence, like a Mac activity view: its working line under a running spinner, or
    amber when nothing is attached to pick the review or question up. */
 .agent-pill {
-  grid-column: 2;
-  justify-self: center;
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  /* The column's width less the pill's own margin. */
-  width: min(440px, 100% - 12px);
-  min-width: clamp(120px, 16cqi, 180px);
+  /* Sized by the bar, so the actions it joins rarely need more than their half of it. */
+  width: clamp(120px, 16cqi, 240px);
   height: 28px;
   padding: 0 12px 0 10px;
   overflow: hidden;
@@ -329,23 +326,18 @@ body.file-mode .top-logo,
 }
 
 .toggles {
-  grid-column: 3;
+  grid-column: 2;
   display: flex;
   gap: 8px;
   align-items: center;
 }
 
 .actions {
-  grid-column: 4;
+  grid-column: 3;
+  justify-self: end;
   display: flex;
   gap: 6px;
   align-items: center;
-}
-
-.agent-pill,
-.toggles,
-.actions {
-  margin-left: 12px;
 }
 
 .lane-switch > button .ic {
@@ -353,7 +345,7 @@ body.file-mode .top-logo,
   height: 13px;
 }
 
-/* Reset review's glyph stands in for its label on a phone. */
+/* Reset Review's glyph stands in for its label on a phone. */
 .reset-review > .ic {
   display: none;
 }
@@ -404,22 +396,16 @@ body.file-mode .top-logo,
 
 /* A narrow bar (a phone, or the canvas beside a wide sidebar) keeps every control but compacts
    them: the subtitle, the logo and the green 100% give way (the progress edge still shows it), the
-   pill keeps its glyph at the controls' side (its tooltip carries the line), the lane switch keeps
-   its icons, Reset review its glyph, and the buttons drop their keycaps (their tooltips still
-   carry them). The progress tag floats just under the bar, where it has the bar's width. */
+   pill keeps its glyph (its tooltip carries the line), the lane switch keeps its icons, Reset
+   Review its glyph, and the buttons drop their keycaps (their tooltips still carry them). The progress tag floats just under the bar, where it has the bar's width. */
 @media (max-width: 760px) {
   .top {
+    column-gap: 8px;
     padding: 0 8px;
   }
 }
 
 @container topbar (max-width: 760px) {
-  .agent-pill,
-  .toggles,
-  .actions {
-    margin-left: 8px;
-  }
-
   .top-logo,
   .top-name > span,
   .top-done {
@@ -437,10 +423,8 @@ body.file-mode .top-logo,
   }
 
   .agent-pill {
-    justify-self: end;
     justify-content: center;
     width: 28px;
-    min-width: 0;
     padding: 0;
   }
 

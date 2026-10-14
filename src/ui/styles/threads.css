@@ -17,14 +17,23 @@
 
 /* Room around the rests and cards in the code column. A group stacks its threads: rests, and
    the one open card in its place. */
+/* Their left edge is the code text's, as the Undo | Keep control's is (decisions.css): @pierre
+   insets each line by its gap, or by 2ch of the code font where it draws classic +/− signs. The
+   row is set in the code's face so `ch` measures the same; the rests and cards set their own. */
 .annotation:is(.thread-group, .composer-annotation) {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 4px 16px 6px 4px;
+  padding: 4px 16px 6px var(--diffs-gap-inline, 8px);
+  font-family: var(--mono);
+  font-size: var(--code-size, 12.5px);
   /* Sized by the code column, never the other way: a card's or a rest's own width (up to
      680px) would otherwise widen the column past a narrow window. */
   contain: inline-size;
+}
+
+.annotation:is(.thread-group, .composer-annotation).signs {
+  padding-left: 2ch;
 }
 
 .thread-group:has(.thread-card) {
@@ -163,9 +172,8 @@
 }
 
 /* The marks tying a group's rows to their lines (rests.ts placeThreadMarks): each row's line
-   number repeated in the number column, a gutter line from the first anchor to the last row,
-   and a dot on each anchor, in the code theme's number colour. Over the code, under the sticky
-   bar; the pointer passes through. */
+   number repeated in the number column, in the code theme's number colour. Over the code, under
+   the sticky bar; the pointer passes through. */
 .thread-marks {
   position: absolute;
   top: 0;
@@ -183,25 +191,6 @@
   opacity: 0.8;
 }
 
-.tm-dot,
-.tm-line {
-  position: absolute;
-  background: currentColor;
-  opacity: 0.6;
-}
-
-.tm-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-pill);
-  transform: translate(-50%, -50%);
-}
-
-.tm-line {
-  width: 1px;
-  transform: translateX(-50%);
-}
-
 .thread-card {
   --tc: var(--blue);
   --tc-ink: var(--blue-ink);
@@ -213,6 +202,7 @@
   box-shadow:
     0 0 0 0.5px var(--sep-strong),
     0 2px 8px rgb(0 0 0 / 0.12);
+  font-family: var(--sans);
   font-size: var(--text-sm);
   line-height: 1.45;
 }

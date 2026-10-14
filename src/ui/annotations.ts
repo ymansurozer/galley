@@ -469,7 +469,8 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   // thread instead — see buildCommentThread).
   if (c.type === "composer") {
     const el = document.createElement("div");
-    el.className = "annotation composer-annotation";
+    el.className =
+      "annotation composer-annotation" + (S.settings.diffIndicators === "classic" ? " signs" : "");
     el.appendChild(composerCard());
     return el;
   }
