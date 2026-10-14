@@ -27,7 +27,7 @@ export type RequestPlace = Omit<CodeRequest, "text"> | { kind: "app"; number: nu
 // rule fileObjections, the blockers chip and the Send's codeChangeRequests count by. So an ask the
 // reviewer followed with Request change counts; a resolved thread, an ask, the agent's note and a
 // stale thread (its file left the diff) don't.
-const asksChange = (c: ReviewComment) =>
+export const asksChange = (c: ReviewComment) =>
   c.status === "open" && c.role !== "agent" && c.intent !== "question";
 
 const threadKey = (c: ReviewComment) => `${c.path}\n${c.side}:${c.lineNumber}`;

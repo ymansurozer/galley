@@ -2,8 +2,8 @@ import { S, $ } from "./store";
 import { cur } from "./contents";
 import { currentFile, currentComments } from "./changes";
 import { renderMarkdown } from "./markdown";
-import { buildCommentThread, lineThread } from "./annotations";
-import { buildComposer, composerInUi, openComposer } from "./composer";
+import { composerCard, threadCard } from "./annotations";
+import { composerInUi, openComposer } from "./composer";
 import type { ReviewComment, ThreadMeta } from "./types";
 
 export function isMarkdownPath(path: string): boolean {
@@ -84,7 +84,7 @@ export function renderMarkdownFile() {
       status: comments.some((c) => c.status === "open") ? "open" : "resolved",
       comments,
     };
-    thread.appendChild(buildCommentThread(meta, lineThread(meta)));
+    thread.appendChild(threadCard(meta));
     const el = anchorForLine(anchors, line);
     if (!el) container.appendChild(thread);
     else if (el.tagName === "LI") el.appendChild(thread);
@@ -92,7 +92,7 @@ export function renderMarkdownFile() {
   }
 
   // A new line comment (no existing thread on that line) opens an inline composer under
-  // its block; a reply/edit renders inside the thread above via buildCommentThread.
+  // its block; a reply/edit renders inside the thread above via threadCard.
   if (
     S.composerOpen &&
     !S.editingCommentId &&
@@ -101,7 +101,7 @@ export function renderMarkdownFile() {
   ) {
     const card = document.createElement("div");
     card.className = "annotation md-thread composer-annotation";
-    card.appendChild(buildComposer());
+    card.appendChild(composerCard());
     const el = anchorForLine(anchors, S.selected.lineNumber);
     if (!el) container.appendChild(card);
     else if (el.tagName === "LI") el.appendChild(card);
