@@ -9,6 +9,16 @@ export interface DiffColumn {
   content: HTMLElement | null;
 }
 
+// The rendered columns under @pierre's shadow root. Empty while the root exists but @pierre hasn't
+// committed the diff into it yet — a cold mount where render() resolved first — so callers read
+// "no columns" as not-ready, never as a block they failed to find.
+export function diffColumns(root: ParentNode): DiffColumn[] {
+  return Array.from(root.querySelectorAll("pre[data-diff] code[data-code]")).map((code) => ({
+    gutter: code.querySelector<HTMLElement>("[data-gutter]"),
+    content: code.querySelector<HTMLElement>("[data-content]"),
+  }));
+}
+
 // Marks a row hidden by a collapse, so the next collapse can clear it (a cached @pierre instance
 // reuses its row elements across renders).
 export const SKIM_HIDDEN = "data-skim-hidden";

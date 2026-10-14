@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { hideBetween, misalignedColumns, type DiffColumn } from "./skim-dom";
+import { diffColumns, hideBetween, misalignedColumns, type DiffColumn } from "./skim-dom";
 
 // @pierre's split-view shape for a file whose changes are pure additions: the deletions column
 // pads each block with filler rows, and each column's annotation (the skim strip) is two rows —
@@ -89,6 +89,29 @@ test("after collapsing two blocks in one file every column's gutter and content 
     ]);
   }
   assert.deepEqual(misalignedColumns(columns), []);
+});
+
+// On a cold mount render() can resolve while @pierre's shadow root exists but is still empty;
+// the collapse reads "no columns" as not-ready rather than as a block it failed to find.
+test("diffColumns finds no columns in a shadow root @pierre hasn't filled yet", () => {
+  const doc = new Window().document as unknown as Document;
+  const shadow = doc.createElement("div").attachShadow({ mode: "open" });
+  assert.deepEqual(diffColumns(shadow), []);
+});
+
+test("diffColumns returns each rendered column's gutter and content tracks", () => {
+  const doc = new Window().document as unknown as Document;
+  const shadow = doc.createElement("div").attachShadow({ mode: "open" });
+  const column = (side: string) =>
+    `<code data-code data-${side}><div data-gutter data-t="${side}-g"></div><div data-content data-t="${side}-c"></div></code>`;
+  shadow.innerHTML = `<pre data-diff>${column("deletions")}${column("additions")}</pre>`;
+  assert.deepEqual(
+    diffColumns(shadow).map((c) => [c.gutter?.dataset.t, c.content?.dataset.t]),
+    [
+      ["deletions-g", "deletions-c"],
+      ["additions-g", "additions-c"],
+    ],
+  );
 });
 
 test("misalignedColumns names a column whose gutter lost a row", () => {
