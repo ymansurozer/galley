@@ -138,6 +138,7 @@ export async function openEditorAt(path: string, lineNumber: number) {
 export const saveStamp = (): SaveStamp => ({
   token: S.uiProxy?.token ?? null,
   reloadGeneration: S.reloadGeneration,
+  baseDiffHash: S.state.baseDiffHash,
 });
 // Post only the reviewer-owned slice (see reviewerSlice in save.ts) — never the whole
 // (multi-MB) ReviewState. Saves coalesce so rapid approvals don't saturate connections.

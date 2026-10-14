@@ -883,6 +883,16 @@ export function mergeReviewerSave(state: ReviewState, body: unknown, desk?: Save
   const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
   const beforeReload =
     !!desk && (seen?.token !== desk.token || seen?.reloadGeneration !== desk.reloadGeneration);
+  // The tab adopts a reloaded diff only once no save is draining and no composer is open (poll.ts),
+  // so a save can carry decisions keyed to the blocks of the diff before the latest reload or
+  // restart. Carry them onto the live diff as that reload carried the desk's own. Its reload count
+  // can't tell: the tab takes that from every poll, the diff only when it adopts it.
+  if (
+    Array.isArray(incoming.decisions) &&
+    typeof seen?.baseDiffHash === "string" &&
+    seen.baseDiffHash !== state.baseDiffHash
+  )
+    state.decisions = carryDecisions(state, incoming.decisions);
   // Annotations carry data the app page supplied, so they're validated and capped on the way in
   // (uiannotations.ts) rather than taken as sent.
   const annotations = readUiAnnotations(incoming.annotations, state.ui?.target);
@@ -1100,6 +1110,96 @@ export function reanchorComments(
 export const unvisitedAnnotations = (list: UiAnnotationRecord[] | undefined) =>
   list?.map((a) => ({ ...a, placement: "unvisited" as const }));
 
+// Old path → new path for each file the diff shows as a git-native rename.
+function renamesIn(files: ReviewFile[]) {
+  const renames = new Map<string, string>();
+  for (const f of files)
+    if (f.oldPath && f.newPath && f.oldPath !== f.newPath) renames.set(f.oldPath, f.newPath);
+  return renames;
+}
+
+// A block key, `path:side:line:deletes:adds` (git.ts changeStableKeyFromBlock), read from the end so
+// the path may hold colons: its path and the first line of the block.
+const BLOCK_KEY = /^(.*):(?:additions|deletions):(\d+):\d+:\d+$/;
+
+// A block's key embeds its first line, so an edit above an unchanged block re-keys it, and what the
+// reviewer recorded on it (a decision) loses its block. Returns old key → new key for each record
+// that moved: one no block kept under its own key (same key, same hash), adopted by a block on the
+// same path that kept none and holds the content the record was made on. That includes a record
+// whose key the shift handed to a different block. A block that kept its record is never adopted
+// onto, so an identical block can't take it. Identical blocks pair first-to-first: rebuilt blocks
+// in diff order against records by the first line their old key names.
+function movedBlockKeys(changes: ChangeState[], records: Array<{ key: string; hash?: string }>) {
+  const hashAt = new Map(changes.map((c) => [`${c.path}:${c.stableKey}`, c.contentHash]));
+  const kept = new Set(
+    records.filter((r) => r.hash && hashAt.get(r.key) === r.hash).map((r) => r.key),
+  );
+  const loose = records.flatMap((r) => {
+    const at = r.hash && !kept.has(r.key) ? BLOCK_KEY.exec(r.key) : null;
+    return at ? [{ key: r.key, slot: `${at[1]}\0${r.hash}`, line: Number(at[2]) }] : [];
+  });
+  loose.sort((a, b) => a.line - b.line);
+  const waiting = new Map<string, string[]>();
+  for (const r of loose) {
+    const queue = waiting.get(r.slot);
+    if (queue) queue.push(r.key);
+    else waiting.set(r.slot, [r.key]);
+  }
+  const moved = new Map<string, string>();
+  for (const c of changes) {
+    const key = `${c.path}:${c.stableKey}`;
+    if (kept.has(key) || !c.contentHash) continue;
+    const from = waiting.get(`${c.path}\0${c.contentHash}`)?.shift();
+    if (from) moved.set(from, key);
+  }
+  return moved;
+}
+
+// Decisions are explicit and durable: carry them onto a rebuilt diff as the source of truth, and
+// stamp every block's status from them. Decisions keyed to a path the diff now shows renamed move
+// to the new path first; a decision whose block only moved (lines shifted above it) follows it to
+// its new key. A decision whose block is gone from the diff (e.g. accepting it staged the hunk out
+// of the working tree) is *kept* — that's the whole point. A decision whose block is still
+// visible but whose content changed is dropped as stale.
+function carryDecisions(rebuilt: Pick<ReviewState, "files" | "changes">, saved: Decision[]) {
+  const renames = renamesIn(rebuilt.files);
+  const migrated = saved.map((d) => {
+    const newPath = renames.get(d.path);
+    // key is `${path}:${stableKey}` — swap the path prefix, keep the stableKey intact.
+    if (!newPath) return d;
+    return { ...d, path: newPath, key: `${newPath}:${d.key.slice(d.path.length + 1)}` };
+  });
+  const moved = movedBlockKeys(
+    rebuilt.changes,
+    migrated.map((d) => ({ key: d.key, hash: d.reviewedHash })),
+  );
+  const changeAt = new Map(rebuilt.changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
+  for (const c of rebuilt.changes) {
+    c.status = "pending";
+    delete c.reviewedHash;
+  }
+  const carried: Decision[] = [];
+  for (const d of migrated) {
+    const key = moved.get(d.key) ?? d.key;
+    const change = changeAt.get(key);
+    if (!change) {
+      // An accepted decision whose change vanished is kept (accepting may have staged the
+      // hunk out of the diff). A REJECTED decision whose change vanished means the agent
+      // reworked the block away — the rejection was honored, and keeping it would leave an
+      // invisible objection that blocks approval forever. Drop it; whatever replaced the
+      // block shows up as a fresh pending change anyway.
+      if (d.status === "accepted") carried.push(d);
+      continue;
+    }
+    // The agent rewrote this block since it was reviewed → re-review.
+    if (!d.reviewedHash || d.reviewedHash !== change.contentHash) continue;
+    change.status = d.status;
+    change.reviewedHash = d.reviewedHash;
+    carried.push(key === d.key ? d : { ...d, key, lineNumber: change.lineNumber });
+  }
+  return carried;
+}
+
 export async function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   if (!saved) return base;
   const currentFiles = new Set(base.files.map((file) => file.path));
@@ -1110,9 +1210,7 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
   // miss) the moment the rename appears. Remap old→new up front; the stableKey/contentHash/anchor
   // checks below then judge staleness on the real content as usual. (Reused by issues 02/03 for
   // working-mode move pairing and guide-declared merges.)
-  const renameMap = new Map<string, string>();
-  for (const f of base.files)
-    if (f.oldPath && f.newPath && f.oldPath !== f.newPath) renameMap.set(f.oldPath, f.newPath);
+  const renameMap = renamesIn(base.files);
   const migratePath = (p: string) => renameMap.get(p) ?? p;
   // A `path:stableKey` key whose path prefix was renamed — swap the prefix, keep the stableKey.
   const migrateKey = (key: string) => {
@@ -1120,38 +1218,7 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
       if (key.startsWith(`${oldP}:`)) return `${newP}:${key.slice(oldP.length + 1)}`;
     return key;
   };
-  // Decisions are explicit and durable: carry them forward as the source of truth.
-  // A decision whose change is gone from the rebuilt diff (e.g. accepting it staged
-  // the hunk out of the working tree) is *kept* — that's the whole point. A decision
-  // whose change is still visible but whose content changed is dropped as stale.
-  let decisions = effectiveDecisions(saved).map((d) => {
-    const newPath = renameMap.get(d.path);
-    // key is `${path}:${stableKey}` — swap the path prefix, keep the stableKey intact.
-    if (!newPath) return d;
-    return { ...d, path: newPath, key: `${newPath}:${d.key.slice(d.path.length + 1)}` };
-  });
-  const decisionByKey = new Map(decisions.map((d) => [d.key, d]));
-  const stale = new Set<string>();
-  for (const change of base.changes) {
-    const key = `${change.path}:${change.stableKey}`;
-    const d = decisionByKey.get(key);
-    if (!d) continue;
-    if (d.reviewedHash && change.contentHash && d.reviewedHash === change.contentHash) {
-      change.status = d.status;
-      change.reviewedHash = d.reviewedHash;
-    } else {
-      stale.add(key); // agent rewrote this block since it was reviewed → re-review
-    }
-  }
-  // An accepted decision whose change vanished is kept (accepting may have staged the
-  // hunk out of the diff). A REJECTED decision whose change vanished means the agent
-  // reworked the block away — the rejection was honored, and keeping it would leave an
-  // invisible objection that blocks approval forever. Drop it; whatever replaced the
-  // block shows up as a fresh pending change anyway.
-  const presentKeys = new Set(base.changes.map((c) => `${c.path}:${c.stableKey}`));
-  decisions = decisions.filter(
-    (d) => !stale.has(d.key) && (d.status !== "rejected" || presentKeys.has(d.key)),
-  );
+  const decisions = carryDecisions(base, effectiveDecisions(saved));
   // A file's approval/sign-off survives reload only if the file is still present AND its
   // content hash is unchanged. A file whose content the agent rewrote (or that has no
   // recorded hash — e.g. an old "viewed" session) drops back to pending for re-review.

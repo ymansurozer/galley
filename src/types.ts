@@ -283,7 +283,10 @@ export type IndexEntry = { mode: string; oid: string } | null;
 // token (null while no proxy runs), and that process's `galley reload` count. Rides every save and
 // Send beside the slice. A save stamped with anything else was made before the latest reload or
 // restart, which reset every annotation's placement, so the desk keeps its own placements.
-export type SaveStamp = { token: string | null; reloadGeneration: number };
+// `baseDiffHash` is the diff the tab's state was built on, which its decisions are keyed to; the
+// desk carries a save made on an older diff onto its own (mergeReviewerSave). The desk's own stamp
+// leaves it out, as does a tab from before it existed.
+export type SaveStamp = { token: string | null; reloadGeneration: number; baseDiffHash?: string };
 
 // Transient desk-liveness fields injected into the /api/state response alongside
 // ReviewState. Deliberately NOT on ReviewState: anything on state is persisted by

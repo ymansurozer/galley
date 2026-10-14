@@ -396,6 +396,165 @@ test("mergeReviewState migrates a decision + open comment + sign-off across a re
   assert.equal(merged.reviewedFileHashes!["new.ts"], "H");
 });
 
+// ── Decisions across line shifts ─────────────────────────────────────────────
+// A block's key embeds its first line, so an edit above it re-keys it. These run the reload path
+// over a real repo: app.ts holds l1..l14 committed, and each test writes the working tree.
+const committedLines = Array.from({ length: 14 }, (_, i) => `l${i + 1}`);
+async function withShiftRepo(
+  run: (edit: (lines: string[]) => Promise<ReviewState>) => Promise<void>,
+) {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-shift-")));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "app.ts"), committedLines.join("\n") + "\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    // Write the working tree and build the desk on it, as `galley reload` rebuilds.
+    await run(async (lines) => {
+      await fs.writeFile(path.join(dir, "app.ts"), lines.join("\n") + "\n");
+      return (await buildReviewState(dir, { session: "s" }))!;
+    });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+// The committed lines with `edits` (1-based line → new text) applied.
+const edited = (edits: Record<number, string>) =>
+  committedLines.map((line, i) => edits[i + 1] ?? line);
+// Two lines inserted after l1: everything below moves down by two.
+const insertAbove = (lines: string[]) => [lines[0]!, "n1", "n2", ...lines.slice(1)];
+// The decision the tab records on a block (decisions-derive.ts recordDecision).
+const decide = (st: ReviewState, key: string, status: Decision["status"]): Decision => {
+  const c = st.changes.find((ch) => `${ch.path}:${ch.stableKey}` === key);
+  assert.ok(c, `block ${key} is in the diff`);
+  return decision({
+    key,
+    path: c.path,
+    status,
+    reviewedHash: c.contentHash,
+    lineNumber: c.lineNumber,
+  });
+};
+const statusOf = (st: ReviewState, key: string) =>
+  st.changes.find((c) => `${c.path}:${c.stableKey}` === key)?.status;
+const decided = (st: ReviewState) =>
+  (st.decisions ?? []).map((d) => [d.key, d.status, d.lineNumber]).sort();
+
+test("an accepted block keeps its decision, under its new key, when lines are inserted above it", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 8: "L8" }));
+    const saved = { ...before, decisions: [decide(before, "app.ts:additions:8:1:1", "accepted")] };
+    const merged = await mergeReviewState(await edit(insertAbove(edited({ 8: "L8" }))), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:10:1:1"), "accepted");
+    assert.deepEqual(decided(merged), [["app.ts:additions:10:1:1", "accepted", 10]]);
+    assert.equal(merged.decisions![0]!.reviewedHash, saved.decisions[0]!.reviewedHash);
+  });
+});
+
+test("a rejected block keeps its decision, under its new key, when lines are inserted above it", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 8: "L8" }));
+    const saved = { ...before, decisions: [decide(before, "app.ts:additions:8:1:1", "rejected")] };
+    const merged = await mergeReviewState(await edit(insertAbove(edited({ 8: "L8" }))), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:10:1:1"), "rejected");
+    assert.deepEqual(decided(merged), [["app.ts:additions:10:1:1", "rejected", 10]]);
+  });
+});
+
+test("identical blocks shifted together keep their own decisions, paired in document order", async () => {
+  await withShiftRepo(async (edit) => {
+    // The same line added after l3 and after l8: two blocks with identical content.
+    const twins = [...committedLines.slice(0, 3), "x", ...committedLines.slice(3, 8), "x"];
+    twins.push(...committedLines.slice(8));
+    const before = await edit(twins);
+    const first = before.changes.find((c) => c.stableKey === "additions:4:0:1")!;
+    const second = before.changes.find((c) => c.stableKey === "additions:10:0:1")!;
+    assert.equal(first.contentHash, second.contentHash, "the two blocks are identical");
+    const saved = {
+      ...before,
+      // Saved second-first, so the pairing can't lean on the array's order.
+      decisions: [
+        decide(before, "app.ts:additions:10:0:1", "rejected"),
+        decide(before, "app.ts:additions:4:0:1", "accepted"),
+      ],
+    };
+    const merged = await mergeReviewState(await edit(insertAbove(twins)), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:6:0:1"), "accepted");
+    assert.equal(statusOf(merged, "app.ts:additions:12:0:1"), "rejected");
+    assert.deepEqual(decided(merged), [
+      ["app.ts:additions:12:0:1", "rejected", 12],
+      ["app.ts:additions:6:0:1", "accepted", 6],
+    ]);
+  });
+});
+
+test("a block shifted onto another decided block's old key keeps its own decision, and so does the other", async () => {
+  await withShiftRepo(async (edit) => {
+    // l5 and l7 change; two lines above move the l5 block to line 7, the old key of the l7 block.
+    const pair = edited({ 5: "A", 7: "B" });
+    const before = await edit(pair);
+    const saved = {
+      ...before,
+      decisions: [
+        decide(before, "app.ts:additions:5:1:1", "accepted"),
+        decide(before, "app.ts:additions:7:1:1", "rejected"),
+      ],
+    };
+    const merged = await mergeReviewState(await edit(insertAbove(pair)), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:7:1:1"), "accepted");
+    assert.equal(statusOf(merged, "app.ts:additions:9:1:1"), "rejected");
+    assert.deepEqual(decided(merged), [
+      ["app.ts:additions:7:1:1", "accepted", 7],
+      ["app.ts:additions:9:1:1", "rejected", 9],
+    ]);
+  });
+});
+
+test("a decided block that was shifted and rewritten comes back pending", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 8: "L8" }));
+    const saved = { ...before, decisions: [decide(before, "app.ts:additions:8:1:1", "rejected")] };
+    const merged = await mergeReviewState(
+      await edit(insertAbove(edited({ 8: "L8 again" }))),
+      saved,
+    );
+    assert.equal(statusOf(merged, "app.ts:additions:10:1:1"), "pending");
+    assert.deepEqual(decided(merged), []);
+  });
+});
+
+test("a save from a tab still on the pre-reload diff lands on the reloaded blocks", async () => {
+  await withShiftRepo(async (edit) => {
+    // The tab accepts the l8 block and saves; then the agent edits above it and reloads.
+    const live = await edit(edited({ 8: "L8", 11: "L11" }));
+    const oldDiff = live.baseDiffHash;
+    const accepted = decide(live, "app.ts:additions:8:1:1", "accepted");
+    const rejected = decide(live, "app.ts:additions:11:1:1", "rejected");
+    const seen = (baseDiffHash: string) => ({ token: null, reloadGeneration: 0, baseDiffHash });
+    mergeReviewerSave(live, { decisions: [accepted], seen: seen(oldDiff) });
+    Object.assign(
+      live,
+      await mergeReviewState(await edit(insertAbove(edited({ 8: "L8", 11: "L11" }))), live),
+    );
+    assert.deepEqual(decided(live), [["app.ts:additions:10:1:1", "accepted", 10]]);
+    // Before the tab adopts the reloaded diff, the reviewer rejects the l11 block on the old one.
+    mergeReviewerSave(live, { decisions: [accepted, rejected], seen: seen(oldDiff) });
+    assert.deepEqual(decided(live), [
+      ["app.ts:additions:10:1:1", "accepted", 10],
+      ["app.ts:additions:13:1:1", "rejected", 13],
+    ]);
+    assert.equal(statusOf(live, "app.ts:additions:10:1:1"), "accepted");
+    assert.equal(statusOf(live, "app.ts:additions:13:1:1"), "rejected");
+    // Once the tab has adopted the reloaded diff, its save is taken as sent.
+    const current = live.decisions!.filter((d) => d.status === "accepted");
+    mergeReviewerSave(live, { decisions: current, seen: seen(live.baseDiffHash) });
+    assert.deepEqual(decided(live), [["app.ts:additions:10:1:1", "accepted", 10]]);
+  });
+});
+
 // ── resolveMovedFrom (issue 03) ──────────────────────────────────────────────
 // A guide-declared move: a.ts (a full working-tree deletion) + b.ts (an untracked addition,
 // edited so content differs) → one rename-changed entry at b.ts.
