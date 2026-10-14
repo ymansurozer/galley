@@ -15,7 +15,7 @@ import type { ThreadMessage } from "./types";
 // The curated Shiki theme + language set is shared with the diff view (@pierre/diffs, via
 // shiki-shim.ts) so one language set styles both surfaces — see shiki-curated.ts. The JS regex
 // engine (below) avoids an oniguruma wasm, and the theme names match the settings picker.
-import { CURATED_LANGS as LANGS, CURATED_THEMES as THEMES } from "./shiki-curated";
+import { CURATED_LANGS as LANGS, CURATED_THEMES as THEMES, codeScheme } from "./shiki-curated";
 
 // One markdown renderer for both comment bodies (#17) and markdown files (#21).
 // markdown-it gives exact per-block source lines (token.map) — see sourceLine below —
@@ -58,10 +58,10 @@ function buildMd(theme: string, breaks = false): MarkdownIt {
 }
 
 // Diff-only themes (e.g. pierre-dark) aren't Shiki bundles → render comment code in the
-// GitHub theme matching the chrome appearance (applyAppearance sets <html data-theme>).
+// GitHub theme of the same scheme, so a fence in a thread reads like the code around it.
 function resolveTheme(want: string): string {
   if (THEMES[want]) return want;
-  return document.documentElement.dataset.theme === "light" ? "github-light" : "github-dark";
+  return codeScheme(want) === "light" ? "github-light" : "github-dark";
 }
 
 // All curated themes preload into one highlighter, so switching is instant.

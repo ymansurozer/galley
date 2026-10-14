@@ -7,10 +7,62 @@
      orange — change request, flag, rename
      red    — deleted, destructive
    Each hue has a solid (fills, rails, icons), an -ink (text on the page) and a -wash (a tinted
-   ground). Dark is the default (:root); Settings → Appearance sets data-theme="light" on <html>
-   (applyAppearance in settings.ts), which swaps the colour tokens below and nothing else. The code
-   theme is a separate setting and does not follow the appearance. */
+   ground).
+
+   Two colour schemes, dark and light, each declared for a scope:
+   - The chrome follows Settings → Appearance: dark is the default (:root), and data-theme="light"
+     on <html> (applyAppearance in settings.ts) swaps in the light colours.
+   - The code canvas follows the code theme instead, which is picked apart from the appearance:
+     render.ts sets data-scheme="dark" | "light" on it from the theme's own type (codeScheme), so
+     everything drawn among the code (threads, controls, strips, the rail) reads as one sheet
+     with it.
+   - A piece of chrome inside the canvas (the file bar, the guide card) opts back into the
+     appearance with data-scheme="chrome".
+   Only colours change between schemes; sizes, radii, motion and type live on :root alone. */
 :root {
+  /* ── Radii ── */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius: 7px;
+  --radius-lg: 9px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+
+  /* ── Motion ── */
+  /* Settling: things that arrive and stop. */
+  --ease: cubic-bezier(0.22, 0.8, 0.26, 1);
+  /* A slight overshoot, for things that move into place (a segment thumb, a sheet). */
+  --spring: cubic-bezier(0.32, 1.36, 0.56, 1);
+
+  /* Height of the secondary bar directly under the top header — shared by the file bar, the app
+     view's browser chrome and the annotation sidebar's head, so their bottom borders form one
+     line. */
+  --subbar-h: 40px;
+
+  /* Gap between the +added / −removed (and state badge) churn indicators, kept in sync
+     across every surface that renders them: sidebar walkthrough, Overview group headers
+     + file rows, and the diff header. */
+  --churn-gap: 5px;
+
+  /* ── Type scale ── */
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 14px;
+  --text-xl: 17px;
+
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  /* UI / non-code text. Code (the diff, inline code, file paths) stays --mono. Both are
+     overridable in Settings → Appearance (Code font / UI font) via applyAppearance. */
+  --sans: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--sans);
+}
+
+/* ── Dark ── */
+:root,
+[data-scheme="dark"],
+:root:not([data-theme="light"]) [data-scheme="chrome"] {
   color-scheme: dark;
 
   /* ── Surfaces ── */
@@ -92,48 +144,13 @@
   --shadow-cap: inset 0 0.5px 0 rgb(255 255 255 / 0.1), 0 1px 0 rgb(0 0 0 / 0.45);
   /* Behind a dialog or a drawer. */
   --scrim: rgb(0 0 0 / 0.45);
-
-  /* ── Radii ── */
-  --radius-xs: 3px;
-  --radius-sm: 5px;
-  --radius: 7px;
-  --radius-lg: 9px;
-  --radius-xl: 12px;
-  --radius-pill: 999px;
-
-  /* ── Motion ── */
-  /* Settling: things that arrive and stop. */
-  --ease: cubic-bezier(0.22, 0.8, 0.26, 1);
-  /* A slight overshoot, for things that move into place (a segment thumb, a sheet). */
-  --spring: cubic-bezier(0.32, 1.36, 0.56, 1);
-
-  /* Height of the secondary bar directly under the top header — shared by the file bar, the app
-     view's browser chrome and the annotation sidebar's head, so their bottom borders form one
-     line. */
-  --subbar-h: 40px;
-
-  /* Gap between the +added / −removed (and state badge) churn indicators, kept in sync
-     across every surface that renders them: sidebar walkthrough, Overview group headers
-     + file rows, and the diff header. */
-  --churn-gap: 5px;
-
-  /* ── Type scale ── */
-  --text-2xs: 10px;
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-md: 13px;
-  --text-lg: 14px;
-  --text-xl: 17px;
-
-  --mono: "JetBrains Mono", ui-monospace, monospace;
-  /* UI / non-code text. Code (the diff, inline code, file paths) stays --mono. Both are
-     overridable in Settings → Appearance (Code font / UI font) via applyAppearance. */
-  --sans: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-family: var(--sans);
 }
 
-/* ── Light ── the same character, in daylight. The attribute selector outranks :root. */
-:root[data-theme="light"] {
+/* ── Light ── the same character, in daylight. :root[data-theme] outranks the dark :root; the other
+   selectors only ever match below the root. */
+:root[data-theme="light"],
+[data-scheme="light"],
+:root[data-theme="light"] [data-scheme="chrome"] {
   color-scheme: light;
 
   --canvas: #fff;

@@ -279,7 +279,6 @@ S.runToastAction = runToastAction;
 S.applySettings = () => {
   persistPrefs();
   applyAppearance(S.settings);
-  // applyAppearance first: setMarkdownTheme's diff-only fallback reads <html data-theme>.
   setMarkdownTheme(S.settings.theme);
   render();
 };

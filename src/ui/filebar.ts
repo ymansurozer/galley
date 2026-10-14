@@ -27,6 +27,8 @@ function barElement(): HTMLElement {
   if (bar) return bar;
   const el = document.createElement("div");
   el.className = "file-bar";
+  // Chrome over the code canvas, so the appearance's scheme, not the code's (tokens.css).
+  el.dataset.scheme = "chrome";
   const ro = new ResizeObserver(() => {
     syncFileBarHeight();
     retrackGuideCard();

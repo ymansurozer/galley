@@ -78,6 +78,8 @@ export function guideCard(): HTMLElement | null {
   const entry = S.preview ? null : currentGuideEntry();
   if (!entry) return null;
   const card = el("section", "guide-card");
+  // Chrome with the file bar it pins under, so the appearance's (tokens.css), not the code's.
+  card.dataset.scheme = "chrome";
   card.append(bookIcon(), fullBody(entry));
   return card;
 }

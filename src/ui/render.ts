@@ -34,6 +34,7 @@ import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
 import { diffShadowRoot } from "./diff-dom";
 import { fileEnd, fileLead, renderFileBar } from "./filebar";
 import { guideCard, trackGuideCard } from "./guidecard";
+import { codeScheme } from "./shiki-curated";
 
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
 // side (the new side reuses the server's contentHash). Same content → same key → cache hit.
@@ -103,8 +104,6 @@ export function diffKey(previewing: boolean): string {
     S.settings.hunkSeparators,
     S.settings.lineDiffType,
     S.settings.theme,
-    // appearance flips @pierre's themeType, so a cached diff must invalidate on it
-    S.settings.appearance,
   ]);
 }
 export function clearOverviewRuler() {
@@ -201,6 +200,13 @@ export async function render() {
 async function renderCenter() {
   clearOverviewRuler();
   const host = $("diff");
+  // The diff area (#diff, the ruler and the Rendering cover) is the code canvas: it takes the code
+  // theme's scheme, not the appearance (tokens.css). The Overview and rendered markdown are pages
+  // with no code theme, so they leave it to the appearance.
+  // #diff's parent is always .diff-area (index.html).
+  const area = host.parentElement!;
+  area.dataset.scheme = codeScheme(S.settings.theme);
+  const page = () => delete area.dataset.scheme;
   // Leaving the diff view (overview / markdown): just detach the active instance — its cached
   // wrapper survives in D.diffCache (renderOverview/renderMarkdownFile overwrite #diff's
   // content, detaching the wrapper, which we re-mount on return). No cleanUp → cache preserved.
@@ -222,6 +228,7 @@ async function renderCenter() {
     cursorReset();
     dropInstance();
     D.lineMap = null;
+    page();
     renderOverview();
     trackGuideCard(null);
     return;
@@ -279,6 +286,7 @@ async function renderCenter() {
     dropInstance();
     D.lineMap = null; // markdown anchors are block lines, not diff gutter numbers
     applyLayoutClasses();
+    page();
     renderMarkdownFile();
     withBar();
     host.append(fileEnd());
@@ -355,9 +363,10 @@ async function renderCenter() {
   const opts = {
     // The code theme is the user's pick regardless of appearance (the settings dropdown groups
     // dark and light themes; mixing is allowed). Both slots get it — themeType only decides
-    // which slot @pierre reads plus its own chrome colors, which should follow the appearance.
+    // which slot @pierre reads plus its own chrome colours, which follow the theme's own scheme
+    // like everything else drawn in the code canvas.
     theme: { dark: S.settings.theme, light: S.settings.theme },
-    themeType: (S.settings.appearance === "light" ? "light" : "dark") as "light" | "dark",
+    themeType: codeScheme(S.settings.theme),
     diffStyle,
     diffIndicators,
     expandUnchanged,

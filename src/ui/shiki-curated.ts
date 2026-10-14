@@ -69,6 +69,16 @@ export const CURATED_THEMES: Record<string, unknown> = {
   "light-plus": lightPlus,
 };
 
+// Whether a code theme draws dark or light. A curated theme says so itself (its `type`); of the
+// diff-only themes @pierre registers, only pierre-light is light. What's drawn inside the code
+// canvas takes this scheme rather than the appearance (render.ts), so it reads as one sheet with
+// the code.
+export function codeScheme(theme: string): "dark" | "light" {
+  const t = CURATED_THEMES[theme];
+  if (t && typeof t === "object" && "type" in t) return t.type === "light" ? "light" : "dark";
+  return theme === "pierre-light" ? "light" : "dark";
+}
+
 export const CURATED_LANGS = [
   javascript,
   typescript,
