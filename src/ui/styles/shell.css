@@ -453,13 +453,44 @@ body.file-mode .nav-toggle {
   position: relative;
 }
 
+/* Wide code view: the sidebar runs the window's full height with its brand row on top, and the
+   top bar covers the canvas only. .main spans both of the app's rows, so it stays the containing
+   block of the dialogs, toasts and the warming app, and the top bar sits over its first row, past
+   the sidebar. The drawer (≤1100px), tree-less desks and the App view keep the full-width bar. */
+@media (min-width: 1101px) {
+  body:not(.single, .file-mode) .app:not(.view-ui) > .top {
+    grid-area: 1 / 1;
+    margin-left: calc(var(--left-width, 280px) + 1px);
+    /* Over .main, which overlaps it; under the dialogs (20) and the toasts (25). */
+    z-index: 10;
+  }
+
+  body:not(.single, .file-mode) .app:not(.view-ui) > .main {
+    grid-area: 1 / 1 / -1;
+    grid-template-rows: 48px minmax(0, 1fr);
+  }
+
+  body:not(.single, .file-mode) .app:not(.view-ui) :is(.tree, .resizer) {
+    grid-row: 1 / -1;
+  }
+
+  body:not(.single, .file-mode) .app:not(.view-ui) .center {
+    grid-row: 2;
+  }
+
+  /* The warming app keeps the UI view's box, which starts under the top bar. */
+  body:not(.single, .file-mode) .app:not(.view-ui) .uiview {
+    top: 48px;
+  }
+}
+
 /* ── Sidebar: navigation, on the window's material ── */
 .tree {
   min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 10px;
+  padding: 0 10px;
   background: var(--sidebar-material);
 }
 
@@ -468,28 +499,40 @@ body.file-mode .nav-toggle {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  padding-bottom: 10px;
 }
 
 /* Settings lives docked at the sidebar's far bottom; the topbar twin (.top-settings)
    shows only when the tree is hidden (single-column / file mode) so it stays reachable. */
-.tree-settings {
+.side-foot {
   flex: 0 0 auto;
+  margin: auto -10px 0;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--sep);
+}
+
+.tree-settings {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: auto -10px -10px;
-  padding: 10px 14px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
   border: 0;
-  border-top: 1px solid var(--sep);
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--ink-2);
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   text-align: left;
 }
 
 .tree-settings:hover {
   color: var(--ink);
-  background: var(--fill);
+  background: var(--fill-2);
+}
+
+.tree-settings:active {
+  background: var(--fill-3);
 }
 
 .tree-settings .keycaps {

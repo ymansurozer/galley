@@ -227,7 +227,7 @@ S.toggleTestDir = (key) => {
   else S.expandedDirs.add(key);
 };
 S.toggleSkimGroup = toggleSkimGroup;
-// Tree / Walkthrough tab (the tab buttons and `w`): the list it shows may not have been visible
+// Review / Files tab (the tab buttons and `w`): the list it shows may not have been visible
 // when the active file last changed, so scroll it to the active row. A frame late: x-show reveals
 // on a timer queued in Alpine's flush, which the next frame can beat — the list must be laid out
 // before showActiveRow measures it.

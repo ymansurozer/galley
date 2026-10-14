@@ -53,14 +53,16 @@
     </header>
     <main class="main">
       <aside class="tree" :class="{'drawer-open': $store.g.treeDrawerOpen}">
-        <div class="tree-tabs seg" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak>
+        <div class="side-brand"><svg class="side-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#side_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#side_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#side_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="side_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="side_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="side_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span></div>
+        <div class="side-switch seg xs" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak>
           <!-- The w hint sits on the INACTIVE tab — the one pressing w switches to. -->
-          <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.setSidebarTab('tree')">Tree <kbd x-keys x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
-          <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.setSidebarTab('walkthrough')">Walkthrough <kbd x-keys x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
+          <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.setSidebarTab('walkthrough')">Review <kbd x-keys x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
+          <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.setSidebarTab('tree')">Files <kbd x-keys x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
         </div>
-        <div class="label tree-title" x-show="!($store.g.hasGuide && $store.g.hasGuide()) || $store.g.sidebarTab==='tree'"><span>Files</span>
+        <div class="tree-title" x-show="!($store.g.hasGuide && $store.g.hasGuide()) || $store.g.sidebarTab==='tree'"><span>Files</span>
           <button class="tree-toggle" @click="$store.g.toggleAllDirs()"
-            :title="$store.g.treeAnyOpen && $store.g.treeAnyOpen() ? 'Collapse all' : 'Expand all'">
+            :aria-label="$store.g.treeAnyOpen && $store.g.treeAnyOpen() ? 'Collapse all' : 'Expand all'"
+            :data-tip="$store.g.treeAnyOpen && $store.g.treeAnyOpen() ? 'Collapse all' : 'Expand all'">
             <svg class="ic" x-show="$store.g.treeAnyOpen && $store.g.treeAnyOpen()"><use href="#gly-collapse-all"></use></svg>
             <svg class="ic" x-show="!($store.g.treeAnyOpen && $store.g.treeAnyOpen())"><use href="#gly-expand-all"></use></svg>
           </button>
@@ -90,20 +92,15 @@
             </div>
           </template></div>
         <div id="walk" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'" x-cloak>
+          <!-- "active" while the Overview shows, patched like the file rows' (applyActiveRow). -->
+          <div class="node overview-row" data-key="overview" @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg><span
+              class="nm">Overview</span><kbd x-keys>o</kbd></div>
           <template x-for="r in $store.g.walkthroughRows()" :key="r.key">
-            <div class="node" :data-key="r.key" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '']" :style="r.kind==='cat' ? '' : r.style"
+            <div class="node" :data-key="r.key" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '', r.kind==='file' && r.flag ? 'flagged' : '']"
               @click="r.kind!=='cat' ? $store.g.selectFile(r.fileIndex) : (r.skimmed ? $store.g.toggleSkimGroup() : $store.g.selectFile(r.jumpIndex))">
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='cat' && r.skimmed"><use href="#gly-chevron"></use></svg>
               <span class="nm walk-cat-name" x-show="r.kind==='cat'" x-text="r.category" :title="r.category"></span>
               <span class="walk-skim-count" x-show="r.kind==='cat' && r.skimmed" x-text="r.total + (r.total===1 ? ' file' : ' files')"></span>
-              <!-- File status leads the row (empty circle = to do); ± stay flush right below. A click
-                   signs the file off or resets it, as in the Files tab. -->
-              <button type="button" class="st-btn" x-show="r.kind==='file' && r.state" @click.stop="$store.g.statusClick(r.path, $event)" @mousedown.prevent
-                @mouseenter="$store.g.statusHint($el, r.path)" @focus="$store.g.statusHint($el, r.path)">
-                <svg class="ic st pending" x-show="r.state==='pending'"><use href="#gly-circle"></use></svg>
-                <svg class="ic st approved" x-show="r.state==='approved'"><use href="#gly-check"></use></svg>
-                <svg class="ic st changes" x-show="r.state==='changes-requested'"><use href="#gly-circle-alert"></use></svg>
-              </button>
               <span class="nm" x-show="r.kind==='file'" x-text="r.name" :title="r.path"></span>
               <span class="moved-from" x-show="r.kind==='file' && r.movedFrom" x-text="'← '+r.movedFrom" :title="'moved from '+r.movedFrom"></span>
               <svg class="ic crit" x-show="r.kind==='file' && r.flag" :title="r.flag"><use href="#gly-flag"></use></svg>
@@ -113,11 +110,19 @@
               <span class="status-pack" x-show="r.kind==='file'">
                 <i class="add" x-show="r.kind==='file' && r.added" x-text="'+'+r.added"></i>
                 <i class="del" x-show="r.kind==='file' && r.removed" x-text="'−'+r.removed"></i>
+                <!-- The file's status closes the row (empty circle = to do). A click signs the file off
+                     or resets it, as in the Files tab. -->
+                <button type="button" class="st-btn" x-show="r.kind==='file' && r.state" @click.stop="$store.g.statusClick(r.path, $event)" @mousedown.prevent
+                  @mouseenter="$store.g.statusHint($el, r.path)" @focus="$store.g.statusHint($el, r.path)">
+                  <svg class="ic st pending" x-show="r.state==='pending'"><use href="#gly-circle"></use></svg>
+                  <svg class="ic st approved" x-show="r.state==='approved'"><use href="#gly-check"></use></svg>
+                  <svg class="ic st changes" x-show="r.state==='changes-requested'"><use href="#gly-circle-alert"></use></svg>
+                </button>
               </span>
             </div>
           </template>
         </div>
-        <button class="tree-settings" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg><span>Settings</span><kbd x-keys>⇧,</kbd></button>
+        <div class="side-foot"><button class="tree-settings" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg><span>Settings</span><kbd x-keys>⇧,</kbd></button></div>
       </aside>
       <!-- Narrow-width only (CSS-gated): dims the diff behind the open file drawer; tap to close. -->
       <div class="tree-backdrop" :class="{open: $store.g.treeDrawerOpen}" @click="$store.g.treeDrawerOpen=false"></div>
@@ -316,8 +321,8 @@
                 <option value="hide" :selected="!$store.g.settings.showUnchanged">Hide</option>
               </select></label><label>Guided sidebar opens<select x-model="$store.g.settings.sidebarDefault"
                 @change="$store.g.applySettings()">
-                <option value="tree">Tree</option>
-                <option value="walkthrough">Walkthrough</option>
+                <option value="walkthrough">Review</option>
+                <option value="tree">Files</option>
               </select></label></div>
           <div class="set-section">Behavior</div>
           <div class="set-grid"><label>Track progress by<select x-model="$store.g.settings.progressBy"

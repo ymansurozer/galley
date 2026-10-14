@@ -248,7 +248,8 @@ let followed: string | null = null;
 // selectFile calls this directly, and render() re-applies it after Alpine's flush (an rAF later,
 // so freshly re-keyed rows get the class back — Alpine's :class diff only removes classes it
 // added itself, so this manual class survives binding re-evaluation on reused elements).
-// No file is "active" on the Overview; a previewed file wins over the indexed review file.
+// On the Overview the Review tab's Overview row is "active" and no file is; a previewed file wins
+// over the indexed review file.
 // It is also the one place the sidebar follows the active file (followActiveRow), whatever moved
 // it — a click, ⇧←/→, ⌘⇧↑/↓, approve-advance, a wrap seek.
 export function applyActiveRow() {
@@ -257,6 +258,8 @@ export function applyActiveRow() {
     : (S.preview?.path ?? S.state?.files?.[S.fileIndex]?.path ?? null);
   for (const el of document.querySelectorAll("#files .node.active, #walk .node.active"))
     el.classList.remove("active");
+  if (S.overviewOpen)
+    document.querySelector('#walk .node[data-key="overview"]')?.classList.add("active");
   if (path)
     for (const key of [`file:${path}`, `test:${path}`])
       for (const el of document.querySelectorAll(`.node[data-key="${CSS.escape(key)}"]`))
@@ -285,7 +288,7 @@ function followActiveRow(path: string) {
   showActiveRow();
 }
 
-// Scroll the visible sidebar list (Files or Walkthrough; the other is display:none) just enough
+// Scroll the visible sidebar list (Files or Review; the other is display:none) just enough
 // to show the active row, "nearest"-style, so a row already in view never moves. An rAF later,
 // once Alpine's flush has rendered the rows a reveal just opened. main.ts setSidebarTab calls it
 // too: a follow made while that list was hidden couldn't scroll it.

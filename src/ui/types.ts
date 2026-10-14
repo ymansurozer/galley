@@ -64,7 +64,8 @@ export type Settings = {
   // How guided-review progress is weighted: "lines" (changed lines per file — finishing a
   // bigger change advances more) or "files" (every file counts the same).
   progressBy: "lines" | "files";
-  // Which sidebar pane a guided desk opens with; `w` toggles per-session from there.
+  // Which sidebar pane a guided desk opens with; `w` toggles per-session from there. The stored
+  // values predate the panes' names: "tree" is Files, "walkthrough" is Review.
   sidebarDefault: "tree" | "walkthrough";
   // Default view for a markdown file: "auto" (new/unchanged → rendered, changed → source so the
   // diff shows first), or force "rendered"/"source". The toolbar toggle still overrides per file.
