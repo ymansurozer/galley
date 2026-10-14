@@ -27,17 +27,21 @@ function bookIcon(): HTMLElement {
   return tile;
 }
 
-// "Guide · <category>", the category amber when the file is flagged, then a skim mark when the
-// guide skims the whole file.
+// "⇈ skimmed" when the guide skims the whole file, else null.
+function skimMark(entry: GuideFile): HTMLElement | null {
+  if (!entry.skim) return null;
+  const mark = el("span", "gc-skim-mark");
+  mark.innerHTML = `<svg class="ic"><use href="#gly-collapse-all"></use></svg>`;
+  mark.append("skimmed");
+  return mark;
+}
+
+// "Guide", then the skim mark. No category: the sidebar's Review list already files the file under
+// it, and a flagged file's amber is the flag line's own.
 function heading(entry: GuideFile): HTMLElement {
-  const h = el("span", "gc-head", "Guide · ");
-  h.appendChild(el("span", "gc-cat" + (entry.flag ? " crit" : ""), entry.category));
-  if (entry.skim) {
-    const mark = el("span", "gc-skim-mark");
-    mark.innerHTML = `<svg class="ic"><use href="#gly-collapse-all"></use></svg>`;
-    mark.append("skimmed");
-    h.appendChild(mark);
-  }
+  const h = el("span", "gc-head", "Guide");
+  const mark = skimMark(entry);
+  if (mark) h.appendChild(mark);
   return h;
 }
 
@@ -124,7 +128,8 @@ export function guideMini(): HTMLElement | null {
   builtFrom = from;
   const line = el("div", "gm-line");
   line.appendChild(bookIcon());
-  line.appendChild(heading(entry));
+  const mark = skimMark(entry);
+  if (mark) line.appendChild(mark);
   const orient = el("span", "gm-orient" + (entry.orientation ? " md" : " skim"));
   if (entry.orientation) orient.innerHTML = renderMarkdown(entry.orientation);
   else if (entry.skimReason) orient.textContent = skimText(entry);

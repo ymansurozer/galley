@@ -28,6 +28,9 @@
   --window: #1c1c1f;
   /* Controls and cards resting on a surface. */
   --raised: #222225;
+  /* The guide's note on a file, a band across the canvas: lifted off the canvas above and below
+     it, and apart from the sidebar's material beside it. */
+  --note: #212125;
   /* The selected segment of a segmented control. */
   --thumb: #3b3b40;
   /* Text fields and selects. */
@@ -144,6 +147,7 @@
     radial-gradient(70% 45% at 0% 100%, #f1d7e8 0%, transparent 70%), #e9e9ef;
   --window: #f7f7f9;
   --raised: #fff;
+  --note: #f7f7f9;
   --thumb: #fff;
   --field: #fff;
   --cap: #fff;

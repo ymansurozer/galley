@@ -1,14 +1,13 @@
 /* ── The guide card (guidecard.ts) ──
-   The guide's note on the open file: a tinted band under the file bar, in the flow. Scoped under
-   #diff to outrank its code-sized `#diff > *` text. */
+   The guide's note on the open file: a band of its own surface (--note) under the file bar, in the
+   flow. Scoped under #diff to outrank its code-sized `#diff > *` text. */
 #diff > .guide-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
   align-items: start;
   padding: 14px 20px 14px 16px;
-  background: var(--canvas);
-  background-image: linear-gradient(var(--fill), var(--fill));
+  background: var(--note);
   border-bottom: 1px solid var(--sep);
   font-family: var(--sans);
   font-size: var(--text-sm);
@@ -44,11 +43,6 @@
   font-weight: 600;
   color: var(--ink-3);
   white-space: nowrap;
-}
-
-/* A flagged file's category reads amber, as the flag does. */
-.gc-cat.crit {
-  color: var(--orange-ink);
 }
 
 /* The guide skims the whole file: quiet, the opposite of the flag's amber. */
@@ -135,8 +129,7 @@
   top: 100%;
   left: 0;
   right: 0;
-  background: var(--canvas);
-  background-image: linear-gradient(var(--fill), var(--fill));
+  background: var(--note);
   border-bottom: 1px solid var(--sep);
 }
 
@@ -179,8 +172,9 @@
   height: 12px;
 }
 
-.gm-line .gc-head {
+.gm-line .gc-skim-mark {
   flex: 0 0 auto;
+  margin-left: 0;
 }
 
 /* The orientation clamped to what fits; its markdown flattens to one line of text. */
@@ -280,8 +274,7 @@
   max-height: 60vh;
   overflow: auto;
   padding: 2px 20px 16px 44px;
-  background: var(--canvas);
-  background-image: linear-gradient(var(--fill), var(--fill));
+  background: var(--note);
   border-bottom: 1px solid var(--sep);
   box-shadow: var(--shadow-float);
 }
