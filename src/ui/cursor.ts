@@ -328,10 +328,30 @@ export function cursorMoveHunk(dir: 1 | -1) {
   for (let j = i + dir; j >= 0 && j < list.length; j += dir) {
     if (isStart(j)) {
       landOn(list[j]);
+      revealCursorChange();
       return;
     }
   }
   toast(dir === 1 ? "No more changes" : "No previous changes");
+}
+
+// A change stepped into shows down to its Undo | Keep control: the whole change when it fits, as
+// the cursor lands on its first row. The view scrolls on only as far as that row allows, so the
+// cursor's line never slides under the pinned bar (#diff's --file-bar-h, plus diff.css's air).
+function revealCursorChange() {
+  const id = cursorChangeId();
+  const diff = $("diff");
+  const control = id
+    ? diff.querySelector(`.verdict[data-change="${CSS.escape(id)}"]`)?.closest(".annotation")
+    : null;
+  const row = cursorRowEl();
+  if (!control || !row) return;
+  const box = diff.getBoundingClientRect();
+  const below = control.getBoundingClientRect().bottom + 8 - box.bottom;
+  if (below <= 0) return;
+  const top = box.top + (parseFloat(diff.style.getPropertyValue("--file-bar-h")) || 0) + 8;
+  diff.scrollTop += Math.max(0, Math.min(below, row.getBoundingClientRect().top - top));
+  holdPlace(row); // a card the landing opened holds this place, not the one before
 }
 
 // ── The change at the cursor ─────────────────────────────────────────────────
