@@ -270,8 +270,9 @@ One JSON object:
     form one block — give it to the main concern and say so in that part's orientation. A new
     untracked file is one whole-file change, so it can't be split. When your edits between rounds
     move code from one part to another (or add a concern), send a fresh guide with
-    \`galley reload --guide <new>\`: a carried-forward guide re-resolves its spans leniently, and a
-    block it can't place falls to Rest.
+    \`galley reload --guide <new>\`: a carried-forward guide places blocks by content, not by its
+    spans — a block you didn't touch keeps its part however its lines moved, an edited or new block
+    joins the part around it, and one it can't place falls to Rest.
 - focused? — top-level boolean; badges the overview ("focused review — mechanical churn skimmed")
   so the human knows attention was deliberately shaped. Display-only.
 A skimmed block collapses behind a one-click "expand" strip (nothing is ever hidden). A file skimmed

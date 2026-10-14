@@ -11,6 +11,7 @@ import {
   buildDiffSource,
   buildReviewResult,
   buildReviewState,
+  carryParts,
   computeApprovedFiles,
   deskLockPath,
   findLiveDesks,
@@ -686,6 +687,229 @@ test("a save from a tab still on the pre-reload diff carries its block sign-offs
       prior,
     );
     assert.equal(Object.keys(live.signedOffBlocks ?? {}).length, 2);
+  });
+});
+
+// ── Parts across rounds ──────────────────────────────────────────────────────
+// A carried-forward guide places blocks by content. The previous diff's blocks are stamped by hand,
+// as a guide's spans would have stamped them; `parts` maps a block's first line to its part.
+const stampParts = (st: ReviewState, parts: Record<number, number>) => {
+  for (const c of st.changes) {
+    const part = parts[c.lineNumber];
+    if (part !== undefined) c.part = part;
+  }
+  return st;
+};
+// Each block's part by its first line, "rest" for a block no part claims.
+const partsOf = (st: Pick<ReviewState, "changes">) =>
+  Object.fromEntries(st.changes.map((c) => [c.lineNumber, c.part ?? "rest"]));
+// Every block of the diff signed off, and the file with them, as approving every part leaves it.
+const allSignedOff = (st: ReviewState): ReviewState => ({
+  ...st,
+  signedOffBlocks: signedOff(st, ...st.changes.map((c) => `${c.path}:${c.stableKey}`)),
+  reviewedFiles: ["app.ts"],
+  reviewedFileHashes: { "app.ts": st.files[0]!.contentHash },
+});
+
+test("blocks that only moved keep their part across a reload, and a Rest block stays Rest", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 3: "A", 5: "B", 10: "C", 12: "D" });
+    const before = stampParts(await edit(lines), { 3: 0, 5: 0, 10: 1 });
+    const merged = await mergeReviewState(await edit(insertAbove(lines)), before);
+    // The inserted pair sits above part 0, outside its former lines: Rest.
+    assert.deepEqual(partsOf(merged), { 2: "rest", 5: 0, 7: 0, 12: 1, 14: "rest" });
+  });
+});
+
+test("an edit inside part 1 and lines inserted above part 2 leave part 2 signed off and part 1 pending", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 3: "A", 5: "B", 7: "C", 11: "D", 13: "E" });
+    const before = allSignedOff(stampParts(await edit(lines), { 3: 0, 5: 0, 7: 0, 11: 1, 13: 1 }));
+    // Part 1's middle block is rewritten, and two lines land after l9, above part 2.
+    const next = edited({ 3: "A", 5: "B again", 7: "C", 11: "D", 13: "E" });
+    next.splice(9, 0, "m1", "m2");
+    const merged = await mergeReviewState(await edit(next), before);
+    assert.deepEqual(partsOf(merged), { 3: 0, 5: 0, 7: 0, 10: "rest", 13: 1, 15: 1 });
+    // Part 2's blocks moved to new keys with their sign-offs; part 1's rewritten block has none.
+    assert.deepEqual(merged.signedOffBlocks, {
+      "app.ts:additions:3:1:1": before.signedOffBlocks!["app.ts:additions:3:1:1"],
+      "app.ts:additions:7:1:1": before.signedOffBlocks!["app.ts:additions:7:1:1"],
+      "app.ts:additions:13:1:1": before.signedOffBlocks!["app.ts:additions:11:1:1"],
+      "app.ts:additions:15:1:1": before.signedOffBlocks!["app.ts:additions:13:1:1"],
+    });
+    assert.deepEqual(merged.reviewedFiles, [], "the file is pending again");
+  });
+});
+
+test("a block rewritten in place between two blocks of one part stays in that part", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 3: "A", 5: "B", 7: "C" })), { 3: 0, 5: 0, 7: 0 });
+    const merged = await mergeReviewState(await edit(edited({ 3: "A", 5: "B2", 7: "C" })), before);
+    assert.deepEqual(partsOf(merged), { 3: 0, 5: 0, 7: 0 });
+  });
+});
+
+test("a new block between a part-1 block and a part-2 block goes to Rest", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 3: "A", 5: "B", 10: "C", 12: "D" });
+    const before = stampParts(await edit(lines), { 3: 0, 5: 0, 10: 1, 12: 1 });
+    const merged = await mergeReviewState(
+      await edit(edited({ 3: "A", 5: "B", 8: "new", 10: "C", 12: "D" })),
+      before,
+    );
+    assert.deepEqual(partsOf(merged), { 3: 0, 5: 0, 8: "rest", 10: 1, 12: 1 });
+  });
+});
+
+test("a part whose blocks are all gone after a reload claims no block", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 3: "A", 5: "B", 10: "C", 12: "D" })), {
+      3: 0,
+      5: 0,
+      10: 1,
+      12: 1,
+    });
+    const merged = await mergeReviewState(await edit(edited({ 3: "A", 5: "B" })), before);
+    assert.deepEqual(partsOf(merged), { 3: 0, 5: 0 });
+  });
+});
+
+test("a file whose parts are all signed off stays approved when an edit only moves its blocks", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 8: "L8", 11: "L11" });
+    const before = allSignedOff(stampParts(await edit(insertAbove(lines)), { 2: 0, 10: 0, 13: 1 }));
+    // The inserted pair is reverted: the other two blocks move up, their content untouched.
+    const merged = await mergeReviewState(await edit(lines), before);
+    assert.notEqual(merged.files[0]!.contentHash, before.files[0]!.contentHash);
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}).sort(), [
+      "app.ts:additions:11:1:1",
+      "app.ts:additions:8:1:1",
+    ]);
+    assert.deepEqual(merged.reviewedFiles, ["app.ts"]);
+    assert.deepEqual(merged.reviewedFileHashes, { "app.ts": merged.files[0]!.contentHash });
+    assert.deepEqual(computeApprovedFiles(merged), ["app.ts"]);
+  });
+});
+
+test("a save from a tab still on the pre-reload diff keeps a file approved whose blocks only moved", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 8: "L8", 11: "L11" });
+    const live = await edit(insertAbove(lines));
+    const prior = { baseDiffHash: live.baseDiffHash, changes: live.changes };
+    const signed = allSignedOff(live);
+    Object.assign(live, await mergeReviewState(await edit(lines), live));
+    mergeReviewerSave(
+      live,
+      {
+        signedOffBlocks: signed.signedOffBlocks,
+        reviewedFiles: signed.reviewedFiles,
+        reviewedFileHashes: signed.reviewedFileHashes,
+        seen: { token: null, reloadGeneration: 0, baseDiffHash: prior.baseDiffHash },
+      },
+      undefined,
+      prior,
+    );
+    assert.equal(Object.keys(live.signedOffBlocks ?? {}).length, 2);
+    assert.deepEqual(live.reviewedFileHashes, { "app.ts": live.files[0]!.contentHash });
+    assert.deepEqual(computeApprovedFiles(live), ["app.ts"]);
+  });
+});
+
+test("a guide swap regroups the parts and keeps the sign-offs of blocks already signed off", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 3: "A", 5: "B", 10: "C" });
+    const before = await edit(lines);
+    const split = (...parts: Array<[string, number[]]>): Guide => ({
+      overview: "o",
+      files: parts.map(([title, at], i) => ({
+        path: "app.ts",
+        order: i,
+        category: title,
+        orientation: title,
+        part: { title, lines: at },
+      })),
+    });
+    assert.ok(resolveGuide(before, split(["One", [3, 5]], ["Two", [10]])).ok);
+    const saved = {
+      ...before,
+      signedOffBlocks: signedOff(before, "app.ts:additions:3:1:1", "app.ts:additions:5:1:1"),
+    };
+    const after = await edit(lines);
+    const merged = await mergeReviewState(after, saved);
+    assert.ok(
+      resolveGuide(merged, split(["Head", [3]], ["Tail", [5, 10]]), parsedDiffOf(after)).ok,
+    );
+    assert.deepEqual(partsOf(merged), { 3: 0, 5: 1, 10: 1 });
+    assert.deepEqual(merged.signedOffBlocks, saved.signedOffBlocks);
+  });
+});
+
+// The carry rule itself, on the edges of the position rule.
+test("carryParts: at the file's start a block joins the part below only within that part's former lines", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 3: "A", 5: "B" })), { 3: 0, 5: 0 });
+    const after = await edit(edited({ 1: "new", 3: "A2", 5: "B" }));
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 1: "rest", 3: 0, 5: 0 });
+  });
+});
+
+test("carryParts: at the file's end a block joins the part above only within that part's former lines", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 10: "C", 12: "D" })), { 10: 1, 12: 1 });
+    // l12 grows by a line past the part's last line; a new line is appended after l14.
+    const grown = edited({ 10: "C", 12: "D2" });
+    grown.splice(12, 0, "D3");
+    const after = await edit([...grown, "appended"]);
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 10: 1, 12: 1, 16: "rest" });
+  });
+});
+
+test("carryParts: a rewritten edge block stays in its part though another part borders it", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 3: "A", 5: "B", 10: "C", 12: "D" })), {
+      3: 0,
+      5: 0,
+      10: 1,
+      12: 1,
+    });
+    const after = await edit(edited({ 3: "A", 5: "B2", 10: "C2", 12: "D" }));
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 3: 0, 5: 0, 10: 1, 12: 1 });
+  });
+});
+
+test("carryParts: a part pushed down by an edit above keeps its rewritten last block", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(edited({ 3: "A", 10: "C", 12: "D" })), {
+      3: 0,
+      10: 1,
+      12: 1,
+    });
+    const after = await edit(insertAbove(edited({ 3: "A", 10: "C", 12: "D2" })));
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 2: "rest", 5: 0, 12: 1, 14: 1 });
+  });
+});
+
+test("carryParts: a block both bordering parts' former lines cover goes to Rest", async () => {
+  await withShiftRepo(async (edit) => {
+    // The parts interleave: part 0 spans lines 3-10, part 1 lines 6-13.
+    const lines = edited({ 3: "A", 6: "B", 10: "C", 13: "D" });
+    const before = stampParts(await edit(lines), { 3: 0, 6: 1, 10: 0, 13: 1 });
+    const after = await edit(edited({ 3: "A", 6: "B", 8: "new", 10: "C", 13: "D" }));
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 3: 0, 6: 1, 8: "rest", 10: 0, 13: 1 });
+  });
+});
+
+test("carryParts: identical blocks keep their own parts, paired in document order", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = stampParts(await edit(twinLines()), { 4: 0, 10: 1 });
+    const after = await edit(insertAbove(twinLines()));
+    carryParts(after, before);
+    assert.deepEqual(partsOf(after), { 2: "rest", 6: 0, 12: 1 });
   });
 });
 
@@ -1469,9 +1693,7 @@ const skimDiff = (
 
 test("resolveParts stamps each block with the index of the guide entry whose part claims it", () => {
   const changes = changesFromDiff(SKIM_DIFF);
-  const r = resolveParts(skimDiff(changes), partsGuide(["Imports", [[3, 5]]], ["Core", [9]]), {
-    strict: true,
-  });
+  const r = resolveParts(skimDiff(changes), partsGuide(["Imports", [[3, 5]]], ["Core", [9]]));
   assert.deepEqual(r, { ok: true });
   assert.equal(partOf(changes, IMPORTS), 0);
   assert.equal(partOf(changes, CORE), 1);
@@ -1479,62 +1701,44 @@ test("resolveParts stamps each block with the index of the guide entry whose par
 
 test("resolveParts leaves a block no part claims unstamped (the file's Rest)", () => {
   const changes = changesFromDiff(SKIM_DIFF);
-  assert.ok(resolveParts(skimDiff(changes), partsGuide(["Imports", [4]]), { strict: true }).ok);
+  assert.ok(resolveParts(skimDiff(changes), partsGuide(["Imports", [4]])).ok);
   assert.equal(partOf(changes, IMPORTS), 0);
   assert.equal(partOf(changes, CORE), undefined);
 });
 
-test("resolveParts (strict) rejects a span that matches no block, naming path, part title and span", () => {
-  const r = resolveParts(skimDiff(), partsGuide(["Imports", [[3, 5]]], ["Core", [[100, 104]]]), {
-    strict: true,
-  });
+test("resolveParts rejects a span that matches no block, naming path, part title and span", () => {
+  const r = resolveParts(skimDiff(), partsGuide(["Imports", [[3, 5]]], ["Core", [[100, 104]]]));
   assert.deepEqual(r, {
     ok: false,
     reason: 'guide part "Core" on "app.ts": span [100, 104] matches no change in the diff',
   });
-  const single = resolveParts(skimDiff(), partsGuide(["Core", [1]]), {
-    strict: true,
-  });
+  const single = resolveParts(skimDiff(), partsGuide(["Core", [1]]));
   assert.deepEqual(single, {
     ok: false,
     reason: 'guide part "Core" on "app.ts": line 1 matches no change in the diff',
   });
 });
 
-test("resolveParts (strict) rejects a part on a file absent from the diff", () => {
+test("resolveParts rejects a part on a file absent from the diff", () => {
   const guide = partsGuide(["Ghost", [3]]);
   guide.files[0]!.path = "ghost.ts";
-  const r = resolveParts(skimDiff(), guide, { strict: true });
+  const r = resolveParts(skimDiff(), guide);
   assert.equal(r.ok, false);
   if (!r.ok) assert.match(r.reason, /"Ghost" on "ghost\.ts"/);
 });
 
-test("resolveParts (strict) rejects two parts claiming one block, naming both and the block's lines", () => {
-  const r = resolveParts(skimDiff(), partsGuide(["Imports", [[3, 5]]], ["Core", [5, [8, 9]]]), {
-    strict: true,
-  });
+test("resolveParts rejects two parts claiming one block, naming both and the block's lines", () => {
+  const r = resolveParts(skimDiff(), partsGuide(["Imports", [[3, 5]]], ["Core", [5, [8, 9]]]));
   assert.deepEqual(r, {
     ok: false,
     reason: 'guide parts "Imports" and "Core" on "app.ts" both claim the change at lines 3-5',
   });
 });
 
-test("resolveParts (lenient) drops an unmatched span and lets the earlier part keep a contested block", () => {
-  const changes = changesFromDiff(SKIM_DIFF);
-  const r = resolveParts(
-    skimDiff(changes),
-    partsGuide(["Imports", [[3, 5], 100]], ["Core", [5, [8, 9]]]),
-    { strict: false },
-  );
-  assert.deepEqual(r, { ok: true });
-  assert.equal(partOf(changes, IMPORTS), 0);
-  assert.equal(partOf(changes, CORE), 1);
-});
-
 test("resolveParts clears prior stamps so re-resolution follows the new guide", () => {
   const changes = changesFromDiff(SKIM_DIFF);
-  resolveParts(skimDiff(changes), partsGuide(["Imports", [3]], ["Core", [8]]), { strict: true });
-  resolveParts(skimDiff(changes), partsGuide(["Core", [8]]), { strict: true });
+  resolveParts(skimDiff(changes), partsGuide(["Imports", [3]], ["Core", [8]]));
+  resolveParts(skimDiff(changes), partsGuide(["Core", [8]]));
   assert.equal(partOf(changes, IMPORTS), undefined);
   assert.equal(partOf(changes, CORE), 0);
 });
@@ -1543,16 +1747,16 @@ test("resolveGuide resolves skims and parts together and fails on either", () =>
   const guide = partsGuide(["Imports", [[3, 5]]], ["Core", [8]]);
   guide.files[0]!.skimBlocks = [{ lines: [3, 5], reason: "imports" }];
   const changes = changesFromDiff(SKIM_DIFF);
-  assert.deepEqual(resolveGuide(skimDiff(changes), guide, { strict: true }), { ok: true });
+  assert.deepEqual(resolveGuide(skimDiff(changes), guide), { ok: true });
   assert.deepEqual(changes.find((c) => c.stableKey === IMPORTS)!.skim, { reason: "imports" });
   assert.equal(partOf(changes, CORE), 1);
   guide.files[1]!.part!.lines = [100];
-  const bad = resolveGuide(skimDiff(), guide, { strict: true });
+  const bad = resolveGuide(skimDiff(), guide);
   assert.equal(bad.ok, false);
   if (!bad.ok) assert.match(bad.reason, /"Core" on "app\.ts": line 100/);
 });
 
-test("resolveParts (strict) says a new untracked file can't be split, naming path and part", () => {
+test("resolveParts says a new untracked file can't be split, naming path and part", () => {
   // An untracked add is one whole-file entry with no section in the raw diff.
   const guide = partsGuide(["Scaffold", [[1, 5]]]);
   guide.files[0]!.path = "new.ts";
@@ -1560,28 +1764,25 @@ test("resolveParts (strict) says a new untracked file can't be split, naming pat
     { path: "app.ts", changeKind: "modified" as const },
     { path: "new.ts", changeKind: "added" as const },
   ];
-  assert.deepEqual(resolveParts(skimDiff(undefined, files), guide, { strict: true }), {
+  assert.deepEqual(resolveParts(skimDiff(undefined, files), guide), {
     ok: false,
     reason:
       'guide part "Scaffold" on "new.ts": "new.ts" is a new untracked file — one whole-file change, it can\'t be split into parts',
-  });
-  // Carried forward, the part simply claims nothing.
-  assert.deepEqual(resolveParts(skimDiff(undefined, files), guide, { strict: false }), {
-    ok: true,
   });
 });
 
 test("resolveGuide rejects a part's skimBlocks span that reaches another part's block", () => {
   const guide = partsGuide(["Imports", [[3, 5]]], ["Core", [8]]);
   guide.files[0]!.skimBlocks = [{ lines: [8, 8], reason: "churn" }];
-  assert.deepEqual(resolveGuide(skimDiff(), guide, { strict: true }), {
+  assert.deepEqual(resolveGuide(skimDiff(), guide), {
     ok: false,
     reason:
       'guide part "Imports" on "app.ts": skimBlocks span [8, 8] reaches the change at lines 8-9, which part "Core" claims',
   });
   // Carried forward, that skim stamp is dropped: Core stays in the flow, unskimmed.
   const changes = changesFromDiff(SKIM_DIFF);
-  assert.deepEqual(resolveGuide(skimDiff(changes), guide, { strict: false }), { ok: true });
+  resolveParts(skimDiff(changes), partsGuide(["Imports", [[3, 5]]], ["Core", [8]]));
+  assert.deepEqual(resolveSkim(SKIM_DIFF, changes, guide, { strict: false }), { ok: true });
   assert.equal(changes.find((c) => c.stableKey === CORE)!.skim, undefined);
   assert.equal(partOf(changes, CORE), 1);
 });
@@ -1590,7 +1791,7 @@ test("resolveGuide lets a part skim its own blocks and unclaimed ones", () => {
   const guide = partsGuide(["Core", [8]]);
   guide.files[0]!.skimBlocks = [{ lines: [3, 9] }];
   const changes = changesFromDiff(SKIM_DIFF);
-  assert.deepEqual(resolveGuide(skimDiff(changes), guide, { strict: true }), { ok: true });
+  assert.deepEqual(resolveGuide(skimDiff(changes), guide), { ok: true });
   assert.ok(changes.find((c) => c.stableKey === CORE)!.skim, "its own block");
   assert.ok(changes.find((c) => c.stableKey === IMPORTS)!.skim, "a Rest block");
 });

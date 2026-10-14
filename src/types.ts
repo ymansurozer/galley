@@ -93,7 +93,8 @@ export type ChangeState = {
   skim?: { reason?: string };
   // Server-stamped when a guide part (GuideFile.part) claims this block: the index of the owning
   // entry in the stored, order-sorted guide.files. Absent = no part claims it (the file's Rest
-  // step). Like skim, re-derived on every attach/reload and never rides /api/save.
+  // step). Resolved from the guide's spans on attach, then carried by content across every reload
+  // or restart that keeps the guide (state.ts carryParts). Never rides /api/save.
   part?: number;
 };
 
@@ -183,8 +184,9 @@ export type GuideFile = {
   movedFrom?: string;
   // Splits a file's diff into review steps: the same path listed once per part, each entry with
   // its own category/orientation/flag. `lines` are new-file-side spans ([start, end] or a single
-  // line), resolved like skimBlocks to the change blocks they touch (resolveParts stamps
-  // ChangeState.part). A split file is split all the way — every entry for the path carries a
+  // line), resolved like skimBlocks to the change blocks they touch when the guide is attached
+  // (resolveParts stamps ChangeState.part); a reload that keeps the guide carries each block's
+  // part by content instead. A split file is split all the way — every entry for the path carries a
   // part — and a part never combines with a whole-file `skim` or `movedFrom`. Blocks no part
   // claims form the file's "Rest" step.
   part?: { title: string; lines: Array<[number, number] | number> };

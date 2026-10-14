@@ -340,14 +340,14 @@ try {
   // Guide parts: split b.txt's two change blocks into two steps in different categories. Each
   // block is stamped with the index of the guide entry whose part claims it.
   const partsPath = path.join(guideDir, "parts.json");
-  const partsGuide = (bottomLines) => ({
+  const partsGuide = (bottomLines, topLines = [3]) => ({
     overview: "Smoke parts.",
     files: [
       {
         path: "b.txt",
         category: "Top",
         orientation: "The top edit.",
-        part: { title: "Top edit", lines: [3] },
+        part: { title: "Top edit", lines: topLines },
       },
       { path: "a.txt", category: "Other file", orientation: "The changed file." },
       {
@@ -401,8 +401,70 @@ try {
   const keptState = await getJson("/api/state");
   assert.deepEqual(keptState.guide.files[2].part.lines, [[24, 26]], "the desk keeps its guide");
   assert.equal(keptState.changes.find((c) => c.path === "b.txt" && c.lineNumber === 25)?.part, 2);
-  rmSync(guideDir, { recursive: true, force: true });
   console.log("✓ reload --guide with an unmatched part span → exits 1 naming path, part, span");
+
+  // Parts across rounds (issue 06). Round 1: a third edit at line 6 joins the top part, and the
+  // reviewer approves the bottom part as the tab does (accepts its block and signs it off). Round 2:
+  // the agent rewrites the top part's first block and inserts two lines above the bottom part, then
+  // reloads without a guide. Parts follow content, not the guide's spans.
+  const writeB = (lines) => writeFileSync(path.join(tmp, "b.txt"), lines.join("\n") + "\n");
+  const round1Lines = Array.from({ length: 30 }, (_, i) =>
+    [2, 5, 24].includes(i) ? `B${i + 1}!` : `b${i + 1}`,
+  );
+  writeB(round1Lines);
+  writeFileSync(partsPath, JSON.stringify(partsGuide([[24, 26]], [3, 6])));
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", partsPath)).ok);
+  const round1 = await getJson("/api/state");
+  const bottom = round1.changes.find((c) => c.path === "b.txt" && c.lineNumber === 25);
+  assert.equal(bottom?.part, 2, "round 1: the bottom block is in the bottom part");
+  await post("/api/save", {
+    decisions: [
+      {
+        key: bottom.id,
+        path: bottom.path,
+        status: "accepted",
+        reviewedHash: bottom.contentHash,
+        lineNumber: bottom.lineNumber,
+        side: bottom.side,
+        title: bottom.title,
+      },
+    ],
+    signedOffBlocks: { [bottom.id]: bottom.contentHash },
+    decisionFiles: ["b.txt"],
+    seen: {
+      token: round1.uiProxy?.token ?? null,
+      reloadGeneration: round1.reloadGeneration,
+      baseDiffHash: round1.baseDiffHash,
+    },
+  });
+  const round2Lines = [...round1Lines];
+  round2Lines[2] = "B3 again";
+  round2Lines.splice(15, 0, "inserted 1", "inserted 2");
+  writeB(round2Lines);
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID)).ok);
+  const round2 = await getJson("/api/state");
+  assert.deepEqual(
+    round2.changes
+      .filter((c) => c.path === "b.txt")
+      .map((c) => [
+        c.lineNumber,
+        c.part ?? "rest",
+        c.status,
+        round2.signedOffBlocks?.[c.id] === c.contentHash,
+      ])
+      .sort((x, y) => x[0] - y[0]),
+    [
+      [3, 0, "pending", false],
+      [6, 0, "pending", false],
+      [16, "rest", "pending", false],
+      [27, 2, "accepted", true],
+    ],
+    "the moved bottom block keeps its part, decision and sign-off; the rewritten top block stays in the top part, pending",
+  );
+  rmSync(guideDir, { recursive: true, force: true });
+  console.log(
+    "✓ galley reload → parts follow content: the bottom part stays signed off, the top is pending",
+  );
 
   // human asks a question → `galley await` yields a question event
   await post("/api/ask", {
