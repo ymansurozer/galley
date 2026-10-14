@@ -1,7 +1,14 @@
 import { S, toast, api, persist } from "./store";
 import { currentFile, fileFinished, fileObjections, flowIndex } from "./changes";
 import { render, deferRender } from "./render";
-import { currentStep, guideProgress, nextUnreviewedStep, reviewTally, stepSlot } from "./guide";
+import {
+  currentStep,
+  guideProgress,
+  nextUnreviewedStep,
+  reviewTally,
+  skimmedStepBlocks,
+  stepSlot,
+} from "./guide";
 import {
   captureFileReview,
   clearFileReview,
@@ -12,7 +19,7 @@ import {
   type FileReview,
 } from "./decisions-derive";
 import type { Step } from "./steps";
-import type { Decision, IndexEntry, ReviewState } from "./types";
+import type { ChangeState, Decision, IndexEntry, ReviewState } from "./types";
 
 type ReviewFile = ReviewState["files"][number];
 
@@ -36,38 +43,47 @@ async function stageFile(file: ReviewFile): Promise<boolean> {
   return true;
 }
 
-// Stage (or take out of the index) single change blocks of a file, by `path:stableKey` key, one
-// request at a time since each places its block on the index the last one left. Resolves to the
-// keys whose blocks moved (one already that way is skipped) and whether every request went
-// through. api() resolves an error body too, so success is the body's `ok`. A stage is recorded
-// only once the index took it, as /api/restage records a file's.
+// Stage (or take out of the index) single change blocks of a file, one request at a time since
+// each places its block on the index the last one left. Each names its block by key and content
+// hash, so the desk refuses one its diff has since moved on from. Resolves to the blocks that
+// moved (one already that way is skipped) and whether every request went through. api() resolves
+// an error body too, so success is the body's `ok`. A stage is recorded only once the index took
+// it, as /api/restage records a file's.
 async function moveBlocks(
   path: string,
-  keys: string[],
+  blocks: ChangeState[],
   stage: boolean,
-): Promise<{ moved: string[]; ok: boolean }> {
-  const moved: string[] = [];
+): Promise<{ moved: ChangeState[]; ok: boolean }> {
+  const moved: ChangeState[] = [];
   let ok = true;
-  for (const key of keys) {
+  for (const c of blocks) {
     const res = await api<{ ok?: boolean; skipped?: boolean }>(
       stage ? "/api/stage-change" : "/api/unstage-change",
-      { method: "POST", body: JSON.stringify({ path, stableKey: key.slice(path.length + 1) }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ path, stableKey: c.stableKey, contentHash: c.contentHash }),
+      },
     ).catch(() => null);
     if (!res?.ok) ok = false;
-    else if (!res.skipped) moved.push(key);
+    else if (!res.skipped) moved.push(c);
   }
   if (stage) {
     S.state.stagedChangeKeys = S.state.stagedChangeKeys || [];
-    for (const key of moved)
-      if (!S.state.stagedChangeKeys.includes(key)) S.state.stagedChangeKeys.push(key);
+    for (const c of moved)
+      if (!S.state.stagedChangeKeys.includes(c.id)) S.state.stagedChangeKeys.push(c.id);
   }
   return { moved, ok };
 }
 
 // Files whose sign-off (of the file or one of its steps) is still staging. A Reset meanwhile would
 // unstage before the stage landed, and the late stage would record the file as staged again under
-// Reset's toast.
+// Reset's toast, so such a Reset says so and does nothing.
 const signing = new Set<string>();
+function stillStaging(path: string): boolean {
+  if (!signing.has(path)) return false;
+  toast("Still staging — try again in a moment");
+  return true;
+}
 
 export function approveCurrentFile() {
   return approveFile(currentFile().path, { advance: true });
@@ -111,13 +127,13 @@ export async function approveStep(step: Step, { advance }: { advance: boolean })
   const slot = stepSlot(step);
   const file = S.state.files[step.fileIndex];
   if (!slot?.blocks || !file) return;
-  signOffStep(S.state, file, slot.blocks);
+  signOffStep(S.state, file, slot.blocks, skimmedStepBlocks(step.fileIndex));
   // Like a file's, a step with objections is "changes requested" and never staged.
   const clean = !flowIndex().stepObjections(slot);
   const stage = clean && S.settings.stageOnAccept && S.state.mode !== "pr";
-  const keys = slot.blocks.filter((c) => c.stageable).map((c) => c.id);
+  const stageable = slot.blocks.filter((c) => c.stageable);
   signing.add(file.path);
-  const stageFailed = stage && !(await moveBlocks(file.path, keys, true)).ok;
+  const stageFailed = stage && !(await moveBlocks(file.path, stageable, true)).ok;
   signing.delete(file.path);
   persist();
   signedOff(clean, stageFailed ? file.path : null, advance);
@@ -170,6 +186,7 @@ export function toggleSignOff(path: string, part?: Step["part"]) {
 // Undo a file's review: clear hunk decisions, the finished/sign-off marker + its hash, and unstage.
 // The toast's Undo puts back exactly what this cleared, the index included.
 export function resetReview(path: string) {
+  if (stillStaging(path)) return;
   const state = S.state;
   const prior = captureFileReview(state, path);
   clearFileReview(state, path);
@@ -207,7 +224,7 @@ async function undoReset(
 }
 
 // A part's (or Rest's) Reset: its blocks' decisions and sign-offs and the file's sign-off clear,
-// and the blocks its approval staged leave the index. The toast's Undo puts back exactly what this
+// and its blocks an approval staged leave the index. The toast's Undo puts back exactly what this
 // cleared, those blocks' staging included.
 export function resetStep(step: Step) {
   const slot = stepSlot(step);
@@ -215,11 +232,20 @@ export function resetStep(step: Step) {
     if (slot) resetReview(slot.path);
     return;
   }
+  if (stillStaging(slot.path)) return;
   const state = S.state;
   const prior = captureFileReview(state, slot.path, slot.blocks);
   clearFileReview(state, slot.path, slot.blocks);
+  // The blocks the part's approval staged. A whole-file approval stages the file without recording
+  // its blocks, so then every stageable block of the part goes: the desk takes out only what the
+  // index holds. A staged desk's blocks are the review itself and stay.
+  const staged = state.staged
+    ? []
+    : state.stagedFiles.includes(slot.path)
+      ? slot.blocks.filter((c) => c.stageable)
+      : slot.blocks.filter((c) => prior.stagedChangeKeys.includes(c.id));
   // Fired without blocking, as a file's unstage is.
-  const unstaged = moveBlocks(slot.path, prior.stagedChangeKeys, false);
+  const unstaged = moveBlocks(slot.path, staged, false);
   deferRender(true);
   toast("Reset review", { label: "Undo", run: () => void undoStepReset(state, prior, unstaged) });
   persist();
@@ -228,7 +254,7 @@ export function resetStep(step: Step) {
 async function undoStepReset(
   state: ReviewState,
   prior: FileReview,
-  unstaged: Promise<{ moved: string[] }>,
+  unstaged: Promise<{ moved: ChangeState[] }>,
 ) {
   if (S.state !== state) return toast("Can't undo — the diff changed");
   restoreFileReview(state, prior);

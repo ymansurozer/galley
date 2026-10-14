@@ -11,11 +11,13 @@ import { resolveEditorCommand } from "./editor.js";
 import {
   blobOid,
   changeInIndex,
+  editIndex,
   getCheckedOutBranch,
   getProjectName,
   git,
-  indexPatch,
+  gitBytes,
   listProjectTree,
+  writeBlob,
 } from "./git.js";
 import { validateGuide } from "./guide.js";
 import { createSerializer } from "./mutex.js";
@@ -299,41 +301,40 @@ async function html() {
   return fs.readFile(file, "utf8");
 }
 
-async function applyPatchToIndex(root: string, patch: string) {
-  const tmp = path.join(
-    // os.tmpdir(), not $TMPDIR-or-/tmp: Windows sets TEMP/TMP instead, so the old fallback
-    // resolved to a nonexistent C:\tmp and mkdtemp ENOENT'd — hunk staging failed there.
-    await fs.mkdtemp(path.join(os.tmpdir(), "galley-")),
-    `${crypto.randomUUID()}.diff`,
-  );
-  await fs.writeFile(tmp, patch, "utf8");
-  try {
-    await git(["apply", "--cached", "--unidiff-zero", tmp], root);
-  } finally {
-    await fs.rm(path.dirname(tmp), { recursive: true, force: true }).catch(() => undefined);
-  }
-}
-
 // Stage (or, with `stage` false, unstage) one change block of the reviewed working-tree diff. The
 // index may have moved since that diff was taken (blocks staged above this one shift its lines), so
-// the block is placed off a fresh diff of its file (changeInIndex). "skipped": the index already
-// had it that way. Throws when the file moved on since the review's diff was taken.
+// the block is placed off a fresh diff of its file (changeInIndex), and the file's index entry is
+// rewritten with exactly that block's lines in or out (editIndex). "skipped": the index already had
+// it that way. Throws, writing nothing, when the file moved on since the review's diff was taken.
 async function moveChangeInIndex(
   state: ReviewState,
   filePath: string,
   stableKey: string,
   stage: boolean,
 ): Promise<"applied" | "skipped"> {
-  const fresh = await git(["diff", "--no-ext-diff", "--", filePath], state.root);
-  const worktree = await fs.readFile(path.join(state.root, filePath), "utf8");
-  const place = changeInIndex(state.rawDiff, fresh, worktree, filePath, stableKey);
+  const { root } = state;
+  const entry = await readIndexEntry(root, filePath);
+  // Only a regular file's lines can be edited one block at a time.
+  if (!entry || !/^100(644|755)$/.test(entry.mode))
+    throw new Error(`${filePath} is not a regular file in the index`);
+  // The working tree as git compares it with the index: after any line-ending conversion.
+  const cleaned = await git(["hash-object", "-w", "--", filePath], root);
+  const [index, worktree, fresh] = await Promise.all([
+    gitBytes(["cat-file", "blob", entry.oid], root),
+    gitBytes(["cat-file", "blob", cleaned], root),
+    git(["diff", "--no-ext-diff", "--", filePath], root),
+  ]);
+  const place = changeInIndex(state.rawDiff, fresh, worktree.toString("utf8"), filePath, stableKey);
   if (!place) throw new Error(`${filePath} changed since the desk loaded its diff`);
   if (place.staged === stage) return "skipped";
-  const { at, deleted, added } = place;
-  await applyPatchToIndex(
-    state.root,
-    stage ? indexPatch(filePath, at, deleted, added) : indexPatch(filePath, at, added, deleted),
-  );
+  // An unstage puts the block's old lines back as HEAD has them.
+  const head =
+    stage || !place.deleted.length
+      ? null
+      : await gitBytes(["show", `HEAD:${filePath}`], root).catch(() => null);
+  const next = editIndex(place, stage, index, worktree, head);
+  if (!next) throw new Error(`${filePath} doesn't hold the block as the desk's diff has it`);
+  await writeIndexEntry(root, filePath, { mode: entry.mode, oid: await writeBlob(next, root) });
   return "applied";
 }
 
@@ -1319,9 +1320,14 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             "PR changes are committed; accept/reject are approve/request-changes verdicts.",
           );
         return await serialize(async () => {
-          const { path: filePath, stableKey } = JSON.parse(await readBody(req)) as {
+          const {
+            path: filePath,
+            stableKey,
+            contentHash,
+          } = JSON.parse(await readBody(req)) as {
             path?: unknown;
             stableKey?: unknown;
+            contentHash?: unknown;
           };
           if (typeof filePath !== "string" || typeof stableKey !== "string")
             return fail(
@@ -1329,7 +1335,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               422,
               "INVALID_CHANGE",
               "a block route requires the file's path and the block's stableKey",
-              "Send { path, stableKey } as JSON.",
+              "Send { path, stableKey, contentHash } as JSON.",
             );
           if (!state.files.some((f) => f.path === filePath))
             return fail(
@@ -1338,6 +1344,19 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               "NOT_FOUND",
               `"${filePath}" is not part of this review.`,
               "Reload the desk (GET /api/state) if the diff changed.",
+            );
+          // The block as the tab saw it, by key and content, or nothing: a key from a diff the desk
+          // has since reloaded may name another block now.
+          const change = state.changes.find(
+            (c) => c.path === filePath && c.stableKey === stableKey,
+          );
+          if (!change?.contentHash || change.contentHash !== contentHash)
+            return fail(
+              res,
+              409,
+              "STALE_CHANGE",
+              `${filePath}:${stableKey} is not in the desk's diff with that content.`,
+              "Reload the desk (GET /api/state) and retry with the block's contentHash.",
             );
           // A staged desk reviews the index itself: its blocks are staged already, and taking one
           // out would drop it from the review.

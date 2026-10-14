@@ -648,6 +648,20 @@ test("a block sign-off survives a reload while its block is there with the conte
   });
 });
 
+test("a block sign-off follows its block, under its new key, when lines are inserted above it", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 8: "L8", 11: "L11" }));
+    const signed = signedOff(before, "app.ts:additions:8:1:1");
+    const merged = await mergeReviewState(await edit(insertAbove(edited({ 8: "L8", 11: "L11" }))), {
+      ...before,
+      signedOffBlocks: signed,
+    });
+    assert.deepEqual(merged.signedOffBlocks, {
+      "app.ts:additions:10:1:1": signed["app.ts:additions:8:1:1"],
+    });
+  });
+});
+
 test("a save from a tab still on the pre-reload diff carries its block sign-offs onto the reloaded blocks", async () => {
   await withShiftRepo(async (edit) => {
     const live = await edit(edited({ 8: "L8", 11: "L11" }));

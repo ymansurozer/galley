@@ -1454,7 +1454,7 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
     comments: reanchorComments(comments, base.files, (p) => contentsByPath.get(p)),
     reviewedFiles,
     reviewedFileHashes,
-    signedOffBlocks: carrySignOffs(base, saved.signedOffBlocks ?? {}),
+    signedOffBlocks: carrySignOffs(base, saved.signedOffBlocks ?? {}, saved.changes),
     stagedFiles: saved.stagedFiles,
     // Migrate staged-hunk keys old→new too, so a working-mode pair's pre-rename key doesn't linger
     // stale after the rename appears (syncGitState later prunes keys whose file isn't staged).

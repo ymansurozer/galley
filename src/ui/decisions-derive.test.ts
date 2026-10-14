@@ -324,3 +324,31 @@ test("a whole-file sign-off signs off every block, and the file's Reset clears t
     assert.equal(deriveFlowIndex(state).stepState({ path: "a.ts", blocks: part1 }), "pending");
   });
 });
+
+test("the last in-flow part's sign-off signs off a fully skimmed part too, and the file", async () => {
+  await withRepo(async (state) => {
+    const desk = structuredClone(state);
+    const a = fileOf(state, "a.ts");
+    // Part 2 is fully skimmed: out of the flow, never put to the reviewer.
+    const [part1, part2] = parts(state);
+    signOffStep(state, a, part1, part2);
+    assert.ok(part2.every((c) => c.status === "accepted" && state.signedOffBlocks?.[c.id]));
+    const ix = deriveFlowIndex(state);
+    assert.equal(ix.stepState({ path: "a.ts", blocks: part2 }), "approved");
+    assert.equal(ix.reviewState("a.ts"), "approved");
+    assert.deepEqual(delivered(desk, state), ["a.ts"]);
+  });
+});
+
+test("a split file with every part skimmed signs off only the part approved", async () => {
+  await withRepo(async (state) => {
+    const a = fileOf(state, "a.ts");
+    const [part1, part2] = parts(state);
+    signOffStep(state, a, part1, [...part1, ...part2]);
+    assert.ok(part2.every((c) => c.status === "pending" && !state.signedOffBlocks?.[c.id]));
+    assert.equal(deriveFlowIndex(state).reviewState("a.ts"), "pending");
+    // Once its last block is signed off, the file is too.
+    signOffStep(state, a, part2, [...part1, ...part2]);
+    assert.equal(deriveFlowIndex(state).reviewState("a.ts"), "approved");
+  });
+});

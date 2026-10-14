@@ -97,6 +97,17 @@ export function slotOutOfFlow(slot: StepSlot, fileOutOfFlow: (path: string) => b
   return slot.blocks ? slot.blocks.every((c) => !!c.skim) : fileOutOfFlow(slot.path);
 }
 
+// The blocks of a file's part and Rest steps that left the flow (all skimmed). The file's last
+// in-flow sign-off covers them too, as an unsplit file's one sign-off covers its skimmed blocks.
+export function outOfFlowBlocks(
+  plan: { listed: StepSlot[]; other: StepSlot[] },
+  fileIndex: number,
+): ChangeState[] {
+  return [...plan.listed, ...plan.other].flatMap((s) =>
+    s.step.fileIndex === fileIndex && s.blocks && slotOutOfFlow(s, () => false) ? s.blocks : [],
+  );
+}
+
 // The order the wrap and approve-advance seeks walk: every step in walkthrough order (the guide's,
 // then Other) that `keep` admits — in-flow ones for the seeks, all of them for the change-request
 // walk.

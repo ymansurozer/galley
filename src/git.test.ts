@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseUnifiedDiff, changeBlocks, changeStableKeyFromBlock } from "./git.js";
+import {
+  changeBlocks,
+  changeStableKeyFromBlock,
+  editIndex,
+  parseUnifiedDiff,
+  type BlockInIndex,
+} from "./git.js";
 
 const DIFF = `diff --git a/f.txt b/f.txt
 index 0000000..1111111 100644
@@ -99,4 +105,38 @@ index 1111111..2222222 100644
 Binary files a/old.png and b/new.png differ
 `;
   assert.equal(parseUnifiedDiff(diff).length, 0);
+});
+
+// ── editIndex: one block's lines in or out of the index blob ─────────────────
+const blob = (s: string) => Buffer.from(s);
+const place = (over: Partial<BlockInIndex>): BlockInIndex => ({
+  staged: false,
+  at: 0,
+  before: 0,
+  oldBefore: 0,
+  deleted: [],
+  added: [],
+  ...over,
+});
+
+test("editIndex puts the working tree's bytes in, and HEAD's back", () => {
+  const block = place({ at: 1, before: 1, oldBefore: 1, deleted: ["b"], added: ["B"] });
+  const staged = editIndex(block, true, blob("a\r\nb\r\nc\r\n"), blob("a\r\nB\r\nc\r\n"), null);
+  assert.equal(staged?.toString(), "a\r\nB\r\nc\r\n");
+  const back = editIndex(block, false, staged!, blob("a\r\nB\r\nc\r\n"), blob("a\r\nb\r\nc\r\n"));
+  assert.equal(back?.toString(), "a\r\nb\r\nc\r\n");
+});
+
+test("editIndex writes nothing that isn't the block's edit", () => {
+  const block = place({ at: 1, before: 1, oldBefore: 1, deleted: ["b"], added: ["B"] });
+  // The index doesn't hold the block's old line there.
+  assert.equal(editIndex(block, true, blob("a\nx\nc\n"), blob("a\nB\nc\n"), null), null);
+  // Nothing would change.
+  const same = place({ at: 1, before: 1, deleted: ["b"], added: ["b"] });
+  assert.equal(editIndex(same, true, blob("a\nb\nc\n"), blob("a\nb\nc\n"), null), null);
+  // An unstage with no HEAD lines to put back.
+  assert.equal(editIndex(block, false, blob("a\nB\nc\n"), blob("a\nB\nc\n"), null), null);
+  // A line without its ending would be followed by another.
+  const mid = place({ at: 1, before: 1, deleted: ["b"], added: ["B"] });
+  assert.equal(editIndex(mid, true, blob("a\nb\nc\n"), blob("a\nB"), null), null);
 });

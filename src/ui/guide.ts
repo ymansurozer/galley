@@ -9,6 +9,7 @@ import {
   anchorStep,
   carryStep,
   neighborStep,
+  outOfFlowBlocks,
   planSteps,
   slotOutOfFlow,
   stepEntry,
@@ -21,7 +22,7 @@ import { treeOrder } from "./tree";
 import { renderMarkdown } from "./markdown";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
 import type { WalkGroup, WalkRow } from "./walkthrough";
-import type { GuideFile } from "./types";
+import type { ChangeState, GuideFile } from "./types";
 
 // Whether the current review carries an agent-attached guide with at least one file.
 export function hasGuide(): boolean {
@@ -198,6 +199,11 @@ export function stepSlot(step: Step): StepSlot | null {
   const plan = guidePlan(flowIndex());
   const key = stepKey(step);
   return [...plan.listed, ...plan.other].find((s) => stepKey(s.step) === key) ?? null;
+}
+
+// The blocks of the file's steps that left the flow (see outOfFlowBlocks): none without a guide.
+export function skimmedStepBlocks(fileIndex: number): ChangeState[] {
+  return hasGuide() ? outOfFlowBlocks(guidePlan(flowIndex()), fileIndex) : [];
 }
 
 // The step on screen as a slot: what sign-off, its header action and the blockers chip act on.

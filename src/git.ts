@@ -26,6 +26,29 @@ export async function git(args: string[], cwd: string) {
   return String(stdout).trimEnd();
 }
 
+// git's stdout as bytes, untouched: a blob keeps its line endings, and a last line without one.
+export async function gitBytes(args: string[], cwd: string): Promise<Buffer> {
+  const { stdout } = await execFileAsync("git", ["-c", "core.quotePath=false", ...args], {
+    cwd,
+    maxBuffer: MAX_BUFFER,
+    encoding: "buffer",
+  });
+  return stdout;
+}
+
+// Store bytes as a blob exactly as they are (no line-ending conversion); resolves to its id.
+export function writeBlob(content: Buffer, cwd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      "git",
+      ["hash-object", "-w", "--no-filters", "--stdin"],
+      { cwd },
+      (error, stdout) => (error ? reject(error) : resolve(String(stdout).trim())),
+    );
+    child.stdin?.end(content);
+  });
+}
+
 // Thin wrapper around the GitHub CLI, used only to resolve a PR number/URL to its branch.
 // Kept optional: callers catch failures (gh missing or unauthenticated) and report them.
 export async function gh(args: string[], cwd: string) {
@@ -311,40 +334,13 @@ export function changeBlockContent(lines: DiffLine[]) {
   return lines.map((l) => `${l.kind === "add" ? "+" : "-"}${l.text}`).join("\n");
 }
 
-function formatRange(start: number, count: number) {
-  return count === 1 ? String(start) : `${start},${count}`;
-}
-
-// The change block of a diff file a stableKey names: the block whose key it is, else the nearest
-// one of the same side and shape.
+// The change block of a diff file a stableKey names, exactly: a key from an older diff names no
+// block, rather than whichever block now sits nearest it.
 function findChangeBlock(file: DiffFile, stableKey: string) {
-  const requested = stableKey.match(/^(additions|deletions):(\d+):(\d+):(\d+)$/);
-  const requestedSide = requested?.[1];
-  const requestedLine = Number(requested?.[2] ?? 0);
-  const requestedDeletes = Number(requested?.[3] ?? -1);
-  const requestedAdds = Number(requested?.[4] ?? -1);
-  const candidates: Array<{ hunk: DiffHunk; block: DiffLine[]; score: number }> = [];
-  for (const hunk of file.hunks) {
-    for (const block of changeBlocks(hunk)) {
-      if (changeStableKeyFromBlock(block) === stableKey)
-        candidates.push({ hunk, block, score: -1_000_000 });
-      const adds = block.filter((l) => l.kind === "add");
-      const deletes = block.filter((l) => l.kind === "delete");
-      const side = adds.length > 0 ? "additions" : "deletions";
-      const line =
-        side === "additions"
-          ? (adds.at(-1)?.newLine ?? adds[0]?.newLine ?? 0)
-          : (deletes.at(-1)?.oldLine ?? deletes[0]?.oldLine ?? 0);
-      if (requestedSide && side !== requestedSide) continue;
-      let score = Math.abs(line - requestedLine);
-      if (requestedAdds >= 0) score += Math.abs(adds.length - requestedAdds) * 10;
-      if (requestedDeletes >= 0) score += Math.abs(deletes.length - requestedDeletes) * 10;
-      candidates.push({ hunk, block, score });
-    }
-  }
-  const match = candidates.sort((a, b) => a.score - b.score)[0];
-  if (!match) throw new Error(`No matching change found for ${file.newPath}:${stableKey}`);
-  return match;
+  for (const hunk of file.hunks)
+    for (const block of changeBlocks(hunk))
+      if (changeStableKeyFromBlock(block) === stableKey) return { hunk, block };
+  throw new Error(`No change ${stableKey} in the diff of ${file.newPath}`);
 }
 
 // Each change block of a diff file's hunks with the line just before it on each side (0 at the
@@ -379,16 +375,17 @@ const sameTexts = (a: string[], b: string[]) =>
 // now. Staging only edits the index, so the block keeps its place in the working tree. Still
 // pending, `fresh` shows the same edit after the same working-tree line. Staged, `fresh` shows
 // nothing there, and its index line follows from the edits `fresh` still shows above it. `at` is
-// the index line the block's edit goes after. null when the file moved on since the review's diff
-// was taken, so no index write would be the reviewed one: the working tree (`worktree`) no longer
-// holds the block's hunk, or `fresh` shows another edit on or beside the block.
+// the index line the block's edit goes after; `before` and `oldBefore` are the lines before it in
+// the working tree and in the reviewed diff's old side. null when the file moved on since the
+// review's diff was taken, so no index write would be the reviewed one: the working tree
+// (`worktree`) no longer holds the block's hunk, or `fresh` shows another edit on or beside it.
 export function changeInIndex(
   rawDiff: string,
   fresh: string,
   worktree: string,
   filePath: string,
   stableKey: string,
-): { staged: boolean; at: number; deleted: string[]; added: string[] } | null {
+): BlockInIndex | null {
   const ofPath = (f: DiffFile) => (f.newPath ?? f.oldPath) === filePath;
   const reviewed = parseUnifiedDiff(rawDiff).find(ofPath);
   if (!reviewed) throw new Error(`No diff found for ${filePath}`);
@@ -400,9 +397,11 @@ export function changeInIndex(
   if (hunk.lines.some((l) => l.newLine !== undefined && lines[l.newLine - 1] !== l.text))
     return null;
   // findChangeBlock returns one of the hunk's own blocks, so it is placed.
-  const before = placedBlocks([hunk]).find((p) => p.block[0] === block[0])!.newBefore;
+  const own = placedBlocks([hunk]).find((p) => p.block[0] === block[0])!;
+  const before = own.newBefore;
   const deleted = textsOf(block, "delete");
   const added = textsOf(block, "add");
+  const found = { before, oldBefore: own.oldBefore, deleted, added };
   const edits = placedBlocks(parseUnifiedDiff(fresh).find(ofPath)?.hunks ?? []);
   const pending = edits.find(
     (e) =>
@@ -410,7 +409,7 @@ export function changeInIndex(
       sameTexts(textsOf(e.block, "delete"), deleted) &&
       sameTexts(textsOf(e.block, "add"), added),
   );
-  if (pending) return { staged: false, at: pending.oldBefore, deleted, added };
+  if (pending) return { ...found, staged: false, at: pending.oldBefore };
   let at = before;
   for (const e of edits) {
     // Past the block's last working-tree line: no bearing on where it sits.
@@ -420,21 +419,58 @@ export function changeInIndex(
     if (e.newBefore + adds >= before) return null;
     at += e.block.length - 2 * adds;
   }
-  return { staged: true, at, deleted, added };
+  return { ...found, staged: true, at };
 }
 
-// A zero-context patch that replaces the index lines `from`, right after index line `at`, with
-// `to`. git apply starts its search for a hunk at the hunk's + side start, so both sides name `at`:
-// an empty `from` (a pure insertion) lands exactly there, and a non-empty one must match the lines
-// found there.
-export function indexPatch(filePath: string, at: number, from: string[], to: string[]) {
-  return [
-    `diff --git a/${filePath} b/${filePath}`,
-    `--- a/${filePath}`,
-    `+++ b/${filePath}`,
-    `@@ -${formatRange(from.length ? at + 1 : at, from.length)} +${formatRange(at + 1, to.length)} @@`,
-    ...from.map((t) => `-${t}`),
-    ...to.map((t) => `+${t}`),
-    "",
-  ].join("\n");
+export type BlockInIndex = {
+  staged: boolean;
+  at: number;
+  before: number;
+  oldBefore: number;
+  deleted: string[];
+  added: string[];
+};
+
+// A blob's lines, each with its line ending ("\n" or "\r\n"; the last may have none).
+function blobLines(blob: Buffer): Buffer[] {
+  const lines: Buffer[] = [];
+  let start = 0;
+  for (let i = 0; i < blob.length; i++)
+    if (blob[i] === 0x0a) {
+      lines.push(blob.subarray(start, i + 1));
+      start = i + 1;
+    }
+  if (start < blob.length) lines.push(blob.subarray(start));
+  return lines;
+}
+
+// A line's text as a parsed diff carries it: without its line ending.
+const textOf = (line: Buffer) => line.toString("utf8").replace(/\r?\n$/, "");
+
+// The index blob with one change block's edit made (`stage`) or undone, byte for byte. A stage puts
+// in the working tree's lines (as git compares it with the index), and an unstage puts back HEAD's
+// lines where the block's old lines sat, so line endings, and a last line without one, come through
+// as they are. null when the lines there aren't the ones the block names, or the edit would change
+// nothing: no index write is then the reviewed one.
+export function editIndex(
+  place: BlockInIndex,
+  stage: boolean,
+  index: Buffer,
+  worktree: Buffer,
+  head: Buffer | null,
+): Buffer | null {
+  const { at, before, oldBefore, deleted, added } = place;
+  const lines = blobLines(index);
+  const [out, put, inserted] = stage
+    ? [deleted, added, blobLines(worktree).slice(before, before + added.length)]
+    : [added, deleted, head ? blobLines(head).slice(oldBefore, oldBefore + deleted.length) : []];
+  const holds = (got: Buffer[], want: string[]) =>
+    got.length === want.length && got.every((l, i) => textOf(l) === want[i]);
+  if (!holds(lines.slice(at, at + out.length), out) || !holds(inserted, put)) return null;
+  // Only the blob's last line goes without a line ending: none may follow it.
+  const unended = (l: Buffer | undefined) => !!l && l[l.length - 1] !== 0x0a;
+  if (unended(lines[at - 1]) || (unended(inserted.at(-1)) && at + out.length < lines.length))
+    return null;
+  const next = Buffer.concat([...lines.slice(0, at), ...inserted, ...lines.slice(at + out.length)]);
+  return next.equals(index) ? null : next;
 }

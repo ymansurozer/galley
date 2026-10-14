@@ -58,21 +58,37 @@ export function signOff(state: ReviewState, file: ReviewFile) {
 // file: accept its still-pending blocks and sign each of its blocks off. The sign-off that leaves
 // no block of the file unsigned marks the file finished too, so a file whose parts are all signed
 // off is approved (or not) exactly as an unsplit one, in the desk and in the agent's ReviewResult.
-export function signOffStep(state: ReviewState, file: ReviewFile, blocks: ChangeState[]) {
+// `skimmed` are the blocks of the file's steps that left the flow (steps.ts outOfFlowBlocks): the
+// reviewer is never asked to sign those, so the sign-off that leaves only them signs them off too,
+// as an unsplit file's sign-off covers its skimmed blocks. A file with no block in the flow stays
+// out of it, signed off only block by block.
+export function signOffStep(
+  state: ReviewState,
+  file: ReviewFile,
+  blocks: ChangeState[],
+  skimmed: ChangeState[] = [],
+) {
   const path = file.path;
-  state.signedOffBlocks = state.signedOffBlocks || {};
-  for (const c of blocks) {
+  const signed = (state.signedOffBlocks = state.signedOffBlocks || {});
+  const sign = (c: ChangeState) => {
     if (c.status === "pending") {
       c.status = "accepted";
       c.reviewedHash = c.contentHash;
       recordDecision(state, c, "accepted");
     }
-    state.signedOffBlocks[c.id] = c.contentHash ?? "";
-  }
+    signed[c.id] = c.contentHash ?? "";
+  };
+  blocks.forEach(sign);
   state.decisionFiles = state.decisionFiles || [];
   if (!state.decisionFiles.includes(path)) state.decisionFiles.push(path);
-  const signed = state.signedOffBlocks;
-  if (state.changes.some((c) => c.path === path && !blockSignedOff(signed, c))) return;
+  const skimmedIds = new Set(skimmed.map((c) => c.id));
+  const own = state.changes.filter((c) => c.path === path);
+  const unsigned = own.filter((c) => !blockSignedOff(signed, c));
+  if (unsigned.some((c) => !skimmedIds.has(c.id))) return;
+  if (unsigned.length) {
+    if (own.every((c) => skimmedIds.has(c.id))) return;
+    unsigned.forEach(sign);
+  }
   state.reviewedFiles = state.reviewedFiles || [];
   if (!state.reviewedFiles.includes(path)) state.reviewedFiles.push(path);
   state.reviewedFileHashes = state.reviewedFileHashes || {};
