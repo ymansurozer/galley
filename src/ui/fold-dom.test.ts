@@ -205,8 +205,8 @@ test("rows the reviewer unfolded between two folded hunks keep them apart", () =
   assertAligned(columns);
 });
 
-test("a fold's label counts every line it hides and says other parts' changes are in them", () => {
+test("a fold's label counts every line it hides and says other changes are in them", () => {
   const run = (lines: number): FoldRun => ({ hunks: [1], lines, first: false, last: false });
-  assert.equal(foldLabel(run(5 + 3 + 4)), "12 lines · other parts");
-  assert.equal(foldLabel(run(1)), "1 line · other parts");
+  assert.equal(foldLabel(run(5 + 3 + 4)), "12 lines · other changes");
+  assert.equal(foldLabel(run(1)), "1 line · other changes");
 });

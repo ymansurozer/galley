@@ -970,6 +970,23 @@ test("a save from a tab on the pre-reload diff keeps the desk's re-anchored comm
   });
 });
 
+test("a save from a tab on an older diff keeps the comments it added on a file the reload removed", async () => {
+  const live = state({ baseDiffHash: "live", files: [file("a.ts")] });
+  const asked = comment({ id: "q", path: "gone.ts", intent: "question", body: "why?" });
+  const request = comment({ id: "r", path: "gone.ts", intent: "action", body: "rename it" });
+  await mergeReviewerSave(live, {
+    comments: [asked, request],
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: "older" },
+  });
+  assert.deepEqual(
+    live.comments.map((c) => [c.id, c.intent, c.status]),
+    [
+      ["q", "question", "open"],
+      ["r", "action", "open"],
+    ],
+  );
+});
+
 test("a save from a tab on an older diff drops the comments it deleted and keeps the reload's stale marks it didn't resolve", async () => {
   // The reload marked both gone.ts threads stale: their file left the diff. The tab never saw it.
   const live = state({

@@ -527,7 +527,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     ));
   let reloadGeneration = 0;
   // The diff before the latest reload or restart that moved it, for saves from a tab still on it.
-  // Held in memory only; one diff back is as far as a tab's saves are carried (mergeReviewerSave).
+  // Held in memory only: a tab's verdicts carry from one diff back at most, while its comments,
+  // anchored by their lines' text, merge from any older diff (mergeReviewerSave).
   let priorDiff = options.priorDiff;
   // The last diff with blocks, kept while a reload that reverted every edit leaves the desk with
   // none: the next reload carries the guide's part and skim stamps from it (mergeReviewState).

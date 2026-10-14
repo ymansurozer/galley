@@ -447,10 +447,11 @@ export type MovedResolution = { ok: true } | { ok: false; reason: string };
 // the merged entry is rename-CHANGED (contents differ), so the UI derives verdict-only,
 // non-stageable blocks from the content re-diff (no server ChangeState, so /api/stage-change can't
 // touch it). MUST run on `base` BEFORE mergeReviewState, so the merged entry's distinct old/new
-// paths drive the rename migration (issue 01). Mirrors resolveSkim's strict/lenient contract: a NEW
-// guide REJECTS an unresolvable movedFrom naming the entry; a carried-forward guide DROPS it
-// silently (the pair falls back to today's delete+add — a move that no longer holds deserves fresh
-// eyes). Working repo mode only (git -M covers committed renames; file mode has no untracked side).
+// paths drive the rename migration (issue 01). `strict` (a NEW guide) REJECTS an unresolvable
+// movedFrom naming the entry; a carried-forward guide re-resolves its moves against the rebuilt
+// diff and DROPS one that no longer resolves, silently (the pair falls back to today's
+// delete+add — a move that no longer holds deserves fresh eyes). Working repo mode only (git -M
+// covers committed renames; file mode has no untracked side).
 export function resolveMovedFrom(
   state: ReviewState,
   guide: Guide,
@@ -983,18 +984,22 @@ const REVIEWER_SAVE_KEYS = [
 // has keeps the desk's anchor and takes the rest, what the reviewer can change on it, from the tab.
 // Its status too, except that a stale mark the reload gave it (its file left the diff) outlasts the
 // "open" the tab still shows; a resolution the reviewer made is theirs. One new in the tab was
-// placed on the tab's diff, and is carried onto the live one as a reload carries the desk's own. One
-// the tab deleted is gone.
+// placed on the tab's diff, and is re-anchored onto the live one as a reload re-anchors the desk's
+// own. On a file the reload removed from the diff it stays as the tab sent it: open, so a question
+// or a change request made there still reaches the agent, as a question queued before the reload
+// is still delivered (server.ts, stillAsked). One the tab deleted is gone.
 async function mergeStaleComments(desk: ReviewComment[], sent: ReviewComment[], live: ReviewState) {
   const own = new Map(desk.map((c) => [c.id, c]));
+  const renames = renamesIn(live.files);
+  const inDiff = new Set(live.files.map((f) => f.path));
   const fresh = await carryComments(
-    sent.filter((c) => !own.has(c.id)),
+    sent.filter((c) => !own.has(c.id) && inDiff.has(renames.get(c.path) ?? c.path)),
     live,
   );
   const placed = new Map(fresh.map((c) => [c.id, c]));
   return sent.flatMap((c) => {
     const d = own.get(c.id);
-    if (!d) return placed.get(c.id) ?? [];
+    if (!d) return placed.get(c.id) ?? c;
     const { path, side, lineNumber, endLine, anchorText, unanchored } = d;
     const status = d.status === "stale" && c.status === "open" ? d.status : c.status;
     return [{ ...c, path, side, lineNumber, endLine, anchorText, unanchored, status }];
