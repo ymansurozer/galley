@@ -89,3 +89,9 @@ export function deriveFlowIndex(s: IndexedState | null | undefined): FlowIndex {
   };
   return { changesByPath, commentsByPath, fullySkimmed, outOfFlow, finished, reviewState };
 }
+
+// The review is complete once every in-flow file is signed off: fully-skimmed files and pure
+// renames left the flow, so they never block it (and are never auto-approved). One gate for the
+// Send sheet opening after the last approval and for Send Review turning primary.
+export const allSignedOff = (s: IndexedState, ix: FlowIndex) =>
+  s.files.every((f) => ix.outOfFlow.has(f.path) || s.reviewedFiles.includes(f.path));

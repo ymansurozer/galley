@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveFlowIndex } from "./flow-index";
+import { allSignedOff, deriveFlowIndex } from "./flow-index";
 import type { ChangeState, ReviewComment } from "./types";
 
 // flow-index is the bulk mirror of the per-path predicates (fileFullySkimmed/fileOutOfFlow in
@@ -109,6 +109,16 @@ test("flow-index: groups changes and comments by path; absent paths have no entr
   assert.equal(ix.changesByPath.get("block-skim.ts")?.length, 2);
   assert.equal(ix.commentsByPath.get("rejected.ts")?.length, 1);
   assert.equal(ix.changesByPath.get("approved.ts"), undefined);
+});
+
+test("allSignedOff: every in-flow file signed off completes the review; skims and renames never block", () => {
+  const s = state as { reviewedFiles: string[] };
+  assert.equal(allSignedOff(state, deriveFlowIndex(state)), false); // plain.ts, part-skim.ts pending
+  const done = {
+    ...s,
+    reviewedFiles: [...s.reviewedFiles, "plain.ts", "part-skim.ts"],
+  } as never;
+  assert.equal(allSignedOff(done, deriveFlowIndex(done)), true);
 });
 
 test("flow-index: null state derives an empty index", () => {
