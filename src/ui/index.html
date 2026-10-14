@@ -24,21 +24,21 @@
           class="top-name"><div class="top-name-row"><b x-text="$store.g.deskTitle()" :title="$store.g.deskTitle()"></b><span
               class="top-tag" id="progressTag" role="status"></span></div><span
             x-text="$store.g.deskSubtitle()" :title="$store.g.deskSubtitle()"></span></div></div>
-      <!-- The agent's presence (topbar-derive.ts): only while it has something in flight. -->
-      <div class="agent-pill" role="status" x-cloak x-show="$store.g.presence.kind !== 'hidden'"
-        :class="{queued: $store.g.presence.kind === 'notAttached'}" :data-tip="$store.g.presence.line"><svg
-          class="agent-spin" viewBox="0 0 16 16" aria-hidden="true"><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.18"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.3" transform="rotate(45 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.41" transform="rotate(90 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.53" transform="rotate(135 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.64" transform="rotate(180 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.76" transform="rotate(225 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.87" transform="rotate(270 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.99" transform="rotate(315 8 8)"/></svg><i
-          class="agent-off" aria-hidden="true"></i><b class="agent-who">Agent</b><span class="agent-line"
-          x-text="$store.g.presence.line"></span><span class="agent-run" aria-hidden="true"><i></i></span></div>
       <div class="toggles">
-        <!-- Code / UI lane switch: only when the desk has a UI target and a diff. A single-lane desk
-             shows no lane label. -->
+        <!-- Code / App lane switch, centred on the bar: only when the desk has a UI target and a diff.
+             A single-lane desk shows no lane label. -->
         <div class="seg lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / App" data-tip-keys="⇧U"><button
             :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg><span>Code</span></button><button
             :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg><span>App</span></button></div>
       </div>
-      <div class="actions"><button class="btn icon top-settings" data-tip="Settings" data-tip-keys="⇧," @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
-          class="btn quiet danger reset-review" data-tip="Reset review" data-tip-keys="⇧R" aria-label="Reset review" @click="$store.g.reset()"><svg class="ic"><use href="#gly-refresh"></use></svg><span>Reset review</span></button><span
+      <div class="actions"><button class="btn icon top-settings" data-tip="Settings" data-tip-keys="⇧," @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button>
+        <!-- The agent's presence (topbar-derive.ts): only while it has something in flight. -->
+        <div class="agent-pill" role="status" x-cloak x-show="$store.g.presence.kind !== 'hidden'"
+          :class="{queued: $store.g.presence.kind === 'notAttached'}" :data-tip="$store.g.presence.line"><svg
+            class="agent-spin" viewBox="0 0 16 16" aria-hidden="true"><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.18"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.3" transform="rotate(45 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.41" transform="rotate(90 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.53" transform="rotate(135 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.64" transform="rotate(180 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.76" transform="rotate(225 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.87" transform="rotate(270 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.99" transform="rotate(315 8 8)"/></svg><i
+            class="agent-off" aria-hidden="true"></i><b class="agent-who">Agent</b><span class="agent-line"
+            x-text="$store.g.presence.line"></span><span class="agent-run" aria-hidden="true"><i></i></span></div><button
+          class="btn quiet danger reset-review" data-tip="Reset Review" data-tip-keys="⇧R" aria-label="Reset Review" @click="$store.g.reset()"><svg class="ic"><use href="#gly-refresh"></use></svg><span>Reset Review</span></button><span
           class="top-done">100%</span><button class="btn send-review" :class="{primary: $store.g.reviewDone && !$store.g.awaitingAgent}"
           :disabled="$store.g.awaitingAgent" @click="$store.g.confirmSend()"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg><span
             x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send Review'">Send Review</span> <kbd x-keys>⇧S</kbd></button></div>
