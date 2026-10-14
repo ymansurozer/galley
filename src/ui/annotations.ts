@@ -246,12 +246,12 @@ export function buildCommentThread(
             const editing = S.editingCommentId === m.id;
             const edited =
               m.updatedAt && m.createdAt && m.updatedAt !== m.createdAt ? " · edited" : "";
+            // Only a change request wears a badge; a question reads as a plain message (its
+            // awaiting line says when it's still waiting on the agent).
             const badge =
-              own && m.intent === "question"
-                ? '<span class="intent-badge q">Question</span>'
-                : own && m.intent === "action"
-                  ? '<span class="intent-badge a">Change requested</span>'
-                  : "";
+              own && m.intent === "action"
+                ? '<span class="intent-badge a">Change requested</span>'
+                : "";
             const awaiting = own && m.intent === "question" && !answered(m, c.comments);
             // Only the opening message carries the thread's kind, so only it turns.
             const into = i === 0 ? turnsInto(m) : null;

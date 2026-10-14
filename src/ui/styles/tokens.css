@@ -66,9 +66,10 @@
   --red-ink: #ff6b62;
   --red-wash: rgb(255 69 58 / 0.13);
 
-  /* Filled buttons: a deep accent ground under a white label, the same in both themes. Every
-     step keeps the label at 4.5:1 or better — rest / hover / pressed: green 5.3 / 4.6 / 6.5,
-     orange 5.1 / 4.5 / 6.2, blue 5.2 / 4.6 / 6.3. Hover lifts toward the hue, pressed sinks. */
+  /* Filled buttons: the ground under a white label, at rest / hover / pressed. Dark deepens
+     the hues so the label holds 4.5:1 or better on a dark desk — green 5.3 / 4.6 / 6.5, orange
+     5.1 / 4.5 / 6.2, blue 5.2 / 4.6 / 6.3 — with hover a step brighter and pressed a step
+     deeper. */
   --green-fill: #1e7b39;
   --green-fill-hover: #22873f;
   --green-fill-pressed: #196c31;
@@ -171,6 +172,17 @@
   --red: #ff3b30;
   --red-ink: #c22a20;
   --red-wash: rgb(255 59 48 / 0.08);
+
+  /* Light keeps the system hues, as a Mac accent button does; hover and pressed step deeper. */
+  --green-fill: #34c759;
+  --green-fill-hover: #30b752;
+  --green-fill-pressed: #2ca74b;
+  --orange-fill: #ff9500;
+  --orange-fill-hover: #eb8900;
+  --orange-fill-pressed: #d67d00;
+  --blue-fill: #007aff;
+  --blue-fill-hover: #0070eb;
+  --blue-fill-pressed: #0066d6;
 
   --shadow-control: 0 0 0 0.5px var(--sep-strong), 0 1px 1.5px rgb(0 0 0 / 0.07);
   --shadow-float:

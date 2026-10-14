@@ -57,7 +57,7 @@
     0 1px 2px rgb(0 0 0 / 0.2);
 }
 
-/* Hover lifts the ground a step and haloes it in its own hue (the label keeps its contrast). */
+/* Hover steps the ground (the *-fill-hover token) and haloes it in its own hue. */
 .btn.primary:hover {
   background: var(--btn-bg-hover);
   box-shadow:
