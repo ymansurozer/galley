@@ -20,7 +20,7 @@ import {
   fileFinished,
   fileObjections,
 } from "./changes";
-import { approveCurrentFile, toggleSignOff } from "./decisions";
+import { toggleSignOff } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
@@ -154,7 +154,6 @@ S.selectFile = async (i) => {
   S.overviewOpen = false;
   S.view = "code"; // like the Overview, the UI view is an alternate centre a file selection leaves
   S.preview = null;
-  S.diffScrolled = false; // the new file renders at the top (see render.ts) — hide the floating action
   S.fileIndex = i;
   S.fileView = defaultFileView(S.state.files[i]);
   D.fileDiff = null;
@@ -247,16 +246,6 @@ S.setFileView = (view) => {
   S.fileView = view;
   D.fileDiff = null;
   render();
-};
-// Floating sign-off button (mirrors the header's ⇧A action): shown only once the diff is
-// scrolled past its header, and only for a pending changed file — not the Overview, a preview
-// (unchanged, not approvable), or an already-finished file (which offers Reset, not Approve).
-S.approveFile = () => approveCurrentFile();
-S.fabState = () => {
-  if (S.overviewOpen || S.preview) return null;
-  const path = S.state?.files?.[S.fileIndex]?.path;
-  if (!path || fileFinished(path)) return null;
-  return fileObjections(path) ? "changes" : "clean";
 };
 // A double-click's second click would undo the sign-off its first one made. The hint re-reads at
 // once: the pointer is still on the icon, which now does the opposite.
@@ -637,12 +626,6 @@ void render().finally(firstRenderDone);
 // Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,
 // so the lane chrome appears at once.
 requestAnimationFrame(() => (S.ready = true));
-// Reveal the floating Approve button once the diff scrolls past its (non-sticky) header. #diff
-// is the persistent scroll container (x-ignore), so this listener is attached once and survives
-// every re-render/file switch.
-$("diff").addEventListener("scroll", () => {
-  S.diffScrolled = $("diff").scrollTop > 140;
-});
 // A resize reflows line heights (and wrap), so the cursor's cached row measurements no longer
 // hold — drop the cache so the next navigation re-measures. (Scroll doesn't: the cached tops are
 // content-relative, so scrolling leaves the row list unchanged — see cursor.ts.)

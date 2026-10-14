@@ -128,11 +128,6 @@
           <div id="diff" x-ignore></div>
           <div class="ovr" id="ovr" x-ignore></div>
           <div class="diff-rendering" x-show="$store.g.rendering" x-cloak><span>Rendering…</span></div>
-          <button class="diff-fab fill" x-cloak
-            x-show="$store.g.fabState && $store.g.diffScrolled && $store.g.fabState()"
-            :class="{warn: $store.g.fabState && $store.g.fabState()==='changes'}"
-            @click="$store.g.approveFile && $store.g.approveFile()"><span
-              x-text="$store.g.fabState && $store.g.fabState()==='changes' ? 'Mark Reviewed' : 'Approve'">Approve</span> <kbd x-keys>⇧A</kbd></button>
         </div>
         <!-- The UI view: the proxied app under a browser-chrome bar (in the guide bar's slot). The
              iframe is created by appview.ts inside #appFrame and stays alive across view switches;

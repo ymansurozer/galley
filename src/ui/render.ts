@@ -32,7 +32,7 @@ import {
 } from "./skim";
 import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
 import { diffShadowRoot } from "./diff-dom";
-import { fileLead, renderFileBar } from "./filebar";
+import { fileEnd, fileLead, renderFileBar } from "./filebar";
 
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
 // side (the new side reuses the server's contentHash). Same content → same key → cache hit.
@@ -271,6 +271,7 @@ async function renderCenter() {
     applyLayoutClasses();
     renderMarkdownFile();
     withBar();
+    host.append(fileEnd());
     return;
   }
   // A pure rename (identical content, distinct paths) has no diff to show — render the muted
@@ -419,17 +420,21 @@ async function renderCenter() {
   }
   D.diffCache.set(key, entry);
   D.instance = entry.inst;
-  // Mount this file's wrapper under its bar and lead (replaceChildren detaches the
-  // previously-active wrapper — it lives on in the Map — and removes any overview/markdown
+  // Mount this file's wrapper between its bar + lead and its end row (replaceChildren detaches
+  // the previously-active wrapper — it lives on in the Map — and removes any overview/markdown
   // content). A same-file re-render leaves the wrapper attached and swaps only what surrounds it,
-  // so the diff isn't detached/reattached and the scroll stays put.
+  // so the diff isn't detached/reattached and the scroll stays put. A preview has neither lead nor
+  // end row: it isn't in the review.
   const bar = renderFileBar(fd);
   const lead = previewing ? null : fileLead();
+  const end = previewing ? null : fileEnd();
   const mountedNew = entry.wrapper.parentNode !== host;
-  if (mountedNew) host.replaceChildren(bar, ...(lead ? [lead] : []), entry.wrapper);
+  if (mountedNew)
+    host.replaceChildren(bar, ...(lead ? [lead] : []), entry.wrapper, ...(end ? [end] : []));
   else {
     for (const el of Array.from(host.children)) if (el !== bar && el !== entry.wrapper) el.remove();
     if (lead) entry.wrapper.before(lead);
+    if (end) entry.wrapper.after(end);
   }
   entry.inst.setLineAnnotations?.(anns());
   await entry.inst.render({

@@ -25,19 +25,6 @@
   display: flex;
 }
 
-/* Floating sign-off: the header's Approve/Mark-reviewed scrolls out of view on a long file,
-   so mirror it in the SAME spot — pinned to the diff pane's top-right — revealed once scrolled
-   (diffScrolled). Styled like the header's .diff-header-action so it reads as the same button
-   staying put, not a new affordance; a soft shadow lifts it off the code it floats over. */
-.diff-fab {
-  position: absolute;
-  top: 12px;
-  right: 20px;
-  z-index: 9;
-  font-family: var(--sans);
-  cursor: pointer;
-}
-
 /* VSCode-style change overview: green/red ticks mapping the whole file to the gutter,
    so changes are visible in one skim. Shown only in "expand unchanged" mode. */
 .ovr {

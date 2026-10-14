@@ -6,9 +6,9 @@ import { unanchoredThreads } from "./unanchored";
 import { approveCurrentFile, resetReview } from "./decisions";
 import { blockersChip, fileBlockers } from "./blockers";
 import { renderMarkdown } from "./markdown";
-import { currentGuideEntry } from "./guide";
+import { currentGuideEntry, nextFileIndex } from "./guide";
 import { isFileSkim, isFileSkimCollapsed, movedFrom, toggleFileSkim } from "./skim";
-import { keycapsHtml } from "./keycaps";
+import { keycapsHtml, keycapsNode } from "./keycaps";
 import { fileBarActions, splitPath } from "./filebar-derive";
 
 // ── The open file's bar ──────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ function openEditorButton(): HTMLElement {
 
 // The file's one filled button: Approve File (clean, green) or Mark Reviewed (it carries a
 // rejected change or an open change request, orange). Either signs off and advances.
-export function signOffButton(objections: boolean): HTMLElement {
+function signOffButton(objections: boolean): HTMLElement {
   const b = document.createElement("button");
   b.className = "signoff fill" + (objections ? " warn" : "");
   b.innerHTML = `${objections ? "Mark Reviewed" : "Approve File"} ${keycapsHtml("⇧A")}`;
@@ -105,7 +105,7 @@ export function signOffButton(objections: boolean): HTMLElement {
 }
 
 // A finished file's quiet state, in place of the button that signed it off.
-export function signedOffState(objections: boolean): HTMLElement {
+function signedOffState(objections: boolean): HTMLElement {
   const el = document.createElement("span");
   el.className = "fb-state " + (objections ? "warn" : "ok");
   el.innerHTML = objections
@@ -221,6 +221,31 @@ export function renderFileBar(fd?: FileDiffMetadata): HTMLElement {
   sep.className = "fb-sep";
   el.replaceChildren(...lead, openEditorButton(), grow, counts, sep, fileActions(f.path));
   return el;
+}
+
+// The row after the file's last line: "End of <file> · next: <file> ⇧→" and the file's sign-off,
+// so a reviewer who read to the bottom acts there instead of scrolling back to the bar. Next is
+// the file ⇧→ opens in review order, left out on the last file (⇧→ only wraps from there). A
+// finished file shows its quiet state in the button's place; Reset stays in the bar.
+export function fileEnd(): HTMLElement {
+  const path = currentFile().path;
+  const row = document.createElement("div");
+  row.className = "file-end";
+  const text = document.createElement("span");
+  text.className = "fe-text";
+  const name = document.createElement("b");
+  name.textContent = splitPath(path).name;
+  text.append("End of ", name);
+  const n = nextFileIndex(S.fileIndex);
+  const next = n === null ? null : S.state.files[n];
+  if (next) {
+    const go = button("fe-next", splitPath(next.path).name, () => S.nextFile?.());
+    go.title = next.path;
+    text.append(" · next: ", go, keycapsNode(document, "⇧→"));
+  }
+  const objections = fileObjections(path);
+  row.append(text, fileFinished(path) ? signedOffState(objections) : signOffButton(objections));
+  return row;
 }
 
 // What reads before the diff, under the bar and scrolling with the code: the guide's note on this

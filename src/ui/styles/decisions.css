@@ -66,11 +66,10 @@
   color: var(--green-ink);
 }
 
-/* Approve File / Mark Reviewed — the open file's sign-off (filebar.ts), and the only filled
-   button in the code view: green when the file is clean, orange when it carries objections. The
-   floating copy wears the same fill. */
-.signoff,
-.diff-fab {
+/* Approve File / Mark Reviewed — the open file's sign-off (filebar.ts: the bar and the end
+   row), and the only filled button in the code view: green when the file is clean, orange when
+   it carries objections. */
+.signoff {
   --btn-bg: var(--green-fill);
   --btn-bg-hover: var(--green-fill-hover);
   --btn-bg-pressed: var(--green-fill-pressed);
@@ -95,15 +94,13 @@
     box-shadow 0.15s;
 }
 
-.signoff.warn,
-.diff-fab.warn {
+.signoff.warn {
   --btn-bg: var(--orange-fill);
   --btn-bg-hover: var(--orange-fill-hover);
   --btn-bg-pressed: var(--orange-fill-pressed);
 }
 
-.signoff:hover,
-.diff-fab:hover {
+.signoff:hover {
   background: var(--btn-bg-hover);
   color: var(--on-fill);
   box-shadow:
@@ -111,17 +108,9 @@
     0 0 0 3px color-mix(in srgb, var(--btn-bg-hover) 28%, transparent);
 }
 
-.signoff:active,
-.diff-fab:active {
+.signoff:active {
   background: var(--btn-bg-pressed);
   box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
-}
-
-/* The floating copy also lifts off the code it floats over. */
-.diff-fab:not(:active, :hover) {
-  box-shadow:
-    inset 0 0.5px 0 rgb(255 255 255 / 0.2),
-    0 4px 14px rgb(0 0 0 / 0.25);
 }
 
 /* The "N blockers" chip + jump list: what keeps a file from Approved, one click away. An orange
