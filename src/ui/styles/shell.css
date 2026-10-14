@@ -567,7 +567,6 @@ body.file-mode .nav-toggle {
   cursor: col-resize;
   min-width: 1px;
   position: relative;
-  transition: background-color 0.15s;
 }
 
 .resizer:before {

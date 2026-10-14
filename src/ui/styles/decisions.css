@@ -129,9 +129,6 @@
   box-shadow:
     inset 0 0.5px 0 rgb(255 255 255 / 0.2),
     0 1px 2px rgb(0 0 0 / 0.2);
-  transition:
-    background-color 0.15s,
-    box-shadow 0.15s;
 }
 
 .signoff.warn {
@@ -168,7 +165,6 @@
   font-weight: 600;
   white-space: nowrap;
   color: var(--orange-ink);
-  transition: background-color 0.15s;
 }
 
 .blockers-chip:hover,
