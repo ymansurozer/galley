@@ -32,6 +32,7 @@ import type {
   UiSource,
   UiTarget,
 } from "../types";
+import type { Step } from "./steps";
 import type { WalkRow } from "./walkthrough";
 
 export type Side = "additions" | "deletions";
@@ -236,6 +237,9 @@ export interface Store {
   collapsedDirs: Set<string>;
   diffStyle: DiffStyle;
   fileIndex: number;
+  // The current step's part of state.files[fileIndex] (see steps.ts): a guide-entry index, "rest",
+  // or undefined for the whole file. Set only by selectStep (and reseatStep after a reload).
+  stepPart: Step["part"];
   // A non-review file (e.g. an unchanged file) the reviewer opened to read/comment on.
   // When set, it's the "current file" instead of state.files[fileIndex].
   preview: PreviewFile | null;
@@ -338,8 +342,9 @@ export interface Store {
   shotView: { id: string; kind: "crop" | "viewport" } | null;
 
   treeRows?: () => TreeRow[];
-  // Both resolve once the file has rendered.
+  // Both resolve once the file has rendered. selectFile opens the whole file; selectStep a step.
   selectFile?: (i: number) => Promise<void>;
+  selectStep?: (step: Step) => Promise<void>;
   previewFile?: (path: string) => Promise<void>;
   toggleDir?: (full: string, changed: boolean) => void;
   toggleAllDirs?: () => void;

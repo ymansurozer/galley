@@ -28,7 +28,7 @@ import { blockersChip } from "./blockers";
 import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
 import { renderMarkdown } from "./markdown";
 import { cursorResync, cursorReset, invalidateCursorRows } from "./cursor";
-import { hasGuide, renderOverview, currentGuideEntry } from "./guide";
+import { hasGuide, renderOverview, currentFileParts, currentGuideEntry } from "./guide";
 import { updateProgress } from "./progress";
 import {
   applySkimCollapse,
@@ -97,9 +97,10 @@ export function deferRender(forceIfBig = false): Promise<void> {
     ),
   );
 }
-// Identity of a rendered diff for the LRU cache: the current file + every option that changes
-// what @pierre renders. selectFile uses this to tell if re-opening a file will be a fast cache
-// hit (→ skip the "Rendering…" indicator). Reads currentFile(), so call after fileIndex is set.
+// Identity of a rendered diff for the LRU cache: the current step (file + part) + every option
+// that changes what @pierre renders. selectFile uses this to tell if re-opening a file will be a
+// fast cache hit (→ skip the "Rendering…" indicator). Reads currentFile(), so call after fileIndex
+// is set. Each part of a split file is its own entry: its header carries that part's guidance.
 export function diffKey(previewing: boolean): string {
   const f = currentFile();
   return JSON.stringify([
@@ -115,6 +116,7 @@ export function diffKey(previewing: boolean): string {
     // appearance flips @pierre's themeType, so a cached diff must invalidate on it
     S.settings.appearance,
     !!currentGuideEntry(),
+    previewing ? null : (S.stepPart ?? null),
   ]);
 }
 // @pierre mounts its icon sprite into each diff's shadow root, so a light-DOM `<use>` can't
@@ -464,9 +466,11 @@ async function renderCenter() {
   };
   // Our custom diff header (all changed-file modes): row 1 preserves @pierre's look —
   // change-type icon + filename + a subtle Split/Stacked toggle + counts + actions. With a
-  // guide, row 2 (left-aligned) adds the category + AI guidance.
+  // guide, row 2 (left-aligned) adds the category + AI guidance — on a part step, that part's
+  // own; on a split file's Rest or whole-file view, one muted line saying what's shown instead.
   const fileHeader = (file: FileDiffMetadata) => {
     const entry = currentGuideEntry();
+    const parts = currentFileParts();
     const wrap = document.createElement("div");
     wrap.className = "ghdr";
     wrap.style.setProperty("--ct-color", ctColor(file?.type));
@@ -478,6 +482,15 @@ async function renderCenter() {
     name.className = "ghdr-file";
     name.textContent = currentFile().path;
     row1.appendChild(name);
+    // A step of a split file names its part (or "Rest") beside the path.
+    const partLabel = S.stepPart === "rest" ? "Rest" : (entry?.part?.title ?? "");
+    if (partLabel) {
+      const label = document.createElement("span");
+      label.className = "ghdr-part";
+      label.title = partLabel;
+      label.textContent = partLabel;
+      row1.appendChild(label);
+    }
     // Rename+edit files (git -M): note where the file moved from, right of the new path.
     const from = movedFrom(currentFile().path);
     if (from) {
@@ -539,6 +552,17 @@ async function renderCenter() {
         guide.appendChild(flag);
       }
       wrap.appendChild(guide);
+    } else if (S.stepPart === "rest" || parts.length) {
+      // No single part speaks for these, so no orientation card — one muted line says what the
+      // view holds, so it never reads as the agent's guidance.
+      const note = document.createElement("div");
+      note.className = "ghdr-note";
+      const base = currentFile().path.split("/").pop();
+      note.textContent =
+        S.stepPart === "rest"
+          ? `Rest of ${base}: the changes no part of the guide covers.`
+          : `Split into ${parts.length} part${parts.length === 1 ? "" : "s"}: ${parts.join(" · ")}`;
+      wrap.appendChild(note);
     }
     // Open threads whose anchor line no longer renders — shown as the diff's first row,
     // below the action bar, so they stay actionable (they block approval until resolved).

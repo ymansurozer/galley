@@ -35,7 +35,7 @@ import {
   readGlobalSettings,
   replyToAnnotation,
   resolveMovedFrom,
-  resolveSkim,
+  resolveGuide,
   reviewDir,
   syncGitState,
   uiQuestionPayload,
@@ -962,33 +962,27 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               );
           }
           // The merge carries the old guide forward; a provided guide replaces it, stamped
-          // against the just-rebuilt diff so it isn't born stale. Resolve skim spans + reject a
-          // bad NEW guide (strict) BEFORE committing the merge onto the live state, so a rejected
-          // reload leaves the desk untouched. A guide carried forward re-resolves leniently —
-          // stale spans drop, they never fail a reload (see resolveSkim's strict/lenient split).
+          // against the just-rebuilt diff so it isn't born stale. Resolve skim + part spans and
+          // reject a bad NEW guide (strict) BEFORE committing the merge onto the live state, so a
+          // rejected reload leaves the desk untouched. A guide carried forward re-resolves
+          // leniently — stale spans drop, they never fail a reload (see resolveSkim/resolveParts).
           const merged = await mergeReviewState(base, state);
           // merged.rawDiff shares identity with base.rawDiff, so the parse seeded on `base` (via
-          // buildReviewState) is the one resolveSkim needs — pass it so the reload parses once (06).
+          // buildReviewState) is the one resolveGuide needs — pass it so the reload parses once (06).
           const parsed = parsedDiffOf(base);
           if (validatedGuide) {
             merged.guide = { ...validatedGuide, baseDiffHash: merged.baseDiffHash };
-            const skim = resolveSkim(
-              merged.rawDiff,
-              merged.changes,
-              merged.guide,
-              { strict: true },
-              parsed,
-            );
-            if (!skim.ok)
+            const resolved = resolveGuide(merged, merged.guide, { strict: true }, parsed);
+            if (!resolved.ok)
               return fail(
                 res,
                 422,
                 "INVALID_GUIDE",
-                `Invalid guide: ${skim.reason}.`,
+                `Invalid guide: ${resolved.reason}.`,
                 "Run `galley spec` for the guided-review schema.",
               );
           } else if (merged.guide) {
-            resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: false }, parsed);
+            resolveGuide(merged, merged.guide, { strict: false }, parsed);
           }
           if (merged.baseDiffHash !== state.baseDiffHash)
             priorDiff = { baseDiffHash: state.baseDiffHash, changes: state.changes };

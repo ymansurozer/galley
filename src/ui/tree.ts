@@ -3,6 +3,7 @@ import { flowIndex } from "./changes";
 import type { FlowIndex } from "./flow-index";
 import { movedFrom, isSkimGroupExpanded } from "./skim";
 import { fileTree, treeFileOrder, walkTree } from "./tree-derive";
+import { walkKey } from "./walkthrough";
 import type { TreeRow, TreeNode, TreeFile, FileRow } from "./types";
 
 // Every directory path in the tree (independent of current open/closed state) — used by
@@ -235,10 +236,10 @@ export function applyLayoutClasses() {
   document.body.classList.toggle("file-mode", S.state.mode === "file");
 }
 
-// The file the sidebar last followed. Following runs only when the active file changes, not on
-// every render()'s re-apply — so a decision or a reload never re-opens a folder the reviewer
-// collapsed, or scrolls back a sidebar they scrolled away. (A tab switch re-scrolls without
-// re-revealing — see showActiveRow.)
+// The step the sidebar last followed (path + part). Following runs only when the active step
+// changes, not on every render()'s re-apply — so a decision or a reload never re-opens a folder
+// the reviewer collapsed, or scrolls back a sidebar they scrolled away. (A tab switch re-scrolls
+// without re-revealing — see showActiveRow.)
 let followed: string | null = null;
 
 // The sidebar's "active" highlight, patched in place instead of derived in the row models.
@@ -249,20 +250,30 @@ let followed: string | null = null;
 // so freshly re-keyed rows get the class back — Alpine's :class diff only removes classes it
 // added itself, so this manual class survives binding re-evaluation on reused elements).
 // No file is "active" on the Overview; a previewed file wins over the indexed review file.
-// It is also the one place the sidebar follows the active file (followActiveRow), whatever moved
+// The Files tree marks the file; the Walkthrough marks the step's own row — a part's, or the
+// Rest's — and, for a file opened whole, every row of that file (a split file has one per part).
+// It is also the one place the sidebar follows the active step (followActiveRow), whatever moved
 // it — a click, ⇧←/→, ⌘⇧↑/↓, approve-advance, a wrap seek.
 export function applyActiveRow() {
   const path = S.overviewOpen
     ? null
     : (S.preview?.path ?? S.state?.files?.[S.fileIndex]?.path ?? null);
+  const part = S.preview ? undefined : S.stepPart;
   for (const el of document.querySelectorAll("#files .node.active, #walk .node.active"))
     el.classList.remove("active");
-  if (path)
-    for (const key of [`file:${path}`, `test:${path}`])
-      for (const el of document.querySelectorAll(`.node[data-key="${CSS.escape(key)}"]`))
-        el.classList.add("active");
-  if (path === followed) return;
-  followed = path;
+  if (path) {
+    const rows = [
+      `#files .node[data-key="${CSS.escape(`file:${path}`)}"]`,
+      `#files .node[data-key="${CSS.escape(`test:${path}`)}"]`,
+      part === undefined
+        ? `#walk .node[data-path="${CSS.escape(path)}"]`
+        : `#walk .node[data-key="${CSS.escape(walkKey(path, part))}"]`,
+    ];
+    for (const el of document.querySelectorAll(rows.join(", "))) el.classList.add("active");
+  }
+  const key = path === null ? null : `${path}\n${part ?? ""}`;
+  if (key === followed) return;
+  followed = key;
   if (path) followActiveRow(path);
 }
 

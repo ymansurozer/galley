@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { DiffHunk, GuideFile } from "../types.js";
+import type { ChangeState, DiffHunk, GuideFile } from "../types.js";
 import type { FileReviewState } from "./types.js";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough.js";
 
@@ -192,8 +192,8 @@ test("walkRows: a repeated category yields distinct keys and per-occurrence jump
   // Keys must be unique so Alpine's x-for never reuses a header DOM node across runs.
   assert.equal(new Set(cats.map((c) => c.key)).size, cats.length);
   // Each Core header jumps to ITS OWN file (diff indices: a.ts=1, c.ts=2), not the first Core.
-  assert.equal(cats[0]!.kind === "cat" && cats[0]!.jumpIndex, 1);
-  assert.equal(cats[2]!.kind === "cat" && cats[2]!.jumpIndex, 2);
+  assert.equal(cats[0]!.kind === "cat" && cats[0]!.jump.fileIndex, 1);
+  assert.equal(cats[2]!.kind === "cat" && cats[2]!.jump.fileIndex, 2);
 });
 
 test("walkthroughGroups gathers fully-skimmed files into one trailing Skimmed group", () => {
@@ -274,7 +274,7 @@ test("walkRows: a category-header jumpIndex prefers the group's first pending fi
     (p) => (p === "core/a.ts" ? "approved" : "pending"),
   );
   const cat = walkRows(groups, null).find((r) => r.kind === "cat");
-  assert.equal(cat!.kind === "cat" && cat!.jumpIndex, 2);
+  assert.equal(cat!.kind === "cat" && cat!.jump.fileIndex, 2);
 });
 
 test("walkthroughGroups: a pure rename gets movedFrom and folds into the Skimmed group (issue 01)", () => {
@@ -295,4 +295,129 @@ test("walkthroughGroups: a pure rename gets movedFrom and folds into the Skimmed
   assert.equal(skim!.files[0]!.movedFrom, "lib/old.ts"); // drives the "← old" arrow
   const core = groups.find((g) => g.category === "Core");
   assert.equal(core!.files[0]!.movedFrom, ""); // a normal edit is not a rename
+});
+
+// ── Guide parts: a split file walks as one row per part, plus its Rest ───────
+// account.ts is split into Fees (guide entry 0, Billing) and Lockout (entry 2, Auth); a.ts sits
+// between them. Block counts ride the stableKey (`side:line:deletions:additions`).
+function partEntry(title: string, category: string): GuideFile {
+  return guideFile("src/account.ts", category, { part: { title, lines: [1] } });
+}
+const SPLIT_GUIDE = [
+  partEntry("Fees", "Billing"),
+  guideFile("a.ts", "Core"),
+  partEntry("Lockout", "Auth"),
+];
+const SPLIT_FILES = [file("a.ts", "a"), file("src/account.ts", "aaaddaad")];
+function block(stableKey: string, part?: number, skim = false): ChangeState {
+  return {
+    id: `src/account.ts:${stableKey}`,
+    path: "src/account.ts",
+    hunkIndex: 0,
+    side: "additions",
+    lineNumber: 1,
+    title: "",
+    stableKey,
+    status: "pending",
+    ...(part === undefined ? {} : { part }),
+    ...(skim ? { skim: {} } : {}),
+  };
+}
+const blocksOf =
+  (blocks: ChangeState[]) =>
+  (path: string): ChangeState[] =>
+    path === "src/account.ts" ? blocks : [];
+
+test("walkthroughGroups gives each part of a split file its own row, in its own category", () => {
+  const groups = walkthroughGroups(
+    SPLIT_GUIDE,
+    SPLIT_FILES,
+    allPending,
+    () => false,
+    blocksOf([
+      block("additions:10:0:3", 0),
+      block("additions:20:1:1", 0),
+      block("deletions:40:2:0", 2),
+    ]),
+  );
+  assert.deepEqual(
+    groups.map((g) => [g.category, g.files.map((f) => [f.name, f.partTitle, f.part])]),
+    [
+      ["Billing", [["account.ts", "Fees", 0]]],
+      ["Core", [["a.ts", "", undefined]]],
+      ["Auth", [["account.ts", "Lockout", 2]]],
+    ],
+  );
+  // Each part counts only its own blocks: Fees +3 −0 and +1 −1, Lockout −2.
+  const [fees, lockout] = [groups[0]!.files[0]!, groups[2]!.files[0]!];
+  assert.deepEqual([fees.added, fees.removed], [4, 1]);
+  assert.deepEqual([lockout.added, lockout.removed], [0, 2]);
+  assert.deepEqual([groups[0]!.added, groups[0]!.removed], [4, 1]);
+  assert.equal(
+    groups.some((g) => g.other),
+    false,
+    "every block is claimed: no Rest row",
+  );
+});
+
+test("walkthroughGroups puts a Rest row in Other only while a block is unclaimed", () => {
+  const groups = walkthroughGroups(
+    SPLIT_GUIDE,
+    [...SPLIT_FILES, file("stray.ts", "a")],
+    allPending,
+    () => false,
+    blocksOf([
+      block("additions:10:0:3", 0),
+      block("additions:40:0:1", 2),
+      block("additions:60:2:5"),
+    ]),
+  );
+  const other = groups.find((g) => g.other)!;
+  assert.deepEqual(
+    other.files.map((f) => [f.path, f.part, f.added, f.removed]),
+    [
+      ["src/account.ts", "rest", 5, 2],
+      ["stray.ts", undefined, 1, 0],
+    ],
+  );
+  assert.equal(other.files[0]!.orientation, "", "Rest carries no part's orientation");
+});
+
+test("walkthroughGroups sends a fully skimmed part to Skimmed and keeps its sibling in the flow", () => {
+  const groups = walkthroughGroups(
+    SPLIT_GUIDE,
+    SPLIT_FILES,
+    allPending,
+    () => false, // the file as a whole is not fully skimmed
+    blocksOf([block("additions:10:0:3", 0, true), block("additions:40:0:1", 2)]),
+  );
+  assert.deepEqual(
+    groups.map((g) => [g.category, g.files.map((f) => f.partTitle || f.name)]),
+    [
+      ["Core", ["a.ts"]],
+      ["Auth", ["Lockout"]],
+      ["Skimmed", ["Fees"]],
+    ],
+  );
+});
+
+test("walkRows keys each part row apart and a category header jumps to the part's step", () => {
+  const groups = walkthroughGroups(
+    SPLIT_GUIDE,
+    SPLIT_FILES,
+    allPending,
+    () => false,
+    blocksOf([
+      block("additions:10:0:3", 0),
+      block("additions:40:0:1", 2),
+      block("additions:60:0:1"),
+    ]),
+  );
+  const rows = walkRows(groups, null);
+  assert.deepEqual(
+    rows.filter((r) => r.kind === "file").map((r) => r.key),
+    ["part:0:src/account.ts", "file:a.ts", "part:2:src/account.ts", "rest:src/account.ts"],
+  );
+  const auth = rows.find((r) => r.kind === "cat" && r.category === "Auth");
+  assert.deepEqual(auth!.kind === "cat" && auth!.jump, { fileIndex: 1, part: 2 });
 });

@@ -3,7 +3,7 @@ import { currentFile, fromDisplayLine, toDisplayLine } from "./changes";
 import { isUnanchored } from "./unanchored";
 import { flashThread, jumpToBlocker } from "./blockers";
 import { cursorOn, cursorReset, cursorSelection } from "./cursor";
-import { hasGuide, reviewFileOrder } from "./guide";
+import { hasGuide, reviewSteps } from "./guide";
 import { isFileSkimCollapsed, toggleFileSkim } from "./skim";
 import { openRequestCount, requestStops, stepRequest, type RequestStop } from "./requests-derive";
 
@@ -43,7 +43,12 @@ function here(): RequestStop | null {
 }
 
 export function stepOpenRequest(dir: 1 | -1) {
-  const ranks = new Map(reviewFileOrder().map((i, r) => [S.state.files[i]?.path, r]));
+  // A file's rank is its first step's: a split file's parts repeat its path further down.
+  const ranks = new Map<string, number>();
+  reviewSteps().forEach((s, r) => {
+    const path = S.state.files[s.fileIndex]?.path;
+    if (path !== undefined && !ranks.has(path)) ranks.set(path, r);
+  });
   const rank = (path: string) => ranks.get(path) ?? Infinity;
   const files = new Map(S.state.files.map((f) => [f.path, f]));
   if (S.preview) files.set(S.preview.path, S.preview);

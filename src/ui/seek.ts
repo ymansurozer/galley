@@ -2,7 +2,8 @@
 // (file indices in nav order — guide order when a guide is attached, else the Files tree's
 // top-to-bottom order) and a `finished` predicate ("this file is signed off in the current
 // state"), so they're unit-testable without the Alpine store. guide.ts holds the thin
-// store-reading wrappers.
+// store-reading wrappers. The seeks compare order entries with ===, so they take any primitive:
+// file indices, or step keys (steps.ts) once a guide splits files into parts.
 
 // The nav order the wrap/approve-advance seeks walk: `listed` first — the guide order when
 // guided, else the Files tree's order (tree-derive.ts treeFileOrder) — then any diff file it
@@ -23,11 +24,11 @@ export function navFileOrder(
 // back to the beginning. Used by approve-advance to seek remaining work instead of dead-ending.
 // `cur`'s own slot is never returned (a just-approved file counts as finished anyway, but the
 // wrap must not land back on the starting file). null when no unreviewed file remains anywhere.
-export function nextUnreviewed(
-  order: number[],
-  cur: number,
-  finished: (i: number) => boolean,
-): number | null {
+export function nextUnreviewed<T>(
+  order: readonly T[],
+  cur: T,
+  finished: (i: T) => boolean,
+): T | null {
   const n = order.length;
   if (!n) return null;
   // `cur` may be absent from the order (a diff file not listed in the guide) — start scanning
@@ -43,14 +44,14 @@ export function nextUnreviewed(
 
 // The target when plain "next" steps off the LAST file in the order: the first unreviewed
 // file if any remains, else the first file (a plain cycle). null only when there are no files.
-export function wrapNextTarget(order: number[], finished: (i: number) => boolean): number | null {
+export function wrapNextTarget<T>(order: readonly T[], finished: (i: T) => boolean): T | null {
   if (!order.length) return null;
   return order.find((i) => !finished(i)) ?? order[0]!;
 }
 
 // Mirror of wrapNextTarget for plain "prev" stepping off the FIRST position: the last
 // unreviewed file if any remains, else the last file.
-export function wrapPrevTarget(order: number[], finished: (i: number) => boolean): number | null {
+export function wrapPrevTarget<T>(order: readonly T[], finished: (i: T) => boolean): T | null {
   if (!order.length) return null;
   for (let i = order.length - 1; i >= 0; i--) if (!finished(order[i]!)) return order[i]!;
   return order[order.length - 1]!;

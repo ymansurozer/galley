@@ -229,7 +229,7 @@ One JSON object:
 - title? — overview heading; falls back to branch/ref.
 - overview (required, non-empty) — one-paragraph changeset overview.
 - prDescription? — author/PR intent, shown on the overview page.
-- files (required, non-empty array) — one entry per reviewed file:
+- files (required, non-empty array) — one entry per reviewed file (per part, for a split file):
   - path (required, non-empty) — repo-relative; must be a file in the diff.
   - orientation (non-empty; required unless skim: true) — the lens to read this file with: its
     role, the problem it solves, what to expect before opening it, what's non-obvious or worth
@@ -243,9 +243,10 @@ One JSON object:
     double-check, what's risky). Omit unless the file genuinely warrants it.
   - skim? / skimReason? — mark the WHOLE file skimmable; skimReason is a short why ("generated",
     "lockfile churn"). See "When to skim / focused review".
-  - skimBlocks? — collapse PARTS of the file: an array of { lines, reason? } where lines is a
-    new-file-side [start, end] span (or a single line number) of the diff you read, and reason is a
-    short label ("import-only"). The server resolves each span to the enclosing change block(s).
+  - skimBlocks? — collapse single change BLOCKS of the file: an array of { lines, reason? } where
+    lines is a new-file-side [start, end] span (or a single line number) of the diff you read, and
+    reason is a short label ("import-only"). The server resolves each span to the enclosing change
+    block(s).
   - movedFrom? — repo-relative OLD path of a file you moved AND edited (this entry's \`path\` is the
     NEW path). The desk merges the deletion + untracked addition into one rename-changed entry so
     only the real edits show, with a "moved from" badge; its blocks are verdict-only (no per-block
@@ -255,9 +256,25 @@ One JSON object:
     falling back to delete+add. Pure (unedited) renames need no declaration — git detects committed
     ones and the desk auto-pairs identical-content working moves, both shown as a muted
     "renamed old → new · no changes" row (see the collapse note above).
+  - part? — split a file that mixes unrelated concerns into separate review steps: list the same
+    path once per concern, each entry with part: { title, lines } and its own category, order,
+    orientation and flag. title (non-empty, distinct among the file's parts) names the concern
+    ("Fee charging"); lines is a non-empty array of new-file-side [start, end] spans and single
+    line numbers, each resolved like skimBlocks to the change block(s) it touches. Each part is its
+    own walkthrough step, in its entry's category; the reviewer opening the file from the Files
+    tree still sees it whole. A split file is split all the way — every entry for the path carries
+    a part. A part may carry skimBlocks over its own (or unclaimed) blocks — a part whose blocks
+    are all skimmed joins the Skimmed group — but not \`skim\` or \`movedFrom\`. Change blocks no
+    part claims gather in an automatic "Rest of <file>" step in the trailing Other group, so
+    nothing is lost. Parts split by change block: two concerns with no unchanged line between them
+    form one block — give it to the main concern and say so in that part's orientation. A new
+    untracked file is one whole-file change, so it can't be split. When your edits between rounds
+    move code from one part to another (or add a concern), send a fresh guide with
+    \`galley reload --guide <new>\`: a carried-forward guide re-resolves its spans leniently, and a
+    block it can't place falls to Rest.
 - focused? — top-level boolean; badges the overview ("focused review — mechanical churn skimmed")
   so the human knows attention was deliberately shaped. Display-only.
-A skimmed part collapses behind a one-click "expand" strip (nothing is ever hidden). A file skimmed
+A skimmed block collapses behind a one-click "expand" strip (nothing is ever hidden). A file skimmed
 whole (or every block skimmed), or a pure rename, leaves the default flow — it drops into a collapsed
 "Skimmed" group with no progress or completion weight, so skim only what genuinely needs no eyes.
 
@@ -276,8 +293,12 @@ this default churn policy without item-by-item instruction:
 Validation: beyond the (required, non-empty) fields above — a file's \`path\` must appear in the
 diff; each skimBlocks span must resolve to a change block; \`movedFrom\` must name a full deletion
 paired with the untracked addition at \`path\`, in working repo mode, not combined with skimBlocks;
-\`focused\` must be a boolean. An unreadable file, invalid JSON, or any violation aborts the launch
-naming the offending field.
+a path listed more than once needs a part on every entry, each with its own title; each part span
+must resolve to a change block (so a new untracked file can't be split), no two parts may claim the
+same change block, a part's skimBlocks may not reach another part's block, and a part can't combine
+with \`skim\` or \`movedFrom\`; \`focused\` must be a boolean. An unreadable file, invalid JSON, or any violation
+aborts the launch (or \`galley reload --guide\`, leaving the desk as it was) naming the offending
+field — for a part, its path, title and span.
 
 ## Between rounds — reload vs restart, and the desk lock
 - Don't edit tracked files mid-round: the reviewer wouldn't see the edits and their in-flight

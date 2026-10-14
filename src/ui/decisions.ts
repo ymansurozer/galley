@@ -1,7 +1,7 @@
 import { S, toast, api, persist } from "./store";
 import { currentFile, fileFinished, fileObjections, flowIndex } from "./changes";
 import { render, deferRender } from "./render";
-import { nextUnreviewedFileIndex, guideProgress } from "./guide";
+import { currentStep, nextUnreviewedStep, guideProgress } from "./guide";
 import {
   captureFileReview,
   clearFileReview,
@@ -79,10 +79,10 @@ export async function approveFile(path: string, { advance }: { advance: boolean 
   // moment it moves, not just visible in the bar. % matches the strip (LOC-weighted by default).
   const done = scope.filter((f) => ix.reviewState(f.path) !== "pending").length;
   say(`${label} — ${done} of ${scope.length} files · ${guideProgress().pct}%`);
-  // Seek the next unreviewed file, wrapping past the end so a reviewer who jumped ahead is
-  // carried back to the files they skipped instead of dead-ending here.
-  const next = advance ? nextUnreviewedFileIndex(S.fileIndex) : null;
-  if (next !== null && S.selectFile) S.selectFile(next);
+  // Seek the next unreviewed step, wrapping past the end so a reviewer who jumped ahead is
+  // carried back to the steps they skipped instead of dead-ending here.
+  const next = advance ? nextUnreviewedStep(currentStep()) : null;
+  if (next !== null && S.selectStep) S.selectStep(next);
   else render();
 }
 
