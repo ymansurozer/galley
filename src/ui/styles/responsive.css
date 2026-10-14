@@ -27,37 +27,6 @@
   }
 }
 
-/* Narrow widths: the rail stays in the flow and the list opens as a drawer over the app. */
-@media (max-width: 1100px) {
-  .app {
-    --annside-w: 40px;
-  }
-
-  .app.view-ui .ann-rail {
-    display: flex;
-  }
-
-  .app.view-ui .ann-panel {
-    position: fixed;
-    z-index: 30;
-    top: 48px;
-    right: 0;
-    bottom: 0;
-    width: min(92vw, 360px);
-    background: var(--sidebar);
-    border-left: 1px solid var(--sep);
-    box-shadow: var(--shadow-float);
-  }
-
-  .app.view-ui .annside-backdrop {
-    display: block;
-    position: fixed;
-    inset: 48px 0 0 0;
-    z-index: 29;
-    background: var(--scrim);
-  }
-}
-
 /* Narrow widths: the file tree leaves the flow and becomes an off-canvas left drawer, so the
    app stays a fixed-height single column with the diff filling it (the core surface owns the
    screen) — no more tree-on-top page-scroll stacking. The tree is hidden by default and slides

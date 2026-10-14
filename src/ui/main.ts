@@ -71,7 +71,6 @@ import {
   annotatePage,
   closeShot,
   installUiLane,
-  openChanges,
   pagePins,
   screenshotsInFlight,
   screenshotsSettled,
@@ -80,9 +79,8 @@ import {
   shotSrc,
   shotTitle,
   submitUiComposer,
-  toggleAnnotations,
   uiSendSummary,
-  waitingQuestions,
+  unplacedPins,
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { updateAwaitingDom } from "./annotations";
@@ -588,15 +586,13 @@ S.appForward = appForward;
 S.appRefresh = appRefresh;
 S.appGo = appGo;
 S.setViewport = setViewport;
-// Its annotations (uilane.ts): the mode toggle, the page annotation button and the address bar's
-// page pins, the sidebar, the header's open and waiting counts, and the enlarged screenshot.
+// Its annotations (uilane.ts): the mode toggle, the page annotation button, the address bar's page
+// pins and the stage's Unplaced tray, a pin's card, and the enlarged screenshot.
 S.setAppMode = setAppMode;
 S.annotatePage = annotatePage;
 S.pagePins = pagePins;
+S.unplacedPins = unplacedPins;
 S.selectAnnotation = selectAnnotation;
-S.toggleAnnotations = toggleAnnotations;
-S.openChanges = openChanges;
-S.waitingQuestions = waitingQuestions;
 S.closeShot = closeShot;
 S.shotSrc = shotSrc;
 S.shotTitle = shotTitle;

@@ -10,42 +10,8 @@ import type {
   UiTarget,
 } from "./types";
 
-// Pure derivations for the UI lane's sidebar, pins and composer (store-free, so they unit-test —
+// Pure derivations for the UI lane's pins, cards and composer (store-free, so they unit-test —
 // see skim-derive.ts for the pattern). uilane.ts is the store-reading side.
-
-// One page's annotations: open rows in number order, and the resolved ones its toggle reveals.
-// `unchecked`: an open one hasn't been looked for since the last reload (its page hasn't loaded).
-export type PageGroup = {
-  route: string;
-  title: string;
-  open: UiAnnotationRecord[];
-  resolved: UiAnnotationRecord[];
-  unchecked: boolean;
-};
-
-// Annotations grouped by page. A page is its path + query (the address-bar route); pages come in
-// the order of their lowest number. The group's title is the latest one recorded on that page.
-export function pageGroups(list: readonly UiAnnotationRecord[]): PageGroup[] {
-  const groups = new Map<string, PageGroup>();
-  for (const a of [...list].sort((x, y) => x.number - y.number)) {
-    let g = groups.get(a.page.route);
-    if (!g)
-      groups.set(
-        a.page.route,
-        (g = { route: a.page.route, title: "", open: [], resolved: [], unchecked: false }),
-      );
-    if (a.page.title) g.title = a.page.title;
-    (a.status === "resolved" ? g.resolved : g.open).push(a);
-    if (a.status === "open" && a.placement === "unvisited") g.unchecked = true;
-  }
-  return [...groups.values()];
-}
-
-// A page's own name: its title up to the first separator ("Files · Okafor — I-485" → "Files"),
-// the route when it has no title.
-export function pageName(title: string | undefined, route: string): string {
-  return title?.split(/\s+[·|—–-]\s+/)[0]?.trim() || route;
-}
 
 // An annotation requests a change when it was opened as one, or when the reviewer requested one
 // later in its thread (a question with a Request change reply). The Send sends exactly these
@@ -188,33 +154,6 @@ export function firstLine(body: string): string {
     .trim();
 }
 
-// The row's tooltip carries the state the row itself doesn't draw: resolved, else waiting on the
-// agent, else whether the agent had the last word; and, while open, whether its target wasn't found
-// on its page or hasn't been looked for since the last reload.
-export function rowTitle(a: UiAnnotationRecord): string {
-  const question = a.intent === "question";
-  const open = a.status === "open";
-  const state = !open
-    ? "Resolved"
-    : isWaiting(a)
-      ? "Waiting"
-      : a.comments.at(-1)?.role === "agent"
-        ? question
-          ? "Answered"
-          : "Agent replied"
-        : "";
-  const placement = !open
-    ? ""
-    : a.placement === "unplaced"
-      ? "Unplaced"
-      : a.placement === "unvisited"
-        ? "Not checked"
-        : "";
-  return [`#${a.number}`, question ? "Question" : "Change request", state, placement]
-    .filter(Boolean)
-    .join(" · ");
-}
-
 // The elements a target names: an element or region target's, a text target's holder, none for a
 // page.
 export const targetElements = (target: UiTarget): UiElement[] =>
@@ -297,16 +236,12 @@ export function sourcePlace(source: UiSource, root: string) {
 }
 export type SourcePlace = ReturnType<typeof sourcePlace>;
 
-// The rows ⇧↓/⇧↑ walk: every page's open rows, plus the resolved rows of pages showing them, in
-// the order the sidebar lists them.
-export function stepOrder(groups: readonly PageGroup[], shownResolved: ReadonlySet<string>) {
-  return groups.flatMap((g) =>
-    [...g.open, ...(shownResolved.has(g.route) ? g.resolved : [])].map((a) => a.id),
-  );
-}
+// What ⇧↓/⇧↑ walk in the UI view: every annotation, on every page and resolved or not, by number.
+export const stepOrder = (list: readonly UiAnnotationRecord[]) =>
+  [...list].sort((x, y) => x.number - y.number).map((a) => a.id);
 
-// The row after (dir 1) or before (dir -1) `current` in `order`, wrapping. With no selection (or
-// one the order doesn't hold), the first row, or the last going back.
+// The one after (dir 1) or before (dir -1) `current` in `order`, wrapping. With no selection (or
+// one the order doesn't hold), the first, or the last going back.
 export function stepFrom(order: readonly string[], current: string | null, dir: 1 | -1) {
   const n = order.length;
   if (!n) return null;
@@ -356,19 +291,10 @@ export function markTarget(target: UiTarget): UiMarkTarget | null {
     : { kind: "region", rect: { ...target.rect }, elements };
 }
 
-// Shown on the page: its open annotations, plus a resolved one while it's selected (its row revealed
-// and expanded), drawn dimmed.
-const shownOn = (a: UiAnnotationRecord, route: string, selected: string | null) =>
-  a.page.route === route && (a.status === "open" || a.id === selected);
-
-// The pins the bridge draws on one page.
-export function marksFor(
-  list: readonly UiAnnotationRecord[],
-  route: string,
-  selected: string | null,
-): UiMark[] {
+// The pins the bridge draws on one page: all its annotations, the resolved ones dimmed.
+export function marksFor(list: readonly UiAnnotationRecord[], route: string): UiMark[] {
   return list.flatMap((a) => {
-    const target = shownOn(a, route, selected) && markTarget(a.target);
+    const target = a.page.route === route && markTarget(a.target);
     return target
       ? [
           {
@@ -383,6 +309,17 @@ export function marksFor(
   });
 }
 
+// A pin the desk draws itself: in the address bar for a page annotation, and in the stage's tray
+// for one whose target couldn't be found on its page. Dimmed once resolved, like the page's pins.
+const deskPin = (a: UiAnnotationRecord, selected: string | null) => ({
+  id: a.id,
+  number: a.number,
+  question: a.intent === "question",
+  resolved: a.status === "resolved",
+  selected: a.id === selected,
+});
+export type DeskPin = ReturnType<typeof deskPin>;
+
 // The pins of one page's page annotations, which the address bar shows.
 export const pageMarks = (
   list: readonly UiAnnotationRecord[],
@@ -390,13 +327,20 @@ export const pageMarks = (
   selected: string | null,
 ) =>
   list
-    .filter((a) => a.target.kind === "page" && shownOn(a, route, selected))
-    .map((a) => ({
-      id: a.id,
-      number: a.number,
-      question: a.intent === "question",
-      selected: a.id === selected,
-    }));
+    .filter((a) => a.target.kind === "page" && a.page.route === route)
+    .map((a) => deskPin(a, selected));
+
+// The pins of one page's annotations that weren't found on it when it last settled: the tray at
+// the stage's top-left shows them, by number.
+export const trayPins = (
+  list: readonly UiAnnotationRecord[],
+  route: string,
+  selected: string | null,
+) =>
+  list
+    .filter((a) => a.page.route === route && a.placement === "unplaced" && a.target.kind !== "page")
+    .sort((x, y) => x.number - y.number)
+    .map((a) => deskPin(a, selected));
 
 // Where the floating composer goes, in desk coordinates: right of its target, else left of it,
 // else below it (above when there's no room below), always inside the stage. Without a target (the

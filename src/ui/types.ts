@@ -35,6 +35,7 @@ import type {
 } from "../types";
 import type { WalkRow } from "./walkthrough";
 import type { Presence } from "./topbar-derive";
+import type { DeskPin } from "./uilane-derive";
 import type { OpenRequest, RequestRow } from "./requests-derive";
 
 export type Side = "additions" | "deletions";
@@ -341,12 +342,11 @@ export interface Store {
   // How many elements the reviewer has ⇧-clicked in the app, waiting for ⇧'s release (the bridge
   // reports it). While there are some, Esc drops them before it leaves Annotate.
   pendingPicks: number;
-  // The annotation sidebar is open; closed, it's a 40px rail. Below 1100px it opens as a drawer.
-  annotationsOpen: boolean;
-  // The annotation whose row is expanded and whose target is outlined on the page.
+  // The annotation whose card is open and whose target is outlined on the page.
   selectedAnnotation: string | null;
-  // Pages (routes) whose resolved annotations the sidebar reveals.
-  shownResolved: Set<string>;
+  // The annotations the page on screen has reported a placement for since the app arrived on it:
+  // the Unplaced tray trusts only these, not what an earlier visit found. Never saved.
+  lookedFor: Set<string>;
   // The target just picked in Annotate mode, or the page: while set, the floating composer is open
   // on it.
   annotationDraft: AnnotationDraft | null;
@@ -424,11 +424,9 @@ export interface Store {
   setViewport?: (viewport: Viewport) => void;
   setAppMode?: (mode: AppMode) => void;
   annotatePage?: () => void;
-  pagePins?: () => { id: string; number: number; question: boolean; selected: boolean }[];
+  pagePins?: () => DeskPin[];
+  unplacedPins?: () => DeskPin[];
   selectAnnotation?: (id: string | null) => void;
-  toggleAnnotations?: () => void;
-  openChanges?: () => number;
-  waitingQuestions?: () => number;
   closeShot?: () => void;
   shotSrc?: () => string;
   shotTitle?: () => string;

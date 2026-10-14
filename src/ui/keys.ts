@@ -11,7 +11,6 @@ import {
   selectAnnotation,
   setAppMode,
   stepAnnotation,
-  toggleAnnotations,
   toggleAppMode,
 } from "./uilane";
 import { stepOpenRequest } from "./requests";
@@ -114,18 +113,13 @@ function escape() {
     closeComposer(); // rebuilds the lane so the inline composer's DOM goes away
     return;
   }
-  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate, then the
-  // narrow-width drawer.
+  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate.
   if (inUiView() && S.appMode === "annotate" && S.pendingPicks) {
     clearPendingPicks();
     return;
   }
   if (inUiView() && S.appMode === "annotate") {
     setAppMode("interact");
-    return;
-  }
-  if (inUiView() && S.annotationsOpen && matchMedia("(max-width: 1100px)").matches) {
-    S.annotationsOpen = false;
     return;
   }
   // A lone line selection (keyboard cursor, or a click that left the highlight without an open
@@ -425,7 +419,7 @@ const HOTKEYS: Hotkey[] = [
     // aren't initialised yet while this table is built.
     run: () => toggleView(),
   },
-  // UI view: the app's mode, the annotation sidebar, and stepping through annotations. ⌥A and ⇧
+  // UI view: the app's mode, annotating the page, and stepping through annotations. ⌥A and ⇧
   // chords pressed in the app arrive here too: the bridge forwards them (dispatchKey).
   {
     combo: "⌥A",
@@ -445,14 +439,6 @@ const HOTKEYS: Hotkey[] = [
     test: (e) => e.code === "KeyP" && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey,
     when: () => inUiView() && !inModal(),
     run: () => annotatePage(),
-  },
-  {
-    combo: "⇧L",
-    desc: "Annotations sidebar",
-    group: "UI",
-    test: shift("L"),
-    when: () => inUiView() && navigable(),
-    run: () => toggleAnnotations(),
   },
   {
     combo: "⇧↓",

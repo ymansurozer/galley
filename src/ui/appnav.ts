@@ -106,11 +106,10 @@ export function readBridgeMessage(data: unknown, token: string): BridgeMessage |
 }
 
 // The keys an app page may pass up, and only in this form: ⌥A, ⌥P (annotate the page), and Esc and
-// the UI view's ⇧ chords (sidebar, next / previous annotation, Code / UI). The desk runs them
+// the UI view's ⇧ chords (next / previous annotation, Code / App). The desk runs them
 // through its own hotkey table, so anything that sends, resets, approves or confirms (⇧S, ⇧R, ⇧A,
 // Enter) is refused here: a page could post any key it likes.
 const SHIFT_CHORDS: Record<string, string> = {
-  L: "KeyL",
   U: "KeyU",
   ArrowDown: "ArrowDown",
   ArrowUp: "ArrowUp",

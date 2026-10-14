@@ -37,13 +37,11 @@ const ICON_MAP = {
   "gly-tablet": "lucide:tablet",
   "gly-mobile": "lucide:smartphone",
   "gly-fit": "lucide:scan",
-  // UI lane: the Interact / Annotate mode toggle and the annotation sidebar's collapse / expand.
+  // UI lane: the Interact / Annotate mode toggle.
   "gly-pointer": "lucide:mouse-pointer-2",
   "gly-annotate": "lucide:pin",
   // UI lane: the chrome bar's page-annotation button.
   "gly-page-note": "lucide:sticky-note",
-  "gly-panel-close": "lucide:panel-right-close",
-  "gly-panel-open": "lucide:panel-right-open",
 };
 
 // Hand-drawn glyphs with no good library equivalent (status primitives). 24-unit viewBox to

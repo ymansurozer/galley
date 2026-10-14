@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import { esc } from "./html";
-import type { UiAnnotationRecord, UiElement } from "./types";
+import type { UiElement } from "./types";
 import { sourcePlace } from "./uilane-derive";
-import { composerHead, pageHead, quoteLine, rowLine, shotLink, sourceLink } from "./uilane-dom";
+import { composerHead, quoteLine, shotLink, sourceLink } from "./uilane-dom";
 
 // What a hostile app page might send as a selector, a route or a title: a quote that would end an
 // attribute in string-built HTML, then a handler that fires in the desk's origin.
@@ -28,38 +28,6 @@ test("esc escapes both quotes, so string-built attributes can't be broken out of
   assert.deepEqual(span.getAttributeNames(), ["title"]);
   assert.equal(span.getAttribute("title"), HOSTILE);
   assert.equal(span.textContent, HOSTILE);
-});
-
-test("a page head with a hostile route and title renders them as text", () => {
-  const d = doc();
-  const head = pageHead(d, {
-    route: `/x?${HOSTILE}`,
-    title: HOSTILE,
-    open: [],
-    resolved: [],
-    unchecked: false,
-  });
-  assert.deepEqual(attributeNames(head).sort(), ["class", "class", "class", "data-route", "title"]);
-  assert.equal(head.dataset.route, `/x?${HOSTILE}`);
-  assert.equal(head.title, `${HOSTILE}\n/x?${HOSTILE}`);
-  assert.ok(head.textContent!.includes(`x" onmouseover=`), "the name shows the text as typed");
-});
-
-test("a page head says once that its page isn't checked, between its name and its count", () => {
-  const group = { route: "/files", title: "Files", open: [], resolved: [] };
-  const head = pageHead(doc(), { ...group, unchecked: true });
-  assert.deepEqual(
-    [...head.children].map((c) => [c.className, c.textContent]),
-    [
-      ["ann-page-name", "Files"],
-      ["ann-unchecked", "not checked"],
-      ["ann-count", ""],
-    ],
-  );
-  assert.equal(
-    pageHead(doc(), { ...group, unchecked: false }).querySelector(".ann-unchecked"),
-    null,
-  );
 });
 
 test("the composer head shows a hostile selector and name as text", () => {
@@ -147,38 +115,7 @@ test("a source link shows a hostile path and component as text, and opens the ed
   assert.equal(outside.localName, "span");
 });
 
-test("a row shows the body's first line as text", () => {
-  const d = doc();
-  const a: UiAnnotationRecord = {
-    id: "a1",
-    number: 4,
-    intent: "change",
-    status: "open",
-    placement: "placed",
-    page: { url: "http://localhost:3000/", route: "/", viewport: { width: 1, height: 1, dpr: 1 } },
-    target: { kind: "element", elements: [] },
-    comments: [
-      {
-        id: "m1",
-        role: "user",
-        body: `<img src=x onerror=alert(1)>`,
-        createdAt: "t",
-        updatedAt: "t",
-      },
-    ],
-  };
-  const row = rowLine(d, a, true);
-  assert.equal(row.querySelector("img"), null);
-  assert.equal(row.querySelector(".ann-body")!.textContent, "<img src=x onerror=alert(1)>");
-  assert.equal(row.className, "ann-row k-change sel");
-  assert.equal(
-    rowLine(d, { ...a, intent: "question" }, false).className,
-    "ann-row k-question",
-    "a question's numeral is tinted as one",
-  );
-});
-
-test("a row's screenshot reads capturing…, then opens the stored pair, or says the capture failed", () => {
+test("a card's screenshot reads capturing…, then opens the stored pair, or says the capture failed", () => {
   const d = doc();
   const none = () => assert.fail("only a stored pair opens");
   const capturing = shotLink(d, "capturing", undefined, none);
