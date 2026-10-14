@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { hideBetween, type DiffColumn } from "./skim-dom";
+import { hideBetween, misalignedColumns, type DiffColumn } from "./skim-dom";
 
 // @pierre's split-view shape for a file whose changes are pure additions: the deletions column
 // pads each block with filler rows, and each column's annotation (the skim strip) is two rows —
@@ -45,13 +45,54 @@ const visible = (track: HTMLElement | null) =>
     .filter((k) => (k as HTMLElement).style.display !== "none")
     .map((k) => k.getAttribute("data-t"));
 
-test("collapsing a block hides its change rows and filler in both tracks and keeps the content strip", () => {
+test("collapsing a block hides its change rows and filler but keeps the annotation row in both tracks", () => {
   const columns = diff(1);
-  hideBetween(columns, "1,1", "6,6");
+  const hidden = hideBetween(columns, "1,1", "6,6");
   const [del, add] = columns;
   assert.deepEqual(visible(del!.content), ["ctx0", "ctx1", "ann", "ctx6", "ctx7"]);
   assert.deepEqual(visible(add!.content), ["ctx0", "ctx1", "ann", "ctx6", "ctx7"]);
-  assert.deepEqual(visible(del!.gutter).slice(0, 2), ["ctx0", "ctx1"]);
-  assert.deepEqual(visible(add!.gutter).slice(0, 2), ["ctx0", "ctx1"]);
-  assert.deepEqual(visible(add!.gutter).slice(-2), ["ctx6", "ctx7"]);
+  assert.deepEqual(visible(del!.gutter), ["ctx0", "ctx1", "gAnn", "ctx6", "ctx7"]);
+  assert.deepEqual(visible(add!.gutter), ["ctx0", "ctx1", "gAnn", "ctx6", "ctx7"]);
+  assert.equal(hidden, 10, "a filler pair in deletions, four change rows per track in additions");
+});
+
+test("after collapsing one block every column's gutter and content show the same number of rows", () => {
+  const columns = diff(1);
+  hideBetween(columns, "1,1", "6,6");
+  assert.deepEqual(misalignedColumns(columns), []);
+});
+
+test("after collapsing two blocks in one file every column's gutter and content still match", () => {
+  const columns = diff(2);
+  hideBetween(columns, "1,1", "6,6");
+  hideBetween(columns, "7,7", "12,12");
+  for (const col of columns) {
+    assert.deepEqual(visible(col.gutter), [
+      "ctx0",
+      "ctx1",
+      "gAnn",
+      "ctx6",
+      "ctx7",
+      "gAnn",
+      "ctx12",
+      "ctx13",
+    ]);
+    assert.deepEqual(visible(col.content), [
+      "ctx0",
+      "ctx1",
+      "ann",
+      "ctx6",
+      "ctx7",
+      "ann",
+      "ctx12",
+      "ctx13",
+    ]);
+  }
+  assert.deepEqual(misalignedColumns(columns), []);
+});
+
+test("misalignedColumns names a column whose gutter lost a row", () => {
+  const columns = diff(1);
+  columns[1]!.gutter!.querySelector<HTMLElement>("[data-t=gAnn]")!.style.display = "none";
+  assert.deepEqual(misalignedColumns(columns), [1]);
 });

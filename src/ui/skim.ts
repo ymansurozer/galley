@@ -3,7 +3,7 @@ import { currentChanges, currentFile } from "./changes";
 import { render } from "./render";
 import { isFullySkimmed } from "./skim-derive";
 import { diffShadowRoot } from "./diff-dom";
-import { hideBetween, SKIM_HIDDEN, type DiffColumn } from "./skim-dom";
+import { hideBetween, misalignedColumns, SKIM_HIDDEN, type DiffColumn } from "./skim-dom";
 import type { ChangeState, GuideFile } from "./types";
 
 // ── Skimmable review (issue 06) ──────────────────────────────────────────────
@@ -194,6 +194,12 @@ export function renderMovedPure() {
 // they pin the block's band on each side without measuring — we hide every cell strictly between
 // them (the change rows on one side, the paired unlabeled filler rows on the other, plus the
 // gutters). Measurement was tried and abandoned: rects aren't laid out yet in afterRender.
+//
+// Invariant: an annotation is TWO rows in @pierre — a [data-line-annotation] row in the content
+// track and a [data-gutter-buffer="annotation"] spacer in the gutter — and a collapse keeps both
+// (the strip is one such annotation). Keeping only the content row leaves the gutter a row short
+// per collapsed block, so every line number below it sits one row above its code. hideBetween
+// holds that rule; the closing check below flags any column whose tracks end up different heights.
 export function applySkimCollapse() {
   const blocks = currentChanges().filter((c) => isBlockSkimCollapsed(c));
   const shadow = diffShadowRoot();
@@ -249,4 +255,8 @@ export function applySkimCollapse() {
   // Rows to collapse but none hidden = the anchor/context lookup missed (shape drift in
   // @pierre's DOM). Surface it instead of silently leaving the block expanded.
   if (!hidden) console.debug(`[skim] collapse hid nothing for ${blocks.length} block(s)`);
+  const drifted = misalignedColumns(columns);
+  if (drifted.length) {
+    console.debug(`[skim] collapse left gutter and content misaligned in column(s) ${drifted}`);
+  }
 }

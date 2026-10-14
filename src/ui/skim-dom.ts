@@ -13,12 +13,18 @@ export interface DiffColumn {
 // reuses its row elements across renders).
 export const SKIM_HIDDEN = "data-skim-hidden";
 
+const isAnnotationRow = (el: Element) =>
+  el.hasAttribute("data-line-annotation") || el.getAttribute("data-gutter-buffer") === "annotation";
+
 // In every column's gutter AND content track, hide the rows strictly between the two bounding
 // context lines (matched by their shared data-line-index; null = the hunk's edge): the block's
 // change rows on one side and, in split, the paired filler rows on the other. Each track is
-// located independently so no gutter/content index alignment is assumed. The annotation rows
-// ([data-line-annotation]) are kept — that's where the skim strip lives. Returns how many rows it
-// hid.
+// located independently so no gutter/content index alignment is assumed. An annotation (the skim
+// strip, or any other inside the band) is two rows to @pierre — a [data-line-annotation] row in the
+// content track and a [data-gutter-buffer="annotation"] spacer in the gutter — and both are kept:
+// hiding only the spacer leaves the gutter a row short per collapsed block, and every line number
+// below it drifts up against its code. The filler buffers ([data-content-buffer],
+// [data-gutter-buffer="buffer"]) are hidden with the change rows. Returns how many rows it hid.
 export function hideBetween(
   columns: DiffColumn[],
   beforeLi: string | null,
@@ -37,7 +43,7 @@ export function hideBetween(
       if ((beforeLi && start === -1) || (afterLi && end === -1)) continue;
       for (let j = start + 1; j < end; j++) {
         const kid = kids[j]!;
-        if (kid.hasAttribute("data-line-annotation")) continue;
+        if (isAnnotationRow(kid)) continue;
         kid.style.display = "none";
         kid.setAttribute(SKIM_HIDDEN, "1");
         hidden++;
@@ -45,4 +51,20 @@ export function hideBetween(
     }
   }
   return hidden;
+}
+
+const isShown = (el: Element) => (el as HTMLElement).style.display !== "none";
+
+// The columns whose gutter and content tracks now show a different number of rows — each gutter
+// row is the line number of one content row, so any difference is drift between numbers and code.
+// Structural, not geometric, so it holds in afterRender before layout. Returns their indexes.
+export function misalignedColumns(columns: DiffColumn[]): number[] {
+  const out: number[] = [];
+  columns.forEach((col, i) => {
+    if (!col.gutter || !col.content) return;
+    const gutterRows = Array.from(col.gutter.children).filter(isShown).length;
+    const contentRows = Array.from(col.content.children).filter(isShown).length;
+    if (gutterRows !== contentRows) out.push(i);
+  });
+  return out;
 }
