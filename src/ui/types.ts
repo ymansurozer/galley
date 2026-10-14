@@ -249,6 +249,10 @@ export interface Store {
   agentListening: boolean;
   queuedQuestions: number;
   queuedReviews: number;
+  // Derived for the top bar by one effect in main.ts: the agent's presence, and whether every
+  // in-flow file's sign-off is current (Send Review turns primary).
+  presence: Presence;
+  reviewDone: boolean;
   lastBaseDiffHash: string | null;
   selected: Selection;
   // An inline composer (new / reply / edit) is open. Exactly one at a time; the composer's
@@ -394,12 +398,9 @@ export interface Store {
   // The walk through open change requests (requests.ts): the top bar's count, and its next stop.
   openRequests?: () => number;
   nextRequest?: () => void;
-  // The top bar (topbar-derive.ts): its title and "project · mode" subtitle, the agent's presence,
-  // and whether every in-flow file is signed off (Send Review turns primary).
+  // The top bar's title and "project · mode" subtitle (topbar-derive.ts).
   deskTitle?: () => string;
   deskSubtitle?: () => string;
-  agentPresence?: () => Presence;
-  reviewComplete?: () => boolean;
   confirmYes?: () => void;
   confirmNo?: () => void;
   promptFinish?: () => void;

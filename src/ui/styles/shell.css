@@ -370,14 +370,25 @@ body.file-mode .top-logo,
 }
 
 /* Phone widths: the top bar keeps every control but compacts them — the subtitle, the logo and
-   the percentage give way (the strip still shows progress), the pill keeps its glyph (its tooltip carries the line), the lane switch keeps its
-   icons, Reset review its glyph, and the buttons drop their keycaps (their tooltips still carry
-   them). */
+   the percentage give way (the strip still shows progress), the pill keeps its glyph (its tooltip
+   carries the line), the lane switch keeps its icons, Reset review its glyph, and the buttons drop
+   their keycaps (their tooltips still carry them). A row, not the grid: the title takes what's
+   left, and a hidden pill leaves no empty column behind. */
 @media (max-width: 760px) {
   .top {
-    grid-template-columns: minmax(0, 1fr) auto max-content max-content;
+    display: flex;
     gap: 8px;
     padding: 0 8px;
+  }
+
+  .top-title {
+    flex: 1 1 auto;
+  }
+
+  .agent-pill,
+  .toggles,
+  .actions {
+    flex: 0 0 auto;
   }
 
   .top-logo,

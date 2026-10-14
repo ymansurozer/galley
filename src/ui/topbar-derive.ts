@@ -37,23 +37,29 @@ export function agentPresence(s: PresenceSignals): Presence {
 
 // The reviewer's open questions no later agent reply in their thread answers: the code thread's
 // waiting line and state.ts's computeOpenQuestions count by the same rule, plus the app's waiting
-// annotations.
+// annotations. Grouped by thread in one pass, so a desk with many comments doesn't rescan them all
+// per question.
 export function unansweredAsks(
   comments: readonly ReviewComment[],
   annotations: readonly UiAnnotationRecord[],
 ) {
-  const code = comments.filter(
-    (c) =>
-      c.status === "open" &&
-      c.role !== "agent" &&
-      c.intent === "question" &&
-      !answered(
-        c,
-        comments.filter(
-          (r) => r.path === c.path && r.side === c.side && r.lineNumber === c.lineNumber,
-        ),
-      ),
-  ).length;
+  const threads = new Map<string, ReviewComment[]>();
+  for (const c of comments) {
+    const key = `${c.path}\n${c.side}:${c.lineNumber}`;
+    const thread = threads.get(key);
+    if (thread) thread.push(c);
+    else threads.set(key, [c]);
+  }
+  let code = 0;
+  for (const thread of threads.values())
+    for (const c of thread)
+      if (
+        c.status === "open" &&
+        c.role !== "agent" &&
+        c.intent === "question" &&
+        !answered(c, thread)
+      )
+        code++;
   return code + waitingCount(annotations);
 }
 
