@@ -1,6 +1,6 @@
 import type { AppMode, BridgeMessage, PickedTarget, PinRect, Rect, UiMark } from "../types";
 import { OVERLAY_ATTR } from "./capture";
-import { unionRect } from "./crop";
+import { PIN, pinCorner, unionRect } from "./crop";
 import { CAPS, describeElement, labelOf, targetOf } from "./describe";
 import { marksPlacer } from "./placement";
 import { located } from "./refind";
@@ -53,13 +53,13 @@ const STYLE = `
   .pin {
     position: fixed; pointer-events: auto; cursor: pointer; transform: translate(-2px, calc(-100% - 2px));
     display: inline-flex; align-items: center; gap: 4px; height: 24px; min-width: 30px; padding: 0 8px;
-    border-radius: 12px 12px 12px 3px; background: #b05400; color: #fff;
+    border-radius: ${PIN.radii.map((r) => `${r}px`).join(" ")}; background: ${PIN.change.color}; color: #fff;
     font: 700 12px/1 Geist, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 2px 5px rgba(0, 0, 0, .25);
     transition: background .12s
   }
   .pin svg { width: 12px; height: 12px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round }
   .pin:hover { background: #8f4400 }
-  .pin.q { background: #0a72e8 }
+  .pin.q { background: ${PIN.question.color} }
   .pin.q:hover { background: #0b5bc0 }
   .pin.sel, .pin.sel:hover { background: #1c1c1e }
   .pin.waiting::after {
@@ -85,11 +85,10 @@ const STYLE = `
   }
 `;
 
-// The pins' glyphs (lucide's flag and message-circle): a change request, a question.
-const FLAG =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 22V4a1 1 0 0 1 .4-.8A6 6 0 0 1 8 2c3 0 5 2 7.33 2q2 0 3.07-.8A1 1 0 0 1 20 4v10a1 1 0 0 1-.4.8A6 6 0 0 1 16 16c-3 0-5-2-8-2a6 6 0 0 0-4 1.53"/></svg>';
-const MESSAGE =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>';
+// The pins' glyphs: a change request's flag, a question's message.
+const glyph = (d: string) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+const FLAG = glyph(PIN.change.glyph);
+const MESSAGE = glyph(PIN.question.glyph);
 
 // Keys that scroll the page: they still reach it in Annotate mode.
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
@@ -540,11 +539,10 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
 
   // A numbered pin on a target's top-left corner: a speech bubble whose tail (its tight bottom-left
   // corner) sits on the corner, kept on screen. A kind's glyph leads the number.
-  const pinAt = (r: Rect, number: number, cls: string, glyph = "", id?: string) => {
-    const x = Math.max(2, Math.min(innerWidth - 44, r.x));
-    const y = Math.max(26, r.y);
+  const pinAt = (r: Rect, number: number, cls: string, icon = "", id?: string) => {
+    const { x, y } = pinCorner(r, innerWidth);
     const data = id ? ` data-id="${escapeHtml(id)}"` : "";
-    return `<div class="${cls}"${data} title="#${number}" style="left:${x}px;top:${y}px">${glyph}${number}</div>`;
+    return `<div class="${cls}"${data} title="#${number}" style="left:${x}px;top:${y}px">${icon}${number}</div>`;
   };
 
   // Where the pick is now: its elements, its box (moved with its first element), or its text.
