@@ -12,6 +12,7 @@ import { appGo, appViewport, captureApp, fromAppViewport, postToApp } from "./ap
 import { settledWithin } from "./appnav";
 import {
   annotationSource,
+  askStamp,
   draftAnchor,
   marksFor,
   markTarget,
@@ -24,6 +25,8 @@ import {
   sourcePlace,
   stepFrom,
   stepOrder,
+  turnAnnotationInto,
+  turnsInto,
   waitingCount,
 } from "./uilane-derive";
 import {
@@ -240,9 +243,12 @@ export function selectAnnotation(id: string | null, fromList = false) {
   requestAnimationFrame(() => rowIn(list, a.id)?.scrollIntoView({ block: "nearest" }));
 }
 
-export function stepAnnotation(dir: 1 | -1) {
-  const order = stepOrder(pageGroups(annotationsOf()), S.shownResolved);
-  const next = stepFrom(order, S.selectedAnnotation, dir);
+// `only` narrows the walk: `]` / `[` step through the open change requests alone.
+export function stepAnnotation(dir: 1 | -1, only?: (a: UiAnnotationRecord) => boolean) {
+  const list = annotationsOf();
+  const order = stepOrder(pageGroups(list), S.shownResolved);
+  const kept = only && new Set(list.filter(only).map((a) => a.id));
+  const next = stepFrom(order, S.selectedAnnotation, dir, kept ? (id) => kept.has(id) : undefined);
   if (next) selectAnnotation(next);
 }
 
@@ -459,9 +465,13 @@ export const shotTitle = () => {
 };
 
 // Hand a question to the agent now, once the save carrying it has landed: the desk builds the
-// question event from its stored copy of the annotation.
+// question event from its stored copy of the annotation. A turn made while the save drained
+// supersedes this ask (askStamp).
 async function askAgent(annotationId: string, messageId: string) {
+  const message = () => find(annotationId)?.comments.find((m) => m.id === messageId);
+  const asked = askStamp(message());
   await saver.settled();
+  if (askStamp(message()) !== asked) return;
   const res = await fetch("/api/ask", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -545,6 +555,18 @@ function threadControls(a: UiAnnotationRecord): ThreadControls {
       if (!m || m.role === "agent") return;
       if (S.composerOpen) closeComposer();
       openComposer(a.id, m.body, m.id);
+    },
+    turn: (messageId) => {
+      const opener = a.comments[0];
+      const intent = opener?.id === messageId ? turnsInto(opener) : null;
+      if (!opener || !intent) return;
+      turnAnnotationInto(a, intent, new Date().toISOString());
+      renderUiLane();
+      persist();
+      if (intent === "question") {
+        void askAgent(a.id, opener.id);
+        toast(`#${a.number} turned into an ask — waiting for answer`);
+      } else toast(`#${a.number} turned into a change request — it goes with the next Send`);
     },
     // The opening message is the annotation's body: deleting it deletes the annotation. Later
     // messages delete like code comments.

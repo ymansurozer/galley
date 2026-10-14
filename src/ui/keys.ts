@@ -14,6 +14,8 @@ import {
   toggleAnnotations,
   toggleAppMode,
 } from "./uilane";
+import { isOpenChange } from "./uilane-derive";
+import { stepOpenRequest } from "./requests";
 import type { ForwardedKey } from "./types";
 import {
   cursorMoveLine,
@@ -44,6 +46,7 @@ type Hotkey = {
   when?: () => boolean; // scope guard (default: anywhere not typing)
   typing?: boolean; // also fires while typing in the composer
   hide?: boolean; // omit from the help overlay
+  enabled?: () => boolean; // false when a setting switches it off: it neither runs nor shows in help
   goline?: boolean; // part of the go-to-line gesture — doesn't cancel a pending digit buffer
 };
 
@@ -218,6 +221,22 @@ const HOTKEYS: Hotkey[] = [
     run: () => cursorMoveHunk(-1),
   },
   {
+    combo: "]",
+    desc: "Next open change request",
+    group: "Navigate",
+    test: k("]"),
+    when: inCode,
+    run: () => stepOpenRequest(1),
+  },
+  {
+    combo: "[",
+    desc: "Previous open change request",
+    group: "Navigate",
+    test: k("["),
+    when: inCode,
+    run: () => stepOpenRequest(-1),
+  },
+  {
     combo: "↑",
     desc: "Move up a line",
     group: "Navigate",
@@ -348,6 +367,7 @@ const HOTKEYS: Hotkey[] = [
     group: "Review",
     test: shift("Y"),
     when: inDiff,
+    enabled: () => S.settings.perChangeVerdicts,
     run: () => cursorVerdict("accepted"),
   },
   {
@@ -356,6 +376,7 @@ const HOTKEYS: Hotkey[] = [
     group: "Review",
     test: shift("N"),
     when: inDiff,
+    enabled: () => S.settings.perChangeVerdicts,
     run: () => cursorVerdict("rejected"),
   },
   // View
@@ -381,7 +402,7 @@ const HOTKEYS: Hotkey[] = [
     group: "View",
     when: () => hasGuide() && inCode(),
     test: k("w"),
-    run: () => (S.sidebarTab = S.sidebarTab === "tree" ? "walkthrough" : "tree"),
+    run: () => S.setSidebarTab?.(S.sidebarTab === "tree" ? "walkthrough" : "tree"),
   },
   {
     combo: "⇧U",
@@ -438,6 +459,22 @@ const HOTKEYS: Hotkey[] = [
     test: shift("ArrowUp"),
     when: () => inUiView() && navigable(),
     run: () => stepAnnotation(-1),
+  },
+  {
+    combo: "]",
+    desc: "Next open change request",
+    group: "UI",
+    test: k("]"),
+    when: () => inUiView() && navigable(),
+    run: () => stepAnnotation(1, isOpenChange),
+  },
+  {
+    combo: "[",
+    desc: "Previous open change request",
+    group: "UI",
+    test: k("["),
+    when: () => inUiView() && navigable(),
+    run: () => stepAnnotation(-1, isOpenChange),
   },
   {
     combo: "⇧B",
@@ -514,6 +551,7 @@ function dispatch(e: KeyboardEvent) {
   for (const h of HOTKEYS) {
     if (!h.test(e)) continue;
     if (typing && !h.typing) continue;
+    if (h.enabled && !h.enabled()) continue;
     if (h.when && !h.when()) continue;
     // Any other action abandons pending goline digits — otherwise the idle timer would
     // yank the cursor away ~800ms after e.g. a j/⇧Y that already moved on.
@@ -538,9 +576,8 @@ export function helpGroups(): { group: Group; items: { combo: string; desc: stri
   const order: Group[] = ["Navigate", "Review", "Comment", "View", "UI", "App"];
   return order.map((group) => ({
     group,
-    items: HOTKEYS.filter((h) => h.group === group && !h.hide).map((h) => ({
-      combo: h.combo,
-      desc: h.desc,
-    })),
+    items: HOTKEYS.filter((h) => h.group === group && !h.hide && h.enabled?.() !== false).map(
+      (h) => ({ combo: h.combo, desc: h.desc }),
+    ),
   }));
 }

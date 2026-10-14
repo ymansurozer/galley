@@ -19,6 +19,9 @@ and re-diff your edits into the same tab. No model runs in the desk; the review 
 ## Review modes
 Pick one at start. await/comment/status/reload/ui auto-target the lone live desk and omit --session
 below; --session at start (and restart) names the desk — needed only for a stable id or a second desk.
+A desk start opens no browser by default: hand the printed desk URL to the human once, when you first
+start the desk. \`--open\` on any desk start opts in to opening it on a fresh start (reusing a live
+desk never opens one).
 - repo (default) — \`galley\`: working-tree diff; \`--diff staged\` for the index; \`--path <p>\`
   limits to a path. Untracked (new) files show as full-file additions. Approve stages the file
   (toggle); accept/reject are verdicts. A moved file stages both its old and new paths as a rename.
@@ -66,6 +69,9 @@ done
   "ui" question's annotationId, or a uiAnnotations[].id. Posted like a code reply (live desk → in
   the thread within ~1.5s; no desk → appended to the saved review); an id the review doesn't have
   exits non-zero and posts nothing.
+- A reply in the desk, to a question or to a change request, is read there: never repeat or
+  summarize it in your own chat or harness output (echoing it doubles the tokens). At most say
+  briefly that you replied in the desk.
 - \`galley status --body "…"\` — ephemeral one-line "doing X now" beside the reviewer's spinner.
   Cleared by your next comment; stale after ~90s (keep posting through long work); never
   persisted; exits 0 even with no desk.
@@ -161,7 +167,8 @@ The \`result\` field of a review event:
 - stagedFiles[], approvedFiles[]
 - openQuestions[]: questions you never answered, folded into this Send (superseding queued live
   question events), each the same lane-tagged shape as a live question. A question is answered
-  once your reply follows it in its thread. Answer each where it was asked (\`galley comment\`, or
+  once you reply in its thread after it was asked: a reply from before a change request was turned
+  into it doesn't count. Answer each where it was asked (\`galley comment\`, or
   \`galley comment --ui\` for lane "ui"), READ-ONLY as a live question, while acting on the round.
 - artifacts: {resultJson, sessionDir} under ~/.galley/<repoHash>/<session>/ (repoHash =
   sha256(abs repo root)[:16])
@@ -183,6 +190,9 @@ new Send). Live questions arrive only via await, so a file-poller sees Sends but
 - approvedFiles → signed off as-is; leave the whole file unless a requested change forces a touch
   (which re-opens it for re-review).
 - stagedFiles → already staged by the reviewer; don't touch unless a requested change requires it.
+An item can change kind between rounds: the human can turn a change request into a question (it
+then reaches you as a question, live or in openQuestions) and a question into a change request.
+A change request missing from a later Send was resolved or turned into a question — drop it.
 In pr mode the diff is committed changes: amend the branch/commits to apply the review, leaving
 approved hunks as-is (rather than editing the working tree).
 Then \`galley reload\` to surface your edits, and \`galley await\` for the next round.
@@ -220,10 +230,11 @@ One JSON object:
 - prDescription? — author/PR intent, shown on the overview page.
 - files (required, non-empty array) — one entry per reviewed file:
   - path (required, non-empty) — repo-relative; must be a file in the diff.
-  - orientation (required, non-empty) — the lens to read this file with: its role, the
-    problem it solves, what to expect before opening it, what's non-obvious or worth
+  - orientation (non-empty; required unless skim: true) — the lens to read this file with: its
+    role, the problem it solves, what to expect before opening it, what's non-obvious or worth
     scrutinizing. Orientation, not a changelog — the reviewer already sees the diff. Shown
-    in the file's diff header.
+    in the file's diff header. A whole-file skim entry normally omits orientation (its
+    skimReason says why); every other entry, skimBlocks-only ones included, requires one.
   - order? — ascending review order; defaults to array position.
   - category? — group label (default "Changes"). Files group by adjacency in review order, so a
     label repeated non-adjacently makes a second section — keep a category's files together.

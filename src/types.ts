@@ -35,6 +35,10 @@ export type ReviewComment = {
   // "action" = a change request (goes back to the agent on Send); "question" = a
   // just-in-time question answered live via the await stream; "note" = plain note.
   intent?: "note" | "action" | "question";
+  // Set when the reviewer turns a change request into a question: it counts as asked then, so an
+  // agent reply from before (to the change request) doesn't answer it. Absent, it was asked at
+  // createdAt. Every "answered" check reads `askedAt ?? createdAt`.
+  askedAt?: string;
   // "user" comments are the reviewer's; "agent" comments are replies posted
   // back by the coding agent via `galley comment` between sessions.
   role?: "user" | "agent";
@@ -50,7 +54,7 @@ export type ReviewComment = {
 // thread, so a single thread component renders both lanes.
 export type ThreadMessage = Pick<
   ReviewComment,
-  "id" | "body" | "createdAt" | "updatedAt" | "intent" | "role"
+  "id" | "body" | "createdAt" | "updatedAt" | "intent" | "askedAt" | "role"
 >;
 
 export type ChangeState = {
@@ -152,7 +156,9 @@ export type GuideFile = {
   path: string;
   order: number;
   category: string;
-  orientation: string;
+  // Required (non-empty) unless `skim: true`: a whole-file skim leaves the review flow, so
+  // its entry normally omits the lens and `skimReason` says why. Never present-but-blank.
+  orientation?: string;
   flag?: string;
   // Focused-review skimming (agent-supplied, for "show me only the major changes"). The
   // desk collapses skimmed parts by default but never removes them — the reviewer can
@@ -196,6 +202,13 @@ export type ReviewState = {
   // Stable identity of the review: repo + session (branch by default).
   session: string;
   root: string;
+  // What the desk's header and tab title name. project is the MAIN worktree's folder, so a desk in
+  // a linked worktree (whose root is the worktree folder) still names the real project; a file
+  // outside any repo names its folder. branch is the checked-out branch, absent on a detached HEAD.
+  // Recomputed on every build — a reload/restart takes the rebuild's, never a saved review's.
+  // Optional because reviews saved by older versions lack both.
+  project?: string;
+  branch?: string;
   repoHash: string;
   // How this review was built — drives staging semantics, result wording, and
   // how `reload` rebuilds the diff.
@@ -248,7 +261,7 @@ export type ReviewState = {
 // replaces exactly these fields (snapshot semantics, latest wins) and touches nothing else.
 // decisionFiles rides along because it's reviewer-mutated and gates the per-file Reset
 // button on reload; stagedFiles/stagedChangeKeys deliberately do NOT — they're maintained
-// server-side by /api/stage, /api/unstage, and syncGitState.
+// server-side by /api/stage, /api/unstage, /api/restage, and syncGitState.
 export type ReviewerSave = Pick<
   ReviewState,
   | "decisions"
@@ -259,6 +272,11 @@ export type ReviewerSave = Pick<
   | "annotations"
   | "lastAnnotationNumber"
 >;
+
+// A path's index entry as /api/unstage found it (a file's Reset), handed back to /api/restage by
+// the Reset's Undo so it puts back exactly what was staged. null: the index had no entry (a staged
+// deletion). Absent from the unstage response: a conflicted path, which Undo can't restore.
+export type IndexEntry = { mode: string; oid: string } | null;
 
 // What the tab had adopted of the desk when it saved (DeskStatus): the desk process, by its UI
 // token (null while no proxy runs), and that process's `galley reload` count. Rides every save and
@@ -501,6 +519,7 @@ export type UiAnnotationRecord = {
   // What the opening message asked for, and so what the annotation is: a change request (sent in
   // uiAnnotations) or a question (asked live; in openQuestions while unanswered). Replies never
   // change it, but a question whose thread has a Request change reply is sent in uiAnnotations too.
+  // Turning the opening message into the other kind turns this with it, so the two always agree.
   intent: "change" | "question";
   status: "open" | "resolved";
   // Whether its target was found on its page the last time that page loaded, as the bridge reported.
@@ -550,7 +569,7 @@ export type FileContentsPayload = {
 // `ui` rides along so `galley ui` on a live desk reaches the open tab without a diff change.
 export type PollPayload = Pick<
   ReviewState,
-  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations"
+  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations" | "project" | "branch"
 >;
 
 // The structured payload printed to stdout (and written to result.json) when

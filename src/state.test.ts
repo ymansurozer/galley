@@ -668,6 +668,44 @@ test("buildReviewResult.openQuestions lists unanswered questions and drops answe
   ]);
 });
 
+test("a change request turned into a question counts as asked at the turn: earlier agent replies don't answer it", () => {
+  const thread = (line: number, askedAt: string, reply: string) => [
+    comment({
+      id: `q${line}`,
+      path: "a.ts",
+      lineNumber: line,
+      body: `rename ${line}`,
+      intent: "question",
+      role: "user",
+      createdAt: "2026-01-01T00:00:00Z",
+      askedAt,
+    }),
+    comment({
+      id: `r${line}`,
+      path: "a.ts",
+      lineNumber: line,
+      body: "done",
+      intent: "note",
+      role: "agent",
+      createdAt: reply,
+    }),
+  ];
+  const s = state({
+    comments: [
+      // Replied to at 00:01 as a change request, turned into a question at 00:05.
+      ...thread(4, "2026-01-01T00:05:00Z", "2026-01-01T00:01:00Z"),
+      // Turned at 00:05 and answered afresh at 00:06.
+      ...thread(7, "2026-01-01T00:05:00Z", "2026-01-01T00:06:00Z"),
+    ],
+  });
+  const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    r.openQuestions.map((q) => q.body),
+    ["rename 4"],
+  );
+  assert.deepEqual(r.codeChangeRequests, []);
+});
+
 test("buildReviewResult carries mode/target/base", () => {
   const s = state({ mode: "pr", target: "feature-x", base: "abc123" });
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
@@ -1591,6 +1629,44 @@ test("mergeReviewerSave stores well-formed annotations as sent", () => {
   assert.deepEqual(live.annotations, [annotation({ id: "a1" })]);
 });
 
+test("a UI change request turned into a question is saved with its asked time, asked, and no longer sent", () => {
+  const live = state({ ui: UI });
+  const a = annotation({ id: "a1" });
+  a.comments.push({
+    id: "a1-r1",
+    role: "agent",
+    intent: "note",
+    body: "Done",
+    createdAt: "2026-10-13T10:01:00.000Z",
+    updatedAt: "2026-10-13T10:01:00.000Z",
+  });
+  const asked = {
+    ...a,
+    intent: "question" as const,
+    comments: [
+      { ...a.comments[0]!, intent: "question" as const, askedAt: "2026-10-13T10:05:00.000Z" },
+      a.comments[1]!,
+    ],
+  };
+  mergeReviewerSave(live, { annotations: [asked] });
+  assert.equal(live.annotations![0]!.comments[0]!.askedAt, "2026-10-13T10:05:00.000Z");
+  const r = buildReviewResult(live, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(r.uiAnnotations, []);
+  assert.deepEqual(
+    r.openQuestions.map((q) => q.lane === "ui" && q.annotationId),
+    ["a1"],
+    "the reply from before the turn doesn't answer it",
+  );
+  // Turned back, it's a change request again.
+  mergeReviewerSave(live, { annotations: [a] });
+  const back = buildReviewResult(live, { resultJson: "r.json", sessionDir: "d" });
+  assert.deepEqual(
+    back.uiAnnotations.map((x) => x.id),
+    ["a1"],
+  );
+  assert.deepEqual(back.openQuestions, []);
+});
+
 test("mergeReviewerSave truncates oversized page data to the caps", () => {
   const live = state({ ui: UI });
   const attrs = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`data-k${i}`, "v"]));
@@ -2077,4 +2153,102 @@ test("appendAnnotationReply adds the agent's reply to the saved review's annotat
     process.env.HOME = oldHome;
     await fs.rm(home, { recursive: true, force: true });
   }
+});
+
+// ── The project the desk names (header + tab title) ──────────────────────────
+
+// A scratch repo at <tmp>/<name> on branch main with one committed file. The folder name is the
+// point: it's what the desk is expected to show.
+async function scratchRepo(name: string) {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "galley-project-"));
+  const dir = path.join(parent, name);
+  await fs.mkdir(dir);
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  gitq("init", "-q", "-b", "main");
+  gitq("config", "user.email", "t@t.dev");
+  gitq("config", "user.name", "t");
+  await fs.writeFile(path.join(dir, "a.txt"), "a\n");
+  gitq("add", "-A");
+  gitq("commit", "-q", "-m", "init");
+  return { parent, dir, gitq };
+}
+
+test("a desk in a linked worktree names the main worktree's folder, not the worktree's", async () => {
+  const { parent, dir, gitq } = await scratchRepo("acme");
+  try {
+    const wt = path.join(parent, "acme-wt");
+    gitq("worktree", "add", "-q", wt, "-b", "feature");
+    await fs.writeFile(path.join(wt, "a.txt"), "A\n");
+    const s = await buildReviewState(wt, { session: "s" });
+    assert.equal(path.basename(s!.root), "acme-wt");
+    assert.equal(s!.project, "acme");
+    assert.equal(s!.branch, "feature");
+    // File mode inside the worktree resolves the same project.
+    const f = await buildReviewState(wt, { mode: "file", path: "a.txt", session: "s" });
+    assert.equal(f!.project, "acme");
+    // The main worktree names itself.
+    await fs.writeFile(path.join(dir, "a.txt"), "B\n");
+    const main = await buildReviewState(dir, { session: "s" });
+    assert.equal(main!.project, "acme");
+    assert.equal(main!.branch, "main");
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("a detached HEAD carries no branch", async () => {
+  const { parent, dir, gitq } = await scratchRepo("acme");
+  try {
+    gitq("checkout", "-q", "--detach");
+    await fs.writeFile(path.join(dir, "a.txt"), "A\n");
+    const s = await buildReviewState(dir, { session: "s" });
+    assert.equal(s!.project, "acme");
+    assert.equal(s!.branch, undefined);
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("galley file on a file outside any repo names the file's folder", async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "galley-project-"));
+  try {
+    const notes = path.join(parent, "notes");
+    await fs.mkdir(notes);
+    await fs.writeFile(path.join(notes, "todo.md"), "# todo\n");
+    const s = await buildReviewState(notes, { mode: "file", path: "todo.md", session: "s" });
+    assert.equal(s!.project, "notes");
+    assert.equal(s!.branch, undefined);
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("a review saved before the project name loads, and gains it on reload", async () => {
+  const { parent, dir } = await scratchRepo("acme");
+  const oldHome = process.env.HOME;
+  process.env.HOME = parent;
+  try {
+    await fs.writeFile(path.join(dir, "a.txt"), "A\n");
+    const built = await buildReviewState(dir, { session: "s" });
+    const { project: _project, branch: _branch, ...older } = built!;
+    await persistReview(older);
+    const saved = await loadLatestReview(built!.root, "s");
+    assert.ok(saved, "the older review loads");
+    assert.equal(saved!.project, undefined);
+    const merged = await mergeReviewState((await buildReviewState(dir, { session: "s" }))!, saved);
+    assert.equal(merged.project, "acme");
+    assert.equal(merged.branch, "main");
+  } finally {
+    process.env.HOME = oldHome;
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("mergeReviewState takes the project and branch from the rebuild, never the saved review", async () => {
+  const merged = await mergeReviewState(
+    state({ project: "acme" }),
+    state({ project: "acme-old", branch: "gone" }),
+  );
+  assert.equal(merged.project, "acme");
+  assert.equal(merged.branch, undefined);
 });

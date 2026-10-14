@@ -8,7 +8,14 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { resolveEditorCommand } from "./editor.js";
-import { blobOid, git, listProjectTree, patchForChange } from "./git.js";
+import {
+  blobOid,
+  getCheckedOutBranch,
+  getProjectName,
+  git,
+  listProjectTree,
+  patchForChange,
+} from "./git.js";
 import { validateGuide } from "./guide.js";
 import { createSerializer } from "./mutex.js";
 import { parseUiTarget, startUiProxy } from "./proxy.js";
@@ -40,10 +47,12 @@ import type {
   AgentActivity,
   AwaitEvent,
   DeskStatus,
+  IndexEntry,
   PollPayload,
   QuestionPayload,
   ReviewState,
   SaveStamp,
+  ThreadMessage,
 } from "./types.js";
 import {
   SHOT_CAP,
@@ -79,6 +88,8 @@ export type ServerOptions = {
   // Preferred port for the UI proxy (stableUiPort), started once the state has a UI target.
   // Default: a random port.
   uiPort?: number;
+  // Open the browser URL once listening (--open). Default: don't — an agent usually starts the
+  // desk in the background, so an uninvited tab gets in the way; the reviewer opens the printed URL.
   open?: boolean;
   // Test seam: lets server.test.ts assert the resolved editor invocation without
   // actually launching anything.
@@ -306,6 +317,24 @@ async function applyPatchToIndex(root: string, patch: string) {
   }
 }
 
+// A path's index entry as an unstage found it, so a Reset's Undo puts back exactly what was staged:
+// re-adding the working tree would stage edits the reviewer never saw (a staged-mode desk reviews
+// the index, not the working tree). undefined: a conflicted path, which Undo can't restore this way.
+async function readIndexEntry(root: string, filePath: string): Promise<IndexEntry | undefined> {
+  const out = await git(["ls-files", "--stage", "--", filePath], root);
+  if (!out) return null;
+  const m = /^(\d+) ([0-9a-f]+) 0\t[^\n]*$/.exec(out);
+  return m ? { mode: m[1]!, oid: m[2]! } : undefined;
+}
+async function writeIndexEntry(root: string, filePath: string, entry: IndexEntry) {
+  await git(
+    entry
+      ? ["update-index", "--add", "--cacheinfo", `${entry.mode},${entry.oid},${filePath}`]
+      : ["update-index", "--force-remove", "--", filePath],
+    root,
+  );
+}
+
 async function openUrl(url: string) {
   const command =
     process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
@@ -347,6 +376,37 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     const waiter = eventWaiters.shift();
     if (waiter) waiter(ev);
     else eventQueue.push(ev);
+  };
+  // The reviewer's open questions, by message id: a code comment, or a message in an open UI
+  // annotation's thread. /api/ask builds each question event from the stored copy.
+  const isAsked = (m: ThreadMessage) => m.role !== "agent" && m.intent === "question";
+  const codeQuestion = (id: unknown) =>
+    state.comments.find((c) => c.id === id && c.status === "open" && isAsked(c));
+  const uiQuestion = (annotationId: unknown, id: unknown) => {
+    const a = state.annotations?.find((x) => x.id === annotationId && x.status === "open");
+    const m = a?.comments.find((x) => x.id === id && isAsked(x));
+    return a && m ? { a, m } : undefined;
+  };
+  // The message each question was asked in. A queued question the reviewer takes back (its message
+  // turned into a change request, resolved or deleted by a save or a reset) has nothing left to
+  // answer, so it's withdrawn. Only the reviewer's own change withdraws: a reload that drops a
+  // thread along with its file leaves its question queued, and it's still delivered. One asked by
+  // its path and body alone names no message, and stays.
+  const askedIn = new WeakMap<QuestionPayload, string>();
+  const stillAsked = (q: QuestionPayload) => {
+    const id = askedIn.get(q);
+    if (id === undefined) return true;
+    return q.lane === "code" ? !!codeQuestion(id) : !!uiQuestion(q.annotationId, id);
+  };
+  // Taken just before the reviewer's change: withdrawQuestions drops the ones it took back.
+  const askedQuestions = () =>
+    new Set(eventQueue.filter((ev) => ev.kind === "question" && stillAsked(ev.question)));
+  const withdrawQuestions = (askedBefore: Set<AwaitEvent>) => {
+    for (let i = eventQueue.length - 1; i >= 0; i--) {
+      const ev = eventQueue[i];
+      if (ev.kind === "question" && askedBefore.has(ev) && !stillAsked(ev.question))
+        eventQueue.splice(i, 1);
+    }
   };
 
   // Ephemeral "what the agent is doing now" line (`galley status`). Lives only in
@@ -501,14 +561,16 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // The tab's 1.5s heartbeat. Deliberately tiny and git-free: the full ReviewState
         // carries the contents of every file in the diff (>100 MB on a big monorepo PR),
         // and re-serializing it every tick pegged both the desk process and the tab.
-        // Ship only what pollState diffs — hash, guide, comments, liveness; the tab
-        // fetches /api/state exactly once per baseDiffHash change.
+        // Ship only what pollState diffs — hash, guide, comments, the names the title shows,
+        // liveness; the tab fetches /api/state exactly once per baseDiffHash change.
         const poll: PollPayload = {
           baseDiffHash: state.baseDiffHash,
           guide: state.guide,
           comments: state.comments,
           ui: state.ui,
           annotations: state.annotations,
+          project: state.project,
+          branch: state.branch,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
       }
@@ -658,7 +720,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // metadata stay authoritative here. Pick from whatever body arrives so a stale open
         // tab still posting the old full-state body keeps working (extra fields ignored).
         return await serialize(async () => {
-          mergeReviewerSave(state, JSON.parse(await readBody(req)), saveStamp());
+          const body: unknown = JSON.parse(await readBody(req));
+          const asked = askedQuestions();
+          mergeReviewerSave(state, body, saveStamp());
+          withdrawQuestions(asked);
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
           return json(res, 200, { ok: true, file });
@@ -695,6 +760,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (req.method === "POST" && url.pathname === "/api/ask") {
         // Reviewer clicked Ask: push a question to the agent now (out of band from Send).
         const b = JSON.parse(await readBody(req)) as {
+          id?: string;
           path?: string;
           lineNumber?: number;
           side?: string;
@@ -703,14 +769,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           messageId?: string;
         };
         let question: QuestionPayload;
+        let asked: string | undefined;
+        // A question the tab saved first names its message (a code comment, or a UI annotation and
+        // a message in its thread): the event is built from the stored copy, as openQuestions is.
         if (b.annotationId !== undefined) {
-          // A UI question names its annotation and message, which the tab saved first: the event
-          // is built from the stored copy, as openQuestions is.
-          const a = state.annotations?.find((x) => x.id === b.annotationId);
-          const m = a?.comments.find(
-            (x) => x.id === b.messageId && x.role !== "agent" && x.intent === "question",
-          );
-          if (!a || !m)
+          const found = uiQuestion(b.annotationId, b.messageId);
+          if (!found)
             return fail(
               res,
               404,
@@ -718,7 +782,20 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               `No question "${b.messageId}" on annotation "${b.annotationId}" in this review.`,
               "Save the annotation before asking.",
             );
-          question = uiQuestionPayload(state, a, m);
+          question = uiQuestionPayload(state, found.a, found.m);
+          asked = found.m.id;
+        } else if (b.id !== undefined) {
+          const c = codeQuestion(b.id);
+          if (!c)
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `No question "${b.id}" in this review.`,
+              "Save the comment before asking.",
+            );
+          question = questionPayload(state, c);
+          asked = c.id;
         } else {
           const text = (b.body ?? "").trim();
           if (!b.path || !text)
@@ -735,6 +812,16 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             side: b.side === "deletions" ? "deletions" : "additions",
             body: text,
           });
+        }
+        if (asked !== undefined) {
+          // Asked again while its question is still queued (turned into a change request and back
+          // before the save in between landed): this ask replaces the queued one.
+          for (let i = eventQueue.length - 1; i >= 0; i--) {
+            const ev = eventQueue[i];
+            if (ev.kind === "question" && askedIn.get(ev.question) === asked)
+              eventQueue.splice(i, 1);
+          }
+          askedIn.set(question, asked);
         }
         // Bake the singular into a one-element `questions` here so a question handed straight
         // to a parked waiter already carries the array — batching only has to merge on drain.
@@ -758,8 +845,6 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // `questions` holds them in arrival order. Safe because a Send flushes every queued
         // question before enqueuing its review (see /api/send), so a review can never sit
         // between two queued questions; draining all questions can't skip past a review.
-        // A UI question whose annotation was deleted or resolved while it sat queued has no thread
-        // left to answer in, so it's dropped; if none are left, the agent waits for the next event.
         if (eventQueue[0]?.kind === "question") {
           const batched: QuestionPayload[] = [];
           for (let i = eventQueue.length - 1; i >= 0; i--) {
@@ -769,12 +854,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               eventQueue.splice(i, 1);
             }
           }
-          const open = new Set(
-            state.annotations?.filter((a) => a.status === "open").map((a) => a.id),
-          );
-          const asked = batched.filter((q) => q.lane === "code" || open.has(q.annotationId));
-          if (asked.length)
-            return json(res, 200, { kind: "question", question: asked[0], questions: asked });
+          return json(res, 200, { kind: "question", question: batched[0], questions: batched });
         }
         const queued = eventQueue.shift();
         if (queued) return json(res, 200, queued);
@@ -850,6 +930,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             state.rawDiff = "";
             state.baseDiffHash = hash("");
             state.annotations = unvisitedAnnotations(state.annotations);
+            // No rebuild to take them from, but the agent may have switched branches.
+            [state.project, state.branch] = await Promise.all([
+              getProjectName(state.root),
+              getCheckedOutBranch(state.root),
+            ]);
             await persistReview(state);
             reloadGeneration++;
             return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });
@@ -1154,8 +1239,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               git(["reset", "HEAD", "--", ...paths], state.root),
             );
           }
+          const asked = askedQuestions();
           state.comments = [];
           state.annotations = [];
+          withdrawQuestions(asked);
           state.lastAnnotationNumber = 0;
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
@@ -1237,6 +1324,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (req.method === "POST" && url.pathname === "/api/unstage") {
         return await serialize(async () => {
           const { path: filePath } = JSON.parse(await readBody(req)) as { path: string };
+          const index = await readIndexEntry(state.root, filePath).catch(() => undefined);
           await git(["restore", "--staged", "--", filePath], state.root).catch(async () =>
             git(["reset", "HEAD", "--", filePath], state.root),
           );
@@ -1244,6 +1332,41 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           state.stagedChangeKeys = (state.stagedChangeKeys ?? []).filter(
             (key) => !key.startsWith(`${filePath}:`),
           );
+          await persistReview(state);
+          // The entry it replaced, for /api/restage (a Reset's Undo); absent when unrestorable.
+          return json(res, 200, { ok: true, index });
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/api/restage") {
+        // A Reset's Undo: put back the index entry /api/unstage reported, and the staging records
+        // the Reset dropped.
+        return await serialize(async () => {
+          const b = JSON.parse(await readBody(req)) as {
+            path: string;
+            index: IndexEntry;
+            staged?: boolean;
+            stagedChangeKeys?: string[];
+          };
+          const valid =
+            b.index === null ||
+            (typeof b.index?.mode === "string" &&
+              /^\d+$/.test(b.index.mode) &&
+              typeof b.index.oid === "string" &&
+              /^[0-9a-f]+$/.test(b.index.oid));
+          if (typeof b.path !== "string" || !valid)
+            return fail(
+              res,
+              422,
+              "INVALID_INDEX_ENTRY",
+              "restage requires the path and the index entry /api/unstage returned",
+              "Send { path, index } as JSON.",
+            );
+          await writeIndexEntry(state.root, b.path, b.index);
+          if (b.staged && !state.stagedFiles.includes(b.path)) state.stagedFiles.push(b.path);
+          state.stagedChangeKeys ??= [];
+          for (const key of b.stagedChangeKeys ?? [])
+            if (key.startsWith(`${b.path}:`) && !state.stagedChangeKeys.includes(key))
+              state.stagedChangeKeys.push(key);
           await persistReview(state);
           return json(res, 200, { ok: true });
         });
@@ -1285,6 +1408,6 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   const port = boundPort();
   const url = `http://${binding.browserHost}:${port}/`;
   const lockUrl = `http://${binding.lockHost}:${port}/`;
-  if (options.open !== false) await openUrl(url);
+  if (options.open) await openUrl(url);
   return { server, url, lockUrl };
 }

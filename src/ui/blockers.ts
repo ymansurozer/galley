@@ -3,7 +3,7 @@ import type { Decision, ReviewComment, Side } from "./types";
 import { currentFile, toDisplayLine } from "./changes";
 import { isUnanchored } from "./unanchored";
 import { revealLine } from "./expand";
-import { cursorJumpTo } from "./cursor";
+import { cursorJumpTo, isRendered } from "./cursor";
 
 // ── "Why can't I approve this file?" ─────────────────────────────────────────
 // fileObjections gates Approve on rejected hunks and open change-request comments, but
@@ -65,26 +65,34 @@ function decisionDisplayPos(d: Decision): { side: Side; line: number } {
   return { side: d.side, line: toDisplayLine(d.side, d.lineNumber) };
 }
 
+// Scroll a thread that isn't on a diff row (the strip's, a rendered markdown file's) into view and
+// flash it.
+export function flashThread(el: HTMLElement) {
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  el.classList.remove("flash");
+  void el.offsetWidth; // restart the animation
+  el.classList.add("flash");
+}
+
 export function jumpToBlocker(b: Blocker) {
   if (b.kind === "thread" && b.unanchored) {
     // The thread lives in the strip above the diff, not on a row.
     const el = $("diff").querySelector<HTMLElement>(
       `.unanchored-strip [data-thread="${b.side}:${b.lineNumber}"]`,
     );
-    (el ?? $("diff").querySelector<HTMLElement>(".unanchored-strip"))?.scrollIntoView({
-      block: "center",
-      behavior: "smooth",
-    });
-    if (el) {
-      el.classList.remove("flash");
-      void el.offsetWidth; // restart the animation
-      el.classList.add("flash");
-    }
+    if (el) flashThread(el);
+    else
+      $("diff")
+        .querySelector<HTMLElement>(".unanchored-strip")
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
     return;
   }
   if (b.kind === "thread") {
-    revealLine(b.side, b.lineNumber); // unfold first if the line sits in a collapsed run
-    cursorJumpTo(b.side, toDisplayLine(b.side, b.lineNumber));
+    const line = toDisplayLine(b.side, b.lineNumber);
+    // Unfold only when the line isn't rendered: each expansion reveals more lines, so unfolding a
+    // line that already renders would widen the run on every jump to it.
+    if (!isRendered(b.side, line)) revealLine(b.side, b.lineNumber);
+    cursorJumpTo(b.side, line);
     return;
   }
   const pos = decisionDisplayPos(b.decision);

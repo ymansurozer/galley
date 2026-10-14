@@ -313,12 +313,30 @@
     .brand {
       display: inline-flex;
       align-items: center;
-      gap: 9px
+      gap: 9px;
+      min-width: 0
     }
 
     .brand span {
       color: var(--ink);
       font-weight: 700
+    }
+
+    /* The project under review (the main worktree's folder): a filesystem name, so mono like the
+       paths elsewhere in the chrome, and quiet beside the wordmark. It's the brand's only shrinking
+       part — at narrow widths it truncates and its tooltip carries the full name. */
+    .brand .brand-project {
+      min-width: 0;
+      padding-left: 9px;
+      border-left: 1px solid var(--line-strong);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: var(--text-xs);
+      font-weight: 400;
+      line-height: 14px
     }
 
     .brand-logo {
@@ -788,6 +806,12 @@
       line-height: 1.6
     }
 
+    /* A skimmed file's reason, in the orientation's place when the guide omits one. */
+    .ghdr .ghdr-skim {
+      color: var(--muted);
+      font-size: var(--text-sm)
+    }
+
     /* The flag is a bordered amber callout box (not a bare text row) — the one thing on the
        card that says "decide this before approving". */
     .ghdr .ghdr-flag {
@@ -1232,6 +1256,44 @@
 
     #walk .st.changes {
       color: var(--amber)
+    }
+
+    /* The status icon is the file's sign-off control in both tabs: a click approves (or marks
+       reviewed) a pending file and resets a finished one. The negative margin cancels the padding,
+       so the button keeps the bare icon's footprint. On hover: a quiet ring, and the icon takes the
+       color of the state a click leads to (data-act, set by statusHint). */
+    .st-btn {
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      margin: -3px;
+      padding: 3px;
+      border: 0;
+      border-radius: var(--radius-pill);
+      background: transparent;
+      color: inherit;
+      cursor: pointer
+    }
+
+    .st-btn:hover {
+      background: var(--panel3);
+      box-shadow: inset 0 0 0 1px var(--line-strong)
+    }
+
+    .st-btn:focus-visible {
+      outline: 1px solid var(--cyan)
+    }
+
+    :is(#files, #walk) .st-btn[data-act="approve"]:hover .ic {
+      color: var(--green)
+    }
+
+    :is(#files, #walk) .st-btn[data-act="mark"]:hover .ic {
+      color: var(--amber)
+    }
+
+    :is(#files, #walk) .st-btn[data-act="reset"]:hover .ic {
+      color: var(--muted)
     }
 
     .card {
@@ -1950,6 +2012,47 @@
       background: rgba(255, 77, 109, .1)
     }
 
+    /* Turn into ask / change request. In a narrow thread (the UI lane's sidebar, a narrow diff) its
+       label would cover the meta line's badge, so it shrinks to a glyph and names itself in a
+       tooltip; a wide thread shows the label and needs no tooltip. */
+    .annotation .msg {
+      container: msg / inline-size
+    }
+
+    .annotation .turn-comment .turn-ic {
+      display: none;
+      width: 11px;
+      height: 11px;
+      margin: 2px 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round
+    }
+
+    .annotation .turn-comment[data-tip]::after {
+      content: none
+    }
+
+    @container msg (max-width: 400px) {
+      .annotation .msg-actions .turn-comment {
+        padding: 1px 5px
+      }
+
+      .annotation .turn-comment .turn-ic {
+        display: block
+      }
+
+      .annotation .turn-comment .turn-label {
+        display: none
+      }
+
+      .annotation .turn-comment[data-tip]::after {
+        content: attr(data-tip)
+      }
+    }
+
     /* Uppercase outline pills — Question cyan, Change requested amber (per the design). */
     .annotation .intent-badge {
       font-size: var(--text-2xs);
@@ -1991,6 +2094,59 @@
 
     .annotation .awaiting-answer.queued {
       color: var(--amber)
+    }
+
+    /* The review's open change requests, in the top bar: a click (or ]) walks to the next one.
+       Quiet beside Send, borderless like the blockers chip; amber is the change-request color the
+       tree's flag badge wears. Narrow, it keeps the flag and the count; narrower still it would
+       push the actions onto two lines, so it leaves the bar to them (] still walks). */
+    .actions .req-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 0;
+      border-radius: var(--radius);
+      background: transparent;
+      padding: 5px 8px;
+      color: var(--muted);
+      font-size: var(--text-sm);
+      white-space: nowrap;
+      cursor: pointer
+    }
+
+    .actions .req-chip .ic {
+      color: var(--amber)
+    }
+
+    .actions .req-chip b {
+      margin-right: -2px;
+      color: var(--amber-fg);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums
+    }
+
+    .actions .req-chip:hover {
+      color: var(--ink);
+      background: color-mix(in srgb, var(--amber) 10%, transparent)
+    }
+
+    .actions .req-chip:focus-visible {
+      outline: 1px solid var(--amber);
+      outline-offset: 1px
+    }
+
+    @media(max-width:1100px) {
+
+      .actions .req-chip .req-label,
+      .actions .req-chip kbd {
+        display: none
+      }
+    }
+
+    @media(max-width:760px) {
+      .actions .req-chip {
+        display: none
+      }
     }
 
     .actions .agent-status {
@@ -2390,6 +2546,13 @@
       z-index: 4
     }
 
+    /* A thread carrying its line's change: the bar takes its own row above the thread. Laid over
+       the thread, it covered the first message's actions. */
+    .annotation:has(> .comment-box) > .change-actions {
+      position: static;
+      margin: 4px 8px 0 auto
+    }
+
     .change-actions button {
       border: 0;
       border-radius: var(--radius-sm);
@@ -2564,7 +2727,8 @@
       color: var(--muted)
     }
 
-    /* Flash a strip thread when jumped to from the blockers list. */
+    /* Flash a thread off the diff rows (the strip's, a rendered markdown file's) when jumped to
+       from the blockers list or the change-request walk. */
     @keyframes blocker-flash {
       0% {
         background: rgba(224, 175, 104, .25)
@@ -2575,7 +2739,8 @@
       }
     }
 
-    .unanchored-strip .annotation.flash {
+    .unanchored-strip .annotation.flash,
+    .md-file .md-thread.flash {
       animation: blocker-flash 1.2s ease-out
     }
 
@@ -3011,6 +3176,23 @@
       display: block
     }
 
+    .toast-action {
+      margin-left: 10px;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: inherit;
+      font: inherit;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer
+    }
+
+    .toast-action:hover {
+      color: var(--ink-bright)
+    }
+
     /* Go-to-line pill: mode indicator for pending typed digits (neutral, unlike the green toast). */
     .goline {
       position: absolute;
@@ -3080,6 +3262,15 @@
       display: flex;
       flex-direction: column;
       position: relative
+    }
+
+    /* The code view keeps a loaded app laid out in the box the UI view shows it in (the centre
+       column beside the annotation sidebar, placed on .main), unseen and inert, so it warms in the
+       background at the stage's real size and the first switch re-lays out nothing. */
+    .app:not(.view-ui) .uiview {
+      position: absolute;
+      inset: 0 var(--annside-w) 0 0;
+      visibility: hidden
     }
 
     /* Browser-chrome bar: sits in the guide bar's slot, same height and surface. */
@@ -3507,13 +3698,18 @@
        Calm by default: colour appears only where kind needs it. One axis (--ann-ax) carries page
        names, bodies and the resolved toggle; numbers hang in the gutter to its left like footnote
        marks. The thread inside an expanded row is the code lane's and isn't restyled here — only
-       the space around it is. */
-    .app.view-ui .main {
-      grid-template-columns: minmax(0, 1fr) 360px
+       the space around it is. The sidebar's column width is a variable: the code view lays a
+       warmed app out beside the same space. */
+    .app {
+      --annside-w: 360px
     }
 
-    .app.view-ui.annotations-closed .main {
-      grid-template-columns: minmax(0, 1fr) 40px
+    .app.annotations-closed {
+      --annside-w: 40px
+    }
+
+    .app.view-ui .main {
+      grid-template-columns: minmax(0, 1fr) var(--annside-w)
     }
 
     .annside {
@@ -3616,6 +3812,15 @@
       writing-mode: vertical-rl;
       font-size: var(--text-xs);
       letter-spacing: .03em
+    }
+
+    /* The rail runs the page's full height, so its tip can't open below it: there it would be out
+       of sight and make the page taller than the window. It opens to the left, by the icon. */
+    .ann-rail[data-tip]::after {
+      top: 6px;
+      left: auto;
+      right: calc(100% + 6px);
+      transform: none
     }
 
     .annotations-closed .ann-rail {
@@ -4135,9 +4340,8 @@
     /* Narrow widths: the rail stays in the flow and the list opens as a drawer over the app. */
     @media(max-width:1100px) {
 
-      .app.view-ui .main,
-      .app.view-ui.annotations-closed .main {
-        grid-template-columns: minmax(0, 1fr) 40px
+      .app {
+        --annside-w: 40px
       }
 
       .app.view-ui .ann-rail {
@@ -4256,7 +4460,8 @@
   <div class="app booting" x-data :class="{booting: !$store.g.ready, 'view-ui': $store.g.view==='ui', 'ui-only': $store.g.uiOnly(), 'annotations-closed': !$store.g.annotationsOpen}">
     <header class="top">
       <div class="brand"><button class="nav-toggle" data-tip="Files (⇧B)" aria-label="Toggle file tree"
-          @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="brand-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#hb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#hb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#hb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="hb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span></div>
+          @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="brand-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#hb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#hb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#hb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="hb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="hb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span><span class="brand-project" x-cloak
+          x-show="$store.g.state?.project" x-text="$store.g.state?.project" :title="$store.g.state?.project"></span></div>
       <div class="toggles">
         <!-- Code / UI lane switch: only when the desk has a UI target and a diff. A single-lane desk
              shows no lane label. -->
@@ -4268,7 +4473,11 @@
             :class="{active: $store.g.fileView==='source'}" @click="$store.g.setFileView('source')">Source</button>
         </div>
       </div>
-      <div class="actions"><span class="agent-status" x-cloak
+      <div class="actions"><button class="req-chip" x-cloak x-show="$store.g.view==='code' && $store.g.openRequests()"
+          data-tip="Next open change request (])" :aria-label="'Next open change request, ' + $store.g.openRequests() + ' open'"
+          @click="$store.g.nextRequest()"><svg class="ic"><use href="#gly-flag"></use></svg><b
+            x-text="$store.g.openRequests()"></b><span class="req-label"
+            x-text="$store.g.openRequests() === 1 ? 'open request' : 'open requests'"></span><kbd>]</kbd></button><span class="agent-status" x-cloak
           :class="{queued: $store.g.queuedReviews > 0}"
           x-show="$store.g.awaitingAgent && ($store.g.queuedReviews > 0 || $store.g.agentActivity)"
           x-text="$store.g.queuedReviews > 0 ? 'No agent attached — review queued' : $store.g.agentActivity"></span><span class="top-pct" id="progressPct" style="display:none"></span><button class="btn icon top-settings" data-tip="Settings (⇧,)" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button><button
@@ -4281,8 +4490,8 @@
       <aside class="tree" :class="{'drawer-open': $store.g.treeDrawerOpen}">
         <div class="tree-tabs" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak>
           <!-- The w hint sits on the INACTIVE tab — the one pressing w switches to. -->
-          <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.sidebarTab='tree'">Tree <kbd x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
-          <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.sidebarTab='walkthrough'">Walkthrough <kbd x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
+          <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.setSidebarTab('tree')">Tree <kbd x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
+          <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.setSidebarTab('walkthrough')">Walkthrough <kbd x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
         </div>
         <div class="label tree-title" x-show="!($store.g.hasGuide && $store.g.hasGuide()) || $store.g.sidebarTab==='tree'"><span>Files</span>
           <button class="tree-toggle" @click="$store.g.toggleAllDirs()"
@@ -4305,9 +4514,13 @@
               <span class="testcaret" x-show="r.testToggle" @click.stop="$store.g.toggleTestDir(r.testKey)">
                 <svg class="ic chev" :class="{open: r.testCaret==='▾'}"><use href="#gly-chevron"></use></svg></span>
               <span class="status-pack" x-show="r.state">
-                <svg class="ic badge pending" x-show="r.state==='pending'" title="Pending review"><use href="#gly-dot"></use></svg>
-                <svg class="ic badge approved" x-show="r.state==='approved'" title="Approved"><use href="#gly-check"></use></svg>
-                <svg class="ic badge changes" x-show="r.state==='changes-requested'" title="Changes requested"><use href="#gly-flag"></use></svg>
+                <!-- mousedown.prevent: a click doesn't leave focus here, where Space would click it again. -->
+                <button type="button" class="st-btn" @click.stop="$store.g.statusClick(r.path, $event)" @mousedown.prevent
+                  @mouseenter="$store.g.statusHint($el, r.path)" @focus="$store.g.statusHint($el, r.path)">
+                  <svg class="ic badge pending" x-show="r.state==='pending'"><use href="#gly-dot"></use></svg>
+                  <svg class="ic badge approved" x-show="r.state==='approved'"><use href="#gly-check"></use></svg>
+                  <svg class="ic badge changes" x-show="r.state==='changes-requested'"><use href="#gly-flag"></use></svg>
+                </button>
               </span>
             </div>
           </template></div>
@@ -4318,10 +4531,14 @@
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='cat' && r.skimmed"><use href="#gly-chevron"></use></svg>
               <span class="nm walk-cat-name" x-show="r.kind==='cat'" x-text="r.category" :title="r.category"></span>
               <span class="walk-skim-count" x-show="r.kind==='cat' && r.skimmed" x-text="r.total + (r.total===1 ? ' file' : ' files')"></span>
-              <!-- File status leads the row (empty circle = to do); ± stay flush right below. -->
-              <svg class="ic st pending" x-show="r.kind==='file' && r.state==='pending'" title="Pending review"><use href="#gly-circle"></use></svg>
-              <svg class="ic st approved" x-show="r.kind==='file' && r.state==='approved'" title="Approved"><use href="#gly-check"></use></svg>
-              <svg class="ic st changes" x-show="r.kind==='file' && r.state==='changes-requested'" title="Changes requested"><use href="#gly-circle-alert"></use></svg>
+              <!-- File status leads the row (empty circle = to do); ± stay flush right below. A click
+                   signs the file off or resets it, as in the Files tab. -->
+              <button type="button" class="st-btn" x-show="r.kind==='file' && r.state" @click.stop="$store.g.statusClick(r.path, $event)" @mousedown.prevent
+                @mouseenter="$store.g.statusHint($el, r.path)" @focus="$store.g.statusHint($el, r.path)">
+                <svg class="ic st pending" x-show="r.state==='pending'"><use href="#gly-circle"></use></svg>
+                <svg class="ic st approved" x-show="r.state==='approved'"><use href="#gly-check"></use></svg>
+                <svg class="ic st changes" x-show="r.state==='changes-requested'"><use href="#gly-circle-alert"></use></svg>
+              </button>
               <span class="nm" x-show="r.kind==='file'" x-text="r.name" :title="r.path"></span>
               <span class="moved-from" x-show="r.kind==='file' && r.movedFrom" x-text="'← '+r.movedFrom" :title="'moved from '+r.movedFrom"></span>
               <svg class="ic crit" x-show="r.kind==='file' && r.flag" :title="r.flag"><use href="#gly-flag"></use></svg>
@@ -4364,8 +4581,9 @@
               x-text="$store.g.fabState && $store.g.fabState()==='changes' ? 'Mark Reviewed' : 'Approve'">Approve</span> <kbd>⇧A</kbd></button>
         </div>
         <!-- The UI view: the proxied app under a browser-chrome bar (in the guide bar's slot). The
-             iframe is created by appview.ts inside #appFrame and stays alive across view switches. -->
-        <div class="uiview" x-cloak x-show="$store.g.view==='ui'">
+             iframe is created by appview.ts inside #appFrame and stays alive across view switches;
+             the code view keeps it laid out, unseen and inert, once it has loaded. -->
+        <div class="uiview" x-cloak x-show="$store.g.view==='ui' || $store.g.app.loaded" :inert="$store.g.view!=='ui'">
           <div class="chrome">
             <div class="grp">
               <button class="sq" data-tip="Back" aria-label="Back" @click="$store.g.appBack()"
@@ -4546,6 +4764,10 @@
                 <option value="auto">Auto</option>
                 <option value="rendered">Rendered</option>
                 <option value="source">Source</option>
+              </select></label><label>Per-change verdicts<select
+                @change="$store.g.settings.perChangeVerdicts = $event.target.value === 'on'; $store.g.applySettings()">
+                <option value="on" :selected="$store.g.settings.perChangeVerdicts">On</option>
+                <option value="off" :selected="!$store.g.settings.perChangeVerdicts">Off</option>
               </select></label><label>Approve<select
                 @change="$store.g.settings.stageOnAccept = $event.target.value === 'stage'; $store.g.applySettings()">
                 <option value="stage" :selected="$store.g.settings.stageOnAccept">Stages file</option>
@@ -4599,7 +4821,9 @@
           <div class="modal-actions"><button class="btn" @click="$store.g.closeShot()">Close <kbd>Esc</kbd></button></div>
         </div>
       </div>
-      <div class="toast" id="toast" :class="{show: $store.g.toastMsg}" x-text="$store.g.toastMsg">saved</div>
+      <div class="toast" id="toast" :class="{show: $store.g.toastMsg}"><span x-text="$store.g.toastMsg">saved</span><button
+          type="button" class="toast-action" x-show="$store.g.toastAction" x-text="$store.g.toastAction"
+          @click="$store.g.runToastAction()"></button></div>
       <div class="goline" :class="{show: $store.g.golineBuffer}">Go to line&nbsp;<b
           x-text="$store.g.golineBuffer"></b><span class="goline-hint"><kbd>↵</kbd> Jump · <kbd>esc</kbd>
           Cancel</span></div>

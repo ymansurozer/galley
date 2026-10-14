@@ -1,5 +1,6 @@
 import type {
   Rect,
+  ThreadMessage,
   UiAnnotationRecord,
   UiElement,
   UiMark,
@@ -52,21 +53,61 @@ export function pageName(title: string | undefined, route: string): string {
 export const requestsChange = (a: UiAnnotationRecord) =>
   a.intent === "change" || a.comments.some((m) => m.role !== "agent" && m.intent === "action");
 
-export const openChangeCount = (list: readonly UiAnnotationRecord[]) =>
-  list.filter((a) => a.status === "open" && requestsChange(a)).length;
+export const isOpenChange = (a: UiAnnotationRecord) => a.status === "open" && requestsChange(a);
 
-// An open annotation waits on the agent while a question of the reviewer's in its thread has no
-// agent reply after it (the code lane's "answered" rule, annotations.ts).
+export const openChangeCount = (list: readonly UiAnnotationRecord[]) =>
+  list.filter(isOpenChange).length;
+
+// A question is answered once an agent reply lands after it was asked, in its thread: the code
+// lane's waiting indicator (annotations.ts) and the UI lane's rows both read it. state.ts keeps the
+// server's copy, for openQuestions.
+export const answered = (question: ThreadMessage, thread: readonly ThreadMessage[]) =>
+  thread.some(
+    (r) =>
+      r.role === "agent" &&
+      +new Date(r.createdAt) > +new Date(question.askedAt ?? question.createdAt),
+  );
+
+// What a reviewer's message turns into: a change request into a question, and back. A note, or
+// the agent's message, doesn't turn.
+export const turnsInto = (m: ThreadMessage) =>
+  m.role === "agent"
+    ? null
+    : m.intent === "action"
+      ? ("question" as const)
+      : m.intent === "question"
+        ? ("action" as const)
+        : null;
+
+// Turn a reviewer's message into the other kind. Turned into a question, it's asked now, so an
+// agent reply from before doesn't answer it.
+export function turnInto(m: ThreadMessage, intent: "action" | "question", now: string) {
+  m.intent = intent;
+  if (intent === "question") m.askedAt = now;
+  else delete m.askedAt;
+}
+
+// When a message was last asked, or null when it isn't a question (any more). An ask that waited on
+// a save sends only if this hasn't moved meanwhile: a later turn supersedes it.
+export const askStamp = (m: ThreadMessage | undefined) =>
+  m && m.role !== "agent" && m.intent === "question" ? (m.askedAt ?? m.createdAt) : null;
+
+// An annotation's kind lives on it (its pin, row tint and tooltip) and on its opening message (what
+// the Send sends), so the two turn together.
+export function turnAnnotationInto(
+  a: UiAnnotationRecord,
+  intent: "action" | "question",
+  now: string,
+) {
+  a.intent = intent === "question" ? "question" : "change";
+  if (a.comments[0]) turnInto(a.comments[0], intent, now);
+}
+
+// An open annotation waits on the agent while a question of the reviewer's in its thread is
+// unanswered.
 export const isWaiting = (a: UiAnnotationRecord) =>
   a.status === "open" &&
-  a.comments.some(
-    (m) =>
-      m.role !== "agent" &&
-      m.intent === "question" &&
-      !a.comments.some(
-        (r) => r.role === "agent" && +new Date(r.createdAt) > +new Date(m.createdAt),
-      ),
-  );
+  a.comments.some((m) => m.role !== "agent" && m.intent === "question" && !answered(m, a.comments));
 
 export const waitingCount = (list: readonly UiAnnotationRecord[]) => list.filter(isWaiting).length;
 
@@ -264,11 +305,23 @@ export function stepOrder(groups: readonly PageGroup[], shownResolved: ReadonlyS
   );
 }
 
-export function stepFrom(order: readonly string[], current: string | null, dir: 1 | -1) {
-  if (!order.length) return null;
+// The row after (dir 1) or before (dir -1) `current` in `order`, wrapping, among the rows `keep`
+// admits; `current` needn't be one of them (an ask selected while `]` walks the change requests).
+// With no selection, the first kept row, or the last going back.
+export function stepFrom(
+  order: readonly string[],
+  current: string | null,
+  dir: 1 | -1,
+  keep: (id: string) => boolean = () => true,
+) {
+  const n = order.length;
   const i = current ? order.indexOf(current) : -1;
-  if (i < 0) return dir > 0 ? order[0]! : order[order.length - 1]!;
-  return order[(i + dir + order.length) % order.length]!;
+  const from = i < 0 ? (dir > 0 ? -1 : n) : i;
+  for (let s = 1; s <= n; s++) {
+    const id = order[(((from + dir * s) % n) + n) % n]!;
+    if (keep(id)) return id;
+  }
+  return null;
 }
 
 // The classes an element had, read off the start of its outline (`<button class="btn primary" …>`).

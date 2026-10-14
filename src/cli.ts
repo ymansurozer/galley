@@ -33,10 +33,13 @@ import type { Guide, ReviewMode } from "./types.js";
 import { maybeOfferUpdate } from "./update.js";
 
 function parseArgs(argv: string[]) {
-  const out: Record<string, string | boolean> = { diff: "working", open: true };
+  const out: Record<string, string | boolean> = { diff: "working" };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
-    if (arg === "--no-open") out.open = false;
+    // Bare switches, so neither swallows a following positional. Not opening is the default;
+    // --no-open still parses so existing scripts keep working.
+    if (arg === "--open") out.open = true;
+    else if (arg === "--no-open") out.open = false;
     else if (arg.startsWith("--")) {
       const key = arg.slice(2);
       const next = argv[i + 1];
@@ -683,7 +686,7 @@ async function runDesk(
     host,
     allowedHosts,
     uiPort: stableUiPort(state.root, state.session),
-    open: args.open !== false,
+    open: args.open === true,
     idleTimeoutMs:
       Number.isFinite(idleMinutes) && idleMinutes >= 0 ? idleMinutes * 60_000 : undefined,
   });
@@ -765,7 +768,8 @@ Common flags:
   --guide <file>    Attach an AI review guide (JSON)
   --ui <url>        Also review the running app at this loopback http:// URL (desk starts)
   --idle-timeout <m>  Desk auto-exits after <m> minutes with no tab or agent (default 120; 0 = never)
-  --no-open         Don't open the browser
+  --open            Open the desk in the browser on a fresh start (default: just print its URL)
+  --no-open         Redundant: not opening is the default
   -h, --help        Show this help
   -v, --version     Show version
 

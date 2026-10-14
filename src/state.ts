@@ -7,8 +7,10 @@ import {
   changeBlockContent,
   changeStableKeyFromBlock,
   fileAt,
+  getCheckedOutBranch,
   getGitRoot,
   getHead,
+  getProjectName,
   git,
   parseUnifiedDiff,
   rawBlobOids,
@@ -680,16 +682,19 @@ export async function buildReviewState(
   const mode = opts.mode ?? "repo";
   const emptySource: DiffSource = { files: [], changes: [], rawDiff: "", parsedDiff: [] };
   const orEmpty = (source: DiffSource | null) => source ?? (opts.allowEmpty ? emptySource : null);
-  const make = (
+  const make = async (
     root: string,
     source: DiffSource,
     extra: { staged: boolean; target?: string; base?: string },
     head: string | null,
-  ): ReviewState => {
+  ): Promise<ReviewState> => {
+    const [project, branch] = await Promise.all([getProjectName(root), getCheckedOutBranch(root)]);
     const state: ReviewState = {
       id: crypto.randomUUID(),
       session: sanitizeSession(opts.session),
       root,
+      project,
+      branch,
       repoHash: hash(root),
       mode,
       target: extra.target,
@@ -1327,12 +1332,16 @@ export function uiQuestionPayload(
   };
 }
 
-// A question is answered once an agent reply lands after it in its thread.
+// A question is answered once an agent reply lands after it was asked, in its thread.
 const answered = (question: ThreadMessage, thread: readonly ThreadMessage[]) =>
-  thread.some((r) => r.role === "agent" && +new Date(r.createdAt) > +new Date(question.createdAt));
+  thread.some(
+    (r) =>
+      r.role === "agent" &&
+      +new Date(r.createdAt) > +new Date(question.askedAt ?? question.createdAt),
+  );
 
 // Questions the reviewer asked but the agent hasn't answered yet. Mirrors the UI's "answered"
-// heuristic (src/ui/annotations.ts): an open question is unanswered until a later agent reply
+// heuristic (src/ui/uilane-derive.ts): an open question is unanswered until a later agent reply
 // lands in the same thread — the comments on its path/side/line, or its UI annotation's messages.
 // These ride out on the Send's ReviewResult so an agent that never saw the live await still owes
 // each an answer.

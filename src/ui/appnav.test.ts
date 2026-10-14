@@ -8,6 +8,7 @@ import {
   reloadRan,
   routeFromInput,
   settledWithin,
+  shouldWarm,
 } from "./appnav";
 
 const TOKEN = "t0k";
@@ -398,6 +399,17 @@ test("a moved reload counter is the agent's `galley reload`, diff or no diff; a 
   // Without a UI target there's no token to change, so a counter that went back is the restart.
   assert.equal(reloadRan(desk(undefined, 3), desk(undefined, 0)), false);
   assert.equal(reloadRan(desk(undefined, 3), desk(undefined, 1)), false);
+});
+
+test("the app warms in the code view once the diff has rendered and there's an app to load", () => {
+  const ready = { rendered: true, proxy: true, target: true, view: "code", loaded: false } as const;
+  assert.equal(shouldWarm(ready), true);
+  assert.equal(shouldWarm({ ...ready, rendered: false }), false, "opening the desk comes first");
+  assert.equal(shouldWarm({ ...ready, proxy: false }), false, "the proxy isn't up yet");
+  assert.equal(shouldWarm({ ...ready, target: false }), false, "no app attached");
+  assert.equal(shouldWarm({ ...ready, loaded: true }), false, "already loaded");
+  // The UI view, a UI-only desk's only view, loads the app itself on the way in.
+  assert.equal(shouldWarm({ ...ready, view: "ui" }), false);
 });
 
 test("readBridgeMessage reads pin clicks and anchor moves", () => {

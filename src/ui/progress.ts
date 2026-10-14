@@ -8,11 +8,19 @@ import { flowIndex } from "./changes";
 // rather than Alpine because the *moment* of progress is animated — the number counts up
 // odometer-style and the strip pulses when the bar advances — which is rAF work.
 
-// Tab title carries progress too ("(58%) Galley — repo"), so it reads from other tabs.
-// main.ts names the base title at init; updateProgress stamps the prefix.
+// Tab title carries progress too ("(58%) Galley — repo · main"), so it reads from other tabs.
+// The base names the project and what of it is under review, so multiple desks are
+// distinguishable in the browser. Context: repo mode → the branch; pr mode → the (truncated) head
+// branch; file mode → the file name. A detached HEAD has no branch, so the title drops it.
+// Re-derived wherever S.state is replaced (init, and poll adoption — a reload can move the
+// branch); updateProgress stamps the prefix.
 let baseTitle = document.title;
-export function setBaseTitle(title: string) {
-  baseTitle = title;
+export function refreshBaseTitle() {
+  const base = (p?: string) => p?.replace(/\/+$/, "").split("/").pop() || "";
+  const { mode, target, branch, project, root } = S.state;
+  const ref = (mode === "pr" ? target : branch) ?? "";
+  const context = mode === "file" ? base(target) : ref.slice(0, 32) + (ref.length > 32 ? "…" : "");
+  baseTitle = `Galley — ${project ?? base(root)}${context ? ` · ${context}` : ""}`;
 }
 
 let shownPct: number | null = null; // % the label currently shows; null until first paint

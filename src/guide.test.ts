@@ -75,6 +75,24 @@ test("validateGuide leaves skim fields unset when absent", () => {
   assert.equal(f.skimBlocks, undefined);
 });
 
+test("validateGuide makes orientation optional only on whole-file skim entries", () => {
+  const reason = "guide.files[0].orientation must be a non-empty string";
+  const one = (entry: Record<string, unknown>) =>
+    validateGuide({ overview: "o", files: [{ path: "a.ts", ...entry }] });
+  const skimmed = one({ skim: true, skimReason: "lockfile churn" });
+  assert.ok(skimmed.ok);
+  if (skimmed.ok) {
+    assert.equal(skimmed.guide.files[0]!.orientation, undefined);
+    assert.equal(skimmed.guide.files[0]!.skimReason, "lockfile churn");
+  }
+  // Present on a skim entry, it must still be non-empty.
+  assert.deepEqual(one({ skim: true, orientation: "  " }), { ok: false, reason });
+  // Partial skims and unskimmed entries stay in the review flow, so they still need one.
+  assert.deepEqual(one({ skimBlocks: [{ lines: 3 }] }), { ok: false, reason });
+  assert.deepEqual(one({ skim: "yes" }), { ok: false, reason });
+  assert.deepEqual(one({}), { ok: false, reason });
+});
+
 test("validateGuide carries focused as a boolean and rejects other types (issue 04)", () => {
   const on = validateGuide({
     overview: "o",

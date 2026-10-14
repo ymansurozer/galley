@@ -12,6 +12,10 @@ const ANCHORS = [
   "repo (default)",
   "galley file <path>",
   "galley pr <ref>",
+  // desk starts don't open a browser, so the agent relays the URL; --open opts in
+  "opens no browser by default",
+  "hand the printed desk URL to the human once",
+  "`--open` on any desk start",
   // the loop + events
   "galley await",
   "galley comment",
@@ -22,6 +26,9 @@ const ANCHORS = [
   // a question is READ-ONLY: answer it, don't edit code in response (guards issue 04)
   "answering is READ-ONLY",
   "NEVER edit tracked",
+  // replies live in the desk only: no echo into the agent's own chat/harness output
+  "in your own chat or harness output",
+  "At most say\n  briefly that you replied in the desk",
   // question batching + immediate re-await (issue 05); the loop iterates the whole batch, not
   // the deprecated .question compat field (issue 04 cleanup)
   "batched into this delivery",
@@ -34,12 +41,18 @@ const ANCHORS = [
   // unanswered questions fold into the Send (issue 05)
   "openQuestions",
   "How to act on a review",
+  // the human can turn a change request into a question and back between rounds
+  "change kind between rounds",
+  "missing from a later Send",
   // guided review schema (folded in from the old guide-spec)
   "Guide JSON schema",
   "one-paragraph changeset overview",
   "files (required, non-empty array)",
   "repo-relative; must be a file in the diff",
   "Orientation, not a changelog",
+  // a whole-file skim needs no orientation; everything else, skimBlocks-only included, does
+  "normally omits orientation",
+  "skimBlocks-only ones included",
   // skimmable review (issue 06) — the fields and the "only on request / opposite of flag" rule
   "skimBlocks?",
   "new-file-side [start, end] span",
@@ -142,6 +155,8 @@ test("SPEC states the deduped invariants exactly once (issue 04)", () => {
   const count = (re: RegExp) => (SPEC.match(re) ?? []).length;
   // The READ-ONLY question rule has ONE full statement (Events); the loop comment is a pointer.
   assert.equal(count(/answering is READ-ONLY/g), 1, "READ-ONLY rule should be stated once");
+  // The no-echo reply rule is one bullet under the comment commands, not repeated per lane.
+  assert.equal(count(/harness output/g), 1, "no-echo reply rule should be stated once");
   // The reload-resets-edits invariant lives once, at the reload bullet.
   assert.equal(count(/resets to pending on reload/g), 1, "reload-resets invariant should be once");
 });

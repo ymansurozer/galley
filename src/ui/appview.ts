@@ -6,8 +6,10 @@ import {
   readBridgeMessage,
   reloadRan,
   routeFromInput,
+  shouldWarm,
 } from "./appnav";
 import { dispatchKey } from "./keys";
+import { restoreComposerFocus } from "./composer";
 import {
   annotationsUnvisited,
   appModeNow,
@@ -68,6 +70,9 @@ const targetRoute = () => {
 };
 
 let frame: HTMLIFrameElement | null = null;
+// Whether the UI view has shown the page the desk last loaded into the frame. One loaded in the
+// code view (warmed, or a new target) has been seen by no one until the first switch.
+let shown = false;
 
 // Point the iframe at a route (the first load, a new target, or a fallback when no bridge is
 // listening). The bridge on the new page re-handshakes and takes over the route from there.
@@ -87,12 +92,74 @@ function loadApp(route: string) {
     canGoForward: null,
     stale: false,
   });
+  shown = S.view === "ui";
   frame.src = origin + route;
+}
+
+// The target went, and the app goes with it: no page of it runs on, hidden, with its bridge still
+// talking to the desk. Its farewell can't land with the frame gone, so its captures fail here.
+function unloadApp() {
+  frame?.remove();
+  frame = null;
+  Object.assign(S.app, {
+    loaded: false,
+    connected: false,
+    canGoBack: null,
+    canGoForward: null,
+    stale: false,
+  });
+  captures.abandon("The app was detached from the desk");
+}
+
+let diffRendered = false;
+let warming = false;
+
+// Load the app in the background while the reviewer reads code, once the tab is idle (Safari has
+// no requestIdleCallback: a short timer stands in). The code view keeps a loaded app laid out where
+// the UI view shows it, unseen and inert (index.html), so it lays out at the stage's real size and
+// the first switch finds it loaded.
+function warmApp() {
+  const ready = () =>
+    shouldWarm({
+      rendered: diffRendered,
+      proxy: !!S.uiProxy,
+      target: hasUi(),
+      view: S.view,
+      loaded: S.app.loaded,
+    });
+  if (warming || !ready()) return;
+  warming = true;
+  const run = () => {
+    warming = false;
+    if (!ready()) return;
+    // Only into a tab the reviewer is in. A page that focuses itself as it loads takes the tab's
+    // focus, and a tab in the background can't count on hearing of it (reclaimFocus): back in the
+    // tab, the reviewer's keys would go to the app.
+    if (document.hasFocus()) loadApp(targetRoute());
+    else addEventListener("focus", warmApp, { once: true });
+  };
+  if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 2000 });
+  else setTimeout(run, 200);
+}
+
+// The desk's first diff render has finished: the app may warm from here on.
+export function firstRenderDone() {
+  diffRendered = true;
+  warmApp();
 }
 
 export function postToApp(msg: DeskMessage) {
   const origin = proxyOrigin();
   if (frame?.contentWindow && origin) frame.contentWindow.postMessage(msg, origin);
+}
+
+// Out of the UI view the app never holds the tab's focus, and with it the desk's keys. Inert doesn't
+// reach into the frame's document, so a page that focuses itself as it loads (an autofocus field, a
+// focus() call, a dev server's reload) takes focus from the desk, which takes it straight back.
+function reclaimFocus() {
+  if (S.view === "ui" || !frame || document.activeElement !== frame) return;
+  frame.blur();
+  restoreComposerFocus();
 }
 
 export function setView(view: "code" | "ui") {
@@ -103,10 +170,12 @@ export function setView(view: "code" | "ui") {
   S.view = view;
   syncBridge();
   if (view === "code") {
+    reclaimFocus();
     render(); // the diff pane was hidden while the app showed — repaint it
     return;
   }
   if (!S.app.loaded) loadApp(targetRoute());
+  shown = true;
   requestAnimationFrame(sizeFrame);
   resumeUiComposer();
 }
@@ -173,7 +242,7 @@ export function sizeFrame() {
   const box = $("appFrame");
   const W = stage.clientWidth;
   const H = stage.clientHeight;
-  if (!W || !H) return; // hidden (code view) — resized when the UI view shows
+  if (!W || !H) return; // not laid out until the app first loads — resized then
   if (S.viewport === "fit") {
     Object.assign(box.style, {
       width: `${W}px`,
@@ -223,8 +292,9 @@ export function fromAppViewport(r: Rect): Rect | null {
 // token means a new desk process: its reload counter starts over, so adopt it as the baseline, and
 // the loaded page's bridge (still carrying the old token) is no longer trusted until the page
 // reloads. Within one process, a generation that went up means `galley reload` ran, which raises the
-// refresh pill but never reloads the app. Either way, the desk has marked every annotation
-// unvisited, and so does the tab.
+// refresh pill on a page the reviewer has seen, so their place on it isn't lost under them. A page
+// the UI view hasn't shown yet has no place to keep: it reloads as it warmed, in the background.
+// Either way, the desk has marked every annotation unvisited, and so does the tab.
 export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): boolean {
   const prev = S.uiProxy;
   const reloaded = reloadRan(
@@ -234,7 +304,11 @@ export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): bo
   S.uiProxy = proxy;
   S.reloadGeneration = generation;
   if (reloaded) {
-    if (S.app.loaded) S.app.stale = true;
+    if (S.app.loaded && shown) S.app.stale = true;
+    else if (S.app.loaded) {
+      S.app.loaded = false;
+      warmApp();
+    }
     annotationsUnvisited();
     return true;
   }
@@ -243,20 +317,31 @@ export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): bo
     if (prev) annotationsUnvisited();
     // A restarted desk normally gets its stable proxy port back; if not, follow it.
     if (prev && proxy && prev.port !== proxy.port && S.app.loaded) loadApp(S.app.route);
-    // The UI view opened before the proxy was up: load now.
+    // The UI view opened before the proxy was up: load now. The code view warms it.
     else if (proxy && S.view === "ui" && !S.app.loaded) loadApp(targetRoute());
+    else {
+      // A page warmed but never shown still runs the old token's bridge: warm it afresh, as a
+      // reload does, rather than show it disconnected on the first switch.
+      if (S.app.loaded && !shown) S.app.loaded = false;
+      warmApp();
+    }
   }
   return false;
 }
 
-// The UI target off the poll: `galley ui <url>` on the live desk. A loaded view switches to it.
+// The UI target off the poll: `galley ui <url>` on the live desk. A loaded view switches to it; the
+// code view warms an app that hasn't loaded.
 export function adoptUiTarget(ui: ReviewState["ui"]) {
   const before = S.state.ui?.target;
   if (ui?.target === before) return;
   S.state.ui = ui;
   syncView();
-  if (!ui) return;
+  if (!ui) {
+    unloadApp();
+    return;
+  }
   if (S.app.loaded) loadApp(targetRoute());
+  else warmApp();
   toast(before ? "App target changed" : "App attached — ⇧U shows it");
 }
 
@@ -312,6 +397,9 @@ export function installAppView() {
     // A new page has a new bridge with nothing drawn yet; an in-page route change has other pins.
     if (msg.type === "ready" || moved) appPageChanged(msg.type === "ready");
   });
+  // The tab's focus moving into the frame blurs the desk's window. Taken back once the move has
+  // finished: blurring the frame while it's under way doesn't hold.
+  addEventListener("blur", () => setTimeout(reclaimFocus));
   new ResizeObserver(() => {
     sizeFrame();
     placeFloatingComposer();

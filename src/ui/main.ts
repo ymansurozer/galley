@@ -1,5 +1,16 @@
 import Alpine from "alpinejs";
-import { S, D, $, api, openEditorAt, persist, persistPrefs, saveStamp, toast } from "./store";
+import {
+  S,
+  D,
+  $,
+  api,
+  openEditorAt,
+  persist,
+  persistPrefs,
+  runToastAction,
+  saveStamp,
+  toast,
+} from "./store";
 import { loadDiffLib } from "./difflib";
 import {
   currentFile,
@@ -8,9 +19,9 @@ import {
   fileFinished,
   fileObjections,
 } from "./changes";
-import { approveCurrentFile } from "./decisions";
+import { approveCurrentFile, toggleSignOff } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
-import { applyActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
+import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
 import { render, deferRender } from "./render";
 import { cur, prefetchContents } from "./contents";
@@ -32,9 +43,10 @@ import {
   nextWrapIndex,
   prevWrapIndex,
   anyUnreviewed,
+  navOrder,
   walkthroughRows,
 } from "./guide";
-import { setBaseTitle, reviewStats } from "./progress";
+import { refreshBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import {
   appBack,
@@ -42,6 +54,7 @@ import {
   appGo,
   appHost,
   appRefresh,
+  firstRenderDone,
   hasUi,
   installAppView,
   setView,
@@ -50,6 +63,7 @@ import {
   uiOnly,
 } from "./appview";
 import { installCaptureDebug } from "./capturedebug";
+import { askComment } from "./comments";
 import { composerInUi } from "./composer";
 import {
   annotatePage,
@@ -69,6 +83,7 @@ import {
   waitingQuestions,
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
+import { openRequests, stepOpenRequest } from "./requests";
 import { uuid } from "./uuid";
 import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
@@ -127,7 +142,7 @@ S.treeRows = treeRows;
 // Update the lightweight state synchronously (so the tree active-row + guide bar repaint
 // immediately — the click feels instant), then run the heavier diff render via deferRender,
 // which shows the "Rendering…" indicator only for a cold open of a big file.
-S.selectFile = (i) => {
+S.selectFile = async (i) => {
   if (i < 0 || !S.state.files[i]) return; // ignore out-of-range selections
   // Narrow-width drawer: opening a file is the drawer's whole purpose, so get it out of the
   // way. The single funnel for tree/walkthrough clicks + next/prev + guide nav; no-op when shut.
@@ -143,11 +158,12 @@ S.selectFile = (i) => {
   // Move the sidebar highlight in place — switching files no longer rebuilds the row lists
   // (the "active" class left the row models; see applyActiveRow in tree.ts).
   applyActiveRow();
-  deferRender();
-  // Quietly warm the next file in review order (guide order when guided, else sequential — the
+  const rendered = deferRender();
+  // Quietly warm the next file in review order (guide order when guided, else tree order — the
   // exact resolution keyboard nav uses) so the common next-file step never waits on the wire.
   const n = nextFileIndex(i);
   if (n !== null) prefetchContents(S.state.files[n]);
+  await rendered;
 };
 // Open any repo file (incl. unchanged ones) for read/comment: fetch its contents and show it
 // as a plain view (old === new → no diff blocks). Comments anchor to it like any file.
@@ -174,7 +190,7 @@ S.previewFile = async (path) => {
     };
     D.fileDiff = null;
     cursorReset();
-    render();
+    await render();
   } catch {
     toast("Could not open file");
   }
@@ -204,6 +220,14 @@ S.toggleTestDir = (key) => {
   else S.expandedDirs.add(key);
 };
 S.toggleSkimGroup = toggleSkimGroup;
+// Tree / Walkthrough tab (the tab buttons and `w`): the list it shows may not have been visible
+// when the active file last changed, so scroll it to the active row. A frame late: x-show reveals
+// on a timer queued in Alpine's flush, which the next frame can beat — the list must be laid out
+// before showActiveRow measures it.
+S.setSidebarTab = (tab) => {
+  S.sidebarTab = tab;
+  requestAnimationFrame(showActiveRow);
+};
 S.rowClick = (r) => {
   if (r.kind === "skimgrp") S.toggleSkimGroup?.();
   else if (r.kind === "dir") S.toggleDir?.(r.full, r.changed);
@@ -230,6 +254,22 @@ S.fabState = () => {
   if (!path || fileFinished(path)) return null;
   return fileObjections(path) ? "changes" : "clean";
 };
+// A double-click's second click would undo the sign-off its first one made. The hint re-reads at
+// once: the pointer is still on the icon, which now does the opposite.
+S.statusClick = (path, e) => {
+  if (e.detail < 2) toggleSignOff(path);
+  if (e.currentTarget instanceof HTMLElement) S.statusHint?.(e.currentTarget, path);
+};
+// The label is read when the icon is hovered or focused: binding it per row would rescan every
+// decision and comment for every row (see flow-index.ts). data-act tints the icon on hover with the
+// state a click leads to.
+S.statusHint = (el, path) => {
+  const act = fileFinished(path) ? "reset" : fileObjections(path) ? "mark" : "approve";
+  el.dataset.act = act;
+  el.title = { approve: "Approve", mark: "Mark reviewed", reset: "Reset review" }[act];
+  el.setAttribute("aria-label", el.title);
+};
+S.runToastAction = runToastAction;
 // Apply + persist all settings: CSS vars (font/size), comment-code theme, and a re-render
 // (the diff reads S.settings.* in render()). Bound to every control's @change.
 S.applySettings = () => {
@@ -291,15 +331,15 @@ S.guidePrev = () => {
 // while unreviewed work remains, next/prev stay live because they now seek it.
 S.guideAtStart = () => !!S.overviewOpen && !anyUnreviewed();
 S.guideAtLast = () => !S.overviewOpen && nextFileIndex(S.fileIndex) === null && !anyUnreviewed();
-// Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else sequential.
+// Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else the
+// Files tree's top-to-bottom order (see nextFileIndex).
 S.nextFile = () => {
   if (hasGuide() || S.overviewOpen) {
     S.guideNext?.();
     return;
   }
-  const n = S.fileIndex + 1;
   // Off the last file, wrap to the first unreviewed file (else the first file).
-  const target = n < S.state.files.length ? n : nextWrapIndex();
+  const target = nextFileIndex(S.fileIndex) ?? nextWrapIndex();
   if (target !== null) S.selectFile?.(target);
 };
 S.prevFile = () => {
@@ -307,10 +347,9 @@ S.prevFile = () => {
     S.guidePrev?.();
     return;
   }
-  const p = S.fileIndex - 1;
   // Off the first file, wrap to the last unreviewed file (else the last file). Without a guide
   // there's no Overview to step back into, so the wrap applies straight from the first file.
-  const target = p >= 0 ? p : prevWrapIndex();
+  const target = prevFileIndex(S.fileIndex) ?? prevWrapIndex();
   if (target !== null) S.selectFile?.(target);
 };
 // Tree-order file stepping (⇧↑/⇧↓) — walk the file rows as shown in the tree (skip folders),
@@ -326,6 +365,9 @@ S.treeStep = (dir) => {
   if (target.fileIndex !== undefined) S.selectFile?.(target.fileIndex);
   else S.previewFile?.(target.path);
 };
+// The top bar's count of open change requests; a click steps to the next, as `]` does.
+S.openRequests = openRequests;
+S.nextRequest = () => stepOpenRequest(1);
 // Keyboard help overlay + destructive-action confirm dialog (keys.ts owns the dialog state).
 S.helpGroups = helpGroups;
 S.confirmYes = confirmYes;
@@ -428,7 +470,7 @@ S.openInEditor = async () => {
 };
 // New comments carry an intent: "question" (Ask — pushed to the agent now via /api/ask,
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
-// body and keeps the existing intent.
+// body and keeps the existing intent; turning the thread's opening comment changes it (turnComment).
 const submitComment = (intent: "question" | "action") => {
   // The UI lane's composers (a new annotation, a reply or edit in its thread) submit there.
   if (composerInUi()) {
@@ -483,10 +525,7 @@ const submitComment = (intent: "question" | "action") => {
   render();
   persist();
   if (intent === "question") {
-    api("/api/ask", {
-      method: "POST",
-      body: JSON.stringify({ path: c.path, lineNumber: c.lineNumber, side: c.side, body }),
-    });
+    void askComment(c.id);
     toast("Asked — waiting for answer");
   } else toast("Comment saved");
 };
@@ -564,25 +603,15 @@ setMarkdownTheme(S.settings.theme);
 S.state = adoptDeskStatus(state);
 S.projectFiles = tree.files || [];
 S.lastBaseDiffHash = S.state.baseDiffHash;
-// Tab title: name the session so multiple desks are distinguishable in the browser.
-// Repo mode → repo folder; file mode → file name; pr mode → the (truncated) ref.
-{
-  const base = (p?: string) => p?.replace(/\/+$/, "").split("/").pop() || "";
-  const ref = S.state.target ?? S.state.session ?? "";
-  const name =
-    S.state.mode === "file"
-      ? base(S.state.target)
-      : S.state.mode === "pr"
-        ? ref.slice(0, 32) + (ref.length > 32 ? "…" : "")
-        : base(S.state.root);
-  if (name) document.title = `Galley — ${name}`;
-  // progress.ts prefixes the title with the review % — hand it the base to prefix.
-  setBaseTitle(document.title);
-}
+refreshBaseTitle();
 S.selected = {
   side: S.state.changes[0]?.side || "additions",
   lineNumber: S.state.changes[0]?.lineNumber || 1,
 };
+// Without a guide, open on the first file in review order — the Files tree's top row — not the
+// first in the diff's own order, which can sit near the tree's bottom and make the first approve
+// wrap to the top. (A guided desk opens on the Overview; a reload keeps the reviewer's file.)
+if (!hasGuide()) S.fileIndex = navOrder()[0] ?? 0;
 if (S.state.files[S.fileIndex]) S.fileView = defaultFileView(S.state.files[S.fileIndex]);
 // With a guide attached, land on the Overview page (the guided entry point) and open the
 // sidebar on the user's preferred pane (`w` toggles it per-session from there).
@@ -594,7 +623,7 @@ installAppView();
 installUiLane();
 installCaptureDebug();
 syncView(); // a UI-only desk opens straight on the app
-render();
+void render().finally(firstRenderDone);
 // Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,
 // so the lane chrome appears at once.
 requestAnimationFrame(() => (S.ready = true));

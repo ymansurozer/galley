@@ -12,6 +12,7 @@ import type {
   DeskStatus,
   FileContentsPayload,
   GuideFile,
+  IndexEntry,
   PickedTarget,
   PollPayload,
   Rect,
@@ -68,6 +69,10 @@ export type Settings = {
   // diff shows first), or force "rendered"/"source". The toolbar toggle still overrides per file.
   markdownView: "auto" | "rendered" | "source";
   stageOnAccept: boolean;
+  // Per-change Keep/Undo: the decision bar on each pending hunk and ⇧Y/⇧N. Off, the reviewer
+  // reads the diff and signs off file by file — Approve still accepts every pending hunk, and a
+  // hunk already decided keeps its verdict (and its look) either way.
+  perChangeVerdicts: boolean;
   // Command template for "Open in editor" ({repo}/{file}/{line} placeholders). A machine
   // preference like the rest — empty falls back to the OS opener (see src/editor.ts).
   editorCommand: string;
@@ -249,6 +254,8 @@ export interface Store {
   // text lives in composerBody so it survives the diff DOM rebuild (see composer.ts).
   composerOpen: boolean;
   toastMsg: string;
+  // The toast's action button label ("Undo"), "" for a plain toast (store.ts toast()).
+  toastAction: string;
   // Pending "go to line" digits typed in the diff ("" = inactive). Drives the goline pill;
   // ↵ / idle timeout commits the jump, Esc cancels (see cursor.ts goline section).
   golineBuffer: string;
@@ -331,19 +338,26 @@ export interface Store {
   shotView: { id: string; kind: "crop" | "viewport" } | null;
 
   treeRows?: () => TreeRow[];
-  selectFile?: (i: number) => void;
-  previewFile?: (path: string) => void;
+  // Both resolve once the file has rendered.
+  selectFile?: (i: number) => Promise<void>;
+  previewFile?: (path: string) => Promise<void>;
   toggleDir?: (full: string, changed: boolean) => void;
   toggleAllDirs?: () => void;
   treeAnyOpen?: () => boolean;
   toggleTestDir?: (key: string) => void;
   toggleSkimGroup?: () => void;
+  setSidebarTab?: (tab: Store["sidebarTab"]) => void;
   rowClick?: (r: TreeRow) => void;
   setStyle?: (style: DiffStyle) => void;
   setFileView?: (view: "rendered" | "source") => void;
   isMarkdownFile?: () => boolean;
   // Sign off on the current file from the floating button (same action as the header ⇧A).
   approveFile?: () => void;
+  // A sidebar row's status icon: sign the file off in place, or reset a finished one. statusHint
+  // labels the icon with what a click will do, read on hover/focus rather than bound per row.
+  statusClick?: (path: string, e: MouseEvent) => void;
+  statusHint?: (el: HTMLElement, path: string) => void;
+  runToastAction?: () => void;
   // Drives the floating Approve button: null hides it (overview, preview, or finished file),
   // else the pending file's sign-off flavor — "clean" (Approve) or "changes" (Mark Reviewed).
   fabState?: () => "clean" | "changes" | null;
@@ -374,6 +388,9 @@ export interface Store {
   nextFile?: () => void;
   prevFile?: () => void;
   treeStep?: (dir: 1 | -1) => void;
+  // The walk through open change requests (requests.ts): the top bar's count, and its next stop.
+  openRequests?: () => number;
+  nextRequest?: () => void;
   confirmYes?: () => void;
   confirmNo?: () => void;
   promptFinish?: () => void;
@@ -438,6 +455,7 @@ export type {
   DeskStatus,
   FileContentsPayload,
   GuideFile,
+  IndexEntry,
   PickedTarget,
   PollPayload,
   Rect,
