@@ -666,6 +666,71 @@ test("a new line identical to an accepted block staged out of the diff comes bac
   });
 });
 
+// The committed lines with two lines added after l2: the top part, which approving stages.
+const withTop = (lines: string[]) => [...lines.slice(0, 2), "n1", "n2", ...lines.slice(2)];
+
+test("the parts below a part the desk staged keep their decisions and sign-offs across the agent's next edit", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    const round1 = withTop(edited({ 10: "C", 12: "D" }));
+    const before = stampParts(await edit(round1), { 3: 0, 12: 1, 14: 1 });
+    const saved = {
+      ...before,
+      decisions: [
+        decide(before, "app.ts:additions:3:0:2", "accepted"),
+        decide(before, "app.ts:additions:12:1:1", "accepted"),
+        decide(before, "app.ts:additions:14:1:1", "rejected"),
+      ],
+      signedOffBlocks: signedOff(
+        before,
+        "app.ts:additions:3:0:2",
+        "app.ts:additions:12:1:1",
+        "app.ts:additions:14:1:1",
+      ),
+      stagedChangeKeys: ["app.ts:additions:3:0:2"],
+    };
+    // Approving the top part staged it; then the agent adds a line after l6, above the lower part.
+    await stage(withTop(committedLines));
+    const round2 = [...round1];
+    round2.splice(8, 0, "m1");
+    const merged = await mergeReviewState(await edit(round2), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:13:1:1"), "accepted");
+    assert.equal(statusOf(merged, "app.ts:additions:15:1:1"), "rejected");
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}).sort(), [
+      "app.ts:additions:13:1:1",
+      "app.ts:additions:15:1:1",
+    ]);
+    assert.deepEqual(partsOf(merged), { 9: "rest", 13: 1, 15: 1 });
+  });
+});
+
+test("a deletion below a block the desk staged keeps its decision and sign-off, re-keyed by the stage", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    // l12 deleted: a pure-deletion block keys on its old-side line, which the stage above moves.
+    const round1 = withTop(committedLines.filter((l) => l !== "l12"));
+    const before = await edit(round1);
+    const saved = {
+      ...before,
+      decisions: [decide(before, "app.ts:deletions:12:1:0", "rejected")],
+      signedOffBlocks: signedOff(before, "app.ts:deletions:12:1:0"),
+      stagedChangeKeys: ["app.ts:additions:3:0:2"],
+    };
+    await stage(withTop(committedLines));
+    const merged = await mergeReviewState(await edit(round1), saved);
+    assert.equal(statusOf(merged, "app.ts:deletions:14:1:0"), "rejected");
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}), ["app.ts:deletions:14:1:0"]);
+  });
+});
+
+test("a block the agent reverted above another doesn't count as staged", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(withTop(edited({ 12: "D" })));
+    const saved = { ...before, decisions: [decide(before, "app.ts:additions:14:1:1", "rejected")] };
+    // The top block is reverted, not staged: the base is unchanged, and the l12 block moves up.
+    const merged = await mergeReviewState(await edit(edited({ 12: "D" })), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:12:1:1"), "rejected");
+  });
+});
+
 test("a save from a tab still on the pre-reload diff lands on the reloaded blocks", async () => {
   await withShiftRepo(async (edit) => {
     // The tab accepts the l8 block and saves; then the agent edits above it and reloads.

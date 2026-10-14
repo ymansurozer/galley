@@ -87,7 +87,7 @@ export type ServerOptions = {
   state: ReviewState;
   // The diff of the review this desk resumed, which a tab left open across the restart is still on
   // (mergeReviewerSave). Absent for a fresh review.
-  priorDiff?: Pick<ReviewState, "baseDiffHash" | "changes" | "files">;
+  priorDiff?: Pick<ReviewState, "baseDiffHash" | "changes" | "files" | "stagedChangeKeys">;
   port?: number;
   // Bind address. Defaults to 127.0.0.1 (loopback-only) — the desk stays local unless explicitly
   // opted into a broader bind (--host / GALLEY_HOST). See resolveBinding for how this shapes the
@@ -1070,6 +1070,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               baseDiffHash: state.baseDiffHash,
               changes: state.changes,
               files: state.files,
+              stagedChangeKeys: state.stagedChangeKeys,
             };
           Object.assign(state, merged);
           await syncGitState(state);

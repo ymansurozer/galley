@@ -262,7 +262,8 @@ export type SkimResolution = { ok: true } | { ok: false; reason: string };
 // pure-deletion block has no new-side line of its own, so it falls back to the preceding new
 // line (its insertion point) — best-effort, since skim targets additive churn (imports,
 // lockfiles) and deletions are the rare edge (see the guide docs in spec.ts). `base` is where the
-// block sits in the file the diff is taken against (the old side): the last old-side line before it.
+// block sits in the file the diff is taken against (the old side): the last old-side line before
+// it. `grows`: how many lines the block adds to that file, net, once applied to it (staged).
 function skimRangesForHunk(h: DiffHunk): BlockRange[] {
   const out: BlockRange[] = [];
   let block: DiffHunk["lines"] = [];
@@ -273,7 +274,8 @@ function skimRangesForHunk(h: DiffHunk): BlockRange[] {
     const newLines = block.map((l) => l.newLine).filter((n): n is number => typeof n === "number");
     const lo = newLines.length ? Math.min(...newLines) : prevNew;
     const hi = newLines.length ? Math.max(...newLines) : prevNew;
-    out.push({ stableKey: changeStableKeyFromBlock(block), lo, hi, base: prevOld });
+    const grows = newLines.length - (block.length - newLines.length);
+    out.push({ stableKey: changeStableKeyFromBlock(block), lo, hi, base: prevOld, grows });
     block = [];
   };
   for (const line of h.lines) {
@@ -288,7 +290,7 @@ function skimRangesForHunk(h: DiffHunk): BlockRange[] {
   return out;
 }
 
-type BlockRange = { stableKey: string; lo: number; hi: number; base: number };
+type BlockRange = { stableKey: string; lo: number; hi: number; base: number; grows: number };
 
 // Every change block's new-side range, by path — what a guide's line spans (skimBlocks, part
 // lines) resolve against.
@@ -994,7 +996,7 @@ export function mergeReviewerSave(
   state: ReviewState,
   body: unknown,
   desk?: SaveStamp,
-  priorDiff?: Pick<ReviewState, "baseDiffHash" | "changes" | "files">,
+  priorDiff?: Pick<ReviewState, "baseDiffHash" | "changes" | "files" | "stagedChangeKeys">,
 ) {
   if (!body || typeof body !== "object") return;
   const incoming = body as Record<string, unknown>;
@@ -1269,17 +1271,34 @@ function blockRangesByKey(files: DiffFile[], renames = new Map<string, string>()
 }
 
 // A block of the diff the reviewer's records were made on: its path (the new one, if the rebuilt
-// diff shows the file renamed), content and base line (BlockRange.base).
-type PriorBlock = { path: string; hash?: string; base?: number };
+// diff shows the file renamed), content, base line and net growth (BlockRange), and whether the
+// desk had staged it by the time the diff was rebuilt (stagedChangeKeys).
+type PriorBlock = { path: string; hash?: string; base?: number; grows: number; staged: boolean };
 
 // The blocks of `before`, keyed as the rebuilt diff names them (see PriorBlock).
-function priorBlocks(before: Pick<ReviewState, "files" | "changes">, renames: Map<string, string>) {
+function priorBlocks(
+  before: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys">,
+  renames: Map<string, string>,
+) {
   const ranges = blockRangesByKey(before.files, renames);
+  const migrate = (key: string) => {
+    for (const [oldP, newP] of renames)
+      if (key.startsWith(`${oldP}:`)) return `${newP}:${key.slice(oldP.length + 1)}`;
+    return key;
+  };
+  const staged = new Set(before.stagedChangeKeys?.map(migrate));
   const blocks = new Map<string, PriorBlock>();
   for (const c of before.changes) {
     const filePath = renames.get(c.path) ?? c.path;
     const key = `${filePath}:${c.stableKey}`;
-    blocks.set(key, { path: filePath, hash: c.contentHash, base: ranges.get(key)?.base });
+    const at = ranges.get(key);
+    blocks.set(key, {
+      path: filePath,
+      hash: c.contentHash,
+      base: at?.base,
+      grows: at?.grows ?? 0,
+      staged: staged.has(key),
+    });
   }
   return blocks;
 }
@@ -1291,11 +1310,15 @@ function priorBlocks(before: Pick<ReviewState, "files" | "changes">, renames: Ma
 // in the file the diff is taken against. An edit above a block moves its new-side lines but not
 // its base line, so a block that only shifted is found again, even under a key the shift handed to
 // a different block. Code moved elsewhere in the file sits at another base line and comes back
-// pending, and so does a block whose base moved under it (staging above it, say): a re-review, but
-// never a verdict on the wrong lines. The record's base line is its block's in `prior`, the diff
-// the records were made on, so a record whose block wasn't in that diff (an accept staged out of
-// it) is never adopted. Only a new or re-keyed block adopts: one that kept its own record, or that
-// sat under the same key with the same content in `prior`, stays put.
+// pending: a re-review, but never a verdict on the wrong lines. The record's base line is its
+// block's in `prior`, the diff the records were made on, so a record whose block wasn't in that diff
+// (an accept staged out of it) is never adopted. In a working-tree review the base is the index,
+// and the desk's own staging (approving a part) moves it under every block below: each block it
+// staged out of the diff since `prior` moves the base line expected of the blocks below it by its
+// net growth. A block the agent reverted leaves the base as it was, and one staged outside the desk
+// isn't known here, so a block below that comes back pending. Only a new or re-keyed block adopts:
+// one that kept its own record, or that sat under the same key with the same content in `prior`,
+// stays put.
 function movedBlockKeys(
   rebuilt: Pick<ReviewState, "files" | "changes">,
   records: Array<{ key: string; hash?: string }>,
@@ -1305,13 +1328,19 @@ function movedBlockKeys(
   const kept = new Set(
     records.filter((r) => r.hash && hashAt.get(r.key) === r.hash).map((r) => r.key),
   );
-  // Each loose record by the path, content and base line of its block in `prior`. No two blocks
-  // of a file share a base line, so a slot holds at most one.
+  const stagedOut = [...prior].flatMap(([key, b]) =>
+    b.staged && b.base !== undefined && !hashAt.has(key) ? [{ ...b, base: b.base }] : [],
+  );
+  // Where a block of `prior` at base line `base` sits in the rebuilt diff's base file.
+  const baseNow = (path: string, base: number) =>
+    stagedOut.reduce((at, s) => (s.path === path && s.base < base ? at + s.grows : at), base);
+  // Each loose record by the path, content and base line of its block. No two blocks of a file
+  // share a base line, so a slot holds at most one.
   const waiting = new Map<string, string>();
   for (const r of records) {
     const was = prior.get(r.key);
     if (!r.hash || kept.has(r.key) || was?.hash !== r.hash || was.base === undefined) continue;
-    waiting.set(`${was.path}\0${r.hash}\0${was.base}`, r.key);
+    waiting.set(`${was.path}\0${r.hash}\0${baseNow(was.path, was.base)}`, r.key);
   }
   const ranges = blockRangesByKey(rebuilt.files);
   const moved = new Map<string, string>();
@@ -1339,7 +1368,7 @@ function movedBlockKeys(
 function carryDecisions(
   rebuilt: Pick<ReviewState, "files" | "changes">,
   saved: Decision[],
-  before: Pick<ReviewState, "files" | "changes">,
+  before: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys">,
 ) {
   const renames = renamesIn(rebuilt.files);
   const migrated = saved.map((d) => {
@@ -1387,7 +1416,7 @@ function carryDecisions(
 function carrySignOffs(
   rebuilt: Pick<ReviewState, "files" | "changes">,
   saved: Record<string, string>,
-  before: Pick<ReviewState, "files" | "changes">,
+  before: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys">,
 ) {
   const renames = renamesIn(rebuilt.files);
   const migrated = Object.entries(saved).map(([key, hash]) => {
@@ -1449,7 +1478,7 @@ type Lines = { lo: number; hi: number };
 // has no step.
 export function carryParts(
   rebuilt: Pick<ReviewState, "files" | "changes">,
-  before: Pick<ReviewState, "files" | "changes">,
+  before: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys">,
 ) {
   for (const c of rebuilt.changes) delete c.part;
   if (!before.changes.some((c) => c.part !== undefined)) return;
