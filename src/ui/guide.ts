@@ -200,6 +200,11 @@ export function guideProgress(): { done: number; approved: number; total: number
   return { done, approved, total, pct: total ? Math.round((done / total) * 100) : 100 };
 }
 
+// One file's weight in guideProgress: its changed lines, or 1 when progress counts files.
+export function progressWeight(path: string): number {
+  return S.settings.progressBy !== "files" ? (locByPath().get(path) ?? 1) : 1;
+}
+
 // The guide entry for the file currently shown (or null) — drives the top guide bar.
 export function currentGuideEntry() {
   if (!hasGuide()) return null;
