@@ -22,6 +22,7 @@ import {
   readDeskLock,
   resolveMovedFrom,
   resolveGuide,
+  resolveSkim,
   reviewDir,
   sanitizeSession,
   stablePort,
@@ -651,16 +652,17 @@ async function runDesk(
     // naming the offending field, like any other invalid-guide input.
     // state.rawDiff shares identity with base.rawDiff, so pass the parse seeded on `base` — the
     // reload/launch parses the diff once, shared across build + guide resolution (issue 06).
-    const resolved = resolveGuide(state, state.guide, { strict: true }, parsedDiffOf(base));
+    const resolved = resolveGuide(state, state.guide, parsedDiffOf(base));
     if (!resolved.ok) {
       console.error(`Invalid guide: ${resolved.reason}.`);
       process.exitCode = 1;
       return;
     }
   } else if (state.guide) {
-    // A guide carried forward by the merge (restart without --guide): re-resolve leniently
-    // against the new diff — stale spans drop rather than abort (see resolveSkim, resolveParts).
-    resolveGuide(state, state.guide, { strict: false }, parsedDiffOf(base));
+    // A guide carried forward by the merge (restart without --guide) keeps the parts the merge
+    // carried by content (carryParts); its skims re-resolve leniently against the new diff — stale
+    // spans drop rather than abort (see resolveSkim).
+    resolveSkim(state.rawDiff, state.changes, state.guide, { strict: false }, parsedDiffOf(base));
   }
   if (mode === "repo") await syncGitState(state);
   await persistReview(state);
