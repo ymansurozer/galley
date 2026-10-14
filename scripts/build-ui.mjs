@@ -37,6 +37,8 @@ const shikiShimPlugin = {
   },
 };
 
+// main.ts imports the stylesheet (src/ui/styles/index.css), so esbuild emits it beside the
+// script as dist/ui.css — kept out of ui.js and its size gate.
 const options = {
   entryPoints: ["src/ui/main.ts"],
   bundle: true,
@@ -64,7 +66,7 @@ const bridgeOptions = {
 
 if (process.argv.includes("--watch")) {
   for (const opts of [options, bridgeOptions]) await (await esbuild.context(opts)).watch();
-  console.error("esbuild: watching src/ui → dist/ui.js, src/bridge → dist/bridge.js");
+  console.error("esbuild: watching src/ui → dist/ui.js + dist/ui.css, src/bridge → dist/bridge.js");
 } else {
   await esbuild.build(bridgeOptions);
   await esbuild.build(options);

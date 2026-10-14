@@ -1,0 +1,63 @@
+.card {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 9px;
+  margin-bottom: 8px;
+  font-size: var(--text-sm);
+}
+
+.card.active {
+  border-color: var(--cyan-line);
+  background: var(--cyan-bg);
+}
+
+.card p {
+  color: var(--muted);
+  margin: 6px 0 0;
+  line-height: 1.45;
+}
+
+textarea,
+input {
+  width: 100%;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+/* kbd chips inside buttons don't intercept clicks. On a colored/solid button (primary, the
+   diff verdict + approve actions) the default panel chip is unreadable, so use a subtle
+   translucent-black chip; the text is --ink-bright (near-white in dark, near-black in light)
+   so it reads against the darkened accent fill in either theme. */
+.btn kbd,
+.change-actions button kbd,
+.diff-header-action kbd {
+  pointer-events: none;
+}
+
+.btn.primary kbd,
+.change-actions button kbd,
+.diff-header-action kbd {
+  color: var(--ink-bright);
+  background: rgba(0, 0, 0, 0.22);
+  border-color: var(--line);
+}
+
+.change-actions button,
+.diff-header-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.show {
+  display: block;
+}

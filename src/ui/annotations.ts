@@ -255,7 +255,7 @@ export function buildCommentThread(
             // Only the opening message carries the thread's kind, so only it turns.
             const into = i === 0 ? turnsInto(m) : null;
             const label = into === "question" ? "Turn into ask" : "Turn into change request";
-            // The glyph stands in for the label in a narrow thread (index.html, .turn-comment).
+            // The glyph stands in for the label in a narrow thread (styles/threads.css, .turn-comment).
             const turn = into
               ? `<button class="turn-comment" data-id="${m.id}" aria-label="${label}" data-tip="${label}" data-tip-align="end"><svg class="turn-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5.5h9.5M10 3l2.5 2.5L10 8M13 10.5H3.5M6 8l-2.5 2.5L6 13"/></svg><span class="turn-label">${label}</span></button>`
               : "";

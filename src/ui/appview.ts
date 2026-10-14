@@ -116,7 +116,7 @@ let warming = false;
 
 // Load the app in the background while the reviewer reads code, once the tab is idle (Safari has
 // no requestIdleCallback: a short timer stands in). The code view keeps a loaded app laid out where
-// the UI view shows it, unseen and inert (index.html), so it lays out at the stage's real size and
+// the UI view shows it, unseen and inert (styles/appview.css), so it lays out at the stage's real size and
 // the first switch finds it loaded.
 function warmApp() {
   const ready = () =>

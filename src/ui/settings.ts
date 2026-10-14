@@ -132,7 +132,7 @@ export function applyAppearance(s: Settings) {
   ensureFont(s.font, f.google);
   ensureFont(s.uiFont, sf.google);
   // Swap the whole CSS custom-property palette (and native color-scheme) by tagging <html>.
-  // The light overrides live under :root[data-theme="light"] in index.html; dark is the :root
+  // The light overrides live under :root[data-theme="light"] in styles/tokens.css; dark is the :root
   // default, so setting "dark" simply falls through to it. Also flips native form controls.
   const light = s.appearance === "light";
   document.documentElement.dataset.theme = light ? "light" : "dark";

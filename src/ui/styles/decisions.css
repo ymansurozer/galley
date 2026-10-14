@@ -1,0 +1,266 @@
+.change-actions {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  width: max-content;
+  z-index: 4;
+}
+
+/* A thread carrying its line's change: the bar takes its own row above the thread. Laid over
+   the thread, it covered the first message's actions. */
+.annotation:has(> .comment-box) > .change-actions {
+  position: static;
+  margin: 4px 8px 0 auto;
+}
+
+.change-actions button {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  font-size: var(--text-sm);
+  line-height: 16px;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.change-actions .reject {
+  background: var(--reject);
+  color: var(--ink);
+}
+
+.change-actions .reject:hover {
+  background: var(--reject-hover);
+  color: var(--ink-bright);
+}
+
+.change-actions .accept {
+  background: var(--accept);
+  color: var(--on-accent);
+}
+
+.change-actions .accept:hover {
+  background: var(--accept-hover);
+  color: var(--on-accent);
+}
+
+.diff-header-action {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  font-size: var(--text-sm);
+  line-height: 16px;
+  background: var(--accept);
+  color: var(--on-accent);
+  margin-left: 4px;
+}
+
+.diff-header-action:hover {
+  background: var(--accept-hover);
+  color: var(--on-accent);
+}
+
+.diff-header-action.secondary {
+  background: var(--panel3);
+  color: var(--ink-bright);
+}
+
+.diff-header-action.secondary:hover {
+  background: var(--line-strong);
+  color: var(--ink-bright);
+}
+
+.diff-header-action.undo {
+  background: transparent;
+  color: var(--amber);
+  border: 1px solid rgba(224, 175, 104, 0.45);
+}
+
+.diff-header-action.undo:hover {
+  background: rgba(224, 175, 104, 0.12);
+  border-color: rgba(224, 175, 104, 0.75);
+  color: var(--amber-fg);
+}
+
+.diff-header-action.done {
+  opacity: 0.72;
+}
+
+/* "Mark reviewed" (file has objections): amber-tinted, distinct from the green Approve. */
+.diff-header-action.warn {
+  background: rgba(224, 175, 104, 0.14);
+  color: var(--amber-fg);
+}
+
+.diff-header-action.warn:hover {
+  background: rgba(224, 175, 104, 0.22);
+}
+
+/* The "N blockers" chip + jump list: what keeps a file from Approved, one click away. */
+/* Quiet link-style trigger: it belongs to the Mark Reviewed action it precedes but is
+   secondary — text only, no fill. The asymmetric margins pull it toward the button
+   (and away from the +/− counts) so the grouping reads at a glance. */
+.blockers {
+  position: relative;
+  display: inline-flex;
+  margin-left: 8px;
+  margin-right: -8px;
+}
+
+.blockers-chip {
+  border: 0;
+  background: transparent;
+  padding: 3px 4px;
+  font-size: var(--text-sm);
+  line-height: 16px;
+  color: var(--amber);
+}
+
+.blockers-chip:hover,
+.blockers.open .blockers-chip {
+  color: var(--amber-fg);
+}
+
+.blockers-pop {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 280px;
+  max-width: 420px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+}
+
+.blockers.open .blockers-pop {
+  display: block;
+}
+
+.blockers-item {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  padding: 6px 8px;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.blockers-item:hover {
+  background: var(--surface-raised);
+}
+
+.blockers-item .bk-kind {
+  flex: none;
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+}
+
+.blockers-item .bk-kind.reject {
+  color: var(--red);
+  background: rgba(226, 110, 110, 0.1);
+}
+
+.blockers-item .bk-kind.change {
+  color: var(--amber);
+  background: rgba(224, 175, 104, 0.1);
+}
+
+.blockers-item .bk-where {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.blockers-item .bk-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+/* Flash a thread off the diff rows (the strip's, a rendered markdown file's) when jumped to
+   from the blockers list or the change-request walk. */
+@keyframes blocker-flash {
+  0% {
+    background: rgba(224, 175, 104, 0.25);
+  }
+
+  100% {
+    background: transparent;
+  }
+}
+
+.unanchored-strip .annotation.flash,
+.md-file .md-thread.flash {
+  animation: blocker-flash 1.2s ease-out;
+}
+
+.file-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+}
+
+.file-header-actions button,
+.file-header-actions label {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--muted);
+  padding: 3px 7px;
+  font-size: var(--text-sm);
+  line-height: 16px;
+}
+
+.file-header-actions button:hover,
+.file-header-actions label:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.file-header-actions .stage {
+  background: rgba(115, 218, 145, 0.08);
+  color: var(--green);
+  border-color: rgba(115, 218, 145, 0.38);
+}
+
+.file-header-actions .stage:hover {
+  background: rgba(115, 218, 145, 0.14);
+  border-color: rgba(115, 218, 145, 0.65);
+  color: var(--green-fg);
+}
+
+.file-header-actions .unstage {
+  background: transparent;
+  color: var(--amber);
+  border-color: rgba(224, 175, 104, 0.45);
+}
+
+.file-header-actions input {
+  width: auto;
+  margin: 0 5px 0 0;
+  vertical-align: -1px;
+}
+
+.file-action-dock {
+  display: none;
+}

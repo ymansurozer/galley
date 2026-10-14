@@ -1,0 +1,159 @@
+.guide-overview {
+  min-height: 100%;
+  display: grid;
+  place-items: start center;
+  padding: 34px 30px;
+}
+
+.guide-overview .go-card {
+  width: min(680px, 100%);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  padding: 18px 20px;
+}
+
+.guide-overview h1 {
+  margin: 0 0 4px;
+  font-size: var(--text-xl);
+  color: var(--ink);
+}
+
+.guide-overview .go-sub {
+  color: var(--ghost);
+  font-size: var(--text-xs);
+  margin-bottom: 14px;
+}
+
+/* Focused-review badge (issue 04): a muted pill telling the human churn was deliberately skimmed. */
+.guide-overview .go-focused {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 0 14px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+
+.guide-overview .go-focused .ic {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+
+.guide-overview .go-overview {
+  color: var(--ink);
+  line-height: 1.55;
+  margin: 0 0 12px;
+  font-size: var(--text-md);
+}
+
+.guide-overview .go-pr {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: var(--radius-lg);
+  padding: 9px 12px;
+  margin: 0 0 12px;
+}
+
+.guide-overview .go-pr b {
+  color: var(--ink);
+  display: block;
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 4px;
+}
+
+.guide-overview .go-pr .md {
+  margin-top: 0;
+}
+
+.guide-overview .go-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.guide-overview .go-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-overview .go-meta {
+  color: var(--ghost);
+  font-size: var(--text-sm);
+}
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 46px;
+  transform: translateX(-50%);
+  border: 1px solid var(--green-line);
+  background: var(--green-bg);
+  color: var(--green);
+  border-radius: var(--radius-pill);
+  padding: 7px 12px;
+  font-size: var(--text-sm);
+  display: none;
+}
+
+.toast.show {
+  display: block;
+}
+
+.toast-action {
+  margin-left: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  color: var(--ink-bright);
+}
+
+/* Go-to-line pill: mode indicator for pending typed digits (neutral, unlike the green toast). */
+.goline {
+  position: absolute;
+  left: 50%;
+  bottom: 46px;
+  transform: translateX(-50%);
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: var(--radius-pill);
+  padding: 7px 12px;
+  font-size: var(--text-sm);
+  display: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.goline.show {
+  display: flex;
+}
+
+.goline b {
+  color: var(--ink-bright);
+}
+
+.goline .goline-hint {
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}

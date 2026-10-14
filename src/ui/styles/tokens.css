@@ -1,0 +1,148 @@
+:root {
+  color-scheme: dark;
+
+  /* ── Surfaces (dark → light) ── */
+  --bg: #070909;
+  /* page / diff / overview canvas */
+  --surface: #0b0e0f;
+  /* recessed: inputs, headers, scroll track */
+  --panel: #101415;
+  /* panels: sidebar, guide bar, modal */
+  --surface-raised: #151a1c;
+  /* hover / active rows */
+  --panel3: #1d2426;
+  /* strongest raised: selected, chips */
+
+  /* ── Lines ── */
+  --line: #222a2d;
+  /* default border */
+  --line-strong: #354146;
+  /* emphasized / hover border */
+
+  /* ── Text ── */
+  --ink: #d9d9d4;
+  /* primary text */
+  --ink-bright: #fafafa;
+  /* highest-contrast text */
+  --muted: #8a9396;
+  /* secondary text */
+  --ghost: #4b5558;
+  /* faint text / icons */
+  --on-accent: #050608;
+  /* near-black text on a bright accent fill */
+
+  /* ── Accents (hue + bg/line/fg tints) ── */
+  --cyan: #00a8ff;
+  --cyan-bg: #081923;
+  --cyan-bg-strong: #0c2533;
+  /* hover fill for cyan tinted buttons */
+  --cyan-line: #17394a;
+  --cyan-line-strong: #25617a;
+  /* hover border + comment-thread rail */
+  --cyan-fg: #8fc4d4;
+  --green: #00d084;
+  --green-bg: #071811;
+  --green-line: #163b2b;
+  --green-fg: #9af0b2;
+
+  /* Verdict action buttons (Keep / Undo) — shared by per-hunk + header */
+  --accept: rgba(34, 197, 94, 0.72);
+  --accept-hover: rgba(34, 197, 94, 0.9);
+  --reject: rgba(63, 63, 70, 0.82);
+  --reject-hover: rgba(82, 82, 91, 0.92);
+  --amber: #e0af68;
+  --amber-fg: #f0c783;
+  --red: #ff4d6d;
+  --red-fg: #ff8095;
+  --guide: #1b2226;
+  /* file-tree nesting rails */
+
+  /* ── Radius scale ── */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+
+  /* Height of the secondary bar directly under the top header — shared by the sidebar
+     Tree/Walkthrough tab strip (.tree-tabs) and the guide bar (.guidebar) so their bottom
+     borders form one continuous line across the column seam. Keep both in sync. */
+  --subbar-h: 40px;
+
+  /* Gap between the +added / −removed (and state badge) churn indicators, kept in sync
+     across every surface that renders them: sidebar walkthrough, Overview group headers
+     + file rows, and the diff header. */
+  --churn-gap: 5px;
+
+  /* ── Type scale ── */
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 14px;
+  --text-xl: 17px;
+
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  /* UI / non-code text. Code (the diff, inline code, file paths) stays --mono. Both are
+     overridable in Settings → Appearance (Code font / UI font) via applyAppearance. */
+  --sans: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--sans);
+}
+
+/* ── Light mode ──────────────────────────────────────────────────────────
+   Overrides only the semantic color tokens; every other token (radius, type
+   scale, fonts) is mode-agnostic and inherits from :root above. Toggled by
+   Settings → Appearance, which sets data-theme="light" on <html> (see
+   applyAppearance in settings.ts). The attribute selector outranks :root, so
+   these win. Structural surfaces/lines/text flip wholesale; the saturated
+   accents (accept/cyan/green fills) keep their alpha so they blend to a light
+   tint over the white canvas and still read with the near-black --on-accent.
+   The diff/comment code theme is a separate, freely-mixable setting (the Code
+   theme picker groups Dark and Light shiki themes) — it does not flip here. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* ── Surfaces (light → dark) ── */
+  --bg: #ffffff;
+  --surface: #f2f4f5;
+  --panel: #f7f8f9;
+  --surface-raised: #eceff1;
+  --panel3: #dfe4e7;
+
+  /* ── Lines ── */
+  --line: #d6dcdf;
+  --line-strong: #b6c0c4;
+
+  /* ── Text ── */
+  --ink: #1b1f21;
+  --ink-bright: #05080a;
+  --muted: #5a6469;
+  --ghost: #9aa4a8;
+  /* near-black text still reads on the light-tinted accent fills below */
+  --on-accent: #050608;
+
+  /* ── Accents (hue kept, darkened so text/rails read on white) ── */
+  --cyan: #0067c0;
+  --cyan-bg: #e8f2fb;
+  --cyan-bg-strong: #d7e9f8;
+  --cyan-line: #bcdaf0;
+  --cyan-line-strong: #7fb4de;
+  --cyan-fg: #1d5f86;
+  --green: #16a34a;
+  --green-bg: #e7f6ee;
+  --green-line: #b3e0c6;
+  --green-fg: #147a45;
+
+  /* Keep/Undo: accept keeps its alpha (blends to a readable light green); reject
+     flips from a dark neutral to a light one so --ink text reads on it. */
+  --accept: rgba(34, 197, 94, 0.72);
+  --accept-hover: rgba(34, 197, 94, 0.9);
+  --reject: rgba(0, 0, 0, 0.055);
+  --reject-hover: rgba(0, 0, 0, 0.1);
+  --amber: #b46f18;
+  --amber-fg: #8f5711;
+  --red: #d81f43;
+  --red-fg: #b3163a;
+  --guide: #ece7db;
+}

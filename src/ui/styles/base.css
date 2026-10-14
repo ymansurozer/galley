@@ -1,0 +1,73 @@
+/* Code is always monospace, wherever it appears in the chrome (inline code, fenced blocks).
+   The @pierre diff uses its own --diffs-font-family (set from the Code font in applyAppearance). */
+code,
+pre {
+  font-family: var(--mono);
+}
+
+/* Base size for sprite icons (<svg class="ic"><use href="#gly-…">). currentColor is inherited;
+   .tree-scoped rules below refine size/color per context. vertical-align tucks inline icons
+   (in labels, callouts) onto the text baseline. */
+svg.ic {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  vertical-align: -0.15em;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--line-strong);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+  cursor: pointer;
+}

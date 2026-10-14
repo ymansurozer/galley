@@ -1,3 +1,4 @@
+import "./styles/index.css";
 import Alpine from "alpinejs";
 import {
   S,

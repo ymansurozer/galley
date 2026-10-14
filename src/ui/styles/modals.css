@@ -1,0 +1,269 @@
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.45);
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-backdrop.show {
+  display: flex;
+}
+
+.modal {
+  width: 420px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 24px 100px rgba(0, 0, 0, 0.65);
+  padding: 16px;
+}
+
+.modal h3 {
+  margin: 0 0 8px;
+  font-size: var(--text-lg);
+}
+
+.modal p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.modal-actions .btn {
+  padding: 4px 7px;
+  font-size: var(--text-sm);
+  line-height: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Keyboard hint chip — used in the help overlay, composer actions, and dialog buttons.
+   Sans, not mono: key symbols (⇧ ⌘ ↵, arrows) are missing from the code webfonts, where
+   they'd fall back to the system mono's shrunken glyphs next to full-size letters. The sans
+   stack ends in the system UI font, whose symbols sit at cap height — the native look. */
+kbd {
+  font-family: var(--sans);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  padding: 3px 5px;
+  min-width: 16px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+}
+
+/* Fast custom tooltip (native title has a ~1.5s delay): elements opt in with data-tip.
+   Appears just below the element after a short delay. data-tip-align="end" right-anchors it
+   (for controls near the right edge). */
+[data-tip] {
+  position: relative;
+}
+
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 60;
+  padding: 4px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--panel3);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  font-family: var(--sans);
+  font-size: var(--text-2xs);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+[data-tip][data-tip-align="end"]::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+[data-tip]:hover::after {
+  opacity: 1;
+  transition-delay: 0.18s;
+}
+
+.modal.help {
+  width: 640px;
+  max-width: 92vw;
+}
+
+.help-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 28px;
+}
+
+.help-col {
+  break-inside: avoid;
+  margin-bottom: 6px;
+}
+
+.help-h {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ghost);
+  margin: 8px 0 4px;
+}
+
+.help-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.help-row kbd {
+  flex: 0 0 auto;
+}
+
+.modal.confirm {
+  width: 380px;
+}
+
+.modal.confirm .btn kbd {
+  pointer-events: none;
+}
+
+.modal.send .btn kbd {
+  pointer-events: none;
+}
+
+.modal.send textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 84px;
+  margin-top: 12px;
+  padding: 8px;
+  font-size: var(--text-sm);
+  resize: vertical;
+}
+
+.btn.icon {
+  padding: 3px 9px;
+  font-size: var(--text-xl);
+  line-height: 20px;
+}
+
+.modal.settings {
+  width: 560px;
+  max-height: 82vh;
+  overflow: auto;
+}
+
+/* Settings ↔ Shortcuts tab strip. */
+.set-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.set-tabs button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 6px 10px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.set-tabs button:hover {
+  color: var(--ink);
+}
+
+.set-tabs button.active {
+  color: var(--ink-bright);
+  border-bottom-color: var(--cyan);
+}
+
+.set-pane.help-grid {
+  margin-top: 2px;
+}
+
+.modal.settings .set-section {
+  color: var(--ghost);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: var(--text-2xs);
+  margin: 24px 0 10px;
+}
+
+.modal.settings .set-section:first-of-type {
+  margin-top: 4px;
+}
+
+.set-grid {
+  display: grid;
+  gap: 9px;
+}
+
+.set-grid label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.set-grid label.check {
+  justify-content: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.set-grid select,
+.set-grid input[type="number"],
+.set-grid input[type="text"] {
+  width: 160px;
+  min-width: 0;
+  flex: 0 0 auto;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 5px 7px;
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.set-grid input[type="number"] {
+  min-width: 0;
+  width: 80px;
+}
+
+.set-grid input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
