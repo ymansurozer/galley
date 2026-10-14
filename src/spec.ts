@@ -246,7 +246,9 @@ One JSON object:
   - skimBlocks? — collapse single change BLOCKS of the file: an array of { lines, reason? } where
     lines is a new-file-side [start, end] span (or a single line number) of the diff you read, and
     reason is a short label ("import-only"). The server resolves each span to the enclosing change
-    block(s).
+    block(s) when the guide is attached. Across reloads a skim follows its block's content, not
+    the span: a block you leave untouched stays skimmed however its lines move; one you edit, and
+    any new block, is shown in full.
   - movedFrom? — repo-relative OLD path of a file you moved AND edited (this entry's \`path\` is the
     NEW path). The desk merges the deletion + untracked addition into one rename-changed entry so
     only the real edits show, with a "moved from" badge; its blocks are verdict-only (no per-block

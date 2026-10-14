@@ -44,8 +44,8 @@ export function fileSkimReason(path: string): string {
 // knows which files rode along. Opening one still works exactly like any file (its file/block
 // skim strips render as issue 06 built), and explicitly approving it records sign-off as today.
 //
-// Derived per-render off current state, so it self-heals: a reload that re-resolves skims and
-// drops a block's stamp (rewritten code) returns the file to the main flow automatically.
+// Derived per-render off current state, so it self-heals: a reload after the agent rewrites a
+// skimmed block, which comes back without its stamp, returns the file to the main flow.
 export function fileFullySkimmed(path: string): boolean {
   const blockSkims = (S.state?.changes ?? []).filter((c) => c.path === path).map((c) => !!c.skim);
   return isFullySkimmed(isFileSkim(path), blockSkims);

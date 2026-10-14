@@ -42,7 +42,6 @@ import {
   replyToAnnotation,
   resolveMovedFrom,
   resolveGuide,
-  resolveSkim,
   reviewDir,
   syncGitState,
   uiQuestionPayload,
@@ -529,8 +528,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     ));
   let reloadGeneration = 0;
   // The diff before the latest reload or restart that moved it, for saves from a tab still on it.
-  // Held in memory only; one diff back is as far as a tab's saves are carried (mergeReviewerSave).
+  // Held in memory only: a tab's verdicts carry from one diff back at most, while its comments,
+  // anchored by their lines' text, merge from any older diff (mergeReviewerSave).
   let priorDiff = options.priorDiff;
+  // The last diff with blocks, kept while a reload that reverted every edit leaves the desk with
+  // none: the next reload carries the guide's part and skim stamps from it (mergeReviewState).
+  // Held in memory only: after a restart in that window, every block comes back in Rest.
+  let stampSource: Pick<ReviewState, "files" | "changes"> | undefined;
 
   const deskStatus = (): DeskStatus => ({
     agentActivity: liveActivity(),
@@ -810,7 +814,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return await serialize(async () => {
           const body: unknown = JSON.parse(await readBody(req));
           const asked = askedQuestions();
-          mergeReviewerSave(state, body, saveStamp(), priorDiff);
+          await mergeReviewerSave(state, body, saveStamp(), priorDiff);
           withdrawQuestions(asked);
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
@@ -826,7 +830,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
           // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
           // full ReviewState keeps working because everything else in the body is ignored.
-          mergeReviewerSave(state, body, saveStamp(), priorDiff);
+          await mergeReviewerSave(state, body, saveStamp(), priorDiff);
           await syncGitState(state);
           const file = await persistReview(state);
           const sessionDir = path.dirname(file);
@@ -1004,6 +1008,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               );
             validatedGuide = result.guide;
           }
+          if (state.changes.length) stampSource = { files: state.files, changes: state.changes };
           const base = await buildReviewState(state.root, {
             mode: state.mode,
             session: state.session,
@@ -1043,13 +1048,18 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
                 "Run `galley spec` for the guided-review schema.",
               );
           }
-          // The merge carries the old guide forward, and its parts by content (carryParts); a
+          // The merge carries the old guide forward, and its part and skim stamps by content
+          // (carryGuideStamps) — from the last diff with blocks when this desk has none. A
           // provided guide replaces it, stamped against the just-rebuilt diff so it isn't born
           // stale. Resolve skim + part spans and reject a bad NEW guide (strict) BEFORE committing
-          // the merge onto the live state, so a rejected reload leaves the desk untouched. A guide
-          // carried forward re-resolves only its skims, leniently — stale spans drop, they never
-          // fail a reload (see resolveSkim).
-          const merged = await mergeReviewState(base, state);
+          // the merge onto the live state, so a rejected reload leaves the desk untouched.
+          const merged = await mergeReviewState(
+            base,
+            state,
+            state.changes.length || !stampSource
+              ? undefined
+              : { ...stampSource, stagedChangeKeys: state.stagedChangeKeys },
+          );
           // merged.rawDiff shares identity with base.rawDiff, so the parse seeded on `base` (via
           // buildReviewState) is the one resolveGuide needs — pass it so the reload parses once (06).
           const parsed = parsedDiffOf(base);
@@ -1064,8 +1074,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
                 `Invalid guide: ${resolved.reason}.`,
                 "Run `galley spec` for the guided-review schema.",
               );
-          } else if (merged.guide) {
-            resolveSkim(merged.rawDiff, merged.changes, merged.guide, { strict: false }, parsed);
+            // The carry source's stamps index the old guide's entries: never carry them under this one.
+            stampSource = undefined;
           }
           if (merged.baseDiffHash !== state.baseDiffHash)
             priorDiff = {

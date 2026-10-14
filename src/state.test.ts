@@ -11,7 +11,7 @@ import {
   buildDiffSource,
   buildReviewResult,
   buildReviewState,
-  carryParts,
+  carryGuideStamps,
   computeApprovedFiles,
   deskLockPath,
   findLiveDesks,
@@ -112,14 +112,14 @@ test("mergeReviewState carries a prior decision when content is unchanged", asyn
   assert.equal(merged.baseDiffHash, "new"); // adopts the fresh diff hash
 });
 
-test("mergeReviewerSave replaces only the reviewer-owned fields, leaving server state intact", () => {
+test("mergeReviewerSave replaces only the reviewer-owned fields, leaving server state intact", async () => {
   const live = state({
     rawDiff: "SERVER DIFF",
     files: [file("a.ts")],
     changes: [change({ id: "a.ts:k1", path: "a.ts", stableKey: "k1" })],
     baseDiffHash: "server-hash",
   });
-  mergeReviewerSave(live, {
+  await mergeReviewerSave(live, {
     decisions: [
       {
         key: "a.ts:k1",
@@ -146,10 +146,10 @@ test("mergeReviewerSave replaces only the reviewer-owned fields, leaving server 
   assert.equal(live.changes.length, 1);
 });
 
-test("mergeReviewerSave ignores non-reviewer fields from a stale full-state body", () => {
+test("mergeReviewerSave ignores non-reviewer fields from a stale full-state body", async () => {
   // A stale open tab may POST the whole old ReviewState; only the slice is adopted.
   const live = state({ rawDiff: "SERVER DIFF", baseDiffHash: "server-hash" });
-  mergeReviewerSave(live, {
+  await mergeReviewerSave(live, {
     reviewedFiles: ["a.ts"],
     rawDiff: "CLIENT-OWNED DIFF SHOULD BE IGNORED",
     baseDiffHash: "client-hash",
@@ -163,9 +163,9 @@ test("mergeReviewerSave ignores non-reviewer fields from a stale full-state body
   assert.equal(live.id, "id");
 });
 
-test("mergeReviewerSave leaves a field untouched when the body omits it", () => {
+test("mergeReviewerSave leaves a field untouched when the body omits it", async () => {
   const live = state({ reviewedFiles: ["keep.ts"], comments: [comment({ id: "c0", path: "x" })] });
-  mergeReviewerSave(live, { comments: [] }); // only comments present
+  await mergeReviewerSave(live, { comments: [] }); // only comments present
   assert.deepEqual(live.reviewedFiles, ["keep.ts"]); // omitted → unchanged
   assert.deepEqual(live.comments, []); // present → replaced wholesale
 });
@@ -173,7 +173,7 @@ test("mergeReviewerSave leaves a field untouched when the body omits it", () => 
 test("mergeReviewerSave then mergeReviewState: a slim-saved decision survives a desk restart", async () => {
   // Save via the slim wire, persist, reload: the decision must reconcile across restart.
   const saved = state({});
-  mergeReviewerSave(saved, {
+  await mergeReviewerSave(saved, {
     decisions: [
       {
         key: "a.ts:k1",
@@ -731,6 +731,46 @@ test("a block the agent reverted above another doesn't count as staged", async (
   });
 });
 
+test("a new block identical to an accept staged out of the diff, at exactly its key, comes back pending", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    const round1 = edited({ 11: "L11" });
+    round1.splice(3, 0, "x");
+    const s1 = await edit(round1);
+    const saved = { ...s1, decisions: [decide(s1, "app.ts:additions:4:0:1", "accepted")] };
+    const staged = [...committedLines];
+    staged.splice(3, 0, "x");
+    await stage(staged);
+    const s2 = await mergeReviewState(await edit(round1), saved);
+    // The agent drops l1 and adds a second x: against the index, a new "+x" at line 4.
+    const round3 = round1.slice(1);
+    round3.splice(3, 0, "x");
+    const s3 = await mergeReviewState(await edit(round3), s2);
+    assert.equal(statusOf(s3, "app.ts:additions:4:0:1"), "pending");
+    // The staged-out accept is dropped rather than read as the new block's, in the tab and the
+    // agent's result alike; the index already holds what it accepted.
+    assert.deepEqual(decided(s3), []);
+    const result = buildReviewResult(s3, { resultJson: "r.json", sessionDir: "d" });
+    assert.deepEqual(result.accepted, []);
+  });
+});
+
+test("a block below a hunk the user staged by hand keeps its verdicts though its base moved", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    const round1 = withTop(edited({ 12: "D" }));
+    const before = await edit(round1);
+    const saved = {
+      ...before,
+      decisions: [decide(before, "app.ts:additions:14:1:1", "rejected")],
+      signedOffBlocks: signedOff(before, "app.ts:additions:14:1:1"),
+    };
+    // Staged outside the desk, so not in stagedChangeKeys: the l12 block keeps its key and content.
+    await stage(withTop(committedLines));
+    const merged = await mergeReviewState(await edit(round1), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:14:1:1"), "rejected");
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}), ["app.ts:additions:14:1:1"]);
+  });
+});
+
 test("a save from a tab still on the pre-reload diff lands on the reloaded blocks", async () => {
   await withShiftRepo(async (edit) => {
     // The tab accepts the l8 block and saves; then the agent edits above it and reloads.
@@ -739,7 +779,7 @@ test("a save from a tab still on the pre-reload diff lands on the reloaded block
     const accepted = decide(live, "app.ts:additions:8:1:1", "accepted");
     const rejected = decide(live, "app.ts:additions:11:1:1", "rejected");
     const seen = (baseDiffHash: string) => ({ token: null, reloadGeneration: 0, baseDiffHash });
-    mergeReviewerSave(live, { decisions: [accepted], seen: seen(oldDiff) });
+    await mergeReviewerSave(live, { decisions: [accepted], seen: seen(oldDiff) });
     // The desk remembers the diff it reloads away from (server.ts, /api/reload).
     const prior = { baseDiffHash: live.baseDiffHash, changes: live.changes, files: live.files };
     Object.assign(
@@ -748,7 +788,7 @@ test("a save from a tab still on the pre-reload diff lands on the reloaded block
     );
     assert.deepEqual(decided(live), [["app.ts:additions:10:1:1", "accepted", 10]]);
     // Before the tab adopts the reloaded diff, the reviewer rejects the l11 block on the old one.
-    mergeReviewerSave(
+    await mergeReviewerSave(
       live,
       { decisions: [accepted, rejected], seen: seen(oldDiff) },
       undefined,
@@ -761,11 +801,16 @@ test("a save from a tab still on the pre-reload diff lands on the reloaded block
     assert.equal(statusOf(live, "app.ts:additions:10:1:1"), "accepted");
     assert.equal(statusOf(live, "app.ts:additions:13:1:1"), "rejected");
     // A save from further back than the desk remembers can't be placed: the desk keeps its own.
-    mergeReviewerSave(live, { decisions: [], seen: seen("two diffs back") }, undefined, prior);
+    await mergeReviewerSave(
+      live,
+      { decisions: [], seen: seen("two diffs back") },
+      undefined,
+      prior,
+    );
     assert.equal(decided(live).length, 2);
     // Once the tab has adopted the reloaded diff, its save is taken as sent.
     const current = live.decisions!.filter((d) => d.status === "accepted");
-    mergeReviewerSave(live, { decisions: current, seen: seen(live.baseDiffHash) });
+    await mergeReviewerSave(live, { decisions: current, seen: seen(live.baseDiffHash) });
     assert.deepEqual(decided(live), [["app.ts:additions:10:1:1", "accepted", 10]]);
   });
 });
@@ -814,13 +859,18 @@ test("a save from a tab still on the pre-reload diff carries its block sign-offs
       await mergeReviewState(await edit(insertAbove(edited({ 8: "L8", 11: "L11" }))), live),
     );
     const seen = (baseDiffHash: string) => ({ token: null, reloadGeneration: 0, baseDiffHash });
-    mergeReviewerSave(live, { signedOffBlocks: signed, seen: seen(oldDiff) }, undefined, prior);
+    await mergeReviewerSave(
+      live,
+      { signedOffBlocks: signed, seen: seen(oldDiff) },
+      undefined,
+      prior,
+    );
     assert.deepEqual(live.signedOffBlocks, {
       "app.ts:additions:10:1:1": signed["app.ts:additions:8:1:1"],
       "app.ts:additions:13:1:1": signed["app.ts:additions:11:1:1"],
     });
     // From further back than the desk remembers, the desk keeps its own.
-    mergeReviewerSave(
+    await mergeReviewerSave(
       live,
       { signedOffBlocks: {}, seen: seen("two diffs back") },
       undefined,
@@ -852,7 +902,7 @@ test("a save from a tab two diffs behind keeps the desk's file sign-offs along w
     await write("y.ts", "1\n2c\n3\n");
     const d2 = await mergeReviewState(await build(), d1);
     // On d0, the reviewer rejects x.ts's block and marks the file reviewed.
-    mergeReviewerSave(
+    await mergeReviewerSave(
       d2,
       {
         decisions: [decide(d0, "x.ts:additions:2:1:1", "rejected")],
@@ -872,6 +922,98 @@ test("a save from a tab two diffs behind keeps the desk's file sign-offs along w
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test("a save from a tab on the pre-reload diff keeps the desk's re-anchored comments and re-anchors its new ones", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 8: "L8", 11: "L11" });
+    const live = await edit(lines);
+    const prior = { baseDiffHash: live.baseDiffHash, changes: live.changes, files: live.files };
+    const seen = { token: null, reloadGeneration: 0, baseDiffHash: live.baseDiffHash };
+    const onL8 = comment({
+      id: "c1",
+      path: "app.ts",
+      lineNumber: 8,
+      anchorText: "L8",
+      body: "why?",
+    });
+    live.comments = [onL8];
+    Object.assign(live, await mergeReviewState(await edit(insertAbove(lines)), live));
+    assert.equal(live.comments[0]!.lineNumber, 10, "the reload re-anchored the thread");
+    // The agent replies on the re-anchored thread before the tab has adopted the reloaded diff.
+    live.comments.push(
+      comment({ id: "r1", path: "app.ts", lineNumber: 10, anchorText: "L8", body: "because" }),
+    );
+    live.comments[1]!.role = "agent";
+    // The tab, still on the old diff, edits the comment and adds one on the l11 line.
+    const onL11 = comment({
+      id: "c2",
+      path: "app.ts",
+      lineNumber: 11,
+      anchorText: "L11",
+      body: "and",
+    });
+    await mergeReviewerSave(
+      live,
+      { comments: [{ ...onL8, body: "why, really?" }, onL11], seen },
+      undefined,
+      prior,
+    );
+    assert.deepEqual(
+      live.comments.map((c) => [c.id, c.lineNumber, c.body]),
+      [
+        ["c1", 10, "why, really?"],
+        ["c2", 13, "and"],
+        ["r1", 10, "because"],
+      ],
+    );
+  });
+});
+
+test("a save from a tab on an older diff keeps the comments it added on a file the reload removed", async () => {
+  const live = state({ baseDiffHash: "live", files: [file("a.ts")] });
+  const asked = comment({ id: "q", path: "gone.ts", intent: "question", body: "why?" });
+  const request = comment({ id: "r", path: "gone.ts", intent: "action", body: "rename it" });
+  await mergeReviewerSave(live, {
+    comments: [asked, request],
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: "older" },
+  });
+  assert.deepEqual(
+    live.comments.map((c) => [c.id, c.intent, c.status]),
+    [
+      ["q", "question", "open"],
+      ["r", "action", "open"],
+    ],
+  );
+});
+
+test("a save from a tab on an older diff drops the comments it deleted and keeps the reload's stale marks it didn't resolve", async () => {
+  // The reload marked both gone.ts threads stale: their file left the diff. The tab never saw it.
+  const live = state({
+    baseDiffHash: "live",
+    files: [file("a.ts")],
+    comments: [
+      comment({ id: "kept", path: "a.ts", body: "keep me" }),
+      comment({ id: "deleted", path: "a.ts", body: "delete me" }),
+      comment({ id: "left", path: "gone.ts", intent: "action", status: "stale" }),
+      comment({ id: "settled", path: "gone.ts", intent: "action", status: "stale" }),
+    ],
+  });
+  const tab = live.comments
+    .filter((c) => c.id !== "deleted")
+    .map((c) => ({ ...c, status: c.id === "settled" ? ("resolved" as const) : ("open" as const) }));
+  await mergeReviewerSave(live, {
+    comments: tab,
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: "older" },
+  });
+  assert.deepEqual(
+    live.comments.map((c) => [c.id, c.status]),
+    [
+      ["kept", "open"],
+      ["left", "stale"],
+      ["settled", "resolved"],
+    ],
+  );
 });
 
 test("a working-mode file's contents follow a stage that moved its old side", async () => {
@@ -991,7 +1133,7 @@ test("a save from a tab still on the pre-reload diff keeps a file approved whose
     const prior = { baseDiffHash: live.baseDiffHash, changes: live.changes, files: live.files };
     const signed = allSignedOff(live);
     Object.assign(live, await mergeReviewState(await edit(lines), live));
-    mergeReviewerSave(
+    await mergeReviewerSave(
       live,
       {
         signedOffBlocks: signed.signedOffBlocks,
@@ -1038,28 +1180,28 @@ test("a guide swap regroups the parts and keeps the sign-offs of blocks already 
 });
 
 // The carry rule itself, on the edges of the position rule.
-test("carryParts: at the file's start a block joins the part below only within that part's former lines", async () => {
+test("carryGuideStamps: at the file's start a block joins the part below only within that part's former lines", async () => {
   await withShiftRepo(async (edit) => {
     const before = stampParts(await edit(edited({ 3: "A", 5: "B" })), { 3: 0, 5: 0 });
     const after = await edit(edited({ 1: "new", 3: "A2", 5: "B" }));
-    carryParts(after, before);
+    carryGuideStamps(after, before);
     assert.deepEqual(partsOf(after), { 1: "rest", 3: 0, 5: 0 });
   });
 });
 
-test("carryParts: at the file's end a block joins the part above only within that part's former lines", async () => {
+test("carryGuideStamps: at the file's end a block joins the part above only within that part's former lines", async () => {
   await withShiftRepo(async (edit) => {
     const before = stampParts(await edit(edited({ 10: "C", 12: "D" })), { 10: 1, 12: 1 });
     // l12 grows by a line past the part's last line; a new line is appended after l14.
     const grown = edited({ 10: "C", 12: "D2" });
     grown.splice(12, 0, "D3");
     const after = await edit([...grown, "appended"]);
-    carryParts(after, before);
+    carryGuideStamps(after, before);
     assert.deepEqual(partsOf(after), { 10: 1, 12: 1, 16: "rest" });
   });
 });
 
-test("carryParts: a rewritten edge block stays in its part though another part borders it", async () => {
+test("carryGuideStamps: a rewritten edge block stays in its part though another part borders it", async () => {
   await withShiftRepo(async (edit) => {
     const before = stampParts(await edit(edited({ 3: "A", 5: "B", 10: "C", 12: "D" })), {
       3: 0,
@@ -1068,12 +1210,12 @@ test("carryParts: a rewritten edge block stays in its part though another part b
       12: 1,
     });
     const after = await edit(edited({ 3: "A", 5: "B2", 10: "C2", 12: "D" }));
-    carryParts(after, before);
+    carryGuideStamps(after, before);
     assert.deepEqual(partsOf(after), { 3: 0, 5: 0, 10: 1, 12: 1 });
   });
 });
 
-test("carryParts: a part pushed down by an edit above keeps its rewritten last block", async () => {
+test("carryGuideStamps: a part pushed down by an edit above keeps its rewritten last block", async () => {
   await withShiftRepo(async (edit) => {
     const before = stampParts(await edit(edited({ 3: "A", 10: "C", 12: "D" })), {
       3: 0,
@@ -1081,28 +1223,86 @@ test("carryParts: a part pushed down by an edit above keeps its rewritten last b
       12: 1,
     });
     const after = await edit(insertAbove(edited({ 3: "A", 10: "C", 12: "D2" })));
-    carryParts(after, before);
+    carryGuideStamps(after, before);
     assert.deepEqual(partsOf(after), { 2: "rest", 5: 0, 12: 1, 14: 1 });
   });
 });
 
-test("carryParts: a block both bordering parts' former lines cover goes to Rest", async () => {
+test("carryGuideStamps: a block both bordering parts' former lines cover goes to Rest", async () => {
   await withShiftRepo(async (edit) => {
     // The parts interleave: part 0 spans lines 3-10, part 1 lines 6-13.
     const lines = edited({ 3: "A", 6: "B", 10: "C", 13: "D" });
     const before = stampParts(await edit(lines), { 3: 0, 6: 1, 10: 0, 13: 1 });
     const after = await edit(edited({ 3: "A", 6: "B", 8: "new", 10: "C", 13: "D" }));
-    carryParts(after, before);
+    carryGuideStamps(after, before);
     assert.deepEqual(partsOf(after), { 3: 0, 6: 1, 8: "rest", 10: 0, 13: 1 });
   });
 });
 
-test("carryParts: identical blocks keep their own parts, paired in document order", async () => {
+test("carryGuideStamps: identical blocks keep their own parts, each at its own place", async () => {
   await withShiftRepo(async (edit) => {
     const before = stampParts(await edit(twinLines()), { 4: 0, 10: 1 });
     const after = await edit(insertAbove(twinLines()));
-    carryParts(after, before);
+    carryGuideStamps(after, before);
     assert.deepEqual(partsOf(after), { 2: "rest", 6: 0, 12: 1 });
+  });
+});
+
+// ── Skims across rounds ──────────────────────────────────────────────────────
+// app.ts's guide entry skimming the blocks the spans touch.
+const skimGuide = (...spans: Array<[number, number]>): Guide => ({
+  overview: "o",
+  files: [
+    {
+      path: "app.ts",
+      order: 0,
+      category: "C",
+      orientation: "o",
+      skimBlocks: spans.map((lines) => ({ lines, reason: "churn" })),
+    },
+  ],
+});
+// Each block's skim by its first line.
+const skimsOf = (st: Pick<ReviewState, "changes">) =>
+  Object.fromEntries(st.changes.map((c) => [c.lineNumber, !!c.skim]));
+
+test("a skimmed block stays skimmed, and no other block is, when lines are inserted above it", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 8: "A", 10: "C" });
+    const before = await edit(lines);
+    before.guide = skimGuide([10, 10]);
+    assert.ok(resolveGuide(before, before.guide).ok);
+    const merged = await mergeReviewState(await edit(insertAbove(lines)), before);
+    assert.deepEqual(skimsOf(merged), { 2: false, 10: false, 12: true });
+  });
+});
+
+test("a skimmed block rewritten in place comes back pending and not skimmed", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 8: "A", 10: "C" }));
+    before.guide = skimGuide([10, 10]);
+    assert.ok(resolveGuide(before, before.guide).ok);
+    const saved = { ...before, decisions: [decide(before, "app.ts:additions:10:1:1", "accepted")] };
+    const merged = await mergeReviewState(await edit(edited({ 8: "A", 10: "C2" })), saved);
+    assert.deepEqual(skimsOf(merged), { 8: false, 10: false });
+    assert.equal(statusOf(merged, "app.ts:additions:10:1:1"), "pending");
+  });
+});
+
+test("a guide swap re-stamps skims strictly from the new spans", async () => {
+  await withShiftRepo(async (edit) => {
+    const lines = edited({ 8: "A", 10: "C" });
+    const before = await edit(lines);
+    before.guide = skimGuide([10, 10]);
+    assert.ok(resolveGuide(before, before.guide).ok);
+    const after = await edit(insertAbove(lines));
+    const merged = await mergeReviewState(after, before);
+    assert.ok(resolveGuide(merged, skimGuide([10, 10]), parsedDiffOf(after)).ok);
+    assert.deepEqual(skimsOf(merged), { 2: false, 10: true, 12: false });
+    assert.deepEqual(resolveGuide(merged, skimGuide([9, 9]), parsedDiffOf(after)), {
+      ok: false,
+      reason: 'guide skimBlocks span [9, 9] on "app.ts" matches no change in the diff',
+    });
   });
 });
 
@@ -1765,9 +1965,7 @@ function guideWith(
 
 test("resolveSkim stamps the change block a span resolves to", () => {
   const changes = changesFromDiff(SKIM_DIFF);
-  const r = resolveSkim(SKIM_DIFF, changes, guideWith([{ lines: [3, 5], reason: "imports" }]), {
-    strict: true,
-  });
+  const r = resolveSkim(SKIM_DIFF, changes, guideWith([{ lines: [3, 5], reason: "imports" }]));
   assert.ok(r.ok);
   const imports = changes.find((c) => c.stableKey === "additions:3:0:3");
   const core = changes.find((c) => c.stableKey === "additions:8:1:2");
@@ -1775,65 +1973,38 @@ test("resolveSkim stamps the change block a span resolves to", () => {
   assert.equal(core!.skim, undefined); // only the targeted block is stamped
 });
 
-test("resolveSkim (strict) rejects a span that matches no change block, naming path + span", () => {
-  const r = resolveSkim(SKIM_DIFF, changesFromDiff(SKIM_DIFF), guideWith([{ lines: [100, 101] }]), {
-    strict: true,
-  });
+test("resolveSkim rejects a span that matches no change block, naming path + span", () => {
+  const r = resolveSkim(SKIM_DIFF, changesFromDiff(SKIM_DIFF), guideWith([{ lines: [100, 101] }]));
   assert.equal(r.ok, false);
   if (r.ok) return;
   assert.match(r.reason, /app\.ts/);
   assert.match(r.reason, /100/);
+  // A span the diff once held but a rewrite left on unchanged lines is rejected the same way.
+  const stale = resolveSkim(
+    SKIM_DIFF_REWRITTEN,
+    changesFromDiff(SKIM_DIFF_REWRITTEN),
+    guideWith([{ lines: [3, 5], reason: "imports" }]),
+  );
+  assert.equal(stale.ok, false);
 });
 
-test("resolveSkim (strict) rejects a skimBlocks entry on a file absent from the diff", () => {
+test("resolveSkim rejects a skimBlocks entry on a file absent from the diff", () => {
   const r = resolveSkim(
     SKIM_DIFF,
     changesFromDiff(SKIM_DIFF),
     guideWith([{ lines: [1, 2] }], "ghost.ts"),
-    {
-      strict: true,
-    },
   );
   assert.equal(r.ok, false);
   if (r.ok) return;
   assert.match(r.reason, /ghost\.ts/);
 });
 
-test("resolveSkim (lenient) drops an unresolvable span instead of failing", () => {
-  const changes = changesFromDiff(SKIM_DIFF);
-  const r = resolveSkim(
-    SKIM_DIFF,
-    changes,
-    guideWith([{ lines: [3, 5], reason: "imports" }, { lines: [100, 101] }]),
-    { strict: false },
-  );
-  assert.ok(r.ok); // the [100,101] span silently drops
-  assert.deepEqual(changes.find((c) => c.stableKey === "additions:3:0:3")!.skim, {
-    reason: "imports",
-  });
-});
-
-test("resolveSkim drops a stale skim after the block is rewritten (reload asymmetry)", () => {
-  const guide = guideWith([{ lines: [3, 5], reason: "imports" }]);
-  // Rewritten diff: the old span no longer resolves. Lenient reload drops it (no throw)...
-  const changes = changesFromDiff(SKIM_DIFF_REWRITTEN);
-  const lenient = resolveSkim(SKIM_DIFF_REWRITTEN, changes, guide, { strict: false });
-  assert.ok(lenient.ok);
-  assert.ok(changes.every((c) => c.skim === undefined)); // no block skimmed; core renders pending
-  // ...but a NEW guide with that span would be rejected outright.
-  assert.equal(
-    resolveSkim(SKIM_DIFF_REWRITTEN, changesFromDiff(SKIM_DIFF_REWRITTEN), guide, { strict: true })
-      .ok,
-    false,
-  );
-});
-
 test("resolveSkim clears prior stamps so re-resolution is idempotent", () => {
   const changes = changesFromDiff(SKIM_DIFF);
-  resolveSkim(SKIM_DIFF, changes, guideWith([{ lines: [3, 5] }]), { strict: true });
+  resolveSkim(SKIM_DIFF, changes, guideWith([{ lines: [3, 5] }]));
   assert.ok(changes.find((c) => c.stableKey === "additions:3:0:3")!.skim);
   // Re-resolve with a guide targeting the OTHER block: the first stamp must be cleared.
-  resolveSkim(SKIM_DIFF, changes, guideWith([{ lines: [8, 9] }]), { strict: true });
+  resolveSkim(SKIM_DIFF, changes, guideWith([{ lines: [8, 9] }]));
   assert.equal(changes.find((c) => c.stableKey === "additions:3:0:3")!.skim, undefined);
   assert.ok(changes.find((c) => c.stableKey === "additions:8:1:2")!.skim);
 });
@@ -1881,13 +2052,7 @@ test("reload parses the unified diff exactly once, shared across build + skim (i
     assert.ok(base, "state built");
     const merged = await mergeReviewState(base!, null);
     merged.guide = guideWith([{ lines: [3, 5], reason: "imports" }]);
-    const skim = resolveSkim(
-      merged.rawDiff,
-      merged.changes,
-      merged.guide,
-      { strict: false },
-      parsedDiffOf(base!),
-    );
+    const skim = resolveSkim(merged.rawDiff, merged.changes, merged.guide, parsedDiffOf(base!));
     assert.ok(skim.ok, "skim resolved");
     assert.equal(gitStats.parses, 1, "diff parsed exactly once across build + skim resolution");
     assert.ok(
@@ -2016,12 +2181,6 @@ test("resolveGuide rejects a part's skimBlocks span that reaches another part's 
     reason:
       'guide part "Imports" on "app.ts": skimBlocks span [8, 8] reaches the change at lines 8-9, which part "Core" claims',
   });
-  // Carried forward, that skim stamp is dropped: Core stays in the flow, unskimmed.
-  const changes = changesFromDiff(SKIM_DIFF);
-  resolveParts(skimDiff(changes), partsGuide(["Imports", [[3, 5]]], ["Core", [8]]));
-  assert.deepEqual(resolveSkim(SKIM_DIFF, changes, guide, { strict: false }), { ok: true });
-  assert.equal(changes.find((c) => c.stableKey === CORE)!.skim, undefined);
-  assert.equal(partOf(changes, CORE), 1);
 });
 
 test("resolveGuide lets a part skim its own blocks and unclaimed ones", () => {
@@ -2056,10 +2215,10 @@ test("skim never changes approval derivations (display-only)", () => {
   assert.deepEqual(r.approvedFiles, ["a.ts"]);
 });
 
-test("the reviewer save slice never carries skim (changes are server-owned)", () => {
+test("the reviewer save slice never carries skim (changes are server-owned)", async () => {
   const s = state({ changes: [change({ id: "a.ts:k", path: "a.ts", stableKey: "k" })] });
   // A stale tab POSTs a whole ReviewState, changes included; mergeReviewerSave must ignore them.
-  mergeReviewerSave(s, {
+  await mergeReviewerSave(s, {
     changes: [{ id: "a.ts:k", path: "a.ts", stableKey: "k", skim: { reason: "x" } }],
     comments: [],
   });
@@ -2520,13 +2679,13 @@ test("buildReviewResult leaves out screenshots whose files are gone from disk", 
   }
 });
 
-test("mergeReviewerSave keeps the server's screenshot mark by id and never takes the tab's", () => {
+test("mergeReviewerSave keeps the server's screenshot mark by id and never takes the tab's", async () => {
   const live = state({
     ui: UI,
     annotations: [annotation({ id: "a1", screenshots: true }), annotation({ id: "a2" })],
   });
   // The tab's copies: a1 without the mark (a tab that never saw it), a2 claiming one.
-  mergeReviewerSave(live, {
+  await mergeReviewerSave(live, {
     annotations: [annotation({ id: "a1" }), annotation({ id: "a2", screenshots: true })],
   });
   assert.deepEqual(
@@ -2573,7 +2732,7 @@ test("a reload or a restart leaves every annotation unvisited until its page loa
   assert.equal(saved.annotations![0]!.placement, "placed", "the saved review isn't touched");
 });
 
-test("a reviewer save stamped before the desk's latest reload keeps the desk's placements", () => {
+test("a reviewer save stamped before the desk's latest reload keeps the desk's placements", async () => {
   const desk = { token: "t2", reloadGeneration: 3 };
   const live = () =>
     state({ ui: UI, annotations: [annotation({ id: "a1", placement: "unvisited" })] });
@@ -2587,7 +2746,7 @@ test("a reviewer save stamped before the desk's latest reload keeps the desk's p
     { token: "t1", reloadGeneration: 3 },
   ]) {
     const s = live();
-    mergeReviewerSave(s, { annotations: sent, seen }, desk);
+    await mergeReviewerSave(s, { annotations: sent, seen }, desk);
     assert.deepEqual(
       placements(s),
       [
@@ -2598,7 +2757,7 @@ test("a reviewer save stamped before the desk's latest reload keeps the desk's p
     );
   }
   const current = live();
-  mergeReviewerSave(current, { annotations: sent, seen: desk }, desk);
+  await mergeReviewerSave(current, { annotations: sent, seen: desk }, desk);
   assert.deepEqual(placements(current), [
     ["a1", "placed"],
     ["a2", "placed"],
@@ -2611,7 +2770,7 @@ test("each annotation's placement persists through a reviewer save and the saved
   process.env.HOME = home;
   try {
     const live = state({ root: home, ui: UI, annotations: [annotation({ id: "a1" })] });
-    mergeReviewerSave(live, {
+    await mergeReviewerSave(live, {
       annotations: [
         annotation({ id: "a1", placement: "unplaced" }),
         annotation({ id: "a2", number: 2 }),
@@ -2637,13 +2796,13 @@ test("each annotation's placement persists through a reviewer save and the saved
 // The desk's app, which every saved page.url is rebuilt on.
 const UI = { target: "http://localhost:3000/sign-in?as=reviewer" };
 
-test("mergeReviewerSave stores well-formed annotations as sent", () => {
+test("mergeReviewerSave stores well-formed annotations as sent", async () => {
   const live = state({ ui: UI });
-  mergeReviewerSave(live, { annotations: [annotation({ id: "a1" })] });
+  await mergeReviewerSave(live, { annotations: [annotation({ id: "a1" })] });
   assert.deepEqual(live.annotations, [annotation({ id: "a1" })]);
 });
 
-test("a UI change request turned into a question is saved with its asked time, asked, and no longer sent", () => {
+test("a UI change request turned into a question is saved with its asked time, asked, and no longer sent", async () => {
   const live = state({ ui: UI });
   const a = annotation({ id: "a1" });
   a.comments.push({
@@ -2662,7 +2821,7 @@ test("a UI change request turned into a question is saved with its asked time, a
       a.comments[1]!,
     ],
   };
-  mergeReviewerSave(live, { annotations: [asked] });
+  await mergeReviewerSave(live, { annotations: [asked] });
   assert.equal(live.annotations![0]!.comments[0]!.askedAt, "2026-10-13T10:05:00.000Z");
   const r = buildReviewResult(live, { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(r.uiAnnotations, []);
@@ -2672,7 +2831,7 @@ test("a UI change request turned into a question is saved with its asked time, a
     "the reply from before the turn doesn't answer it",
   );
   // Turned back, it's a change request again.
-  mergeReviewerSave(live, { annotations: [a] });
+  await mergeReviewerSave(live, { annotations: [a] });
   const back = buildReviewResult(live, { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(
     back.uiAnnotations.map((x) => x.id),
@@ -2681,10 +2840,10 @@ test("a UI change request turned into a question is saved with its asked time, a
   assert.deepEqual(back.openQuestions, []);
 });
 
-test("mergeReviewerSave truncates oversized page data to the caps", () => {
+test("mergeReviewerSave truncates oversized page data to the caps", async () => {
   const live = state({ ui: UI });
   const attrs = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`data-k${i}`, "v"]));
-  mergeReviewerSave(live, {
+  await mergeReviewerSave(live, {
     annotations: [
       annotation({
         id: "a1",
@@ -2727,11 +2886,11 @@ test("mergeReviewerSave truncates oversized page data to the caps", () => {
   assert.ok(Object.values(el.attrs!).every((v) => v.length <= 200));
 });
 
-test("mergeReviewerSave drops malformed annotations and elements, keeping the rest", () => {
+test("mergeReviewerSave drops malformed annotations and elements, keeping the rest", async () => {
   const live = state({ ui: UI });
   const good = annotation({ id: "good" });
   const element = (over: Record<string, unknown>) => ({ kind: "element", elements: [over] });
-  mergeReviewerSave(live, {
+  await mergeReviewerSave(live, {
     annotations: [
       good,
       "not an object",
@@ -2774,7 +2933,7 @@ test("mergeReviewerSave drops malformed annotations and elements, keeping the re
   assert.equal(live.annotations![2]!.target.elements.length, 16, "elements capped at 16");
 });
 
-test("mergeReviewerSave keeps an element's source within the caps and drops a malformed one", () => {
+test("mergeReviewerSave keeps an element's source within the caps and drops a malformed one", async () => {
   const live = state({ ui: UI });
   const source = {
     file: "/home/dev/shop/apps/web/app/pages/files.vue",
@@ -2789,7 +2948,7 @@ test("mergeReviewerSave keeps an element's source within the caps and drops a ma
       id,
       target: { kind: "element", elements: [{ ...uiElement(), source: s } as UiElement] },
     });
-  mergeReviewerSave(live, {
+  await mergeReviewerSave(live, {
     annotations: [
       withSource("ok", source),
       withSource("long-name", { ...source, component: "c".repeat(500) }),
@@ -2806,20 +2965,20 @@ test("mergeReviewerSave keeps an element's source within the caps and drops a ma
   assert.equal(live.annotations!.length, 6, "a bad source drops only the source");
 });
 
-test("mergeReviewerSave ignores an annotations field that isn't an array", () => {
+test("mergeReviewerSave ignores an annotations field that isn't an array", async () => {
   const live = state({ annotations: [annotation({ id: "a1" })] });
-  mergeReviewerSave(live, { annotations: "nope" });
+  await mergeReviewerSave(live, { annotations: "nope" });
   assert.equal(live.annotations!.length, 1);
 });
 
-test("mergeReviewerSave rebuilds page.url on the UI target's origin and drops a route that leaves it", () => {
+test("mergeReviewerSave rebuilds page.url on the UI target's origin and drops a route that leaves it", async () => {
   const live = state({ ui: UI });
   const page = (route: string, url = `http://localhost:3000${route}`) => ({
     ...annotation({ id: "x" }).page,
     route,
     url,
   });
-  mergeReviewerSave(live, {
+  await mergeReviewerSave(live, {
     annotations: [
       { ...annotation({ id: "lying-url" }), page: page("/app", "http://evil.example/app") },
       // The URL parser reads a backslash as a slash: this route is `//evil.example/x`.
@@ -2837,22 +2996,22 @@ test("mergeReviewerSave rebuilds page.url on the UI target's origin and drops a 
     ],
   );
   const noApp = state({});
-  mergeReviewerSave(noApp, { annotations: [annotation({ id: "a1" })] });
+  await mergeReviewerSave(noApp, { annotations: [annotation({ id: "a1" })] });
   assert.deepEqual(noApp.annotations, [], "without a UI target there is no origin to check");
 });
 
-test("mergeReviewerSave never lowers the annotation number mark", () => {
+test("mergeReviewerSave never lowers the annotation number mark", async () => {
   const live = state({ ui: UI, lastAnnotationNumber: 5 });
   // A stale tab posts an older mark: the mark stays.
-  mergeReviewerSave(live, {
+  await mergeReviewerSave(live, {
     annotations: [annotation({ id: "a1", number: 2 })],
     lastAnnotationNumber: 3,
   });
   assert.equal(live.lastAnnotationNumber, 5);
   // A number in use above the mark raises it, whatever the save says.
-  mergeReviewerSave(live, { annotations: [annotation({ id: "a7", number: 7 })] });
+  await mergeReviewerSave(live, { annotations: [annotation({ id: "a7", number: 7 })] });
   assert.equal(live.lastAnnotationNumber, 7);
-  mergeReviewerSave(live, { lastAnnotationNumber: "9" });
+  await mergeReviewerSave(live, { lastAnnotationNumber: "9" });
   assert.equal(live.lastAnnotationNumber, 7, "a mark that isn't a whole number is ignored");
 });
 
@@ -3016,10 +3175,10 @@ const KINDS: Record<string, UiAnnotationRecord["target"]> = {
   page: { kind: "page" },
 };
 
-test("every target kind is stored as saved and sent with its source files repo-relative", () => {
+test("every target kind is stored as saved and sent with its source files repo-relative", async () => {
   const live = state({ root: "/home/dev/shop", ui: UI });
   const sent = Object.entries(KINDS).map(([id, target]) => annotation({ id, target }));
-  mergeReviewerSave(live, { annotations: structuredClone(sent) });
+  await mergeReviewerSave(live, { annotations: structuredClone(sent) });
   assert.deepEqual(live.annotations, sent);
   const r = buildReviewResult(live, { resultJson: "r.json", sessionDir: "d" });
   const repoSource = { ...SRC, file: "apps/web/app/pages/files.vue" };
@@ -3044,7 +3203,7 @@ test("every target kind is stored as saved and sent with its source files repo-r
   );
 });
 
-test("mergeReviewerSave drops a malformed target of any kind and caps a quote and a region's elements", () => {
+test("mergeReviewerSave drops a malformed target of any kind and caps a quote and a region's elements", async () => {
   const live = state({ ui: UI });
   const bad: Array<[string, unknown]> = [
     ["no-rect", { kind: "region", elements: [] }],
@@ -3059,7 +3218,7 @@ test("mergeReviewerSave drops a malformed target of any kind and caps a quote an
     ["canvas", { kind: "canvas", rect: REGION }],
     ["no-kind", { rect: REGION, elements: [] }],
   ];
-  mergeReviewerSave(live, {
+  await mergeReviewerSave(live, {
     annotations: [
       ...bad.map(([id, target]) => ({ ...annotation({ id }), target })),
       annotation({
@@ -3111,7 +3270,7 @@ test("a UI question's target summary says what kind of thing it points at", () =
   );
 });
 
-test("mergeReviewerSave keeps agent replies a save from a tab that hasn't seen them leaves out", () => {
+test("mergeReviewerSave keeps agent replies a save from a tab that hasn't seen them leaves out", async () => {
   const replied = question({ id: "q1" });
   replied.comments.push(agentReply("r1", "2026-10-13T10:01:00.000Z"));
   const gone = question({ id: "q2", number: 2 });
@@ -3128,13 +3287,13 @@ test("mergeReviewerSave keeps agent replies a save from a tab that hasn't seen t
     createdAt: "2026-10-13T10:02:00.000Z",
     updatedAt: "2026-10-13T10:02:00.000Z",
   });
-  mergeReviewerSave(live, { annotations: [tabCopy] });
+  await mergeReviewerSave(live, { annotations: [tabCopy] });
   assert.deepEqual(
     live.annotations!.map((a) => [a.id, a.intent, a.comments.map((m) => m.id)]),
     [["q1", "question", ["q1-m1", "m2", "r1"]]],
   );
   // A tab that has the reply saves it once.
-  mergeReviewerSave(live, { annotations: structuredClone(live.annotations) });
+  await mergeReviewerSave(live, { annotations: structuredClone(live.annotations) });
   assert.deepEqual(
     live.annotations![0]!.comments.map((m) => m.id),
     ["q1-m1", "m2", "r1"],

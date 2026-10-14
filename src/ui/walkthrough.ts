@@ -190,6 +190,8 @@ export type WalkRow =
       skimmed: boolean;
       open: boolean;
       total: number;
+      // "N files", or "N steps" once a row is a part or a Rest step: the noun names what it counts.
+      count: string;
       done: number;
       added: number;
       removed: number;
@@ -209,6 +211,7 @@ export function walkRows(
     // firstFileOfCategory used, but scoped to the clicked occurrence, not the category name.
     // Groups always carry ≥1 file (guide groups get one per add; Other is only pushed if it has any).
     const target = g.files.find((f) => f.state === "pending") ?? g.files[0]!;
+    const noun = g.files.every((f) => f.part === undefined) ? "file" : "step";
     rows.push({
       kind: "cat",
       // The group index keeps the key unique when a category label repeats across runs;
@@ -219,6 +222,7 @@ export function walkRows(
       skimmed: g.skimmed,
       open: g.skimmed ? skimGroupExpanded : true,
       total: g.total,
+      count: `${g.total} ${noun}${g.total === 1 ? "" : "s"}`,
       done: g.done,
       added: g.added,
       removed: g.removed,

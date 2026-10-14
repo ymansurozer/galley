@@ -1,6 +1,6 @@
 import { S, D, $, toast, persist } from "./store";
 import type { ChangeState, Side } from "./types";
-import { currentChanges, fromDisplayLine, inCurrentStep } from "./changes";
+import { currentChanges, inCurrentStep, rowAnchor } from "./changes";
 import { acceptChange } from "./decisions";
 import { changeSpan, pendingChangeAt, spanHolds } from "./decisions-derive";
 import { openCommentComposer } from "./selection";
@@ -456,10 +456,14 @@ export function cursorVerdict(status: "accepted" | "rejected") {
   acceptChange(ch.id, status);
 }
 
+// A display row's comments: they persist the raw line, on the side the row shows (rowAnchor — a
+// row of a resolved block shows one version in both gutters).
 function lineComments(side: Side, line: number) {
-  const raw = fromDisplayLine(side, line); // comments persist raw lines
+  const at = rowAnchor(side, line);
   const path = S.preview?.path ?? S.state.files[S.fileIndex]?.path;
-  return S.state.comments.filter((c) => c.path === path && c.side === side && c.lineNumber === raw);
+  return S.state.comments.filter(
+    (c) => c.path === path && c.side === at.side && c.lineNumber === at.line,
+  );
 }
 
 // Where the cursor's line keeps its thread: the cursor's own coordinates, or, on a context row,

@@ -9,7 +9,7 @@ import {
 import { render } from "./render";
 import { diffShadowRoot } from "./diff-dom";
 import { diffColumns, misalignedColumns } from "./skim-dom";
-import { clearFolds, foldHunks, type FoldRun } from "./fold-dom";
+import { clearFolds, foldHunks, foldLabel, type FoldRun } from "./fold-dom";
 import { foldedHunks, openedFor, shownFolds, type Opened } from "./fold-derive";
 import { isUnanchored } from "./unanchored";
 
@@ -63,7 +63,7 @@ function expander(run: FoldRun): HTMLElement {
   if (run.last) el.setAttribute("data-separator-last", "");
   const dir = !run.first && !run.last ? "both" : run.first ? "down" : "up";
   const icon = dir === "both" ? "diffs-icon-expand-all" : "diffs-icon-expand";
-  el.innerHTML = `<div data-separator-wrapper><div role="button" data-expand-button data-expand-${dir}><svg width="16" height="16" viewBox="0 0 16 16" data-icon><use href="#${icon}"></use></svg></div><div data-separator-content><span data-unmodified-lines>${run.lines} unmodified line${run.lines > 1 ? "s" : ""}</span></div></div>`;
+  el.innerHTML = `<div data-separator-wrapper><div role="button" data-expand-button data-expand-${dir}><svg width="16" height="16" viewBox="0 0 16 16" data-icon><use href="#${icon}"></use></svg></div><div data-separator-content><span data-unmodified-lines>${foldLabel(run)}</span></div></div>`;
   el.addEventListener("click", (e) => {
     const hit = e.target instanceof Element ? e.target : null;
     if (!hit?.closest("[data-expand-button],[data-separator-content]")) return;

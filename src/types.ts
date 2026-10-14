@@ -91,15 +91,15 @@ export type ChangeState = {
   displayLineNumber?: number;
   displayEndLine?: number;
   // Server-stamped when a guide's skimBlocks span resolves to this block: the desk
-  // collapses it by default (display-only — decisions/approval are untouched). Re-derived
-  // on every attach/reload from the guide (like stageable/contentHash), so it is NOT
-  // reviewer-owned and never rides /api/save; a rewritten block loses the id it was
-  // stamped under and the skim drops. `reason` is the agent's short note ("import-only").
+  // collapses it by default (display-only — decisions/approval are untouched). Resolved from
+  // the guide's spans on attach, then carried by content, like `part`, across every reload or
+  // restart that keeps the guide: a rewritten or new block isn't skimmed. Server-owned, so it
+  // never rides /api/save. `reason` is the agent's short note ("import-only").
   skim?: { reason?: string };
   // Server-stamped when a guide part (GuideFile.part) claims this block: the index of the owning
   // entry in the stored, order-sorted guide.files. Absent = no part claims it (the file's Rest
   // step). Resolved from the guide's spans on attach, then carried by content across every reload
-  // or restart that keeps the guide (state.ts carryParts). Never rides /api/save.
+  // or restart that keeps the guide (state.ts carryGuideStamps). Never rides /api/save.
   part?: number;
 };
 
