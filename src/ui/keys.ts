@@ -400,7 +400,7 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "w",
-    desc: "Tree / Walkthrough sidebar",
+    desc: "Review / Files sidebar",
     group: "View",
     when: () => hasGuide() && inCode(),
     test: k("w"),
