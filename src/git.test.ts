@@ -1,12 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  changeBlocks,
-  changeStableKeyFromBlock,
-  editIndex,
-  parseUnifiedDiff,
-  type BlockInIndex,
-} from "./git.js";
+import { changeBlocks, changeStableKeyFromBlock, parseUnifiedDiff, spliceLines } from "./git.js";
 
 const DIFF = `diff --git a/f.txt b/f.txt
 index 0000000..1111111 100644
@@ -107,36 +101,28 @@ Binary files a/old.png and b/new.png differ
   assert.equal(parseUnifiedDiff(diff).length, 0);
 });
 
-// ── editIndex: one block's lines in or out of the index blob ─────────────────
+// ── spliceLines: one block's lines in or out of the index blob ───────────────
 const blob = (s: string) => Buffer.from(s);
-const place = (over: Partial<BlockInIndex>): BlockInIndex => ({
-  staged: false,
-  at: 0,
-  before: 0,
-  oldBefore: 0,
-  deleted: [],
-  added: [],
-  ...over,
-});
 
-test("editIndex puts the working tree's bytes in, and HEAD's back", () => {
-  const block = place({ at: 1, before: 1, oldBefore: 1, deleted: ["b"], added: ["B"] });
-  const staged = editIndex(block, true, blob("a\r\nb\r\nc\r\n"), blob("a\r\nB\r\nc\r\n"), null);
+test("spliceLines puts in the source's bytes, line endings included", () => {
+  const staged = spliceLines(blob("a\r\nb\r\nc\r\n"), 1, ["b"], blob("a\r\nB\r\nc\r\n"), 1, ["B"]);
   assert.equal(staged?.toString(), "a\r\nB\r\nc\r\n");
-  const back = editIndex(block, false, staged!, blob("a\r\nB\r\nc\r\n"), blob("a\r\nb\r\nc\r\n"));
+  const back = spliceLines(staged!, 1, ["B"], blob("a\r\nb\r\nc\r\n"), 1, ["b"]);
   assert.equal(back?.toString(), "a\r\nb\r\nc\r\n");
+  // A last line gains its ending, and loses it again.
+  assert.equal(spliceLines(blob("a\nb"), 1, ["b"], blob("a\nb\n"), 1, ["b"])?.toString(), "a\nb\n");
+  assert.equal(spliceLines(blob("a\nb\n"), 1, ["b"], blob("a\nb"), 1, ["b"])?.toString(), "a\nb");
 });
 
-test("editIndex writes nothing that isn't the block's edit", () => {
-  const block = place({ at: 1, before: 1, oldBefore: 1, deleted: ["b"], added: ["B"] });
-  // The index doesn't hold the block's old line there.
-  assert.equal(editIndex(block, true, blob("a\nx\nc\n"), blob("a\nB\nc\n"), null), null);
+test("spliceLines writes nothing that isn't the block's edit", () => {
+  // The index doesn't hold the block's old line there, or the source its new one.
+  assert.equal(spliceLines(blob("a\nx\nc\n"), 1, ["b"], blob("a\nB\nc\n"), 1, ["B"]), null);
+  assert.equal(spliceLines(blob("a\nb\nc\n"), 1, ["b"], blob("a\nY\nc\n"), 1, ["B"]), null);
   // Nothing would change.
-  const same = place({ at: 1, before: 1, deleted: ["b"], added: ["b"] });
-  assert.equal(editIndex(same, true, blob("a\nb\nc\n"), blob("a\nb\nc\n"), null), null);
-  // An unstage with no HEAD lines to put back.
-  assert.equal(editIndex(block, false, blob("a\nB\nc\n"), blob("a\nB\nc\n"), null), null);
+  assert.equal(spliceLines(blob("a\nb\nc\n"), 1, ["b"], blob("a\nb\nc\n"), 1, ["b"]), null);
   // A line without its ending would be followed by another.
-  const mid = place({ at: 1, before: 1, deleted: ["b"], added: ["B"] });
-  assert.equal(editIndex(mid, true, blob("a\nb\nc\n"), blob("a\nB"), null), null);
+  assert.equal(spliceLines(blob("a\nb\nc\n"), 1, ["b"], blob("a\nB"), 1, ["B"]), null);
+  // LF lines into an index that is CRLF throughout, and the other way round.
+  assert.equal(spliceLines(blob("a\r\nb\r\nc\r\n"), 1, ["b"], blob("a\nB\nc\n"), 1, ["B"]), null);
+  assert.equal(spliceLines(blob("a\nb\nc\n"), 1, ["b"], blob("a\r\nB\r\nc\r\n"), 1, ["B"]), null);
 });

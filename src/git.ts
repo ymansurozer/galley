@@ -371,21 +371,20 @@ const sameTexts = (a: string[], b: string[]) =>
   a.length === b.length && a.every((t, i) => t === b[i]);
 
 // Where one change block of the reviewed diff (`rawDiff`, the working tree against the index it was
-// taken on) stands in the index now, read off `fresh`: the file's working-tree-vs-index diff taken
-// now. Staging only edits the index, so the block keeps its place in the working tree. Still
-// pending, `fresh` shows the same edit after the same working-tree line. Staged, `fresh` shows
-// nothing there, and its index line follows from the edits `fresh` still shows above it. `at` is
-// the index line the block's edit goes after; `before` and `oldBefore` are the lines before it in
-// the working tree and in the reviewed diff's old side. null when the file moved on since the
-// review's diff was taken, so no index write would be the reviewed one: the working tree
-// (`worktree`) no longer holds the block's hunk, or `fresh` shows another edit on or beside it.
-export function changeInIndex(
+// taken on) stands now, read off `fresh`: the file's working-tree-vs-index diff taken now. Staging
+// only edits the index, so the block keeps its place in the working tree. Still pending, `fresh`
+// shows the same edit after the same working-tree line: `at` and `before` are the lines before it
+// in the index and the working tree. "staged" when `fresh` shows nothing on or beside it. null when
+// the file moved on since the review's diff was taken, so no index write would be the reviewed one:
+// the working tree (`worktree`) no longer holds the block's hunk, or `fresh` shows another edit on
+// or beside it.
+export function pendingChange(
   rawDiff: string,
   fresh: string,
   worktree: string,
   filePath: string,
   stableKey: string,
-): BlockInIndex | null {
+): { at: number; before: number; deleted: string[]; added: string[] } | "staged" | null {
   const ofPath = (f: DiffFile) => (f.newPath ?? f.oldPath) === filePath;
   const reviewed = parseUnifiedDiff(rawDiff).find(ofPath);
   if (!reviewed) throw new Error(`No diff found for ${filePath}`);
@@ -397,11 +396,9 @@ export function changeInIndex(
   if (hunk.lines.some((l) => l.newLine !== undefined && lines[l.newLine - 1] !== l.text))
     return null;
   // findChangeBlock returns one of the hunk's own blocks, so it is placed.
-  const own = placedBlocks([hunk]).find((p) => p.block[0] === block[0])!;
-  const before = own.newBefore;
+  const before = placedBlocks([hunk]).find((p) => p.block[0] === block[0])!.newBefore;
   const deleted = textsOf(block, "delete");
   const added = textsOf(block, "add");
-  const found = { before, oldBefore: own.oldBefore, deleted, added };
   const edits = placedBlocks(parseUnifiedDiff(fresh).find(ofPath)?.hunks ?? []);
   const pending = edits.find(
     (e) =>
@@ -409,24 +406,61 @@ export function changeInIndex(
       sameTexts(textsOf(e.block, "delete"), deleted) &&
       sameTexts(textsOf(e.block, "add"), added),
   );
-  if (pending) return { ...found, staged: false, at: pending.oldBefore };
-  let at = before;
-  for (const e of edits) {
-    // Past the block's last working-tree line: no bearing on where it sits.
-    if (e.newBefore > before + added.length) continue;
-    const adds = textsOf(e.block, "add").length;
-    // On the block, or on the line before it.
-    if (e.newBefore + adds >= before) return null;
-    at += e.block.length - 2 * adds;
-  }
-  return { ...found, staged: true, at };
+  if (pending) return { at: pending.oldBefore, before, deleted, added };
+  // Any edit from the line before the block to its last line.
+  const touching = (e: { block: DiffLine[]; newBefore: number }) =>
+    e.newBefore <= before + added.length && e.newBefore + textsOf(e.block, "add").length >= before;
+  return edits.some(touching) ? null : "staged";
 }
 
-export type BlockInIndex = {
-  staged: boolean;
-  at: number;
-  before: number;
-  oldBefore: number;
+// Where a staged change block sits now, found by its content (`matches`) in `cached`, the file's
+// HEAD-vs-index diff: what is actually staged, whatever diff the block was keyed on. `headBefore`
+// and `indexBefore` are the lines before it in HEAD and in the index. Blocks of the same content
+// are told apart by the working-tree line the block's key names (an added block's first line),
+// mapped from the index through `fresh`, the working-tree-vs-index diff. null when no staged block
+// has that content, so it isn't staged any more; "ambiguous" when more than one could be it.
+export function stagedChange(
+  cached: string,
+  fresh: string,
+  filePath: string,
+  stableKey: string,
+  matches: (block: DiffLine[]) => boolean,
+): StagedChange | null | "ambiguous" {
+  const ofPath = (f: DiffFile) => (f.newPath ?? f.oldPath) === filePath;
+  let found = placedBlocks(parseUnifiedDiff(cached).find(ofPath)?.hunks ?? []).filter((p) =>
+    matches(p.block),
+  );
+  if (found.length > 1) {
+    const edits = placedBlocks(parseUnifiedDiff(fresh).find(ofPath)?.hunks ?? []);
+    // An index line's working-tree line: shifted by every edit `fresh` shows above it.
+    const worktreeLine = (line: number) => {
+      let w = line;
+      for (const e of edits) {
+        const dels = textsOf(e.block, "delete").length;
+        if (e.oldBefore < line && e.oldBefore + dels <= line)
+          w += textsOf(e.block, "add").length - dels;
+      }
+      return w;
+    };
+    found = found.filter((p) => {
+      const [dels, adds] = [textsOf(p.block, "delete").length, textsOf(p.block, "add").length];
+      return adds > 0 && `additions:${worktreeLine(p.newBefore) + 1}:${dels}:${adds}` === stableKey;
+    });
+    if (found.length !== 1) return "ambiguous";
+  }
+  const [p] = found;
+  if (!p) return null;
+  return {
+    headBefore: p.oldBefore,
+    indexBefore: p.newBefore,
+    deleted: textsOf(p.block, "delete"),
+    added: textsOf(p.block, "add"),
+  };
+}
+
+export type StagedChange = {
+  headBefore: number;
+  indexBefore: number;
   deleted: string[];
   added: string[];
 };
@@ -446,30 +480,36 @@ function blobLines(blob: Buffer): Buffer[] {
 
 // A line's text as a parsed diff carries it: without its line ending.
 const textOf = (line: Buffer) => line.toString("utf8").replace(/\r?\n$/, "");
+// A line's ending: "\r\n", "\n", or none (the blob's last line can go without one).
+const endingOf = (line: Buffer) =>
+  line[line.length - 1] !== 0x0a ? "" : line[line.length - 2] === 0x0d ? "\r\n" : "\n";
 
-// The index blob with one change block's edit made (`stage`) or undone, byte for byte. A stage puts
-// in the working tree's lines (as git compares it with the index), and an unstage puts back HEAD's
-// lines where the block's old lines sat, so line endings, and a last line without one, come through
-// as they are. null when the lines there aren't the ones the block names, or the edit would change
-// nothing: no index write is then the reviewed one.
-export function editIndex(
-  place: BlockInIndex,
-  stage: boolean,
+// The index blob with its lines `out`, right after its line `at`, replaced by the lines `put`,
+// copied byte for byte from `source` after its line `from` (the working tree's lines for a stage,
+// HEAD's for an unstage), so a last line without an ending comes through as it is. null when the
+// lines there aren't the ones named, when the edit would change nothing, or when the lines put in
+// end differently from an index that uses one line ending throughout: no index write is then the
+// reviewed one.
+export function spliceLines(
   index: Buffer,
-  worktree: Buffer,
-  head: Buffer | null,
+  at: number,
+  out: string[],
+  source: Buffer,
+  from: number,
+  put: string[],
 ): Buffer | null {
-  const { at, before, oldBefore, deleted, added } = place;
   const lines = blobLines(index);
-  const [out, put, inserted] = stage
-    ? [deleted, added, blobLines(worktree).slice(before, before + added.length)]
-    : [added, deleted, head ? blobLines(head).slice(oldBefore, oldBefore + deleted.length) : []];
+  const inserted = blobLines(source).slice(from, from + put.length);
   const holds = (got: Buffer[], want: string[]) =>
     got.length === want.length && got.every((l, i) => textOf(l) === want[i]);
   if (!holds(lines.slice(at, at + out.length), out) || !holds(inserted, put)) return null;
-  // Only the blob's last line goes without a line ending: none may follow it.
-  const unended = (l: Buffer | undefined) => !!l && l[l.length - 1] !== 0x0a;
+  // Only the blob's last line goes without an ending: none may follow it.
+  const unended = (l: Buffer | undefined) => !!l && !endingOf(l);
   if (unended(lines[at - 1]) || (unended(inserted.at(-1)) && at + out.length < lines.length))
+    return null;
+  const endings = new Set(lines.map(endingOf).filter(Boolean));
+  const [ending] = endings;
+  if (endings.size === 1 && inserted.some((l) => endingOf(l) && endingOf(l) !== ending))
     return null;
   const next = Buffer.concat([...lines.slice(0, at), ...inserted, ...lines.slice(at + out.length)]);
   return next.equals(index) ? null : next;

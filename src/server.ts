@@ -10,13 +10,15 @@ import { promisify } from "node:util";
 import { resolveEditorCommand } from "./editor.js";
 import {
   blobOid,
-  changeInIndex,
-  editIndex,
+  changeBlockContent,
   getCheckedOutBranch,
   getProjectName,
   git,
   gitBytes,
   listProjectTree,
+  pendingChange,
+  spliceLines,
+  stagedChange,
   writeBlob,
 } from "./git.js";
 import { validateGuide } from "./guide.js";
@@ -50,6 +52,7 @@ import type {
   AgentActivity,
   AwaitEvent,
   DeskStatus,
+  DiffLine,
   IndexEntry,
   PollPayload,
   QuestionPayload,
@@ -301,15 +304,17 @@ async function html() {
   return fs.readFile(file, "utf8");
 }
 
-// Stage (or, with `stage` false, unstage) one change block of the reviewed working-tree diff. The
-// index may have moved since that diff was taken (blocks staged above this one shift its lines), so
-// the block is placed off a fresh diff of its file (changeInIndex), and the file's index entry is
-// rewritten with exactly that block's lines in or out (editIndex). "skipped": the index already had
-// it that way. Throws, writing nothing, when the file moved on since the review's diff was taken.
+// Stage (or, with `stage` false, unstage) one change block, rewriting the file's index entry with
+// exactly that block's lines in or out (spliceLines). A stage places the block of the reviewed
+// working-tree diff off a fresh diff of the file (pendingChange): the index may have moved since
+// the review's diff was taken, as blocks staged above this one shift its lines. An unstage finds
+// the block by its content among what is staged (stagedChange), whatever diff the tab keyed it on,
+// and puts HEAD's lines back. "skipped": the index already had it that way. Throws, writing
+// nothing, when the file moved on from the block, or its index entry changed meanwhile.
 async function moveChangeInIndex(
   state: ReviewState,
   filePath: string,
-  stableKey: string,
+  change: { stableKey: string; contentHash: string },
   stage: boolean,
 ): Promise<"applied" | "skipped"> {
   const { root } = state;
@@ -317,25 +322,63 @@ async function moveChangeInIndex(
   // Only a regular file's lines can be edited one block at a time.
   if (!entry || !/^100(644|755)$/.test(entry.mode))
     throw new Error(`${filePath} is not a regular file in the index`);
-  // The working tree as git compares it with the index: after any line-ending conversion.
-  const cleaned = await git(["hash-object", "-w", "--", filePath], root);
-  const [index, worktree, fresh] = await Promise.all([
+  const [index, fresh] = await Promise.all([
     gitBytes(["cat-file", "blob", entry.oid], root),
-    gitBytes(["cat-file", "blob", cleaned], root),
     git(["diff", "--no-ext-diff", "--", filePath], root),
   ]);
-  const place = changeInIndex(state.rawDiff, fresh, worktree.toString("utf8"), filePath, stableKey);
-  if (!place) throw new Error(`${filePath} changed since the desk loaded its diff`);
-  if (place.staged === stage) return "skipped";
-  // An unstage puts the block's old lines back as HEAD has them.
-  const head =
-    stage || !place.deleted.length
-      ? null
-      : await gitBytes(["show", `HEAD:${filePath}`], root).catch(() => null);
-  const next = editIndex(place, stage, index, worktree, head);
+  let next: Buffer | null;
+  if (stage) {
+    const worktree = await worktreeToStage(root, filePath, index);
+    const text = worktree.toString("utf8");
+    const place = pendingChange(state.rawDiff, fresh, text, filePath, change.stableKey);
+    if (!place) throw new Error(`${filePath} changed since the desk loaded its diff`);
+    if (place === "staged") return "skipped";
+    next = spliceLines(index, place.at, place.deleted, worktree, place.before, place.added);
+  } else {
+    // A file new to the index has no HEAD lines to put back, and unstages only as a whole file.
+    const head = await gitBytes(["show", `HEAD:${filePath}`], root).catch(() => null);
+    if (!head) throw new Error(`${filePath} isn't in HEAD, so it unstages only as a whole file`);
+    const cached = await git(["diff", "--cached", "--no-ext-diff", "--", filePath], root);
+    const isBlock = (block: DiffLine[]) => hash(changeBlockContent(block)) === change.contentHash;
+    const found = stagedChange(cached, fresh, filePath, change.stableKey, isBlock);
+    if (found === null) return "skipped";
+    if (found === "ambiguous")
+      throw new Error(`More than one staged block of ${filePath} could be ${change.stableKey}`);
+    const { indexBefore, added, headBefore, deleted } = found;
+    next = spliceLines(index, indexBefore, added, head, headBefore, deleted);
+  }
   if (!next) throw new Error(`${filePath} doesn't hold the block as the desk's diff has it`);
-  await writeIndexEntry(root, filePath, { mode: entry.mode, oid: await writeBlob(next, root) });
+  if (
+    !(await swapIndexEntry(root, filePath, entry, {
+      mode: entry.mode,
+      oid: await writeBlob(next, root),
+    }))
+  )
+    throw new Error(`${filePath}'s index entry changed while the desk was writing it`);
   return "applied";
+}
+
+// The working tree's bytes as `git add` would stage them: line-ending conversion applies (git's own
+// hash-object runs the file's clean filters), except to a file whose index blob already has CRLF
+// lines, which git leaves as they are rather than normalize a file committed with them.
+async function worktreeToStage(root: string, filePath: string, index: Buffer): Promise<Buffer> {
+  if (index.includes("\r\n")) return fs.readFile(path.join(root, filePath));
+  const cleaned = await git(["hash-object", "-w", "--", filePath], root);
+  return gitBytes(["cat-file", "blob", cleaned], root);
+}
+
+// Replace a path's index entry with `next` only while it is still `prior`: a write since (a
+// `git add -p`, say) is left alone rather than undone. Resolves to whether it replaced it.
+export async function swapIndexEntry(
+  root: string,
+  filePath: string,
+  prior: { mode: string; oid: string },
+  next: { mode: string; oid: string },
+): Promise<boolean> {
+  const now = await readIndexEntry(root, filePath);
+  if (now?.oid !== prior.oid || now.mode !== prior.mode) return false;
+  await writeIndexEntry(root, filePath, next);
+  return true;
 }
 
 // A path's index entry as an unstage found it, so a Reset's Undo puts back exactly what was staged:
@@ -1306,7 +1349,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       }
       // One change block into or out of the index: approving a guide part stages its blocks, and
       // resetting the part unstages the ones that approval staged (stagedChangeKeys records only a
-      // stage this desk made), which the Reset's Undo stages again.
+      // stage this desk made), which the Reset's Undo stages again. The tab names the block by key
+      // and content hash.
       const blockRoute =
         url.pathname === "/api/stage-change" || url.pathname === "/api/unstage-change";
       if (req.method === "POST" && blockRoute) {
@@ -1329,12 +1373,16 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             stableKey?: unknown;
             contentHash?: unknown;
           };
-          if (typeof filePath !== "string" || typeof stableKey !== "string")
+          if (
+            typeof filePath !== "string" ||
+            typeof stableKey !== "string" ||
+            typeof contentHash !== "string"
+          )
             return fail(
               res,
               422,
               "INVALID_CHANGE",
-              "a block route requires the file's path and the block's stableKey",
+              "a block route requires the file's path and the block's stableKey and contentHash",
               "Send { path, stableKey, contentHash } as JSON.",
             );
           if (!state.files.some((f) => f.path === filePath))
@@ -1345,12 +1393,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               `"${filePath}" is not part of this review.`,
               "Reload the desk (GET /api/state) if the diff changed.",
             );
-          // The block as the tab saw it, by key and content, or nothing: a key from a diff the desk
-          // has since reloaded may name another block now.
+          // A stage takes the block as the tab saw it, by key and content, or nothing: a key from a
+          // diff the desk has since reloaded may name another block now. An unstage looks among
+          // what is staged, which a reload drops from the diff.
           const change = state.changes.find(
             (c) => c.path === filePath && c.stableKey === stableKey,
           );
-          if (!change?.contentHash || change.contentHash !== contentHash)
+          if (stage && (!change?.contentHash || change.contentHash !== contentHash))
             return fail(
               res,
               409,
@@ -1372,7 +1421,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           }
           let result: "applied" | "skipped";
           try {
-            result = await moveChangeInIndex(state, filePath, stableKey, stage);
+            result = await moveChangeInIndex(state, filePath, { stableKey, contentHash }, stage);
           } catch (error) {
             return fail(
               res,
