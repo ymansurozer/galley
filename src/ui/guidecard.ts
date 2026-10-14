@@ -148,7 +148,8 @@ export function guideMiniElement(): HTMLElement {
 // step has no card. A different step starts closed and unpinned; the observer re-reports the new
 // card. The line is the book tile, the start of the orientation (or of a Rest's or a whole split
 // file's note) clipped at about half the bar, and the chevron. Anywhere on it opens the full note,
-// where the flag, the skim mark and the stale line wait.
+// where the flag, the skim mark and the stale line wait: the line turns into the card's header row
+// (tile, "Guide", the skim mark) and the rest of the card drops below it.
 export function guideMini(): HTMLElement | null {
   const note = stepNote();
   const step = `${currentFile()?.path ?? ""}\n${S.preview ? "" : (S.stepPart ?? "")}`;
@@ -185,7 +186,11 @@ export function guideMini(): HTMLElement | null {
     e.stopPropagation(); // the line's own click would toggle it straight back
     setOpen(!open);
   };
-  line.append(bookIcon(), orient, chev);
+  // The card's own heading, shown once the note opens in the clipped orientation's place, so the
+  // open note reads as the card itself floating over the code.
+  const head = "entry" in note ? heading(note.entry) : el("span", "gc-head", "Guide");
+  head.classList.add("gm-head");
+  line.append(bookIcon(), head, orient, chev);
   const full = el("div", "gm-full");
   full.appendChild("entry" in note ? fullBody(note.entry) : lineBody(note.line));
   m.replaceChildren(line, full);
