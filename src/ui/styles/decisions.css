@@ -91,6 +91,9 @@
 .diff-header-action.fill,
 .diff-fab,
 .oversized-card .ovsz-btn.primary {
+  --btn-bg: var(--green-fill);
+  --btn-bg-hover: var(--green-fill-hover);
+  --btn-bg-pressed: var(--green-fill-pressed);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -98,36 +101,47 @@
   padding: 0 6px 0 10px;
   border: 0;
   border-radius: var(--radius-sm);
-  background: var(--green);
+  background: var(--btn-bg);
   color: var(--on-fill);
   font-size: var(--text-sm);
   font-weight: 600;
   box-shadow:
-    inset 0 0.5px 0 rgb(255 255 255 / 0.25),
-    0 1px 2px color-mix(in srgb, var(--green) 35%, transparent);
-  transition: filter 0.15s;
-}
-
-.diff-header-action.fill:hover,
-.diff-fab:hover,
-.oversized-card .ovsz-btn.primary:hover {
-  background: var(--green);
-  color: var(--on-fill);
-  filter: brightness(1.06);
+    inset 0 0.5px 0 rgb(255 255 255 / 0.2),
+    0 1px 2px rgb(0 0 0 / 0.2);
+  transition:
+    background-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .diff-header-action.fill.warn,
 .diff-fab.warn,
 .oversized-card .ovsz-btn.primary.warn {
-  background: var(--orange);
-  box-shadow:
-    inset 0 0.5px 0 rgb(255 255 255 / 0.25),
-    0 1px 2px color-mix(in srgb, var(--orange) 35%, transparent);
+  --btn-bg: var(--orange-fill);
+  --btn-bg-hover: var(--orange-fill-hover);
+  --btn-bg-pressed: var(--orange-fill-pressed);
 }
 
-.diff-fab {
+.diff-header-action.fill:hover,
+.diff-fab:hover,
+.oversized-card .ovsz-btn.primary:hover {
+  background: var(--btn-bg-hover);
+  color: var(--on-fill);
   box-shadow:
     inset 0 0.5px 0 rgb(255 255 255 / 0.25),
+    0 0 0 3px color-mix(in srgb, var(--btn-bg-hover) 28%, transparent);
+}
+
+.diff-header-action.fill:active,
+.diff-fab:active,
+.oversized-card .ovsz-btn.primary:active {
+  background: var(--btn-bg-pressed);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
+}
+
+/* The floating copy also lifts off the code it floats over. */
+.diff-fab:not(:active, :hover) {
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.2),
     0 4px 14px rgb(0 0 0 / 0.25);
 }
 
