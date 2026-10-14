@@ -331,6 +331,9 @@ export interface Store {
   pendingPicks: number;
   // The annotation whose card is open and whose target is outlined on the page.
   selectedAnnotation: string | null;
+  // The annotations the page on screen has reported a placement for since the app arrived on it:
+  // the Unplaced tray trusts only these, not what an earlier visit found. Never saved.
+  lookedFor: Set<string>;
   // The target just picked in Annotate mode, or the page: while set, the floating composer is open
   // on it.
   annotationDraft: AnnotationDraft | null;

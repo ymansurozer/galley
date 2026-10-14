@@ -417,7 +417,7 @@ const HOTKEYS: Hotkey[] = [
     // aren't initialised yet while this table is built.
     run: () => toggleView(),
   },
-  // UI view: the app's mode, the annotation sidebar, and stepping through annotations. ⌥A and ⇧
+  // UI view: the app's mode, annotating the page, and stepping through annotations. ⌥A and ⇧
   // chords pressed in the app arrive here too: the bridge forwards them (dispatchKey).
   {
     combo: "⌥A",

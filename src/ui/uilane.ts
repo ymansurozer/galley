@@ -178,8 +178,14 @@ export function clearPendingPicks() {
 
 // The current page's page annotations, as pins in the address bar.
 export const pagePins = () => pageMarks(annotationsOf(), S.app.route, S.selectedAnnotation);
-// The current page's annotations not found on it, as pins in the stage's Unplaced tray.
-export const unplacedPins = () => trayPins(annotationsOf(), S.app.route, S.selectedAnnotation);
+// The current page's annotations not found on it, as pins in the stage's Unplaced tray: only once
+// this visit's bridge has looked for them, not on what an earlier visit found.
+export const unplacedPins = () =>
+  trayPins(
+    annotationsOf().filter((a) => S.lookedFor.has(a.id)),
+    S.app.route,
+    S.selectedAnnotation,
+  );
 
 // The page annotations of the page the app shows are placed: their target is the page, and here it
 // is. Whether any of them changed.
@@ -202,6 +208,7 @@ export function appPageChanged(fresh: boolean) {
   }
   pickDraft = null;
   pinRects = new Map();
+  S.lookedFor.clear();
   const placed = placePageAnnotations();
   if (S.annotationDraft) closeComposer();
   else renderUiLane();
@@ -216,6 +223,7 @@ export function placedInApp(placements: ReadonlyArray<{ id: string; placement: U
   for (const { id, placement } of placements) {
     const a = find(id);
     if (!a || a.page.route !== S.app.route) continue;
+    S.lookedFor.add(id);
     if (id === revealing) {
       revealing = null;
       if (placement === "unplaced")
@@ -236,6 +244,7 @@ export function placedInApp(placements: ReadonlyArray<{ id: string; placement: U
 // wait for their page to load.
 export function annotationsUnvisited() {
   for (const a of annotationsOf()) a.placement = "unvisited";
+  S.lookedFor.clear();
   if (S.uiProxy && S.app.connected) {
     placePageAnnotations();
     postToApp({ type: "relook", token: S.uiProxy.token });

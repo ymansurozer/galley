@@ -68,6 +68,7 @@ export const S: Store = Alpine.reactive<Store>({
   appMode: "interact",
   pendingPicks: 0,
   selectedAnnotation: null,
+  lookedFor: new Set<string>(),
   annotationDraft: null,
   composerAnnotation: null,
   sendLanes: null,
