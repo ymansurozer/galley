@@ -80,7 +80,7 @@ export async function pollState() {
     keepPlacements(server.annotations ?? [], S.state.annotations ?? []);
     S.state = server;
     refreshBaseTitle();
-    D.fileDiff = null;
+    D.fileDiff = D.rawFileDiff = null;
     const remapped = curPath ? S.state.files.findIndex((f) => f.path === curPath) : -1;
     if (remapped >= 0) S.fileIndex = remapped;
     else if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;

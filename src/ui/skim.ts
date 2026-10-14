@@ -112,12 +112,8 @@ export function isFileSkimCollapsed(path: string): boolean {
   return isFileSkim(path) && skimToggled(`file:${path}`);
 }
 
-// Skimmable change blocks on the current file (server-stamped). Only pending ones collapse —
-// a decided block is already folded/replayed out of the diff, so skim no longer applies.
-export function skimChanges(): ChangeState[] {
-  return currentChanges().filter((c) => c.skim && c.status === "pending");
-}
-
+// Only a pending block collapses — a decided one is already folded/replayed out of the diff, so
+// skim no longer applies.
 export function isBlockSkimCollapsed(c: ChangeState): boolean {
   if (!c.skim || c.status !== "pending") return false;
   const defaultCollapsed = !fileFullySkimmed(c.path);

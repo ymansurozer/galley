@@ -76,13 +76,23 @@ export function flashThread(el: HTMLElement) {
 }
 
 // A jump never lands on a block another step covers, which a part view renders as plain code: it
-// opens that block's own step first (its part, or the file's Rest).
-async function openBlockStep(c: ChangeState | undefined) {
-  if (!c || inCurrentStep(c)) return;
-  await S.selectStep?.(blockStep(S.state.guide?.files ?? [], S.fileIndex, c));
+// opens that block's own step first (its part, or the file's Rest). Resolves false when the
+// reviewer moved elsewhere while that step rendered, so the jump no longer applies.
+async function openBlockStep(c: ChangeState | undefined): Promise<boolean> {
+  if (!c || inCurrentStep(c)) return true;
+  const step = blockStep(S.state.guide?.files ?? [], S.fileIndex, c);
+  await S.selectStep?.(step);
+  return (
+    !S.overviewOpen &&
+    !S.preview &&
+    S.view === "code" &&
+    S.fileIndex === step.fileIndex &&
+    S.stepPart === step.part
+  );
 }
 
-export async function jumpToBlocker(b: Blocker) {
+// `live` re-checks, after any step switch has rendered, that the caller still wants the jump.
+export async function jumpToBlocker(b: Blocker, live = () => true) {
   if (b.kind === "thread" && b.unanchored) {
     // The thread lives in the strip above the diff, not on a row.
     const el = $("diff").querySelector<HTMLElement>(
@@ -96,7 +106,7 @@ export async function jumpToBlocker(b: Blocker) {
     return;
   }
   if (b.kind === "thread") {
-    await openBlockStep(currentBlockAt(b.side, b.lineNumber));
+    if (!(await openBlockStep(currentBlockAt(b.side, b.lineNumber))) || !live()) return;
     const line = toDisplayLine(b.side, b.lineNumber);
     // Unfold only when the line isn't rendered: each expansion reveals more lines, so unfolding a
     // line that already renders would widen the run on every jump to it.
@@ -104,7 +114,8 @@ export async function jumpToBlocker(b: Blocker) {
     cursorJumpTo(b.side, line);
     return;
   }
-  await openBlockStep(S.state.changes.find((c) => c.id === b.decision.key));
+  if (!(await openBlockStep(S.state.changes.find((c) => c.id === b.decision.key))) || !live())
+    return;
   const pos = decisionDisplayPos(b.decision);
   cursorJumpTo(pos.side, pos.line);
 }

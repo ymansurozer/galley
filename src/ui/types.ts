@@ -222,8 +222,8 @@ export type DiffHolder = {
     { wrapper: HTMLElement; inst: import("@pierre/diffs").FileDiff<AnnotationMeta> }
   >;
   fileDiff: import("@pierre/diffs").FileDiffMetadata | null;
-  // The raw diff `fileDiff` was replayed from — what ChangeState positions index (null for a
-  // view-only render, which has no blocks).
+  // The raw diff `fileDiff` was replayed from — what ChangeState positions index. Cleared with
+  // `fileDiff` on every file switch, and null for a view-only render, which has no blocks.
   rawFileDiff: import("@pierre/diffs").FileDiffMetadata | null;
   // Raw ↔ display line mapping for the current file's rendered (replayed) diff.
   // Rebuilt by replayDecisions on every render; null = identity (no decisions / view-only).
