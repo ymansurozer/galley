@@ -91,9 +91,9 @@
   pointer-events: none;
 }
 
-/* Approve File / Mark Reviewed — the open file's sign-off (filebar.ts: the bar and the end
-   row), and the only filled button in the code view: green when the file is clean, orange when
-   it carries objections. */
+/* Approve File / Mark Reviewed — the open file's sign-off in its bar (filebar.ts), and the only
+   filled button in the code view: green when the file is clean, orange when it carries
+   objections. The end row's copy is a neutral push button. */
 .signoff {
   --btn-bg: var(--green-fill);
   --btn-bg-hover: var(--green-fill-hover);

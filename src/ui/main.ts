@@ -361,14 +361,14 @@ S.treeStep = (dir) => {
   else S.previewFile?.(target.path);
 };
 // The sidebar's Change requests list; a row goes to its request, as `]` / `[` landing on it do.
-S.requestRows = requestRows;
 S.openRequest = openRequest;
 // The top bar: what is under review, the agent's presence, and whether Send Review is the next
 // step.
 S.deskTitle = () => (S.state ? deskTitle(S.state) : "");
 S.deskSubtitle = () => (S.state ? deskSubtitle(S.state, uiOnly()) : "");
-// Presence walks every comment and the done state builds the flow index, so one effect derives
-// them once per change into the store, rather than every binding re-deriving them. The review is
+// Presence and the open change requests walk every comment and the done state builds the flow
+// index, so one effect derives them once per change into the store, rather than every binding
+// re-deriving them. The review is
 // done when progress is complete; that implies the gate that opens the Send sheet after the last
 // approval (allSignedOff), so Send never turns primary short of it. A desk with no files (UI-only)
 // has no code review to complete.
@@ -384,6 +384,7 @@ Alpine.effect(() => {
   if (presence.kind !== shownPresence.kind || presence.line !== shownPresence.line)
     S.presence = shownPresence = presence;
   S.reviewDone = !!S.state?.files.length && allFinished(S.state, flowIndex());
+  S.requests = requestRows();
 });
 // Keyboard help overlay + destructive-action confirm dialog (keys.ts owns the dialog state).
 S.helpGroups = helpGroups;

@@ -610,8 +610,10 @@ export function pinsInApp(pins: readonly PinRect[], clicked?: string | null) {
   }
   const opening = clicked !== S.selectedAnnotation;
   selectAnnotation(opening ? clicked : null);
-  // The click left the tab's focus in the app, where the desk's keys (Esc to close) don't reach.
-  if (opening) $("pinCard").focus({ preventScroll: true });
+  // The click left the tab's focus in the app, where the desk's keys (Esc to close) don't reach. A
+  // pin "click" only the bridge reported never takes it from a field the reviewer is typing in.
+  const typing = document.activeElement?.matches("textarea, input, select, [contenteditable]");
+  if (opening && !S.composerOpen && !typing) $("pinCard").focus({ preventScroll: true });
 }
 
 function renderFloatingComposer() {

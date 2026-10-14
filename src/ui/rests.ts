@@ -1,6 +1,6 @@
 import { S, $, esc, toast } from "./store";
 import { awaitingParts, KINDS, threadCard } from "./annotations";
-import { cursorRowEl, invalidateCursorRows, rowAt } from "./cursor";
+import { cursorPlace, cursorRowEl, invalidateCursorRows, rowAt } from "./cursor";
 import { diffShadowRoot } from "./diff-dom";
 import { lineLabel, questionWaiting, threadKind } from "./thread-derive";
 import { firstLine } from "./uilane-derive";
@@ -53,7 +53,13 @@ function rest(t: ThreadMeta, lost: boolean, key: string): HTMLElement {
   b.className = `rest k-${kind}`;
   b.title = `${loc} · ${KINDS[kind].label} — open`;
   b.innerHTML = `${glyph}${lost ? `<span class="rest-loc"><s>${loc}</s></span>` : ""}<span class="rest-who${agent ? " agent" : ""}">${agent ? "Agent" : "You"}</span><span class="rest-text">${esc(firstLine(m.body))}</span><span class="rest-n">${t.comments.length}</span>`;
-  b.onclick = () => openThread(key);
+  b.onclick = () => {
+    // The cursor follows a click onto the thread's line, so r, ↵ and c act on the open card.
+    const slot = b.closest<HTMLElement>(".thread-slot");
+    const side = slot?.closest<HTMLElement>(".thread-group")?.dataset.side as Side | undefined;
+    openThread(key);
+    if (side && slot?.dataset.line && S.openThread === key) cursorPlace(side, +slot.dataset.line);
+  };
   return b;
 }
 
@@ -110,10 +116,12 @@ export function openThread(key: string | null) {
 // The line the reviewer is looking at keeps its place on screen while rows open and close around
 // it: the cursor's when it's in view, else the slot opening. Split view's other column levels a
 // frame later (Pierre's resize observer), so the re-placing that follows holds it again, for a
-// moment only: a later render or resize mustn't pull the view back.
+// moment only: a later render or resize mustn't pull the view back. A jump's own scroll wins: it
+// holds the row it landed on (cursor.ts landAt), or clears the hold before scrolling smoothly
+// (blockers.ts), which a hold would cut short.
 let held: { el: HTMLElement; top: number; until: number } | null = null;
 
-function holdPlace(el: HTMLElement | null | undefined) {
+export function holdPlace(el: HTMLElement | null | undefined) {
   held = el ? { el, top: el.getBoundingClientRect().top, until: performance.now() + 300 } : null;
 }
 

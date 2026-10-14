@@ -25,6 +25,7 @@ export const S: Store = Alpine.reactive<Store>({
   queuedReviews: 0,
   presence: { kind: "hidden", line: "" },
   reviewDone: false,
+  requests: [],
   lastBaseDiffHash: null,
   selected: { side: "additions", lineNumber: 1 },
   // chrome UI flags (templates bind to these)
