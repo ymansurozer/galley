@@ -16,8 +16,9 @@ import { guideMini, guideMiniElement, retrackGuideCard } from "./guidecard";
 // rendered markdown, preview). render() mounts it as #diff's first child, where it sits sticky
 // under the top bar while the view scrolls beneath it. #diff is also where every jump scrolls
 // (cursor, go-to-line, blockers, the change-request walk), so the bar's height is mirrored into
-// --file-bar-h, the scroll-margin-top of everything under it (diff.css, and the rows' in-shadow
-// CSS in render.ts): a scrollIntoView then lands below the bar instead of under it. The element
+// --file-bar-h, which sets the scroll-margin-top of everything under it (--jump-top in diff.css,
+// and the rows' in-shadow CSS in render.ts): a scrollIntoView then lands below the bar, with a
+// little air, instead of under it. The element
 // persists across renders (its contents are rebuilt), and so does the pinned guide line it carries
 // (guidecard.ts), so one observer tracks both for the session — including the bar's wrap at narrow
 // widths, which also moves the line the guide card pins at.
