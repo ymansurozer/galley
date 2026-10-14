@@ -18,8 +18,9 @@ import {
   fromDisplayLine,
   fileFinished,
   fileObjections,
+  flowIndex,
 } from "./changes";
-import { approveCurrentFile, toggleSignOff } from "./decisions";
+import { approveCurrentStep, toggleSignOff } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
@@ -37,6 +38,7 @@ import {
   firstGuideStep,
   currentGuideEntry,
   currentFileName,
+  currentSlot,
   currentStep,
   showGuideBar,
   guideStale,
@@ -46,6 +48,7 @@ import {
   prevWrapStep,
   anyUnreviewed,
   navSteps,
+  stepSlot,
   walkthroughRows,
 } from "./guide";
 import { refreshBaseTitle, reviewStats } from "./progress";
@@ -88,7 +91,7 @@ import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { openRequests, stepOpenRequest } from "./requests";
 import { uuid } from "./uuid";
 import type { Step } from "./steps";
-import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
+import type { ChangeState, ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
 // Close the inline composer when clicking outside it (unless it has unsaved text). The
 // composer/editor live inside the diff DOM now, so match their containers directly.
@@ -252,27 +255,42 @@ S.setFileView = (view) => {
   D.fileDiff = D.rawFileDiff = null;
   render();
 };
+// Where a step's sign-off stands, for the floating button and the status icons: finished, else
+// with objections ("changes") or without ("clean"). A whole file (`blocks` null) reads the
+// one-file predicates; a part or Rest step its own blocks (flow-index stepFinished/stepObjections).
+function signOffStand(path: string, blocks: ChangeState[] | null) {
+  if (!blocks) return fileFinished(path) ? "finished" : fileObjections(path) ? "changes" : "clean";
+  const ix = flowIndex();
+  if (ix.stepFinished({ path, blocks })) return "finished";
+  return ix.stepObjections({ path, blocks }) ? "changes" : "clean";
+}
 // Floating sign-off button (mirrors the header's ⇧A action): shown only once the diff is
-// scrolled past its header, and only for a pending changed file — not the Overview, a preview
-// (unchanged, not approvable), or an already-finished file (which offers Reset, not Approve).
-S.approveFile = () => approveCurrentFile();
+// scrolled past its header, and only for a pending step of a changed file — not the Overview, a
+// preview (unchanged, not approvable), or an already-finished step (which offers Reset, not
+// Approve).
+S.approveFile = () => approveCurrentStep();
 S.fabState = () => {
   if (S.overviewOpen || S.preview) return null;
   const path = S.state?.files?.[S.fileIndex]?.path;
-  if (!path || fileFinished(path)) return null;
-  return fileObjections(path) ? "changes" : "clean";
+  if (!path) return null;
+  const stand = signOffStand(path, currentSlot()?.blocks ?? null);
+  return stand === "finished" ? null : stand;
 };
 // A double-click's second click would undo the sign-off its first one made. The hint re-reads at
-// once: the pointer is still on the icon, which now does the opposite.
-S.statusClick = (path, e) => {
-  if (e.detail < 2) toggleSignOff(path);
-  if (e.currentTarget instanceof HTMLElement) S.statusHint?.(e.currentTarget, path);
+// once: the pointer is still on the icon, which now does the opposite. A Walkthrough row passes
+// its step's part, so a part's icon signs off (or resets) that part alone.
+S.statusClick = (path, e, part) => {
+  if (e.detail < 2) toggleSignOff(path, part);
+  if (e.currentTarget instanceof HTMLElement) S.statusHint?.(e.currentTarget, path, part);
 };
 // The label is read when the icon is hovered or focused: binding it per row would rescan every
 // decision and comment for every row (see flow-index.ts). data-act tints the icon on hover with the
 // state a click leads to.
-S.statusHint = (el, path) => {
-  const act = fileFinished(path) ? "reset" : fileObjections(path) ? "mark" : "approve";
+S.statusHint = (el, path, part) => {
+  const fileIndex = S.state.files.findIndex((f) => f.path === path);
+  const blocks = part === undefined ? null : (stepSlot({ fileIndex, part })?.blocks ?? null);
+  const stand = signOffStand(path, blocks);
+  const act = stand === "finished" ? "reset" : stand === "changes" ? "mark" : "approve";
   el.dataset.act = act;
   el.title = { approve: "Approve", mark: "Mark reviewed", reset: "Reset review" }[act];
   el.setAttribute("aria-label", el.title);

@@ -99,7 +99,7 @@ test("walkthroughGroups: roll-ups, basename split, and fileIndex into the diff l
       guideFile("b.ts", "Core"),
     ],
     [file("b.ts", "d"), file("src/ui/a.ts", "aad")],
-    (p) => (p === "b.ts" ? "approved" : "pending"),
+    (s) => (s.path === "b.ts" ? "approved" : "pending"),
   );
   const core = groups[0]!;
   assert.equal(core.total, 2);
@@ -152,7 +152,7 @@ test("walkRows flattens to cat,file… rows and marks only the active path", () 
   const groups = walkthroughGroups(
     [guideFile("a.ts", "Core"), guideFile("b.ts", "Core")],
     [file("a.ts", "a"), file("b.ts", "a"), file("stray.ts", "a")],
-    (p) => (p === "stray.ts" ? "pending" : "approved"),
+    (s) => (s.path === "stray.ts" ? "pending" : "approved"),
   );
   const rows = walkRows(groups, "b.ts");
   assert.deepEqual(
@@ -271,7 +271,7 @@ test("walkRows: a category-header jumpIndex prefers the group's first pending fi
   const groups = walkthroughGroups(
     [guideFile("core/a.ts", "Core"), guideFile("core/c.ts", "Core")],
     [file("x.ts", "a"), file("core/a.ts", "a"), file("core/c.ts", "a")],
-    (p) => (p === "core/a.ts" ? "approved" : "pending"),
+    (s) => (s.path === "core/a.ts" ? "approved" : "pending"),
   );
   const cat = walkRows(groups, null).find((r) => r.kind === "cat");
   assert.equal(cat!.kind === "cat" && cat!.jump.fileIndex, 2);
@@ -399,6 +399,27 @@ test("walkthroughGroups sends a fully skimmed part to Skimmed and keeps its sibl
       ["Skimmed", ["Fees"]],
     ],
   );
+});
+
+test("walkthroughGroups gives each part row its own step's state, and counts it in its group", () => {
+  const groups = walkthroughGroups(
+    [partEntry("Fees", "Billing"), partEntry("Lockout", "Billing")],
+    SPLIT_FILES,
+    (s) => (s.step.part === 0 ? "approved" : "pending"),
+    () => false,
+    blocksOf([block("additions:10:0:3", 0), block("additions:40:0:1", 1)]),
+  );
+  const billing = groups[0]!;
+  assert.deepEqual(
+    billing.files.map((f) => [f.partTitle, f.state]),
+    [
+      ["Fees", "approved"],
+      ["Lockout", "pending"],
+    ],
+  );
+  assert.deepEqual([billing.done, billing.total], [1, 2]);
+  const header = walkRows(groups, null).find((r) => r.kind === "cat");
+  assert.deepEqual(header?.kind === "cat" && header.jump, { fileIndex: 1, part: 1 });
 });
 
 test("walkRows keys each part row apart and a category header jumps to the part's step", () => {

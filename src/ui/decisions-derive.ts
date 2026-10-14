@@ -36,31 +36,74 @@ export function recordDecision(
   else state.decisions.push(entry);
 }
 
+// A block's sign-off records its contentHash at sign-off (ReviewState.signedOffBlocks). A block
+// the tab derived differently from git has none, and records "".
+export function blockSignedOff(signed: ReviewState["signedOffBlocks"], c: ChangeState) {
+  return signed?.[c.id] === (c.contentHash ?? "");
+}
+
 // Sign off on a file: accept any still-pending blocks (un-objected lines the reviewer didn't
-// reject) and mark it finished against its current content hash. Staging is the caller's — it's a
-// git-index op. The displayed terminal state (approved vs changes-requested) is derived from
-// objections, never recorded.
+// reject), sign off every block, and mark the file finished against its current content hash.
+// Staging is the caller's — it's a git-index op. The displayed terminal state (approved vs
+// changes-requested) is derived from objections, never recorded.
 export function signOff(state: ReviewState, file: ReviewFile) {
+  signOffStep(
+    state,
+    file,
+    state.changes.filter((c) => c.path === file.path),
+  );
+}
+
+// Sign off on one step of a split file, a guide part or its Rest (`blocks`), as signOff does a
+// file: accept its still-pending blocks and sign each of its blocks off. The sign-off that leaves
+// no block of the file unsigned marks the file finished too, so a file whose parts are all signed
+// off is approved (or not) exactly as an unsplit one, in the desk and in the agent's ReviewResult.
+// `skimmed` are the blocks of the file's steps that left the flow (steps.ts outOfFlowBlocks): the
+// reviewer is never asked to sign those, so the sign-off that leaves only them signs them off too,
+// as an unsplit file's sign-off covers its skimmed blocks. A file with no block in the flow stays
+// out of it, signed off only block by block.
+export function signOffStep(
+  state: ReviewState,
+  file: ReviewFile,
+  blocks: ChangeState[],
+  skimmed: ChangeState[] = [],
+) {
   const path = file.path;
-  for (const c of state.changes) {
-    if (c.path !== path || c.status !== "pending") continue;
-    c.status = "accepted";
-    c.reviewedHash = c.contentHash;
-    recordDecision(state, c, "accepted");
-  }
+  const signed = (state.signedOffBlocks = state.signedOffBlocks || {});
+  const sign = (c: ChangeState) => {
+    if (c.status === "pending") {
+      c.status = "accepted";
+      c.reviewedHash = c.contentHash;
+      recordDecision(state, c, "accepted");
+    }
+    signed[c.id] = c.contentHash ?? "";
+  };
+  blocks.forEach(sign);
   state.decisionFiles = state.decisionFiles || [];
   if (!state.decisionFiles.includes(path)) state.decisionFiles.push(path);
+  const skimmedIds = new Set(skimmed.map((c) => c.id));
+  const own = state.changes.filter((c) => c.path === path);
+  const unsigned = own.filter((c) => !blockSignedOff(signed, c));
+  if (unsigned.some((c) => !skimmedIds.has(c.id))) return;
+  if (unsigned.length) {
+    if (own.every((c) => skimmedIds.has(c.id))) return;
+    unsigned.forEach(sign);
+  }
   state.reviewedFiles = state.reviewedFiles || [];
   if (!state.reviewedFiles.includes(path)) state.reviewedFiles.push(path);
   state.reviewedFileHashes = state.reviewedFileHashes || {};
   state.reviewedFileHashes[path] = file.contentHash;
 }
 
-// Everything a file's Reset clears, captured first so Undo can put back exactly that.
+// Everything a Reset clears, captured first so Undo can put back exactly that. A file's Reset
+// covers all of it; a step's (`keys`, its blocks' ids) covers its own blocks and the file's
+// sign-off, which no longer holds once a part is pending.
 export type FileReview = {
   path: string;
+  keys: string[] | null;
   changes: Map<string, Pick<ChangeState, "status" | "reviewedHash">>;
   decisions: Decision[];
+  signedOff: Record<string, string>;
   decided: boolean;
   reviewed: boolean;
   reviewedHash?: string;
@@ -68,34 +111,54 @@ export type FileReview = {
   stagedChangeKeys: string[];
 };
 
-const ownKey = (path: string) => (k: string) => k.startsWith(`${path}:`);
+// Whether a `path:stableKey` key falls in a Reset's scope.
+const inScope = (path: string, keys: string[] | null) => (k: string) =>
+  keys ? keys.includes(k) : k.startsWith(`${path}:`);
 
-export function captureFileReview(state: ReviewState, path: string): FileReview {
-  const changes = state.changes.filter((c) => c.path === path);
+export function captureFileReview(
+  state: ReviewState,
+  path: string,
+  blocks?: ChangeState[],
+): FileReview {
+  const keys = blocks ? blocks.map((c) => c.id) : null;
+  const own = inScope(path, keys);
+  const changes = state.changes.filter((c) => c.path === path && own(c.id));
   return {
     path,
+    keys,
     changes: new Map(
       changes.map((c) => [c.id, { status: c.status, reviewedHash: c.reviewedHash }]),
     ),
-    decisions: (state.decisions ?? []).filter((d) => d.path === path).map((d) => ({ ...d })),
+    decisions: (state.decisions ?? [])
+      .filter((d) => d.path === path && own(d.key))
+      .map((d) => ({ ...d })),
+    signedOff: Object.fromEntries(
+      Object.entries(state.signedOffBlocks ?? {}).filter(([k]) => own(k)),
+    ),
     decided: !!state.decisionFiles?.includes(path),
     reviewed: state.reviewedFiles.includes(path),
     reviewedHash: state.reviewedFileHashes?.[path],
-    staged: state.stagedFiles.includes(path),
-    stagedChangeKeys: (state.stagedChangeKeys ?? []).filter(ownKey(path)),
+    // A step's Reset leaves the file's staging record to the file.
+    staged: !keys && state.stagedFiles.includes(path),
+    stagedChangeKeys: (state.stagedChangeKeys ?? []).filter(own),
   };
 }
 
-// A file's Reset: its blocks back to pending, its decisions, sign-off and hash gone, and its
-// staging record dropped (the caller unstages the index).
-export function clearFileReview(state: ReviewState, path: string) {
-  state.changes.filter((c) => c.path === path).forEach((c) => (c.status = "pending"));
-  state.decisions = (state.decisions || []).filter((d) => d.path !== path);
-  state.stagedChangeKeys = (state.stagedChangeKeys || []).filter((k) => !ownKey(path)(k));
-  state.decisionFiles = (state.decisionFiles || []).filter((p) => p !== path);
+// A Reset (of the file, or of a step's `blocks`): those blocks back to pending, their decisions
+// and sign-offs gone, the file's sign-off and hash gone, and the staging records dropped (the
+// caller unstages the index). The file stays decided while a decision outside the step remains.
+export function clearFileReview(state: ReviewState, path: string, blocks?: ChangeState[]) {
+  const own = inScope(path, blocks ? blocks.map((c) => c.id) : null);
+  state.changes.filter((c) => c.path === path && own(c.id)).forEach((c) => (c.status = "pending"));
+  state.decisions = (state.decisions || []).filter((d) => d.path !== path || !own(d.key));
+  for (const k of Object.keys(state.signedOffBlocks ?? {}))
+    if (own(k)) delete state.signedOffBlocks![k];
+  state.stagedChangeKeys = (state.stagedChangeKeys || []).filter((k) => !own(k));
+  if (!state.decisions.some((d) => d.path === path))
+    state.decisionFiles = (state.decisionFiles || []).filter((p) => p !== path);
   state.reviewedFiles = (state.reviewedFiles || []).filter((p) => p !== path);
   if (state.reviewedFileHashes) delete state.reviewedFileHashes[path];
-  state.stagedFiles = (state.stagedFiles || []).filter((p) => p !== path);
+  if (!blocks) state.stagedFiles = (state.stagedFiles || []).filter((p) => p !== path);
 }
 
 // Undo a Reset: put the captured review back over whatever the file holds now. Staging is the
@@ -103,14 +166,18 @@ export function clearFileReview(state: ReviewState, path: string) {
 // only once the index took it.
 export function restoreFileReview(state: ReviewState, prior: FileReview) {
   const { path } = prior;
+  const own = inScope(path, prior.keys);
   for (const c of state.changes) {
     const was = c.path === path ? prior.changes.get(c.id) : undefined;
     if (!was) continue;
     c.status = was.status;
     c.reviewedHash = was.reviewedHash;
   }
-  state.decisions = (state.decisions || []).filter((d) => d.path !== path);
+  state.decisions = (state.decisions || []).filter((d) => d.path !== path || !own(d.key));
   state.decisions.push(...prior.decisions);
+  const signed = (state.signedOffBlocks = state.signedOffBlocks || {});
+  for (const k of Object.keys(signed)) if (own(k)) delete signed[k];
+  Object.assign(signed, prior.signedOff);
   const restore = (list: string[] | undefined, on: boolean) => {
     const rest = (list || []).filter((p) => p !== path);
     return on ? [...rest, path] : rest;

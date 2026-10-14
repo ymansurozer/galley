@@ -8,6 +8,7 @@ import {
   carryStep,
   inStep,
   neighborStep,
+  outOfFlowBlocks,
   planSteps,
   slotOutOfFlow,
   stepEntry,
@@ -241,4 +242,14 @@ test("blockStep opens a block's part, its file's Rest when no part claims it, el
   // An unsplit file has no parts: its blocks belong to the whole file.
   const a: ChangeState = { ...block("x"), id: "a.ts:x", path: "a.ts" };
   assert.deepEqual(blockStep(GUIDE, 0, a), { fileIndex: 0 });
+});
+
+test("outOfFlowBlocks gives a file's fully skimmed part and Rest blocks, not a partly skimmed one", () => {
+  const blocks = [block("fees", 0, true), block("lockout", 2), block("lockout2", 2, true)];
+  const skimmedRest = [...blocks, block("loose", undefined, true)];
+  const ids = (plan: ReturnType<typeof stepPlan>) =>
+    outOfFlowBlocks(plan, 1).map((c) => c.stableKey);
+  assert.deepEqual(ids(stepPlan(GUIDE, FILES, changesOf(blocks))), ["fees"]);
+  assert.deepEqual(ids(stepPlan(GUIDE, FILES, changesOf(skimmedRest))), ["fees", "loose"]);
+  assert.deepEqual(outOfFlowBlocks(stepPlan(GUIDE, FILES, changesOf(blocks)), 0), []);
 });

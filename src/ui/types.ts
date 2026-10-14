@@ -359,15 +359,16 @@ export interface Store {
   setStyle?: (style: DiffStyle) => void;
   setFileView?: (view: "rendered" | "source") => void;
   isMarkdownFile?: () => boolean;
-  // Sign off on the current file from the floating button (same action as the header ⇧A).
+  // Sign off on the current step from the floating button (same action as the header ⇧A).
   approveFile?: () => void;
-  // A sidebar row's status icon: sign the file off in place, or reset a finished one. statusHint
-  // labels the icon with what a click will do, read on hover/focus rather than bound per row.
-  statusClick?: (path: string, e: MouseEvent) => void;
-  statusHint?: (el: HTMLElement, path: string) => void;
+  // A sidebar row's status icon: sign the file (or a Walkthrough row's part) off in place, or reset
+  // a finished one. statusHint labels the icon with what a click will do, read on hover/focus
+  // rather than bound per row.
+  statusClick?: (path: string, e: MouseEvent, part?: Step["part"]) => void;
+  statusHint?: (el: HTMLElement, path: string, part?: Step["part"]) => void;
   runToastAction?: () => void;
-  // Drives the floating Approve button: null hides it (overview, preview, or finished file),
-  // else the pending file's sign-off flavor — "clean" (Approve) or "changes" (Mark Reviewed).
+  // Drives the floating Approve button: null hides it (overview, preview, or finished step),
+  // else the pending step's sign-off flavor — "clean" (Approve) or "changes" (Mark Reviewed).
   fabState?: () => "clean" | "changes" | null;
   splitApplies?: () => boolean;
   applySettings?: () => void;

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseUnifiedDiff, changeBlocks, changeStableKeyFromBlock } from "./git.js";
+import { changeBlocks, changeStableKeyFromBlock, parseUnifiedDiff, spliceLines } from "./git.js";
 
 const DIFF = `diff --git a/f.txt b/f.txt
 index 0000000..1111111 100644
@@ -99,4 +99,33 @@ index 1111111..2222222 100644
 Binary files a/old.png and b/new.png differ
 `;
   assert.equal(parseUnifiedDiff(diff).length, 0);
+});
+
+// ── spliceLines: one block's lines in or out of the index blob ───────────────
+const blob = (s: string) => Buffer.from(s);
+
+test("spliceLines puts in the source's bytes, line endings included", () => {
+  const staged = spliceLines(blob("a\r\nb\r\nc\r\n"), 1, ["b"], blob("a\r\nB\r\nc\r\n"), 1, ["B"]);
+  assert.equal(staged?.toString(), "a\r\nB\r\nc\r\n");
+  const back = spliceLines(staged!, 1, ["B"], blob("a\r\nb\r\nc\r\n"), 1, ["b"]);
+  assert.equal(back?.toString(), "a\r\nb\r\nc\r\n");
+  // A last line gains its ending, and loses it again.
+  assert.equal(spliceLines(blob("a\nb"), 1, ["b"], blob("a\nb\n"), 1, ["b"])?.toString(), "a\nb\n");
+  assert.equal(spliceLines(blob("a\nb\n"), 1, ["b"], blob("a\nb"), 1, ["b"])?.toString(), "a\nb");
+  // Every line rewritten with another ending leaves one kind throughout.
+  const all = spliceLines(blob("a\r\nb\r\n"), 0, ["a", "b"], blob("a\nB\n"), 0, ["a", "B"]);
+  assert.equal(all?.toString(), "a\nB\n");
+});
+
+test("spliceLines writes nothing that isn't the block's edit", () => {
+  // The index doesn't hold the block's old line there, or the source its new one.
+  assert.equal(spliceLines(blob("a\nx\nc\n"), 1, ["b"], blob("a\nB\nc\n"), 1, ["B"]), null);
+  assert.equal(spliceLines(blob("a\nb\nc\n"), 1, ["b"], blob("a\nY\nc\n"), 1, ["B"]), null);
+  // Nothing would change.
+  assert.equal(spliceLines(blob("a\nb\nc\n"), 1, ["b"], blob("a\nb\nc\n"), 1, ["b"]), null);
+  // A line without its ending would be followed by another.
+  assert.equal(spliceLines(blob("a\nb\nc\n"), 1, ["b"], blob("a\nB"), 1, ["B"]), null);
+  // LF lines into an index that is CRLF throughout, and the other way round.
+  assert.equal(spliceLines(blob("a\r\nb\r\nc\r\n"), 1, ["b"], blob("a\nB\nc\n"), 1, ["B"]), null);
+  assert.equal(spliceLines(blob("a\nb\nc\n"), 1, ["b"], blob("a\r\nB\r\nc\r\n"), 1, ["B"]), null);
 });

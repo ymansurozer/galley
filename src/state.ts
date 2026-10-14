@@ -988,6 +988,7 @@ const REVIEWER_SAVE_KEYS = [
   "comments",
   "reviewedFiles",
   "reviewedFileHashes",
+  "signedOffBlocks",
   "decisionFiles",
 ] as const satisfies ReadonlyArray<keyof ReviewerSave>;
 // `desk`: the live desk's own stamp (types.ts, SaveStamp), to tell a save the tab made before the
@@ -1002,6 +1003,7 @@ export function mergeReviewerSave(
   if (!body || typeof body !== "object") return;
   const incoming = body as Record<string, unknown>;
   const deskDecisions = state.decisions;
+  const deskSignOffs = state.signedOffBlocks;
   for (const key of REVIEWER_SAVE_KEYS) {
     if (incoming[key] !== undefined) (state as Record<string, unknown>)[key] = incoming[key];
   }
@@ -1012,16 +1014,19 @@ export function mergeReviewerSave(
   // so a save can carry decisions keyed to the blocks of an older diff. Its reload count can't tell:
   // the tab takes that from every poll, the diff only when it adopts it. Decisions made on the diff
   // before the latest reload or restart are carried onto the live one as that reload carried the
-  // desk's own. Ones made on anything older can't be placed safely, so the desk keeps its own.
-  if (
-    Array.isArray(incoming.decisions) &&
-    typeof seen?.baseDiffHash === "string" &&
-    seen.baseDiffHash !== state.baseDiffHash
-  )
-    state.decisions =
-      seen.baseDiffHash === priorDiff?.baseDiffHash
-        ? carryDecisions(state, incoming.decisions, priorDiff.changes)
+  // desk's own. Ones made on anything older can't be placed safely, so the desk keeps its own. Block
+  // sign-offs are keyed the same way and go the same way.
+  if (typeof seen?.baseDiffHash === "string" && seen.baseDiffHash !== state.baseDiffHash) {
+    const prior = seen.baseDiffHash === priorDiff?.baseDiffHash ? priorDiff : undefined;
+    if (Array.isArray(incoming.decisions))
+      state.decisions = prior
+        ? carryDecisions(state, incoming.decisions, prior.changes)
         : deskDecisions;
+    if (incoming.signedOffBlocks && typeof incoming.signedOffBlocks === "object")
+      state.signedOffBlocks = prior
+        ? carrySignOffs(state, incoming.signedOffBlocks as Record<string, string>, prior.changes)
+        : deskSignOffs;
+  }
   // Annotations carry data the app page supplied, so they're validated and capped on the way in
   // (uiannotations.ts) rather than taken as sent.
   const annotations = readUiAnnotations(incoming.annotations, state.ui?.target);
@@ -1346,6 +1351,40 @@ function carryDecisions(
   return carried;
 }
 
+// Block sign-offs (ReviewState.signedOffBlocks) carried onto a rebuilt diff: an entry stays while
+// its block is there with the content it was signed off on, under a renamed path's new key. Given
+// `before`, the blocks of the diff the sign-offs were made on, an entry whose block only moved
+// follows it to its new key, as a decision does (carryDecisions).
+function carrySignOffs(
+  rebuilt: Pick<ReviewState, "files" | "changes">,
+  saved: Record<string, string>,
+  before?: ChangeState[],
+) {
+  const renames = renamesIn(rebuilt.files);
+  const migrated = Object.entries(saved).map(([key, hash]) => {
+    for (const [oldP, newP] of renames)
+      if (key.startsWith(`${oldP}:`)) return { key: `${newP}:${key.slice(oldP.length + 1)}`, hash };
+    return { key, hash };
+  });
+  const moved = before
+    ? movedBlockKeys(
+        rebuilt.changes,
+        migrated,
+        before.map((c) => ({
+          key: `${renames.get(c.path) ?? c.path}:${c.stableKey}`,
+          hash: c.contentHash,
+        })),
+      )
+    : new Map<string, string>();
+  const hashAt = new Map(rebuilt.changes.map((c) => [`${c.path}:${c.stableKey}`, c.contentHash]));
+  const carried: Record<string, string> = {};
+  for (const { key, hash } of migrated) {
+    const at = moved.get(key) ?? key;
+    if (hashAt.get(at) === hash) carried[at] = hash;
+  }
+  return carried;
+}
+
 export async function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
   if (!saved) return base;
   const currentFiles = new Set(base.files.map((file) => file.path));
@@ -1415,6 +1454,7 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
     comments: reanchorComments(comments, base.files, (p) => contentsByPath.get(p)),
     reviewedFiles,
     reviewedFileHashes,
+    signedOffBlocks: carrySignOffs(base, saved.signedOffBlocks ?? {}, saved.changes),
     stagedFiles: saved.stagedFiles,
     // Migrate staged-hunk keys old→new too, so a working-mode pair's pre-rename key doesn't linger
     // stale after the rename appears (syncGitState later prunes keys whose file isn't staged).
