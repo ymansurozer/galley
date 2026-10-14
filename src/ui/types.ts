@@ -299,7 +299,7 @@ export interface Store {
   // Which sidebar pane is showing when a guide is attached (no guide → tabs hidden, tree
   // only). Per-session like overviewOpen; settings.sidebarDefault seeds it at init.
   sidebarTab: "tree" | "walkthrough";
-  // The sidebar's Change requests list is expanded. Per-session, starts expanded; `]` / `[`
+  // The sidebar's Change requests list is expanded. Per-session, starts collapsed; `]` / `[`
   // expand it, so the list they step through stays in sight.
   requestsOpen: boolean;
   // The one resolved thread expanded as its card (rests.ts threadKey: path, side and raw line);
