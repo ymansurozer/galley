@@ -3,7 +3,7 @@ import { currentChanges, currentFile } from "./changes";
 import { render } from "./render";
 import { isFullySkimmed } from "./skim-derive";
 import { diffShadowRoot } from "./diff-dom";
-import { hideBetween, misalignedColumns, SKIM_HIDDEN, type DiffColumn } from "./skim-dom";
+import { diffColumns, hideBetween, misalignedColumns, SKIM_HIDDEN } from "./skim-dom";
 import type { ChangeState, GuideFile } from "./types";
 
 // ── Skimmable review (issue 06) ──────────────────────────────────────────────
@@ -203,24 +203,17 @@ export function renderMovedPure() {
 export function applySkimCollapse() {
   const blocks = currentChanges().filter((c) => isBlockSkimCollapsed(c));
   const shadow = diffShadowRoot();
-  if (!shadow) {
-    // Blocks want collapsing but the diff shadow isn't up yet — a cold mount where render()
-    // resolved before @pierre committed the rows. onPostRender re-invokes us when it is; if
-    // this fires and NOTHING re-invokes, the blocks would stay visible (the first-render bug).
-    if (blocks.length) console.debug("[skim] collapse skipped: diff shadow not ready");
-    return;
-  }
+  // Not ready: a cold mount where render() resolved before @pierre committed the rows — the
+  // shadow root may be missing, or present but still empty. There is nothing to fold or clear,
+  // and onPostRender re-invokes us once the rows exist, so this is the normal first pass of every
+  // cold open, not a failure: stay quiet. The checks below report only on rendered rows.
+  const columns = shadow ? diffColumns(shadow) : [];
+  if (!shadow || !columns.length) return;
   for (const el of shadow.querySelectorAll<HTMLElement>(`[${SKIM_HIDDEN}]`)) {
     el.style.display = "";
     el.removeAttribute(SKIM_HIDDEN);
   }
   if (!blocks.length) return;
-  const columns: DiffColumn[] = Array.from(
-    shadow.querySelectorAll("pre[data-diff] code[data-code]"),
-  ).map((code) => ({
-    content: code.querySelector<HTMLElement>("[data-content]"),
-    gutter: code.querySelector<HTMLElement>("[data-gutter]"),
-  }));
   const isContext = (el?: Element | null) =>
     !!el && (el.getAttribute("data-line-type") ?? "").startsWith("context");
   let hidden = 0;
