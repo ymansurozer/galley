@@ -149,6 +149,18 @@ export function openThreadAt(side: Side, line: number): boolean {
   return true;
 }
 
+// A reply or an edit closing in the open card hands the cursor to the card's line (keys.ts Esc),
+// so r, ↵ and c still act on that thread. False when the open composer isn't in a diff card.
+export function cursorToOpenThread(): boolean {
+  const slot = [...$("diff").querySelectorAll<HTMLElement>(".thread-group .thread-slot")].find(
+    (s) => s.dataset.key === S.openThread && s.querySelector(".js-composer-focus"),
+  );
+  const side = slot?.closest<HTMLElement>(".thread-group")?.dataset.side as Side | undefined;
+  if (!slot || !side) return false;
+  cursorPlace(side, Number(slot.dataset.line));
+  return true;
+}
+
 // Esc's layer for the open card (keys.ts): close it. False when no card is showing, the App view
 // hiding the code included.
 export function closeThreadCard(): boolean {

@@ -16,7 +16,7 @@ import {
 import { stepOpenRequest } from "./requests";
 import { closeBlockers } from "./blockers";
 import { closeGuideCard } from "./guidecard";
-import { closeThreadCard } from "./rests";
+import { closeThreadCard, cursorToOpenThread } from "./rests";
 import type { ForwardedKey } from "./types";
 import {
   cursorMoveLine,
@@ -108,8 +108,9 @@ function escape() {
   // The open thread card, once its composer (below) has closed: Esc closes a reply first.
   if (!S.composerOpen && !S.editingCommentId && closeThreadCard()) return;
   if (S.composerOpen || S.editingCommentId) {
-    // A code composer also drops the line highlight it was anchored to.
-    if (!composerInUi()) cursorReset();
+    // A code composer also drops the line highlight it was anchored to, unless it's a reply or an
+    // edit in the open card: the cursor goes to the card's line, where r, ↵ and c act on it.
+    if (!composerInUi() && !cursorToOpenThread()) cursorReset();
     closeComposer(); // rebuilds the lane so the inline composer's DOM goes away
     return;
   }
