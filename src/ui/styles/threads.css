@@ -479,12 +479,12 @@
 }
 
 .thread-card .reply-thread:hover {
-  background-image: linear-gradient(var(--fill-2), var(--fill-2));
+  background-color: var(--fill-2);
   color: var(--ink-2);
 }
 
 .thread-card .reply-thread:active {
-  background: var(--fill-2);
+  background-color: var(--fill-3);
 }
 
 .thread-card .resolve-thread,
@@ -505,12 +505,12 @@
 
 .thread-card .resolve-thread:hover,
 .thread-card .reopen-inline:hover {
-  background-image: linear-gradient(var(--fill), var(--fill));
+  background-color: var(--raised-hover);
 }
 
 .thread-card .resolve-thread:active,
 .thread-card .reopen-inline:active {
-  background-image: linear-gradient(var(--fill-3), var(--fill-3));
+  background-color: var(--raised-pressed);
 }
 
 /* While replying, Resolve leads the composer's action row, at its buttons' size. */
@@ -636,11 +636,11 @@
 }
 
 .annotation .cbtn:hover {
-  background-image: linear-gradient(var(--fill), var(--fill));
+  background-color: var(--raised-hover);
 }
 
 .annotation .cbtn:active {
-  background-image: linear-gradient(var(--fill-3), var(--fill-3));
+  background-color: var(--raised-pressed);
 }
 
 .annotation .cbtn.cancel {
