@@ -421,10 +421,17 @@ export type DeskMessage =
   // one's placement, changed or not.
   | { type: "relook"; token: string }
   // The pins for the current page, the selected annotation (outlined, scrolled into view once
-  // found), and whether the composer is open on the last pick (its highlight stays until the
-  // composer closes). The bridge looks for each new pin's target once the page settles, and reports
-  // where it found them (`placements`).
-  | { type: "marks"; token: string; marks: UiMark[]; selected: string | null; picking: boolean };
+  // found), and, while the composer is open on the last pick, the number that pick will get (its
+  // highlight and its draft pin, so numbered, stay until the composer closes; null otherwise). The
+  // bridge looks for each new pin's target once the page settles, and reports where it found them
+  // (`placements`).
+  | {
+      type: "marks";
+      token: string;
+      marks: UiMark[];
+      selected: string | null;
+      picking: number | null;
+    };
 
 // ── UI annotations ──────────────────────────────────────────────────────────────────────────────
 // An element the reviewer pointed at in the app, as the bridge captured it. Everything in it is

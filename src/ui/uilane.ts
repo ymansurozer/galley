@@ -382,8 +382,10 @@ export function syncBridge() {
   const marks = {
     marks: marksFor(annotationsOf(), S.app.route, S.selectedAnnotation),
     selected: S.selectedAnnotation,
-    // The composer is on the bridge's last pick (a page draft is the desk's own).
-    picking: !!S.annotationDraft && S.annotationDraft.target.kind !== "page",
+    // The composer is on the bridge's last pick (a page draft is the desk's own): the number its
+    // draft pin shows.
+    picking:
+      S.annotationDraft && S.annotationDraft.target.kind !== "page" ? upcomingNumber() : null,
   };
   const key = JSON.stringify(marks);
   if (key !== sentMarks) {
@@ -815,14 +817,16 @@ export function placeFloatingComposer() {
 export const uiSendSummary = () => sendSummary(annotationsOf());
 
 export function installUiLane() {
-  // A press outside the open pin card closes it: not on the card, a composer, a pin in the address
-  // bar or a row of the list (they open and close it themselves), or the screenshot it opened. A
-  // press in the app reaches the desk from the bridge instead (pinsInApp).
+  // A primary press outside the open pin card closes it: not on the card, a composer, a row of the
+  // list (they open and close it themselves), the browser chrome (a preset or a reload keeps it on
+  // its pin; leaving the page hides it), or the screenshot it opened. A press in the app reaches the
+  // desk from the bridge instead (pinsInApp).
   document.addEventListener(
     "pointerdown",
     (e) => {
       const t = e.target instanceof Element ? e.target : null;
-      if (!cardFor || t?.closest(".ucomposer, .pagepin, #annotationList, .modal-backdrop")) return;
+      const own = t?.closest(".ucomposer, .chrome, #annotationList, .modal-backdrop");
+      if (!cardFor || e.button !== 0 || own) return;
       selectAnnotation(null);
     },
     true,

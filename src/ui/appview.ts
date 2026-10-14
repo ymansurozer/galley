@@ -234,6 +234,7 @@ export function setViewport(viewport: Viewport) {
   S.viewport = viewport;
   sizeFrame();
   placeFloatingComposer();
+  placePinCard();
 }
 
 // Fit fills the stage. A preset renders the app at its real CSS size, so the app's own media

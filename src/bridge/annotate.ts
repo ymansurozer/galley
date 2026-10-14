@@ -63,6 +63,7 @@ const STYLE = `
   .region.q, .region.picked { border-color: #00a8ff; background: rgba(0, 168, 255, .09) }
   .hl.q, .hl.picked { background: rgba(0, 168, 255, .3) }
   .pin.resolved { background: #e5e5e5; color: #737373 }
+  .pin.draft { background: #00a8ff; pointer-events: none }
   #chip {
     position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%); display: none; padding: 7px 12px;
     border-radius: 999px; background: #101415; border: 1px solid #354146; color: #d9d9d4; white-space: nowrap;
@@ -130,6 +131,8 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
   let lastAnchor = "";
   // The selected mark, until it's found and scrolled into view (or found missing).
   let revealing: string | null = null;
+  // The number the pick the composer is open on will get, for its draft pin; null without one.
+  let draftNumber: number | null = null;
   // The pins as last drawn, as last posted, and the frame a post waits for.
   let pins: PinRect[] = [];
   let sentPins = "";
@@ -410,7 +413,15 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     // A press on the veil or a pin would otherwise bubble out of the shadow root to the app's
     // document listeners (as a press on the host), and a dialog that closes on a press outside
     // it would close under the reviewer's pick. The bridge's own listeners sit below the layer.
-    for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "click"] as const)
+    for (const type of [
+      "pointerdown",
+      "pointerup",
+      "mousedown",
+      "mouseup",
+      "click",
+      "touchstart",
+      "touchend",
+    ] as const)
       parts.layer.addEventListener(type, (e) => e.stopPropagation());
     let frame = 0;
     parts.veil.addEventListener("pointermove", (e) => {
@@ -489,12 +500,15 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
       if (pinsKey() !== sentPins) postPins();
     });
   }
-  // A press on the page off the pins closes the selected pin's card. A press inside the overlay
-  // (a pin, or the veil while annotating) is the overlay's own.
+  // A primary press on the page off the pins closes the selected pin's card. A press inside the
+  // overlay (a pin, or the veil while annotating) is the overlay's own, and one on the root element
+  // is on the page's scrollbar.
   addEventListener(
     "pointerdown",
     (e) => {
-      if (selected && e.target !== overlay?.host) postPins(null);
+      const t = e.target;
+      if (selected && e.button === 0 && t !== overlay?.host && t !== document.documentElement)
+        postPins(null);
     },
     true,
   );
@@ -508,6 +522,14 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
 
   const box = (r: Rect, cls: string, inner = "") =>
     `<div class="box ${cls}" style="left:${r.x}px;top:${r.y}px;width:${r.width}px;height:${r.height}px">${inner}</div>`;
+
+  // A numbered pin on a target's top-left corner, kept on screen.
+  const pinAt = (r: Rect, number: number, cls: string, id?: string) => {
+    const x = Math.max(11, Math.min(innerWidth - 11, r.x));
+    const y = Math.max(11, r.y);
+    const data = id ? ` data-id="${escapeHtml(id)}"` : "";
+    return `<div class="${cls}"${data} title="#${number}" style="left:${x}px;top:${y}px">${number}</div>`;
+  };
 
   // Where the pick is now: its elements, its box (moved with its first element), or its text.
   function pickBoxes(p: Pick): Rect[] {
@@ -541,10 +563,8 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
       if (m.target.kind === "region") html += box(at.boxes[0], `region${tone}`);
       else if (m.target.kind === "text") for (const r of at.boxes) html += box(r, `hl${tone}`);
       else if (sel) for (const r of at.boxes) html += box(r, `outline${q}`);
-      const [first] = at.boxes;
-      const x = Math.max(11, Math.min(innerWidth - 11, first.x));
-      const y = Math.max(11, first.y);
-      html += `<div class="pin${q}${sel ? " sel" : ""}${m.resolved ? " resolved" : ""}" data-id="${escapeHtml(m.id)}" title="#${m.number}" style="left:${x}px;top:${y}px">${m.number}</div>`;
+      const cls = `pin${q}${sel ? " sel" : ""}${m.resolved ? " resolved" : ""}`;
+      html += pinAt(at.boxes[0], m.number, cls, m.id);
     }
     if (overlay.marks.innerHTML !== html) overlay.marks.innerHTML = html;
     pins = [...overlay.marks.querySelectorAll<HTMLElement>(".pin")].map((el) => ({
@@ -562,6 +582,8 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     else if (picked?.kind === "region")
       pickHtml += boxes.map((r) => box(r, "region picked")).join("");
     else if (picked?.kind === "text") pickHtml += boxes.map((r) => box(r, "hl picked")).join("");
+    // The pick's new pin, numbered as the annotation will be, where its mark's pin will sit.
+    if (boxes[0] && draftNumber !== null) pickHtml += pinAt(boxes[0], draftNumber, "pin draft");
     pending.forEach((el, i) => {
       if (el.isConnected) pickHtml += box(rectOf(el), "pick pending", `<i>${i + 1}</i>`);
     });
@@ -578,9 +600,11 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
     if (overlay.chip.innerHTML !== chip) overlay.chip.innerHTML = chip;
     overlay.chip.style.display = chip ? "block" : "none";
 
+    // The composer sits on the draft pin when there is one, else beside the whole pick.
     const [first, ...rest] = boxes;
     if (first) {
-      const at = unionRect([first, ...rest]);
+      const draftPin = overlay.pick.querySelector(".pin");
+      const at = draftPin ? rectOf(draftPin) : unionRect([first, ...rest]);
       const anchor = JSON.stringify([at.x, at.y, at.width, at.height].map(Math.round));
       if (anchor !== lastAnchor) {
         lastAnchor = anchor;
@@ -661,8 +685,9 @@ export function installAnnotate(post: (msg: BridgeMessage) => void, token: strin
       if (overlay) overlay.hover.style.display = "none";
       pendingChanged();
     },
-    setMarks(next: UiMark[], nextSelected: string | null, picking: boolean) {
-      if (!picking) picked = null;
+    setMarks(next: UiMark[], nextSelected: string | null, picking: number | null) {
+      if (picking === null) picked = null;
+      draftNumber = picking;
       quotes.keep(new Set(next.map((m) => m.id)));
       placer.set(next);
       if (nextSelected !== selected) revealing = nextSelected;
