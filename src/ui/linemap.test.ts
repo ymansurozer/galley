@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { FileDiffMetadata } from "@pierre/diffs";
-import { buildLineMap } from "./linemap.js";
+import { anchorSelection, buildLineMap } from "./linemap.js";
 
 // Hand-built fixture (importing @pierre's parser would pull component code into node).
 // One hunk, three change blocks separated by context, mirroring the shape
@@ -98,4 +98,60 @@ test("non-change or out-of-range decided positions are ignored", () => {
     { hunkIndex: 5, changeIndex: 0, status: "accepted" }, // no such hunk
   ]);
   assert.equal(m.toDisplay("deletions", 10), 10);
+});
+
+// ── Anchoring a selection on a resolved block's row ──────────────────────────
+// A resolved block renders one version of its code in both gutters, so a row anchors to the line
+// it shows: the new side for an accept, the old side for a reject.
+
+test("a row of an accepted block anchors to the new-side line it shows, from either gutter", () => {
+  // Accept A (old 2-3 → new 2-4): display deletions 2-4 show new lines 2-4.
+  const m = buildLineMap(fixture(), [{ hunkIndex: 0, changeIndex: 1, status: "accepted" }]);
+  assert.deepEqual(m.anchorAt("deletions", 2), { side: "additions", line: 2 });
+  assert.deepEqual(m.anchorAt("deletions", 4), { side: "additions", line: 4 });
+  assert.deepEqual(m.anchorAt("additions", 3), { side: "additions", line: 3 });
+  // Real rows around it keep their own side: old ctx 4 renders at deletions 5.
+  assert.deepEqual(m.anchorAt("deletions", 5), { side: "deletions", line: 4 });
+  assert.deepEqual(m.anchorAt("deletions", 1), { side: "deletions", line: 1 });
+});
+
+test("a row of a rejected block anchors to the old-side line it shows, from either gutter", () => {
+  // Reject C (old 7-9, a pure deletion): display additions 9-11 show old lines 7-9.
+  const m = buildLineMap(fixture(), [{ hunkIndex: 0, changeIndex: 5, status: "rejected" }]);
+  assert.deepEqual(m.anchorAt("additions", 9), { side: "deletions", line: 7 });
+  assert.deepEqual(m.anchorAt("additions", 11), { side: "deletions", line: 9 });
+  assert.deepEqual(m.anchorAt("deletions", 8), { side: "deletions", line: 8 });
+  // New ctx 9 renders at additions 12.
+  assert.deepEqual(m.anchorAt("additions", 12), { side: "additions", line: 9 });
+});
+
+test("rows anchor to their shown lines with accepts and rejects mixed and lines shifted", () => {
+  // Accept A and B (each shifts the deletion side +1), reject C. Deletions: B's new lines 6-7
+  // render at 6-7 below A's extra line; additions: C's old 7-9 render at 9-11.
+  const m = buildLineMap(fixture(), [
+    { hunkIndex: 0, changeIndex: 1, status: "accepted" },
+    { hunkIndex: 0, changeIndex: 3, status: "accepted" },
+    { hunkIndex: 0, changeIndex: 5, status: "rejected" },
+  ]);
+  assert.deepEqual(m.anchorAt("deletions", 6), { side: "additions", line: 6 });
+  assert.deepEqual(m.anchorAt("deletions", 7), { side: "additions", line: 7 });
+  assert.deepEqual(m.anchorAt("deletions", 8), { side: "deletions", line: 6 }); // ctx
+  assert.deepEqual(m.anchorAt("additions", 10), { side: "deletions", line: 8 });
+});
+
+test("a selection anchors each end to its row, and a range across real rows keeps its side", () => {
+  const m = buildLineMap(fixture(), [{ hunkIndex: 0, changeIndex: 1, status: "accepted" }]);
+  // Two rows of accepted A, from the old gutter: the new lines they show.
+  assert.deepEqual(anchorSelection(m, "deletions", 2, 3), {
+    side: "additions",
+    line: 2,
+    endLine: 3,
+  });
+  assert.deepEqual(anchorSelection(m, "deletions", 3), { side: "additions", line: 3 });
+  // ctx 1 through A's first row: a real row in the range, so both ends map as before.
+  assert.deepEqual(anchorSelection(m, "deletions", 1, 2), {
+    side: "deletions",
+    line: 1,
+    endLine: 2,
+  });
 });

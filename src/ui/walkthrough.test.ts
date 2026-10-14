@@ -401,6 +401,29 @@ test("walkthroughGroups sends a fully skimmed part to Skimmed and keeps its sibl
   );
 });
 
+test("walkRows counts a group's rows as steps once it lists a part, else as files", () => {
+  const withPart = walkthroughGroups(
+    SPLIT_GUIDE,
+    [...SPLIT_FILES, file("b.ts", "a")],
+    allPending,
+    (p) => p === "b.ts",
+    blocksOf([block("additions:10:0:3", 0, true), block("additions:40:0:1", 2)]),
+  );
+  const header = (groups: ReturnType<typeof walkthroughGroups>) =>
+    walkRows(groups).find((r) => r.kind === "cat" && r.skimmed);
+  // Skimmed holds the Fees part and b.ts.
+  const skimmed = header(withPart);
+  assert.equal(skimmed?.kind === "cat" && skimmed.count, "2 steps");
+  const wholeFiles = walkthroughGroups(
+    [guideFile("a.ts", "Core"), guideFile("b.ts", "Core")],
+    [file("a.ts", "a"), file("b.ts", "a")],
+    allPending,
+    (p) => p === "b.ts",
+  );
+  const files = header(wholeFiles);
+  assert.equal(files?.kind === "cat" && files.count, "1 file");
+});
+
 test("walkthroughGroups gives each part row its own step's state, and counts it in its group", () => {
   const groups = walkthroughGroups(
     [partEntry("Fees", "Billing"), partEntry("Lockout", "Billing")],

@@ -1331,6 +1331,71 @@ test("a block route refuses a block the desk's diff has moved on from, writing n
   });
 });
 
+test("a reload to an empty diff keeps a split file's parts for when its blocks come back", async () => {
+  const committed = lines30.join("\n") + "\n";
+  const edited = lines30.map((l) => (l === "l3" || l === "l20" ? `${l}!` : l)).join("\n") + "\n";
+  await withBlockDesk(committed, edited, async ({ st, root, url, g }) => {
+    // The desk's own files (HOME is the repo here) stay out of the diff, so reverting empties it.
+    await writeFile(path.join(root, ".gitignore"), ".galley/\n");
+    g(["add", ".gitignore"]);
+    g(["commit", "-qm", "ignore"]);
+    const part = (title: string, at: number) => ({
+      path: "f.txt",
+      category: title,
+      orientation: title,
+      part: { title, lines: [at] },
+    });
+    const guide = { overview: "o", files: [part("Top", 3), part("Bottom", 20)] };
+    assert.equal((await post(url, "api/reload", { guide })).status, 200);
+    const parts = () => st.changes.map((c) => [c.lineNumber, c.part ?? "rest"]);
+    assert.deepEqual(parts(), [
+      [3, 0],
+      [20, 1],
+    ]);
+    // The agent reverts every edit, then makes them again.
+    await writeFile(path.join(root, "f.txt"), committed);
+    const empty = (await (await post(url, "api/reload", {})).json()) as { empty?: boolean };
+    assert.equal(empty.empty, true);
+    await writeFile(path.join(root, "f.txt"), edited);
+    assert.equal((await post(url, "api/reload", {})).status, 200);
+    assert.deepEqual(parts(), [
+      [3, 0],
+      [20, 1],
+    ]);
+  });
+});
+
+test("a guide swap while the desk has no blocks drops the old guide's parts from the carry", async () => {
+  const committed = lines30.join("\n") + "\n";
+  const edited = lines30.map((l) => (l === "l3" || l === "l20" ? `${l}!` : l)).join("\n") + "\n";
+  // The desk's own files (HOME is the repo here) stay in the diff as untracked: reverting every
+  // edit leaves a diff without blocks, onto which a new guide can attach.
+  await withBlockDesk(committed, edited, async ({ st, root, url }) => {
+    const part = (title: string, at: number) => ({
+      path: "f.txt",
+      category: title,
+      orientation: title,
+      part: { title, lines: [at] },
+    });
+    const split = { overview: "o", files: [part("Top", 3), part("Bottom", 20)] };
+    assert.equal((await post(url, "api/reload", { guide: split })).status, 200);
+    await writeFile(path.join(root, "f.txt"), committed);
+    assert.equal((await post(url, "api/reload", {})).status, 200);
+    assert.deepEqual(st.changes, []);
+    const whole = { overview: "o", files: [{ path: "f.txt", orientation: "The file." }] };
+    assert.equal((await post(url, "api/reload", { guide: whole })).status, 200);
+    await writeFile(path.join(root, "f.txt"), edited);
+    assert.equal((await post(url, "api/reload", {})).status, 200);
+    assert.deepEqual(
+      st.changes.map((c) => [c.lineNumber, c.part ?? "rest"]),
+      [
+        [3, "rest"],
+        [20, "rest"],
+      ],
+    );
+  });
+});
+
 test("block staging keeps CRLF line endings, both ways", async () => {
   const crlf = "\r\n";
   await withBlockDesk(
