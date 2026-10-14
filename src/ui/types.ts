@@ -310,6 +310,9 @@ export interface Store {
   // the diff owns the screen. Toggled by the header hamburger / ⇧B; auto-closed on file select.
   // Inert on desktop — the drawer styles are media-gated, so the tree stays side-by-side there.
   treeDrawerOpen: boolean;
+  // Wide widths: the sidebar is collapsed to its rail of icons (its button in the brand row, ⇧B).
+  // Per-session, starts expanded; inert at narrow widths, where the sidebar is the drawer.
+  sidebarCollapsed: boolean;
   // file mode: how a markdown file is shown — "rendered" (comark/markdown-it preview,
   // comment on blocks) or "source" (@pierre/diffs raw/diff).
   fileView: "rendered" | "source";

@@ -1,16 +1,25 @@
 /* ── UI lane: the Code / UI switch and the UI view (the proxied app) ─────────────────────── */
-/* The UI view replaces the file tree and the diff, and review progress (a code-lane measure)
-   steps aside. Settings stays ⇧, away; only a UI-only desk, which never shows the tree's Settings
-   row, keeps the gear in the header (as on single-file desks). */
-.app.view-ui .tree,
-.app.view-ui .resizer,
-.app.view-ui .tree-backdrop,
-.app.view-ui .nav-toggle,
+/* The UI view replaces the diff, and review progress (a code-lane measure) steps aside. The
+   sidebar stays, with what applies to the app: the Overview, the change requests and Settings;
+   the Review | Files switch and both lists step aside. A UI-only desk has no sidebar: it keeps
+   the gear in the header (as on single-file desks). */
 .app.view-ui .diff-area,
 .app.view-ui .top-progress,
 .app.view-ui .top-tag,
-.app.view-ui .top-done {
+.app.view-ui .top-done,
+.app.view-ui :is(.side-switch, .tree-title, #files, #walk, .rail-tab),
+.app.ui-only :is(.tree, .resizer, .tree-backdrop, .nav-toggle) {
   display: none !important;
+}
+
+/* The Overview row links to the code view's page: it doesn't light while the app shows, and o is a
+   code-view key. */
+.app.view-ui .overview-row.active {
+  background-color: transparent;
+}
+
+.app.view-ui .overview-row .keycaps {
+  display: none;
 }
 
 .app.ui-only .actions .top-settings {
@@ -25,8 +34,8 @@
   position: relative;
 }
 
-/* The app fills the canvas: in the UI view the centre column is .main's only one. */
-.app.view-ui .main {
+/* A UI-only desk's app fills the window: the centre column is .main's only one. */
+.app.ui-only .main {
   grid-template-columns: minmax(0, 1fr);
 }
 

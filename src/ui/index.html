@@ -15,11 +15,11 @@
 </head>
 
 <body>
-  <div class="app booting" x-data :class="{booting: !$store.g.ready, 'view-ui': $store.g.view==='ui', 'ui-only': $store.g.uiOnly()}">
+  <div class="app booting" x-data :class="{booting: !$store.g.ready, 'view-ui': $store.g.view==='ui', 'ui-only': $store.g.uiOnly(), 'side-collapsed': $store.g.sidebarCollapsed}">
     <header class="top" :class="{done: $store.g.reviewDone}">
       <!-- What is under review: the branch (or file) and "project · mode" (topbar-derive.ts). The
            logo shows only where no sidebar carries the brand. -->
-      <div class="top-title"><button class="nav-toggle" data-tip="Files" data-tip-keys="⇧B" aria-label="Toggle file tree"
+      <div class="top-title"><button class="nav-toggle" data-tip="Sidebar" data-tip-keys="⇧B" aria-label="Toggle sidebar"
           @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="top-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#tb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#tb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#tb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="tb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="tb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="tb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><div
           class="top-name"><div class="top-name-row"><b x-text="$store.g.deskTitle()" :title="$store.g.deskTitle()"></b><span
               class="top-tag" id="progressTag" role="status"></span></div><span
@@ -49,17 +49,40 @@
     </header>
     <main class="main">
       <aside class="tree" :class="{'drawer-open': $store.g.treeDrawerOpen}">
-        <div class="side-brand"><svg class="side-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#side_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#side_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#side_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="side_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="side_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="side_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span></div>
+        <div class="side-brand"><svg class="side-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#side_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#side_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#side_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="side_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="side_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="side_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><span>Galley</span><button
+            type="button" class="side-collapse" :aria-label="$store.g.sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+            :aria-expanded="!$store.g.sidebarCollapsed" :data-tip="$store.g.sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+            data-tip-keys="⇧B" :data-tip-align="$store.g.sidebarCollapsed ? 'right' : null"
+            @click="$store.g.sidebarCollapsed = !$store.g.sidebarCollapsed"><svg class="ic"><use href="#gly-sidebar"></use></svg></button></div>
+        <!-- Collapsed (wide screens only): the sidebar is a rail of icons. Change requests opens it on
+             its list; Review and Files open it on their tab. -->
+        <nav class="side-rail" aria-label="Sidebar">
+          <button type="button" class="rail-btn" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak
+            :class="{active: $store.g.overviewOpen && $store.g.view==='code'}" aria-label="Overview" data-tip="Overview"
+            :data-tip-keys="$store.g.view==='code' ? 'o' : null" data-tip-align="right" @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg></button>
+          <button type="button" class="rail-btn" x-show="$store.g.requests.length" x-cloak aria-label="Change requests"
+            data-tip="Change requests" data-tip-keys="]" data-tip-align="right"
+            @click="$store.g.requestsOpen = true; $store.g.sidebarCollapsed = false"><svg class="ic flag"><use href="#gly-flag"></use></svg><span
+              class="cr-count" x-text="$store.g.requests.length"></span></button>
+          <button type="button" class="rail-btn rail-tab" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak
+            :class="{active: $store.g.sidebarTab==='walkthrough'}" aria-label="Review" data-tip="Review"
+            :data-tip-keys="$store.g.sidebarTab==='tree' ? 'w' : null" data-tip-align="right"
+            @click="$store.g.setSidebarTab('walkthrough'); $store.g.sidebarCollapsed = false"><svg class="ic"><use href="#gly-book"></use></svg></button>
+          <button type="button" class="rail-btn rail-tab" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak
+            :class="{active: $store.g.sidebarTab==='tree'}" aria-label="Files" data-tip="Files"
+            :data-tip-keys="$store.g.sidebarTab!=='tree' ? 'w' : null" data-tip-align="right"
+            @click="$store.g.setSidebarTab('tree'); $store.g.sidebarCollapsed = false"><svg class="ic"><use href="#gly-folder"></use></svg></button>
+        </nav>
         <div class="side-switch seg xs" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak>
           <!-- The w hint sits on the INACTIVE tab — the one pressing w switches to. -->
           <button :class="{active: $store.g.sidebarTab==='walkthrough'}" @click="$store.g.setSidebarTab('walkthrough')">Review <kbd x-keys x-show="$store.g.sidebarTab==='tree'">w</kbd></button>
           <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.setSidebarTab('tree')">Files <kbd x-keys x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
         </div>
-        <!-- Above either list: the Overview (Review tab) and the open change requests (both tabs, and a
-             guide-less desk). -->
+        <!-- Above either list: the Overview (a guided desk's, on either tab and in the App view) and the
+             open change requests (both tabs, a guide-less desk, and the App view). -->
         <div class="side-nav">
           <!-- "active" while the Overview shows, patched like the file rows' (applyActiveRow). -->
-          <div class="node overview-row" data-key="overview" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'"
+          <div class="node overview-row" data-key="overview" x-show="$store.g.hasGuide && $store.g.hasGuide()"
             @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg><span class="nm">Overview</span><kbd x-keys>o</kbd></div>
           <div class="node cr-head" x-show="$store.g.requests.length" x-cloak role="button" :aria-expanded="$store.g.requestsOpen"
             @click="$store.g.requestsOpen = !$store.g.requestsOpen"><svg class="ic flag"><use href="#gly-flag"></use></svg><span
@@ -139,7 +162,8 @@
             </div>
           </template>
         </div>
-        <div class="side-foot"><button class="tree-settings" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg><span>Settings</span><kbd x-keys>⇧,</kbd></button></div>
+        <div class="side-foot"><button class="tree-settings" :data-tip="$store.g.sidebarCollapsed ? 'Settings' : null"
+            :data-tip-keys="$store.g.sidebarCollapsed ? '⇧,' : null" data-tip-align="right" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg><span>Settings</span><kbd x-keys>⇧,</kbd></button></div>
       </aside>
       <!-- Narrow-width only (CSS-gated): dims the diff behind the open file drawer; tap to close. -->
       <div class="tree-backdrop" :class="{open: $store.g.treeDrawerOpen}" @click="$store.g.treeDrawerOpen=false"></div>

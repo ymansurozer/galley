@@ -113,8 +113,10 @@ document.addEventListener(
 document.querySelectorAll<HTMLElement>("[data-resize]").forEach((handle) => {
   handle.onpointerdown = (e: PointerEvent) => {
     e.preventDefault();
-    handle.classList.add("dragging");
     const side = handle.dataset.resize;
+    // The collapsed rail keeps its width; --left-width stays as it was for the expand.
+    if (side === "left" && S.sidebarCollapsed) return;
+    handle.classList.add("dragging");
     const startX = e.clientX;
     const styles = getComputedStyle(document.documentElement);
     const startLeft = parseInt(styles.getPropertyValue("--left-width")) || 280;
@@ -317,7 +319,9 @@ S.closeSettings = () => {
 S.hasGuide = hasGuide;
 S.openOverview = () => {
   S.overviewOpen = true;
-  render();
+  // From the App view (its sidebar row or rail icon) the Overview is the code view's page.
+  if (S.view === "ui") void setView("code");
+  else render();
 };
 S.startGuided = () => {
   S.overviewOpen = false;
