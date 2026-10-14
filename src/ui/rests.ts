@@ -1,4 +1,4 @@
-import { S, $, esc } from "./store";
+import { S, $, esc, toast } from "./store";
 import { awaitingParts, KINDS, threadCard } from "./annotations";
 import { cursorRowEl, invalidateCursorRows, rowAt } from "./cursor";
 import { diffShadowRoot } from "./diff-dom";
@@ -77,8 +77,18 @@ export function openThread(key: string | null) {
   const was = S.openThread;
   if (was === key) return;
   const slots = [...document.querySelectorAll<HTMLElement>(".thread-slot")];
-  if (slots.some((s) => s.dataset.key === was && s.querySelector(".js-composer-focus"))) {
-    if (S.composerBody.trim()) return;
+  const drafting = slots.find(
+    (s) => s.dataset.key === was && s.querySelector(".js-composer-focus"),
+  );
+  if (drafting && S.composerBody.trim()) {
+    // Say why nothing opened: the draft's card flashes.
+    drafting.classList.remove("flash");
+    void drafting.offsetWidth; // restart the animation
+    drafting.classList.add("flash");
+    toast("Finish or clear your draft first");
+    return;
+  }
+  if (drafting) {
     S.composerOpen = false;
     S.editingCommentId = null;
   }
