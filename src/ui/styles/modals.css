@@ -1,6 +1,6 @@
 /* ── Sheets: Send, Confirm, Settings / Shortcuts, the annotation screenshot ──
    Every dialog is a sheet hanging from the top bar's bottom edge, the way a Mac sheet drops from
-   its window's toolbar: a squared top, a rounded foot, sliding down on a spring. The scrim dims
+   its window's toolbar: a squared top, a rounded foot, sliding down into place. The scrim dims
    the desk under the bar and clips the sheet as it slides, so it emerges from under the bar. */
 .modal-backdrop {
   position: absolute;
@@ -48,8 +48,11 @@
   padding: 20px 22px 18px;
 }
 
+/* A pure slide on a settling curve: a spring's overshoot carried the sheet past its place and
+   opened a gap under the bar before it settled back. The backdrop clips it at the bar, so its top
+   edge is always the bar's bottom. */
 .modal-backdrop.show .modal {
-  animation: sheet-in 0.5s var(--spring);
+  animation: sheet-in 0.4s var(--ease);
 }
 
 @keyframes sheet-in {
@@ -292,7 +295,7 @@
 
 .help-h {
   grid-column: 1 / -1;
-  margin: 16px 0 4px 4px;
+  margin: 16px 0 4px;
   color: var(--ink-3);
   font-size: var(--text-xs);
   font-weight: 600;
