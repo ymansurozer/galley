@@ -10,6 +10,7 @@ import { currentGuideEntry, nextFileIndex } from "./guide";
 import { isFileSkim, isFileSkimCollapsed, movedFrom, toggleFileSkim } from "./skim";
 import { keycapsHtml, keycapsNode } from "./keycaps";
 import { fileBarActions, splitPath } from "./filebar-derive";
+import { isOversizedPlaceholder } from "./oversized";
 
 // ── The open file's bar ──────────────────────────────────────────────────────
 // One Galley-DOM header serves every file view (diff, skim strip, pure rename, oversized card,
@@ -122,7 +123,9 @@ function fileActions(path: string): HTMLElement {
   wrap.className = "fb-actions";
   const finished = fileFinished(path);
   const objections = fileObjections(path);
-  const chip = blockersChip();
+  // The oversized card has no rows to jump to, and reaching one would mean silently loading the
+  // diff the card exists to hold back, so it shows no blockers chip.
+  const chip = isOversizedPlaceholder() ? null : blockersChip();
   const actions = fileBarActions({
     finished,
     objections,

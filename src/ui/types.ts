@@ -349,7 +349,7 @@ export interface Store {
   setSidebarTab?: (tab: Store["sidebarTab"]) => void;
   rowClick?: (r: TreeRow) => void;
   setStyle?: (style: DiffStyle) => void;
-  setFileView?: (view: "rendered" | "source") => void;
+  setFileView?: (view: "rendered" | "source") => Promise<void>;
   isMarkdownFile?: () => boolean;
   // A sidebar row's status icon: sign the file off in place, or reset a finished one. statusHint
   // labels the icon with what a click will do, read on hover/focus rather than bound per row.

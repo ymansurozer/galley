@@ -153,22 +153,43 @@ function flashRow(r: Row) {
 // Land the cursor on a specific rendered line (display space) and center it. Context rows merge
 // to a single entry (additions primary, deletions twin in `alt`), so fall back to a line-only
 // match before giving up.
-function landAt(side: Side, line: number, flash = false): boolean {
+function landAt(side: Side, line: number): boolean {
   const list = rows();
   const r = list.find((x) => matches(x, side, line)) ?? list.find((x) => x.line === line);
   if (!r) return false;
   cur = { side: r.side, line: r.line };
   paint(r);
   r.el.scrollIntoView({ block: "center" });
-  if (flash) flashRow(r);
   return true;
+}
+
+// Flash the cursor's line a frame after a jump lands. A jump that just opened the file lands while
+// @pierre may still be re-rendering its rows (unfolding a thread's region swaps the cells), so the
+// flash goes on whichever cells hold the line once that settles — re-measured if the cached ones
+// left the page.
+function flashCursorLine() {
+  requestAnimationFrame(() => {
+    const at = cur;
+    if (!at) return;
+    let r = rows().find((x) => matches(x, at.side, at.line));
+    if (r && !r.el.isConnected) {
+      invalidateCursorRows();
+      r = rows().find((x) => matches(x, at.side, at.line));
+    }
+    if (r) flashRow(r);
+  });
 }
 
 // Jump used by the blockers list and the change-request walk: land and flash. Retries once across
 // two frames so a just-triggered collapsed-region expansion (which rerenders) has laid out its rows.
 export function cursorJumpTo(side: Side, line: number) {
-  if (!landAt(side, line, true))
-    requestAnimationFrame(() => requestAnimationFrame(() => landAt(side, line, true)));
+  if (landAt(side, line)) flashCursorLine();
+  else
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (landAt(side, line)) flashCursorLine();
+      }),
+    );
 }
 
 // Whether this DISPLAY line has a rendered row: exactly, not landAt's line-only fallback, whose

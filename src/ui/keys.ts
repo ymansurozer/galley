@@ -74,9 +74,8 @@ const cmd = (key: string) => (e: KeyboardEvent) =>
 const cmdShift = (key: string) => (e: KeyboardEvent) =>
   e.key === key && (e.metaKey || e.ctrlKey) && e.shiftKey;
 
-// Esc cascade: close the topmost transient surface. The popovers over the code come first.
+// Esc cascade: close the topmost transient surface.
 function escape() {
-  if (closeBlockers()) return;
   if (golineActive()) {
     golineCancel();
     return;
@@ -97,6 +96,9 @@ function escape() {
     closeShot();
     return;
   }
+  // The popovers over the code: above everything in it, below the dialogs (which close them as
+  // they open — see installBlockers).
+  if (closeBlockers()) return;
   if (S.composerOpen || S.editingCommentId) {
     // A code composer also drops the line highlight it was anchored to.
     if (!composerInUi()) cursorReset();

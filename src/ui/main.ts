@@ -21,6 +21,7 @@ import {
   fileObjections,
 } from "./changes";
 import { toggleSignOff } from "./decisions";
+import { installBlockers } from "./blockers";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
@@ -140,6 +141,7 @@ document.querySelectorAll<HTMLElement>("[data-resize]").forEach((handle) => {
 // Keyboard shortcuts: a central scope-aware dispatcher (keys.ts) is the single source of truth.
 installKeys();
 installTooltips();
+installBlockers();
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
@@ -245,7 +247,7 @@ S.setStyle = (style) => {
 S.setFileView = (view) => {
   S.fileView = view;
   D.fileDiff = null;
-  render();
+  return render();
 };
 // A double-click's second click would undo the sign-off its first one made. The hint re-reads at
 // once: the pointer is still on the icon, which now does the opposite.

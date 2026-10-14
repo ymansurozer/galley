@@ -1,10 +1,9 @@
-import { S, $, toast } from "./store";
+import { S, toast } from "./store";
 import { currentFile, fromDisplayLine, toDisplayLine } from "./changes";
 import { isUnanchored } from "./unanchored";
-import { flashThread, jumpToBlocker } from "./blockers";
-import { cursorOn, cursorReset, cursorSelection } from "./cursor";
+import { jumpToBlocker } from "./blockers";
+import { cursorOn, cursorSelection } from "./cursor";
 import { hasGuide, reviewFileOrder } from "./guide";
-import { isFileSkimCollapsed, toggleFileSkim } from "./skim";
 import { openRequestCount, requestStops, stepRequest, type RequestStop } from "./requests-derive";
 
 // ── The walk through open change requests ────────────────────────────────────
@@ -67,30 +66,16 @@ export function stepOpenRequest(dir: 1 | -1) {
 }
 
 // Open the stop's file (a changed one, else as a preview), wait for it to render, then bring the
-// thread into view where it shows: a rendered markdown file's thread, the unanchored strip's, else
-// the cursor on its line.
+// thread into view the way the blockers list does: a rendered markdown file's thread, the
+// unanchored strip's, else the cursor on its line.
 async function land(stop: RequestStop) {
   if (inOverview() || currentFile()?.path !== stop.path) {
     const i = S.state.files.findIndex((f) => f.path === stop.path);
     await (i >= 0 ? S.selectFile?.(i) : S.previewFile?.(stop.path));
   }
-  // A skimmed file the reviewer folded back hides its diff, the thread with it.
-  if (isFileSkimCollapsed(stop.path)) await toggleFileSkim(stop.path);
   // The reviewer may have moved on while it rendered.
-  if (currentFile()?.path !== stop.path || last !== stop) return;
-  const diff = $("diff");
-  const md = diff.querySelector<HTMLElement>(`.md-thread[data-thread="${stop.lineNumber}"]`);
-  const strip = diff.querySelector(
-    `.unanchored-strip [data-thread="${stop.side}:${stop.lineNumber}"]`,
-  );
-  if (md || strip) cursorReset();
-  if (md) flashThread(md);
-  else
-    jumpToBlocker({
-      kind: "thread",
-      side: stop.side,
-      lineNumber: stop.lineNumber,
-      preview: "",
-      unanchored: !!strip,
-    });
+  const current = () => currentFile()?.path === stop.path && last === stop;
+  if (!current()) return;
+  const { side, lineNumber, unanchored } = stop;
+  await jumpToBlocker({ kind: "thread", side, lineNumber, preview: "", unanchored }, current);
 }
