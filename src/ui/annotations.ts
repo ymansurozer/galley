@@ -9,7 +9,7 @@ import {
 import { isUnanchored } from "./unanchored";
 import { acceptChange } from "./decisions";
 import { editComment, deleteComment, turnComment } from "./comments";
-import { renderCommentBody } from "./markdown";
+import { renderCommentBody, type CommentSurface } from "./markdown";
 import {
   buildComposer,
   buildEditor,
@@ -118,7 +118,7 @@ export function annotations(): AnnotationInput[] {
       });
       if (collapsed) continue;
     }
-    // With per-change verdicts off no change gets its Undo | Keep control.
+    // With per-change verdicts off no change gets its Keep | Undo control.
     if (!S.settings.perChangeVerdicts) continue;
     changes.push({
       side: ch.side,
@@ -313,7 +313,11 @@ function headHtml(c: ThreadView, head: NonNullable<ThreadView["head"]>) {
 // Resolve. A resolved thread rests as one line with Reopen. The one thread component: the diff
 // annotations, the unanchored block, the markdown-file view (mdfile.ts) and the UI lane's
 // annotation sidebar (uilane.ts) all render through it.
-export function buildCommentThread(c: ThreadView, controls: ThreadControls): HTMLElement {
+export function buildCommentThread(
+  c: ThreadView,
+  controls: ThreadControls,
+  surface: CommentSurface,
+): HTMLElement {
   const box = document.createElement("div");
   box.className = `comment-box thread-card${c.head ? ` k-${c.head.kind}` : ""}`;
   const replyOpen = controls.replying;
@@ -353,7 +357,7 @@ export function buildCommentThread(c: ThreadView, controls: ThreadControls): HTM
           : "";
       // The body is left empty for the message being edited — buildEditor replaces it
       // below (it needs live DOM wiring, not an innerHTML string).
-      const body = editing ? "" : `<div class="md">${renderCommentBody(m)}</div>`;
+      const body = editing ? "" : `<div class="md">${renderCommentBody(m, surface)}</div>`;
       return `<div class="msg${own ? "" : " agent"}${editing ? " editing" : ""}" data-id="${m.id}"><div class="meta">${own ? AVATAR.you : AVATAR.agent}<span class="author${own ? "" : " agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div>${body}</div>`;
     })
     .join("");
@@ -410,8 +414,8 @@ export function buildCommentThread(c: ThreadView, controls: ThreadControls): HTM
 }
 
 // A code thread's card, wherever the thread shows: on its line in the diff, in the unanchored
-// block (`lost`), or under its block in the rendered markdown view.
-export function threadCard(t: ThreadMeta, lost = false): HTMLElement {
+// block (`lost`), or under its block in the rendered markdown view (the "chrome" surface).
+export function threadCard(t: ThreadMeta, lost: boolean, surface: CommentSurface): HTMLElement {
   const asks = t.comments.some(asksChange);
   const head = {
     kind: threadKind(t.status, t.comments),
@@ -419,7 +423,7 @@ export function threadCard(t: ThreadMeta, lost = false): HTMLElement {
     lost,
     held: asks,
   };
-  return buildCommentThread({ ...t, head }, lineThread(t));
+  return buildCommentThread({ ...t, head }, lineThread(t), surface);
 }
 
 // The new-comment composer as a card at its line: what it is and where, then the reviewer's
@@ -480,7 +484,7 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     (el.querySelector(".skim-toggle") as HTMLButtonElement).onclick = () => toggleSkimBlock(c.id);
     return el;
   }
-  // A pending change's Undo | Keep, under its last changed line. Every control carries its
+  // A pending change's Keep | Undo, under its last changed line. Every control carries its
   // keycaps; only the one the cursor marks shows them (cursor.ts markCursorChange).
   if (c.type === "change") {
     const el = document.createElement("div");
@@ -500,8 +504,8 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
       return b;
     };
     control.append(
-      decide("reject", "Undo", "⇧N", "rejected"),
       decide("accept", "Keep", "⇧Y", "accepted"),
+      decide("reject", "Undo", "⇧N", "rejected"),
     );
     el.appendChild(control);
     return el;

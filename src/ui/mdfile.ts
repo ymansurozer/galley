@@ -85,7 +85,7 @@ export function renderMarkdownFile() {
       status: comments.some((c) => c.status === "open") ? "open" : "resolved",
       comments,
     };
-    thread.appendChild(threadSlot(meta));
+    thread.appendChild(threadSlot(meta, false, "chrome"));
     const el = anchorForLine(anchors, line);
     if (!el) container.appendChild(thread);
     else if (el.tagName === "LI") el.appendChild(thread);

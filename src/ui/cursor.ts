@@ -335,7 +335,7 @@ export function cursorMoveHunk(dir: 1 | -1) {
   toast(dir === 1 ? "No more changes" : "No previous changes");
 }
 
-// A change stepped into shows down to its Undo | Keep control: the whole change when it fits, as
+// A change stepped into shows down to its Keep | Undo control: the whole change when it fits, as
 // the cursor lands on its first row. The view scrolls on only as far as that row allows, so the
 // cursor's line never slides under the pinned bar (#diff's --file-bar-h, plus diff.css's air).
 function revealCursorChange() {
@@ -368,7 +368,7 @@ export function cursorChangeId(): string | null {
   return S.settings.perChangeVerdicts ? (cursorChange()?.id ?? null) : null;
 }
 
-// Mark the change at the cursor: only its Undo | Keep control shows its keycaps, and a rail runs
+// Mark the change at the cursor: only its Keep | Undo control shows its keycaps, and a rail runs
 // down its rows and its control (decisions.css). Only the affected controls' class and the rail's
 // box change, never the diff, so it's cheap enough for every cursor move.
 let rail: HTMLElement | null = null;

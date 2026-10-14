@@ -34,6 +34,7 @@ import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
 import { diffShadowRoot } from "./diff-dom";
 import { fileEnd, fileLead, renderFileBar } from "./filebar";
 import { guideCard, trackGuideCard } from "./guidecard";
+import { codeScheme } from "./shiki-curated";
 
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
 // side (the new side reuses the server's contentHash). Same content → same key → cache hit.
@@ -103,8 +104,6 @@ export function diffKey(previewing: boolean): string {
     S.settings.hunkSeparators,
     S.settings.lineDiffType,
     S.settings.theme,
-    // appearance flips @pierre's themeType, so a cached diff must invalidate on it
-    S.settings.appearance,
   ]);
 }
 export function clearOverviewRuler() {
@@ -201,6 +200,13 @@ export async function render() {
 async function renderCenter() {
   clearOverviewRuler();
   const host = $("diff");
+  // The diff area (#diff, the ruler and the Rendering cover) is the code canvas: it takes the code
+  // theme's scheme, not the appearance (tokens.css). The Overview and rendered markdown are pages
+  // with no code theme, so they leave it to the appearance.
+  // #diff's parent is always .diff-area (index.html).
+  const area = host.parentElement!;
+  area.dataset.scheme = codeScheme(S.settings.theme);
+  const page = () => delete area.dataset.scheme;
   // Leaving the diff view (overview / markdown): just detach the active instance — its cached
   // wrapper survives in D.diffCache (renderOverview/renderMarkdownFile overwrite #diff's
   // content, detaching the wrapper, which we re-mount on return). No cleanUp → cache preserved.
@@ -222,6 +228,7 @@ async function renderCenter() {
     cursorReset();
     dropInstance();
     D.lineMap = null;
+    page();
     renderOverview();
     trackGuideCard(null);
     return;
@@ -279,6 +286,7 @@ async function renderCenter() {
     dropInstance();
     D.lineMap = null; // markdown anchors are block lines, not diff gutter numbers
     applyLayoutClasses();
+    page();
     renderMarkdownFile();
     withBar();
     host.append(fileEnd());
@@ -344,6 +352,12 @@ async function renderCenter() {
   // values — so a one-sided render of an unchanged file isn't all-green. These must be set
   // INSIDE @pierre's shadow (via unsafeCSS below): the context vars they reference only exist
   // there, so a host-level override referencing them is invalid and silently reverts.
+  // @pierre's light mixes leave a dark theme's hunk separators (and their expand buttons) at the
+  // background's own lightness, so they'd vanish: lift them 15% toward white, as its dark mixes do.
+  const separatorCSS =
+    codeScheme(S.settings.theme) === "dark"
+      ? ":host{--diffs-bg-separator:color-mix(in lab,var(--diffs-bg) 85%,#fff)}"
+      : "";
   const previewCSS = previewing
     ? "[data-code]{--diffs-bg-addition-override:var(--diffs-bg-context);--diffs-bg-addition-emphasis-override:var(--diffs-bg-context);--diffs-bg-addition-number-override:var(--diffs-bg-context-gutter);--diffs-fg-number-addition-override:var(--diffs-fg-number)}"
     : "";
@@ -354,10 +368,13 @@ async function renderCenter() {
   const diffIndicators = previewing ? "none" : S.settings.diffIndicators;
   const opts = {
     // The code theme is the user's pick regardless of appearance (the settings dropdown groups
-    // dark and light themes; mixing is allowed). Both slots get it — themeType only decides
-    // which slot @pierre reads plus its own chrome colors, which should follow the appearance.
+    // dark and light themes; mixing is allowed). Both slots get it, so themeType only picks
+    // which of @pierre's own mixes tint the rows: always its light ones. Its dark ones tint a
+    // dark theme's changed lines 20% (against 12%) and their words at 20% (against 15%), which
+    // reads pale on a dark canvas; the light ones are a light theme's own. separatorCSS keeps a
+    // dark theme's hunk separators where the dark mixes put them.
     theme: { dark: S.settings.theme, light: S.settings.theme },
-    themeType: (S.settings.appearance === "light" ? "light" : "dark") as "light" | "dark",
+    themeType: "light" as const,
     diffStyle,
     diffIndicators,
     expandUnchanged,
@@ -396,6 +413,7 @@ async function renderCenter() {
       "[data-line-type]{scroll-margin-top:var(--jump-top,0px)}" +
       "[data-flash]{animation:galley-flash 1.2s ease-out}" +
       "@keyframes galley-flash{0%{box-shadow:inset 0 0 0 100vmax color-mix(in srgb,var(--orange) 25%,transparent)}}" +
+      separatorCSS +
       previewCSS,
   };
   // annotations() is our own AnnotationInput[]; the lib's DiffLineAnnotation<T> is a

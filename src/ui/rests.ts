@@ -4,6 +4,7 @@ import { cursorPlace, cursorRowEl, invalidateCursorRows, rowAt } from "./cursor"
 import { diffShadowRoot } from "./diff-dom";
 import { lineLabel, questionWaiting, threadKind } from "./thread-derive";
 import { firstLine } from "./uilane-derive";
+import type { CommentSurface } from "./markdown";
 import type { GroupMeta, Side, ThreadMeta } from "./types";
 
 // ── Thread rests ─────────────────────────────────────────────────────────────
@@ -17,23 +18,26 @@ import type { GroupMeta, Side, ThreadMeta } from "./types";
 export const threadKey = (t: { path: string; side: Side; lineNumber: number }) =>
   `${t.path}\n${t.side}:${t.lineNumber}`;
 
-const slotThread = new WeakMap<HTMLElement, { t: ThreadMeta; lost: boolean }>();
+const slotThread = new WeakMap<
+  HTMLElement,
+  { t: ThreadMeta; lost: boolean; surface: CommentSurface }
+>();
 
 // A slot for a thread: its rest, or its card when open. `lost`: the thread is in the unanchored
-// block, its line struck through.
-export function threadSlot(t: ThreadMeta, lost = false) {
+// block, its line struck through. `surface`: where it renders, the diff by default (markdown.ts).
+export function threadSlot(t: ThreadMeta, lost = false, surface: CommentSurface = "code") {
   const slot = document.createElement("div");
   slot.className = "thread-slot";
   slot.dataset.thread = `${t.side}:${t.lineNumber}`;
   slot.dataset.key = threadKey(t);
-  slotThread.set(slot, { t, lost });
+  slotThread.set(slot, { t, lost, surface });
   fill(slot, slot.dataset.key === S.openThread);
   return slot;
 }
 
 function fill(slot: HTMLElement, open: boolean) {
-  const { t, lost } = slotThread.get(slot)!; // every slot is registered as it's made
-  slot.replaceChildren(open ? threadCard(t, lost) : rest(t, lost, slot.dataset.key!));
+  const { t, lost, surface } = slotThread.get(slot)!; // every slot is registered as it's made
+  slot.replaceChildren(open ? threadCard(t, lost, surface) : rest(t, lost, slot.dataset.key!));
 }
 
 // One line: the state glyph, who spoke last, the first line of what they said, the count. A
