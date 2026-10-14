@@ -1,7 +1,7 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { S, $ } from "./store";
 import { currentFile, currentSplittable, fileFinished, fileObjections } from "./changes";
-import { buildCommentThread, lineThread } from "./annotations";
+import { unanchoredBlock } from "./annotations";
 import { unanchoredThreads } from "./unanchored";
 import { approveCurrentFile, resetReview } from "./decisions";
 import { blockersChip, fileBlockers } from "./blockers";
@@ -293,22 +293,6 @@ export function fileLead(): HTMLElement | null {
   }
   // Open threads whose anchor line no longer renders — shown before the diff's first row so they
   // stay actionable (they block approval until resolved).
-  if (orphans.length) {
-    const strip = document.createElement("div");
-    strip.className = "unanchored-strip";
-    const head = document.createElement("div");
-    head.className = "unanchored-head";
-    head.textContent = `${orphans.length} comment thread${orphans.length === 1 ? "" : "s"} lost ${orphans.length === 1 ? "its" : "their"} place in this diff — resolve or reply here`;
-    strip.appendChild(head);
-    for (const t of orphans) {
-      // Reuse the annotation thread styling (it's all scoped under .annotation).
-      const box = document.createElement("div");
-      box.className = "annotation";
-      box.dataset.thread = `${t.side}:${t.lineNumber}`; // blockers jump target
-      box.appendChild(buildCommentThread(t, lineThread(t)));
-      strip.appendChild(box);
-    }
-    lead.appendChild(strip);
-  }
+  if (orphans.length) lead.appendChild(unanchoredBlock(orphans));
   return lead;
 }

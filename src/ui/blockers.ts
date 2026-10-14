@@ -76,6 +76,22 @@ function flashThread(el: HTMLElement) {
   el.classList.add("flash");
 }
 
+// A thread on a diff row: the cursor lands on (and flashes) its line, and its card flashes beside
+// it. Two frames late, so an unfold's re-render has drawn the card first.
+function flashLineThread(side: Side, lineNumber: number) {
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      const el = $("diff").querySelector<HTMLElement>(
+        `.annotation[data-thread="${side}:${lineNumber}"]`,
+      );
+      if (!el) return;
+      el.classList.remove("flash");
+      void el.offsetWidth; // restart the animation
+      el.classList.add("flash");
+    }),
+  );
+}
+
 // Bring a blocker on the open file into view and flash it, from whichever view the file is in.
 // It's the one route for both the blockers list and the change-request walk (requests.ts), so the
 // two can't drift. The view first gets something to land on: a skimmed file folded behind its
@@ -113,6 +129,7 @@ export async function jumpToBlocker(b: Blocker, current: () => boolean = () => t
   // line that already renders would widen the run on every jump to it.
   if (!isRendered(b.side, line)) revealLine(b.side, b.lineNumber);
   cursorJumpTo(b.side, line);
+  if (b.kind === "thread") flashLineThread(b.side, b.lineNumber);
 }
 
 // The open popover, while one is open: a row's jump, a click outside and Esc all close it through
