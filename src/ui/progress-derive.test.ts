@@ -67,6 +67,13 @@ test("progressSummary: lines mode names files and lines", () => {
   });
 });
 
+test("progressSummary: a guide that splits files counts steps", () => {
+  assert.deepEqual(progressSummary(50, { done: 2, total: 4 }, null, "steps"), {
+    pct: "50%",
+    detail: "2/4 steps",
+  });
+});
+
 test("progressSummary: files mode names files only", () => {
   assert.deepEqual(progressSummary(33, { done: 2, total: 6 }, null), {
     pct: "33%",

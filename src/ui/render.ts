@@ -31,6 +31,7 @@ import {
   renderMovedPure,
 } from "./skim";
 import { isOversizedPlaceholder, renderOversizedCard } from "./oversized";
+import { applyHunkFolds } from "./fold";
 import { diffShadowRoot } from "./diff-dom";
 import { fileEnd, fileLead, renderFileBar } from "./filebar";
 import { guideCard, trackGuideCard } from "./guidecard";
@@ -89,9 +90,10 @@ export function deferRender(forceIfBig = false): Promise<void> {
     ),
   );
 }
-// Identity of a rendered diff for the LRU cache: the current file + every option that changes
-// what @pierre renders. selectFile uses this to tell if re-opening a file will be a fast cache
-// hit (→ skip the "Rendering…" indicator). Reads currentFile(), so call after fileIndex is set.
+// Identity of a rendered diff for the LRU cache: the current step (file + part) + every option
+// that changes what @pierre renders. selectFile uses this to tell if re-opening a file will be a
+// fast cache hit (→ skip the "Rendering…" indicator). Reads currentFile(), so call after fileIndex
+// is set. Each part of a split file is its own entry: a part view renders only its own blocks.
 export function diffKey(previewing: boolean): string {
   const f = currentFile();
   return JSON.stringify([
@@ -104,6 +106,7 @@ export function diffKey(previewing: boolean): string {
     S.settings.hunkSeparators,
     S.settings.lineDiffType,
     S.settings.theme,
+    previewing ? null : (S.stepPart ?? null),
   ]);
 }
 export function clearOverviewRuler() {
@@ -334,6 +337,7 @@ async function renderCenter() {
     cacheKey: f.contentHash || ckey(cur.newContents),
   };
   let fd: FileDiffMetadata;
+  let rawFd: FileDiffMetadata | null = null;
   if (viewOnly) {
     fd = D.parseDiffFromFile({ name: newName, contents: "", cacheKey: "∅" }, newF);
     D.lineMap = null;
@@ -342,7 +346,7 @@ async function renderCenter() {
     // Changes (identity, raw anchors) derive from the raw diff; the rendered diff is the
     // decision-replayed one, so display anchors must be re-read from it (resolutions
     // renumber lines — see linemap.ts).
-    const rawFd = D.parseDiffFromFile(oldF, newF);
+    rawFd = D.parseDiffFromFile(oldF, newF);
     ensureChangesFromFileDiff(rawFd);
     fd = replayDecisions(rawFd);
     syncDisplayAnchors(fd);
@@ -362,6 +366,7 @@ async function renderCenter() {
     ? "[data-code]{--diffs-bg-addition-override:var(--diffs-bg-context);--diffs-bg-addition-emphasis-override:var(--diffs-bg-context);--diffs-bg-addition-number-override:var(--diffs-bg-context-gutter);--diffs-fg-number-addition-override:var(--diffs-fg-number)}"
     : "";
   D.fileDiff = fd;
+  D.rawFileDiff = rawFd;
   applyLayoutClasses();
   const diffStyle = currentSplittable() ? S.diffStyle : "unified";
   const expandUnchanged = S.settings.unchangedLines === "expand";
@@ -399,7 +404,10 @@ async function renderCenter() {
       // The rendered rows just changed (mount, update, or @pierre's own expandHunk rerender —
       // which never routes through our render()), so the cursor's cached row list is stale.
       invalidateCursorRows();
-      if (phase !== "unmount") applySkimCollapse();
+      if (phase !== "unmount") {
+        applySkimCollapse();
+        applyHunkFolds();
+      }
     },
     // @pierre reserves a right-side gutter via `scrollbar-gutter: stable` on the code grid
     // (for a vertical scrollbar it hides) — drop it so rows fill the full width. The rows' scroll
@@ -421,9 +429,13 @@ async function renderCenter() {
   // though the runtime shape (side/lineNumber/metadata) is exactly what it reads.
   const anns = () => annotations() as DiffLineAnnotation<AnnotationMeta>[];
   const afterRender = () => {
-    // Collapse skimmed blocks by hiding their rows — synchronous (before paint) so there's no
-    // expand-then-collapse flash, and re-run every render so it survives @pierre re-renders.
-    if (!previewing) applySkimCollapse();
+    // Collapse skimmed blocks and fold other parts' hunks by hiding their rows — synchronous
+    // (before paint) so there's no expand-then-collapse flash, and re-run every render so it
+    // survives @pierre re-renders.
+    if (!previewing) {
+      applySkimCollapse();
+      applyHunkFolds();
+    }
     setTimeout(() => attachDiffSelectionHandlers(), 0);
     // Unfold collapsed regions hiding an open comment thread (once per rendered diff).
     if (!previewing) revealThreadLines(key);

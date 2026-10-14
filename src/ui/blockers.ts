@@ -1,7 +1,16 @@
 import Alpine from "alpinejs";
 import { S, D, $ } from "./store";
-import type { Decision, ReviewComment, Side } from "./types";
-import { currentFile, toDisplayLine } from "./changes";
+import type { ChangeState, Decision, ReviewComment, Side } from "./types";
+import {
+  currentBlockAt,
+  currentChanges,
+  currentFile,
+  inCurrentStep,
+  toDisplayLine,
+} from "./changes";
+import { attributeComment, placeBlocks } from "./flow-index";
+import { currentGuideEntry, currentSlot } from "./guide";
+import { blockStep } from "./steps";
 import { isUnanchored } from "./unanchored";
 import { revealLine } from "./expand";
 import { cursorJumpTo, cursorReset, isRendered } from "./cursor";
@@ -94,19 +103,38 @@ function flashLineThread(side: Side, lineNumber: number) {
   );
 }
 
+// A jump never lands on a block another step covers, which a part view renders as plain code: it
+// opens that block's own step first (its part, or the file's Rest). Resolves false when the
+// reviewer moved elsewhere while that step rendered, so the jump no longer applies.
+async function openBlockStep(c: ChangeState | undefined): Promise<boolean> {
+  if (!c || inCurrentStep(c)) return true;
+  const step = blockStep(S.state.guide?.files ?? [], S.fileIndex, c);
+  await S.selectStep?.(step);
+  return (
+    !S.overviewOpen &&
+    !S.preview &&
+    S.view === "code" &&
+    S.fileIndex === step.fileIndex &&
+    S.stepPart === step.part
+  );
+}
+
 // Bring a blocker on the open file into view and flash it, from whichever view the file is in.
 // It's the one route for both the blockers list and the change-request walk (requests.ts), so the
 // two can't drift. The view first gets something to land on: a skimmed file folded behind its
 // strip expands, and a rejected change in rendered markdown, which has no rows to show it,
 // switches the file to Source. Then the target is found where the view draws it: a rendered
-// markdown thread, the lost-thread strip, else the diff row, under the cursor. `current` lets a
-// caller drop a jump the reviewer moved on from while the view re-rendered.
+// markdown thread, the lost-thread strip, else the diff row, under the cursor; a row in a block
+// another step covers opens that step first (openBlockStep). `current` lets a caller drop a jump
+// the reviewer moved on from while the view re-rendered.
 export async function jumpToBlocker(b: Blocker, current: () => boolean = () => true) {
   const path = currentFile().path;
   if (isFileSkimCollapsed(path)) await toggleFileSkim(path);
   if (b.kind === "reject" && $("diff").querySelector(".md-file")) await S.setFileView?.("source");
   if (currentFile()?.path !== path || !current()) return;
   if (b.kind === "reject") {
+    const block = S.state.changes.find((c) => c.id === b.decision.key);
+    if (!(await openBlockStep(block)) || !current()) return;
     const pos = decisionDisplayPos(b.decision);
     cursorJumpTo(pos.side, pos.line);
     return;
@@ -130,6 +158,7 @@ export async function jumpToBlocker(b: Blocker, current: () => boolean = () => t
       ?.scrollIntoView({ block: "center", behavior: "smooth" });
     return;
   }
+  if (!(await openBlockStep(currentBlockAt(b.side, b.lineNumber))) || !current()) return;
   const line = toDisplayLine(b.side, b.lineNumber);
   // Unfold only when the line isn't rendered: each expansion reveals more lines, so unfolding a
   // line that already renders would widen the run on every jump to it.
@@ -188,17 +217,37 @@ function blockerRow(b: Blocker): HTMLButtonElement {
   return row;
 }
 
+// The blockers of the step on screen: the file's, or in a part or Rest view only the step's own (a
+// rejected block of its, a request attributed to one of its blocks), so the chip agrees with the
+// step's "Mark reviewed" (flow-index stepObjections).
+function stepBlockers(path: string, blocks: ChangeState[] | null): Blocker[] {
+  const items = fileBlockers(path);
+  if (!blocks) return items;
+  const own = new Set(blocks.map((c) => c.id));
+  const hunks = S.state.files.find((f) => f.path === path)?.hunks ?? [];
+  const placed = placeBlocks(currentChanges(), hunks);
+  return items.filter((b) =>
+    own.has(b.kind === "reject" ? b.decision.key : (attributeComment(b, placed)?.id ?? "")),
+  );
+}
+
 // The bar's "N blockers" chip + its jump-list popover (imperative DOM, like the rest of the bar).
+// The step on screen's blockers (see stepBlockers): what its "N blockers" chip lists.
+export function currentBlockers(): Blocker[] {
+  return stepBlockers(currentFile().path, currentSlot()?.blocks ?? null);
+}
+
 export function blockersChip(): HTMLElement | null {
   const path = currentFile().path;
-  const items = fileBlockers(path);
+  const blocks = currentSlot()?.blocks ?? null;
+  const items = stepBlockers(path, blocks);
   if (!items.length) return null;
   const wrap = document.createElement("span");
   wrap.className = "blockers";
   const btn = document.createElement("button");
   btn.className = "blockers-chip";
   btn.textContent = `${items.length} blocker${items.length === 1 ? "" : "s"}`;
-  btn.setAttribute("data-tip", "What's keeping this file from Approved");
+  btn.setAttribute("data-tip", `What's keeping this ${blocks ? "part" : "file"} from Approved`);
   btn.setAttribute("aria-expanded", "false");
   wrap.appendChild(btn);
   const pop = document.createElement("div");
@@ -206,7 +255,11 @@ export function blockersChip(): HTMLElement | null {
   pop.setAttribute("role", "menu");
   const head = document.createElement("div");
   head.className = "blockers-head";
-  head.textContent = `Keeping ${path.split("/").pop()} from Approved`;
+  // The step it keeps from Approved: the file, a part of it, or its Rest.
+  const name = path.split("/").pop();
+  const part = S.stepPart === "rest" ? null : currentGuideEntry()?.part?.title;
+  const step = S.stepPart === "rest" ? `Rest of ${name}` : part ? `${name} · ${part}` : name;
+  head.textContent = `Keeping ${step} from Approved`;
   pop.appendChild(head);
   const close = () => {
     wrap.classList.remove("open");

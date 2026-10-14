@@ -1,15 +1,16 @@
 import { S, $ } from "./store";
 import { currentFile } from "./changes";
-import { currentGuideEntry, guideStale } from "./guide";
+import { currentFileParts, currentGuideEntry, guideStale } from "./guide";
 import { renderMarkdown } from "./markdown";
 import { syncFileBarHeight } from "./filebar";
 import type { GuideFile } from "./types";
 
 // ── The guide card ───────────────────────────────────────────────────────────
-// The guide's note on the open file: one card under the file bar, in the flow, for any view of a
-// file the guide has an entry for. Once it scrolls up under the bar it comes back pinned as one
-// line inside the bar (category · clamped orientation · inline flag · chevron), and the chevron
-// opens the full note over the code. A stale guide says so inside the card.
+// The guide's note on the step on screen: one card under the file bar, in the flow, for any view
+// of a file or part the guide has an entry for. Once it scrolls up under the bar it comes back
+// pinned as one line inside the bar (clamped orientation · inline flag · chevron), and the chevron
+// opens the full note over the code. A stale guide says so inside the card. A split file's Rest,
+// or the file opened whole, has no entry of its own: its card says what the view holds instead.
 
 const STALE =
   "Guide generated for an earlier diff — regenerate and restart with --guide to refresh";
@@ -76,15 +77,46 @@ function fullBody(entry: GuideFile): HTMLElement {
   return body;
 }
 
-// The card in the flow, for render() to mount under the bar. Null for a file without an entry, and
-// for a preview: an unchanged file isn't in the guide.
+// What the card says for the step on screen: the guide's entry for it (a part's own, an unsplit
+// file's), else, for a split file's Rest or the file opened whole, one muted line saying what the
+// view holds. No single part speaks for those, so the line never reads as the agent's guidance.
+// Null for a preview (an unchanged file isn't in the guide) or a file the guide doesn't list.
+type StepNote = { entry: GuideFile } | { line: string };
+function stepNote(): StepNote | null {
+  if (S.preview) return null;
+  const entry = currentGuideEntry();
+  if (entry) return { entry };
+  const name = currentFile()?.path.split("/").pop() ?? "";
+  if (S.stepPart === "rest")
+    return { line: `Rest of ${name}: the changes no part of the guide covers.` };
+  const parts = currentFileParts();
+  if (!parts.length) return null;
+  return {
+    line: `Split into ${parts.length} part${parts.length === 1 ? "" : "s"}: ${parts.join(" · ")}`,
+  };
+}
+
+// A Rest's or a whole split file's card: "Guide", the line, and the stale line.
+function lineBody(line: string): HTMLElement {
+  const body = el("div", "gc-body");
+  body.append(el("span", "gc-head", "Guide"), el("div", "gc-note", line));
+  if (guideStale()) {
+    const s = el("div", "gc-stale");
+    s.append(el("span", "gc-stale-dot"), STALE);
+    body.appendChild(s);
+  }
+  return body;
+}
+
+// The card in the flow, for render() to mount under the bar. Null when the step has nothing to say
+// (see stepNote).
 export function guideCard(): HTMLElement | null {
-  const entry = S.preview ? null : currentGuideEntry();
-  if (!entry) return null;
+  const note = stepNote();
+  if (!note) return null;
   const card = el("section", "guide-card");
   // Chrome with the file bar it pins under, so the appearance's (tokens.css), not the code's.
   card.dataset.scheme = "chrome";
-  card.append(bookIcon(), fullBody(entry));
+  card.append(bookIcon(), "entry" in note ? fullBody(note.entry) : lineBody(note.line));
   return card;
 }
 
@@ -112,24 +144,32 @@ export function guideMiniElement(): HTMLElement {
   return mini;
 }
 
-// Fill the pinned line for the open file and return it for the bar to carry, or null when the file
-// has no card. A different file starts closed and unpinned; the observer re-reports the new card.
+// Fill the pinned line for the step on screen and return it for the bar to carry, or null when the
+// step has no card. A different step starts closed and unpinned; the observer re-reports the new
+// card. A Rest's or a whole split file's line is the whole of its note, so it has no chevron.
 export function guideMini(): HTMLElement | null {
-  const entry = S.preview ? null : currentGuideEntry();
-  const path = currentFile()?.path ?? "";
-  if (path !== shownFor) {
-    shownFor = path;
+  const note = stepNote();
+  const step = `${currentFile()?.path ?? ""}\n${S.preview ? "" : (S.stepPart ?? "")}`;
+  if (step !== shownFor) {
+    shownFor = step;
     setOpen(false);
     setPinned(false);
   }
-  if (!entry) return null;
+  if (!note) return null;
   const m = guideMiniElement();
   const stale = guideStale();
-  const from = JSON.stringify([path, entry, stale]);
+  const from = JSON.stringify([step, note, stale]);
   if (from === builtFrom && m.firstChild) return m;
   builtFrom = from;
   const line = el("div", "gm-line");
   line.appendChild(bookIcon());
+  if (!("entry" in note)) {
+    line.appendChild(el("span", "gm-orient note", note.line));
+    if (stale) line.appendChild(staleMark());
+    m.replaceChildren(line);
+    return m;
+  }
+  const { entry } = note;
   const mark = skimMark(entry);
   if (mark) line.appendChild(mark);
   const orient = el("span", "gm-orient" + (entry.orientation ? " md" : " skim"));
@@ -141,12 +181,7 @@ export function guideMini(): HTMLElement | null {
     f.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><span class="md">${renderMarkdown(entry.flag)}</span>`;
     line.appendChild(f);
   }
-  if (stale) {
-    const s = el("span", "gm-stale");
-    s.title = STALE;
-    s.append(el("span", "gc-stale-dot"), "stale");
-    line.appendChild(s);
-  }
+  if (stale) line.appendChild(staleMark());
   const chev = document.createElement("button");
   chev.className = "btn icon sm gm-toggle";
   chev.setAttribute("aria-label", "Show the full guide note");
@@ -162,6 +197,14 @@ export function guideMini(): HTMLElement | null {
   full.appendChild(fullBody(entry));
   m.replaceChildren(line, full);
   return m;
+}
+
+// The pinned line's "stale": no room for the stale line's copy, which its tooltip carries.
+function staleMark(): HTMLElement {
+  const s = el("span", "gm-stale");
+  s.title = STALE;
+  s.append(el("span", "gc-stale-dot"), "stale");
+  return s;
 }
 
 // Replay the entrance on `target`: only on a pin or an open, never on a render.

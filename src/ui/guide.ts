@@ -1,162 +1,255 @@
 import { S, $, esc } from "./store";
 import { flowIndex } from "./changes";
-import type { FlowIndex } from "./flow-index";
+import { stepWeight, type FlowIndex } from "./flow-index";
 import { isGuideBaseStale } from "./guide-derive";
 import { navFileOrder, nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek";
 import { isSkimGroupExpanded } from "./skim";
+import {
+  adjacentStep,
+  anchorStep,
+  carryStep,
+  neighborStep,
+  outOfFlowBlocks,
+  planSteps,
+  slotOutOfFlow,
+  stepEntry,
+  stepKey,
+  stepPlan,
+  type Step,
+  type StepSlot,
+} from "./steps";
 import { treeOrder } from "./tree";
 import { renderMarkdown } from "./markdown";
 import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
 import type { WalkGroup, WalkRow } from "./walkthrough";
 import { keycapsHtml } from "./keycaps";
+import type { ChangeState, GuideFile } from "./types";
 
 // Whether the current review carries an agent-attached guide with at least one file.
 export function hasGuide(): boolean {
   return !!(S.state && S.state.guide && S.state.guide.files && S.state.guide.files.length);
 }
 
-// state.files indices in the guide's order (skip guide entries whose file isn't in the diff).
-export function guideOrder(): number[] {
-  if (!hasGuide()) return [];
-  const byPath = new Map(S.state.files.map((f, i) => [f.path, i] as const));
-  return S.state
-    .guide!.files.map((g) => byPath.get(g.path))
-    .filter((i): i is number => i !== undefined);
+// The step on screen: the current file, and which part of it (none = the whole file).
+export function currentStep(): Step {
+  return S.stepPart === undefined
+    ? { fileIndex: S.fileIndex }
+    : { fileIndex: S.fileIndex, part: S.stepPart };
 }
 
-// Where "Start guided review" lands — the first in-flow file in nav order (fully-skimmed files
-// are excluded from navOrder), else, when every file is skimmed, the first file so Start still
-// opens something.
-export function firstGuideIndex(): number {
-  const nav = navOrder();
-  if (nav.length) return nav[0]!;
-  const order = guideOrder();
-  return order.length ? order[0]! : 0;
+// The guided review's steps in walkthrough order (see stepPlan). Callers check hasGuide().
+function guidePlan(ix: FlowIndex) {
+  return stepPlan(S.state.guide!.files, S.state.files, (p) => ix.changesByPath.get(p) ?? []);
 }
 
-// Plain next/prev stepping skips fully-skimmed files — they've left the flow — UNLESS the
-// reviewer is currently on one (opened from the Skimmed group), in which case stepping walks the
-// skimmed band so the group's siblings stay reachable. `outOfBand(i)` is true for a file in the
-// opposite band from `cur`. Off either band's end returns null and the caller wraps (guideNext/
-// guidePrev), where the wrap seeks (navOrder) only ever target the in-flow band.
-function outOfBand(cur: number, ix: FlowIndex): (i: number) => boolean {
-  // The returned predicate runs per candidate file while stepping — one flow-index pass
-  // instead of a per-candidate rescan (see flow-index.ts).
-  const path = S.state?.files?.[cur]?.path;
-  const curSkimmed = !!path && ix.outOfFlow.has(path);
-  return (i) => {
-    const p = S.state?.files?.[i]?.path;
-    return (!!p && ix.outOfFlow.has(p)) !== curSkimmed;
+// What navigation needs from one flow-index pass (per-candidate rescans froze big desks — see
+// flow-index.ts): the guided plan (null without a guide), whether a step left the flow (a fully
+// skimmed file or part, a pure rename), and whether it's signed off.
+function navWith(ix: FlowIndex) {
+  const plan = hasGuide() ? guidePlan(ix) : null;
+  const slots = plan ? [...plan.listed, ...plan.other] : [];
+  const slotOf = new Map(slots.map((s) => [stepKey(s.step), s] as const));
+  const fileOut = (p: string) => ix.outOfFlow.has(p);
+  const pathOf = (s: Step) => S.state?.files?.[s.fileIndex]?.path;
+  const outOfFlow = (s: Step) => {
+    const slot = slotOf.get(stepKey(s));
+    if (slot) return slotOutOfFlow(slot, fileOut);
+    const p = pathOf(s);
+    return !!p && fileOut(p);
   };
+  // "Finished" for the seek: the step is signed off in the current state, matching its
+  // Walkthrough row and header action (an agent edit after sign-off invalidates the hash, so the
+  // step counts as unreviewed again). A part or Rest step goes by its own blocks' sign-offs.
+  const finished = (s: Step) => {
+    const slot = slotOf.get(stepKey(s));
+    if (slot) return ix.stepFinished(slot);
+    const p = pathOf(s);
+    return !!p && ix.finished(p);
+  };
+  return { ix, plan, slots, outOfFlow, finished };
+}
+type Nav = ReturnType<typeof navWith>;
+
+// The order the wrap/approve-advance seeks walk. Without a guide it's the Files tree's
+// top-to-bottom order; with one it's the walkthrough's: the guide's steps followed by the Other
+// group (each changed file the guide DIDN'T list, and each split file's Rest), in file-array
+// order — so the seek reaches unlisted files and never dead-ends on a partial guide. Steps out of
+// the flow are excluded (issue 07) unless `keep` says otherwise: this is the single choke point
+// that keeps the wrap/approve-advance seeks off them. Plain mid-list stepping (nextStep) walks the
+// same order but in its own band.
+function navStepsWith(nav: Nav, keep = (s: Step) => !nav.outOfFlow(s)): Step[] {
+  if (nav.plan) return planSteps(nav.plan, (s) => keep(s.step));
+  const n = S.state?.files?.length ?? 0;
+  return navFileOrder(n, treeOrder(nav.ix), (i) => keep({ fileIndex: i })).map((fileIndex) => ({
+    fileIndex,
+  }));
+}
+export function navSteps(): Step[] {
+  return navStepsWith(navWith(flowIndex()));
 }
 
-// The order plain stepping walks from `cur`: guide order when guided and `cur` is in it, the file
-// array for a file the guide didn't list, and without a guide the Files tree's top-to-bottom
-// order — so "next" is the row below.
-function stepOrder(cur: number, ix: FlowIndex): readonly number[] {
-  if (!hasGuide()) return treeOrder(ix);
-  const order = guideOrder();
-  return order.includes(cur) ? order : Array.from(S.state.files, (_, i) => i);
+// navSteps with the out-of-flow steps kept: the order the change-request walk (requests.ts)
+// crosses files in. A skimmed file left the flow, but an open request on it still waits to be
+// checked.
+export function reviewSteps(): Step[] {
+  return navStepsWith(navWith(flowIndex()), () => true);
 }
 
-// The next file to review after `cur`: the next in-band file in step order. null when `cur` is
+// Where "Start guided review" lands — the first in-flow step in nav order (fully-skimmed steps
+// are excluded from navSteps), else, when every step is skimmed, the first guide step so Start
+// still opens something.
+export function firstGuideStep(): Step {
+  const nav = navWith(flowIndex());
+  return navStepsWith(nav)[0] ?? nav.plan?.listed[0]?.step ?? { fileIndex: 0 };
+}
+
+// Plain next/prev stepping skips steps that left the flow — UNLESS the reviewer is currently on
+// one (opened from the Skimmed group), in which case stepping walks the skimmed band so the
+// group's siblings stay reachable. Off either band's end returns null and the caller wraps
+// (guideNext/guidePrev), where the wrap seeks (navSteps) only ever target the in-flow band.
+// The order: without a guide the Files tree's top-to-bottom order, so "next" is the row below;
+// with one, the walkthrough's (see neighborStep).
+function stepFrom(cur: Step, dir: 1 | -1): Step | null {
+  const nav = navWith(flowIndex());
+  if (nav.plan) return neighborStep(nav.plan, cur, dir, nav.outOfFlow);
+  const band = nav.outOfFlow(cur);
+  const order = treeOrder(nav.ix).map((fileIndex) => ({ fileIndex }));
+  return adjacentStep(order, cur, dir, (s) => nav.outOfFlow(s) !== band);
+}
+
+// The next step to review after `cur`: the next in-band step in step order. null when `cur` is
 // the last of its band.
-export function nextFileIndex(cur: number): number | null {
-  const ix = flowIndex();
-  const skip = outOfBand(cur, ix);
-  const order = stepOrder(cur, ix);
-  for (let p = order.indexOf(cur) + 1; p < order.length; p++)
-    if (!skip(order[p]!)) return order[p]!;
-  return null;
+export function nextStep(cur: Step): Step | null {
+  return stepFrom(cur, 1);
 }
 
-// The previous in-band file before `cur` in step order. null at the first — the caller treats
-// that as "go back to the Overview page" (or, without a guide, wraps).
-export function prevFileIndex(cur: number): number | null {
-  const ix = flowIndex();
-  const skip = outOfBand(cur, ix);
-  const order = stepOrder(cur, ix);
-  for (let p = order.indexOf(cur) - 1; p >= 0; p--) if (!skip(order[p]!)) return order[p]!;
-  return null;
+// The previous in-band step before `cur`. null at the first — the caller treats that as "go back
+// to the Overview page" (or, without a guide, wraps).
+export function prevStep(cur: Step): Step | null {
+  return stepFrom(cur, -1);
 }
 
-// The order file navigation walks and wraps around. Without a guide it's the Files tree's
-// top-to-bottom order; with one it's the guide order followed by every changed file the guide
-// DIDN'T list (the walkthrough's "Other" group), in file-array order — so the seek reaches
-// unlisted files and never dead-ends on a partial guide. Fully-skimmed files are excluded
-// (issue 07): this is the single choke point that keeps the wrap/approve-advance seeks off files
-// that left the flow. Plain mid-list stepping (nextFileIndex) reads its own band order, not this;
-// only the seek/wrap helpers read this extended order.
-// The seeks below classify every file per call, so each public entry builds ONE flow-index
-// pass and threads it through (per-file predicate rescans froze big desks — see flow-index.ts).
-function navOrderWith(ix: FlowIndex): number[] {
-  const n = S.state?.files?.length ?? 0;
-  return navFileOrder(n, hasGuide() ? guideOrder() : treeOrder(ix), (i) => {
-    const p = S.state?.files?.[i]?.path;
-    return !!p && !ix.outOfFlow.has(p);
+// The seeks (seek.ts) compare order entries with ===, so they run over step keys.
+function seekStep(
+  nav: Nav,
+  run: (order: string[], finished: (key: string) => boolean) => string | null,
+  keep?: (s: Step) => boolean,
+): Step | null {
+  const byKey = new Map(navStepsWith(nav, keep).map((s) => [stepKey(s), s] as const));
+  const key = run([...byKey.keys()], (k) => {
+    const s = byKey.get(k);
+    return !!s && nav.finished(s);
   });
-}
-export function navOrder(): number[] {
-  return navOrderWith(flowIndex());
+  return key === null ? null : (byKey.get(key) ?? null);
 }
 
-// navOrder with the fully-skimmed files kept, where the tree or the guide lists them: the order the
-// change-request walk (requests.ts) crosses files in. A skimmed file left the flow, but an open
-// request on it still waits to be checked.
-export function reviewFileOrder(): number[] {
-  const n = S.state?.files?.length ?? 0;
-  return navFileOrder(n, hasGuide() ? guideOrder() : treeOrder(flowIndex()), () => true);
+// Is there any unreviewed step left anywhere in the nav order?
+export function anyUnreviewed(): boolean {
+  const nav = navWith(flowIndex());
+  return navStepsWith(nav).some((s) => !nav.finished(s));
 }
 
-// "Unreviewed" for the seek — a file not signed off in the current state, matching the tree
-// badges and floating approve button (an agent edit after sign-off invalidates the hash, so
-// the file counts as unreviewed again). Index-reading equivalent of fileFinished.
-function seekFinishedWith(ix: FlowIndex): (i: number) => boolean {
-  return (i) => {
-    const path = S.state?.files?.[i]?.path;
-    return !!path && ix.finished(path);
+// The next unreviewed step after `cur`, wrapping past the end — approve-advance's seek.
+// null when no unreviewed step remains (the caller falls back to the review-complete prompt).
+// A split file opened whole seeks from its first step's place (see anchorStep), kept in the order
+// even when that step left the flow so the seek doesn't restart from the top.
+export function nextUnreviewedStep(cur: Step): Step | null {
+  const nav = navWith(flowIndex());
+  const from = stepKey(nav.plan ? anchorStep(nav.slots, cur, nav.outOfFlow).at : cur);
+  const anchored = from !== stepKey(cur);
+  return seekStep(
+    nav,
+    (order, finished) => nextUnreviewed(order, from, finished),
+    (s) => !nav.outOfFlow(s) || (anchored && stepKey(s) === from),
+  );
+}
+
+// Where plain "next" lands when it steps off the last step: first unreviewed, else first step.
+export function nextWrapStep(): Step | null {
+  return seekStep(navWith(flowIndex()), wrapNextTarget);
+}
+
+// Where plain "prev" lands when it steps off the first position: last unreviewed, else last step.
+export function prevWrapStep(): Step | null {
+  return seekStep(navWith(flowIndex()), wrapPrevTarget);
+}
+
+// The title of the part on screen (undefined off a part step) — what a reload re-finds it by.
+export function currentPartTitle(): string | undefined {
+  return typeof S.stepPart === "number"
+    ? S.state?.guide?.files[S.stepPart]?.part?.title
+    : undefined;
+}
+
+// After a reload or a guide swap moved guide indices under the current step, put the reviewer
+// back on it: the same part by path + title, Rest while the file still has unclaimed blocks,
+// else the whole file (see carryStep). Call once S.state and S.fileIndex are the new ones.
+export function reseatStep(part: Step["part"], title: string | undefined) {
+  S.stepPart = hasGuide()
+    ? carryStep(guidePlan(flowIndex()), S.fileIndex, part, title).part
+    : undefined;
+}
+
+// A step at its walkthrough position, with the blocks it covers (see stepPlan): a part's or
+// Rest's slot, else the file whole. null for a step the guide has no slot for, or past the files.
+export function stepSlot(step: Step): StepSlot | null {
+  const f = S.state?.files?.[step.fileIndex];
+  if (!f) return null;
+  if (step.part === undefined) return { step, path: f.path, blocks: null };
+  if (!hasGuide()) return null;
+  const plan = guidePlan(flowIndex());
+  const key = stepKey(step);
+  return [...plan.listed, ...plan.other].find((s) => stepKey(s.step) === key) ?? null;
+}
+
+// The blocks of the file's steps that left the flow (see outOfFlowBlocks): none without a guide.
+export function skimmedStepBlocks(fileIndex: number): ChangeState[] {
+  return hasGuide() ? outOfFlowBlocks(guidePlan(flowIndex()), fileIndex) : [];
+}
+
+// The step on screen as a slot: what sign-off, its header action and the blockers chip act on.
+// null on a preview, which isn't in the review.
+export function currentSlot(): StepSlot | null {
+  return S.preview ? null : stepSlot(currentStep());
+}
+
+// The review's in-flow steps: the guided plan's (parts, Rest steps and whole files), or every
+// file whole without a guide. Progress, the review-complete gate and the approve toast count these.
+function flowSlots(ix: FlowIndex): StepSlot[] {
+  const fileOut = (p: string) => ix.outOfFlow.has(p);
+  if (hasGuide()) {
+    const plan = guidePlan(ix);
+    return [...plan.listed, ...plan.other].filter((s) => !slotOutOfFlow(s, fileOut));
+  }
+  return (S.state?.files ?? []).flatMap((f, fileIndex) =>
+    fileOut(f.path) ? [] : [{ step: { fileIndex }, path: f.path, blocks: null }],
+  );
+}
+
+// Where the review stands in steps: how many in-flow steps are signed off, of how many, and
+// whether any is a part or Rest step (the approve toast then counts steps, not files).
+export function reviewTally(): { done: number; total: number; parts: boolean } {
+  const ix = flowIndex();
+  const slots = flowSlots(ix);
+  return {
+    done: slots.filter((s) => ix.stepFinished(s)).length,
+    total: slots.length,
+    parts: slots.some((s) => s.blocks),
   };
 }
 
-// The next unreviewed file after `cur`, wrapping past the end — approve-advance's seek.
-// null when no unreviewed file remains (the caller falls back to the review-complete prompt).
-export function nextUnreviewedFileIndex(cur: number): number | null {
-  const ix = flowIndex();
-  return nextUnreviewed(navOrderWith(ix), cur, seekFinishedWith(ix));
-}
-
-// Where plain "next" lands when it steps off the last file: first unreviewed, else first file.
-export function nextWrapIndex(): number | null {
-  const ix = flowIndex();
-  return wrapNextTarget(navOrderWith(ix), seekFinishedWith(ix));
-}
-
-// Where plain "prev" lands when it steps off the first position: last unreviewed, else last file.
-export function prevWrapIndex(): number | null {
-  const ix = flowIndex();
-  return wrapPrevTarget(navOrderWith(ix), seekFinishedWith(ix));
-}
-
-// Changed lines (additions + deletions) per file path — the weight used for progress, so
-// finishing a big file advances the bar more than a tiny one. Min 1 so every file counts.
-function locByPath(): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const [path, s] of lineStats(S.state?.files ?? []))
-    m.set(path, Math.max(s.added + s.removed, 1));
-  return m;
-}
-
-// Guide categories + their files (plus the trailing "Other" group of unlisted diff files) —
-// the data behind the Walkthrough sidebar tab and the Overview file list.
+// Guide categories + their steps (plus the trailing "Other" group of unlisted diff files and
+// Rest steps) — the data behind the Walkthrough sidebar tab.
 export function walkGroups(): WalkGroup[] {
   if (!hasGuide()) return [];
-  // One flow-index pass backs both predicates for the whole group derivation.
+  // One flow-index pass backs every lookup for the whole group derivation.
   const ix = flowIndex();
   return walkthroughGroups(
     S.state.guide!.files,
     S.state.files ?? [],
-    (p) => ix.reviewState(p),
+    (slot) => ix.stepState(slot),
     (p) => ix.outOfFlow.has(p),
+    (p) => ix.changesByPath.get(p) ?? [],
   );
 }
 
@@ -168,37 +261,42 @@ export function walkthroughRows(): WalkRow[] {
   return walkRows(walkGroups(), null, isSkimGroupExpanded());
 }
 
-// Overall review progress for the guide-bar indicator, weighted by changed lines (LOC) rather
-// than file count: "done" sums the LOC of files the reviewer finished (approved OR
+// Overall review progress for the progress edge, over in-flow steps weighted by their
+// changed lines (LOC) rather than counted, so finishing a big file or part advances the bar more
+// than a tiny one: "done" sums the LOC of steps the reviewer finished (approved OR
 // changes-requested), "approved" the clean-signoff LOC.
 export function guideProgress(): { done: number; approved: number; total: number; pct: number } {
   return progressDetail().progress;
 }
 
-// guideProgress with what it was built from, for the progress edge: the flow index (a file's
-// state, whether it left the flow), a file's weight, and the in-flow file counts. One pass each,
-// so the edge reads the open file and the hover numbers without rebuilding them.
+// guideProgress with what it was built from, for the progress edge: the flow index (a step's
+// state, whether it left the flow), a step's weight, and the in-flow step counts. One pass each,
+// so the edge reads the open step and the hover numbers without rebuilding them.
 export function progressDetail() {
-  const byLines = S.settings.progressBy !== "files";
-  const loc = byLines ? locByPath() : null;
-  const weight = (path: string) => (byLines ? (loc!.get(path) ?? 1) : 1);
+  const byFiles = S.settings.progressBy === "files";
+  const stats = lineStats(S.state?.files ?? []);
+  const weight = (slot: Pick<StepSlot, "path" | "blocks">) => {
+    const s = stats.get(slot.path);
+    return stepWeight(slot, s ? s.added + s.removed : 0, byFiles);
+  };
   // One flow-index pass for the whole loop (see flow-index.ts).
   const ix = flowIndex();
   let total = 0,
     done = 0,
     approved = 0,
-    files = 0,
-    filesDone = 0;
-  for (const f of S.state?.files ?? []) {
-    // Fully-skimmed files carry no progress weight — they left the flow (issue 07).
-    if (ix.outOfFlow.has(f.path)) continue;
-    const w = weight(f.path);
+    steps = 0,
+    stepsDone = 0,
+    parts = false;
+  // Fully-skimmed steps carry no progress weight — they left the flow (issue 07).
+  for (const slot of flowSlots(ix)) {
+    const w = weight(slot);
     total += w;
-    files++;
-    const st = ix.reviewState(f.path);
+    steps++;
+    if (slot.blocks) parts = true;
+    const st = ix.stepState(slot);
     if (st !== "pending") {
       done += w;
-      filesDone++;
+      stepsDone++;
     }
     if (st === "approved") approved += w;
   }
@@ -207,19 +305,31 @@ export function progressDetail() {
   // than a misleading 0%.
   return {
     progress: { done, approved, total, pct: total ? Math.round((done / total) * 100) : 100 },
-    files: { done: filesDone, total: files },
-    byLines,
+    // In steps, which are files unless the guide splits one into parts (the approve toast's rule).
+    steps: { done: stepsDone, total: steps, unit: parts ? ("steps" as const) : ("files" as const) },
+    byLines: !byFiles,
     ix,
     weight,
   };
 }
 
-// The guide entry for the file currently shown (or null) — drives its guide card.
-export function currentGuideEntry() {
+// The guide entry for the step currently shown (or null) — drives its guide card: a part step's
+// own entry, an unsplit file's entry, none for a Rest step or a split file opened whole (see
+// stepEntry).
+export function currentGuideEntry(): GuideFile | null {
   if (!hasGuide()) return null;
   const f = S.state.files[S.fileIndex];
   if (!f) return null;
-  return S.state.guide!.files.find((g) => g.path === f.path) ?? null;
+  return stepEntry(S.state.guide!.files, f.path, S.stepPart);
+}
+
+// The titles of the current file's parts, in guide order — empty unless the guide splits it.
+// The whole-file view's header names them.
+export function currentFileParts(): string[] {
+  if (!hasGuide()) return [];
+  return guidePlan(flowIndex()).listed.flatMap((s) =>
+    s.step.fileIndex === S.fileIndex && s.entry?.part ? [s.entry.part.title] : [],
+  );
 }
 
 // The guide was generated against an older diff than the one now loaded (e.g. the agent

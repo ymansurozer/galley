@@ -1,5 +1,6 @@
 import { S, D, api, toast, saver } from "./store";
 import { render } from "./render";
+import { currentPartTitle, reseatStep } from "./guide";
 import { refreshBaseTitle, updateProgress } from "./progress";
 import { updateAwaitingDom } from "./annotations";
 import { adoptUiStatus, adoptUiTarget, syncView } from "./appview";
@@ -73,14 +74,17 @@ export async function pollState() {
     // agent added, removed, or reordered files), so re-find the current path in the new list
     // rather than trusting the numeric index — otherwise the shown file, and guided auto-advance
     // (which resolves "next" from the current index), silently jump to whatever now sits there.
+    // The part is re-found the same way, by title, since the guide's indices can move too.
     const curPath = S.state?.files?.[S.fileIndex]?.path;
+    const curTitle = currentPartTitle();
     keepPlacements(server.annotations ?? [], S.state.annotations ?? []);
     S.state = server;
     refreshBaseTitle();
-    D.fileDiff = null;
+    D.fileDiff = D.rawFileDiff = null;
     const remapped = curPath ? S.state.files.findIndex((f) => f.path === curPath) : -1;
     if (remapped >= 0) S.fileIndex = remapped;
     else if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
+    reseatStep(remapped >= 0 ? S.stepPart : undefined, curTitle);
     S.awaitingAgent = false;
     // A diff that appeared (or emptied) makes a UI-only desk combined (or back).
     syncView();
@@ -98,7 +102,24 @@ export async function pollState() {
   // A reload can swap the guide without changing the diff (agent regenerated it) —
   // adopt it even when baseDiffHash is unchanged. Guides are small; the compare is cheap.
   if (JSON.stringify(lite.guide ?? null) !== JSON.stringify(S.state.guide ?? null)) {
-    S.state.guide = lite.guide;
+    // The new guide restamped which blocks its parts and skims claim, server-side; those stamps
+    // ride the changes, so take them off the full state (fetched only on a swap — the diff is the
+    // same). A diff that moved meanwhile waits for the next tick's full adoption above.
+    let server: ReviewState | undefined;
+    try {
+      server = adoptDeskStatus(await api<ReviewState & DeskStatus>("/api/state"));
+    } catch {
+      return;
+    }
+    if (!server?.changes || server.baseDiffHash !== S.lastBaseDiffHash) return;
+    const title = currentPartTitle();
+    const stamped = new Map(server.changes.map((c) => [c.id, c]));
+    for (const c of S.state.changes) {
+      c.part = stamped.get(c.id)?.part;
+      c.skim = stamped.get(c.id)?.skim;
+    }
+    S.state.guide = server.guide;
+    reseatStep(S.stepPart, title);
     render();
     toast("Guide updated");
   }

@@ -1,11 +1,12 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { S, $ } from "./store";
-import { currentFile, currentSplittable, fileFinished, fileObjections } from "./changes";
+import { currentFile, currentSplittable, flowIndex } from "./changes";
 import { unanchoredBlock } from "./annotations";
 import { unanchoredThreads } from "./unanchored";
-import { approveCurrentFile, resetReview } from "./decisions";
-import { blockersChip, fileBlockers } from "./blockers";
-import { nextFileIndex } from "./guide";
+import { approveCurrentStep, resetStep } from "./decisions";
+import { blockersChip, currentBlockers } from "./blockers";
+import { currentGuideEntry, currentSlot, currentStep, nextStep } from "./guide";
+import type { Step } from "./steps";
 import { isFileSkim, isFileSkimCollapsed, movedFrom, toggleFileSkim } from "./skim";
 import { keycapsHtml, keycapsNode } from "./keycaps";
 import { fileBarActions, splitPath } from "./filebar-derive";
@@ -112,15 +113,16 @@ function openEditorButton(): HTMLElement {
   return b;
 }
 
-// The file's one filled button: Approve File (clean, green) or Mark Reviewed (it carries a
-// rejected change or an open change request, orange). Either signs off and advances. The end
+// The step's one filled button: Approve File (clean, green) or Mark Reviewed (it carries a
+// rejected change or an open change request, orange). Either signs off the step on screen (a part,
+// a Rest, or the file whole) and advances. The end
 // row's copy (`filled` false) is a neutral push button, so the code view keeps one filled button
 // when both are on screen.
 function signOffButton(objections: boolean, filled = true): HTMLElement {
   const b = document.createElement("button");
   b.className = filled ? "signoff fill" + (objections ? " warn" : "") : "btn";
   b.innerHTML = `${objections ? "Mark Reviewed" : "Approve File"} ${keycapsHtml("⇧A")}`;
-  b.onclick = () => approveCurrentFile();
+  b.onclick = () => approveCurrentStep();
   return b;
 }
 
@@ -134,20 +136,35 @@ function signedOffState(objections: boolean): HTMLElement {
   return el;
 }
 
-// The open file's actions, in fileBarActions' order. Every handler is the one the header has
-// always had: the per-file reset (its toast offers Undo), the blockers jump list, the skim
+// Where the step on screen's sign-off stands: a part or Rest step by its own blocks, the file
+// whole by the file (flow-index stepFinished / stepObjections). It has decisions to reset once one
+// of its blocks is decided, or for a whole file once the file is.
+function stepStand(path: string) {
+  const blocks = currentSlot()?.blocks ?? null;
+  const ix = flowIndex();
+  return {
+    part: !!blocks,
+    finished: ix.stepFinished({ path, blocks }),
+    objections: ix.stepObjections({ path, blocks }),
+    decided: blocks
+      ? blocks.some((c) => c.status !== "pending")
+      : !!S.state.decisionFiles?.includes(path),
+  };
+}
+
+// The open step's actions, in fileBarActions' order. Every handler is the one the header has
+// always had: the step's reset (its toast offers Undo), the blockers jump list, the skim
 // re-collapse, and the ⇧A sign-off. `jumpable` is false over a view with no rows to jump to.
 function fileActions(path: string, jumpable: boolean): HTMLElement {
   const wrap = document.createElement("span");
   wrap.className = "fb-actions";
-  const finished = fileFinished(path);
-  const objections = fileObjections(path);
+  const { part, finished, objections, decided } = stepStand(path);
   const chip = jumpable ? blockersChip() : null;
   const actions = fileBarActions({
     finished,
     objections,
-    blockers: chip ? fileBlockers(path).length : 0,
-    hasDecisions: !!S.state.decisionFiles?.includes(path),
+    blockers: chip ? currentBlockers().length : 0,
+    hasDecisions: decided,
     skimExpanded: isFileSkim(path) && !isFileSkimCollapsed(path),
   });
   for (const a of actions) {
@@ -156,10 +173,11 @@ function fileActions(path: string, jumpable: boolean): HTMLElement {
       b.dataset.tip = "Fold this skimmed file back";
       wrap.appendChild(b);
     } else if (a === "reset") {
-      const b = button("btn quiet sm", "Reset", () => resetReview(path));
+      const b = button("btn quiet sm", "Reset", () => resetStep(currentStep()));
+      const what = part ? "part" : "file";
       b.dataset.tip = finished
-        ? "Undo the sign-off and clear this file's decisions"
-        : "Clear this file's Keep / Undo decisions";
+        ? `Undo the sign-off and clear this ${what}'s decisions`
+        : `Clear this ${what}'s Keep / Undo decisions`;
       wrap.appendChild(b);
     } else if (a === "blockers") {
       if (chip) wrap.appendChild(chip);
@@ -190,6 +208,15 @@ export function renderFileBar(fd?: FileDiffMetadata, jumpable = true): HTMLEleme
     tag.textContent = "Unchanged";
     mount(el, [...lead, openEditorButton(), grow, tag], null);
     return el;
+  }
+  // A step of a split file names its part (or "Rest") beside the path.
+  const partLabel = S.stepPart === "rest" ? "Rest" : (currentGuideEntry()?.part?.title ?? "");
+  if (partLabel) {
+    const label = document.createElement("span");
+    label.className = "fb-part";
+    label.title = partLabel;
+    label.textContent = partLabel;
+    lead.push(label);
   }
   // Rename+edit files (git -M): where the file moved from, right of the new path.
   const from = movedFrom(f.path);
@@ -255,10 +282,25 @@ function mount(el: HTMLElement, kids: Node[], mini: HTMLElement | null) {
   else el.append(...kids, ...(mini ? [mini] : []));
 }
 
-// The row after the file's last line: "End of <file> · next: <file> ⇧→" and the file's sign-off,
+// A step as the end row names it: the file's name, then its part's title, or "Rest of <name>".
+function stepName(step: Step): Node[] {
+  const path = S.state.files[step.fileIndex]?.path ?? "";
+  const name = splitPath(path).name;
+  if (step.part === "rest") return [document.createTextNode(`Rest of ${name}`)];
+  const title =
+    typeof step.part === "number" ? S.state.guide?.files[step.part]?.part?.title : undefined;
+  if (!title) return [document.createTextNode(name)];
+  const part = document.createElement("span");
+  part.className = "fe-part";
+  part.textContent = title;
+  return [document.createTextNode(`${name} `), part];
+}
+
+// The row after the step's last line: "End of <step> · next: <step> ⇧→" and the step's sign-off,
 // so a reviewer who read to the bottom acts there instead of scrolling back to the bar. Next is
-// the file ⇧→ opens in review order, left out on the last file (⇧→ only wraps from there). A
-// finished file shows its quiet state in the button's place; Reset stays in the bar.
+// the step ⇧→ opens in review order (a part, a Rest, or a file), left out on the last one (⇧→ only
+// wraps from there). A finished step shows its quiet state in the button's place; Reset stays in
+// the bar.
 export function fileEnd(): HTMLElement {
   const path = currentFile().path;
   const row = document.createElement("div");
@@ -266,20 +308,19 @@ export function fileEnd(): HTMLElement {
   const text = document.createElement("span");
   text.className = "fe-text";
   const name = document.createElement("b");
-  name.textContent = splitPath(path).name;
+  name.append(...stepName(currentStep()));
   text.append("End of ", name);
-  const n = nextFileIndex(S.fileIndex);
-  const next = n === null ? null : S.state.files[n];
-  if (next) {
-    const go = button("fe-next", splitPath(next.path).name, () => S.nextFile?.());
-    go.title = next.path;
+  const next = nextStep(currentStep());
+  if (next && S.state.files[next.fileIndex]) {
+    const go = document.createElement("button");
+    go.className = "fe-next";
+    go.append(...stepName(next));
+    go.title = S.state.files[next.fileIndex]!.path;
+    go.onclick = () => S.nextFile?.();
     text.append(" · next: ", go, keycapsNode(document, "⇧→"));
   }
-  const objections = fileObjections(path);
-  row.append(
-    text,
-    fileFinished(path) ? signedOffState(objections) : signOffButton(objections, false),
-  );
+  const { finished, objections } = stepStand(path);
+  row.append(text, finished ? signedOffState(objections) : signOffButton(objections, false));
   return row;
 }
 

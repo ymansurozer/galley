@@ -1,9 +1,9 @@
 import { S, $, esc } from "./store";
-import { currentChanges, currentFile } from "./changes";
+import { currentChanges, currentFile, inCurrentStep } from "./changes";
 import { render } from "./render";
 import { isFullySkimmed } from "./skim-derive";
 import { diffShadowRoot } from "./diff-dom";
-import { diffColumns, hideBetween, misalignedColumns, SKIM_HIDDEN } from "./skim-dom";
+import { clearHidden, diffColumns, hideBetween, misalignedColumns, SKIM_HIDDEN } from "./skim-dom";
 import type { ChangeState, GuideFile } from "./types";
 
 // ── Skimmable review (issue 06) ──────────────────────────────────────────────
@@ -112,12 +112,8 @@ export function isFileSkimCollapsed(path: string): boolean {
   return isFileSkim(path) && skimToggled(`file:${path}`);
 }
 
-// Skimmable change blocks on the current file (server-stamped). Only pending ones collapse —
-// a decided block is already folded/replayed out of the diff, so skim no longer applies.
-export function skimChanges(): ChangeState[] {
-  return currentChanges().filter((c) => c.skim && c.status === "pending");
-}
-
+// Only a pending block collapses — a decided one is already folded/replayed out of the diff, so
+// skim no longer applies.
 export function isBlockSkimCollapsed(c: ChangeState): boolean {
   if (!c.skim || c.status !== "pending") return false;
   const defaultCollapsed = !fileFullySkimmed(c.path);
@@ -201,7 +197,8 @@ export function renderMovedPure() {
 // per collapsed block, so every line number below it sits one row above its code. hideBetween
 // holds that rule; the closing check below flags any column whose tracks end up different heights.
 export function applySkimCollapse() {
-  const blocks = currentChanges().filter((c) => isBlockSkimCollapsed(c));
+  // A part view renders another step's skimmed block as plain code: nothing of it to fold.
+  const blocks = currentChanges().filter((c) => inCurrentStep(c) && isBlockSkimCollapsed(c));
   const shadow = diffShadowRoot();
   // Not ready: a cold mount where render() resolved before @pierre committed the rows — the
   // shadow root may be missing, or present but still empty. There is nothing to fold or clear,
@@ -209,10 +206,7 @@ export function applySkimCollapse() {
   // cold open, not a failure: stay quiet. The checks below report only on rendered rows.
   const columns = shadow ? diffColumns(shadow) : [];
   if (!shadow || !columns.length) return;
-  for (const el of shadow.querySelectorAll<HTMLElement>(`[${SKIM_HIDDEN}]`)) {
-    el.style.display = "";
-    el.removeAttribute(SKIM_HIDDEN);
-  }
+  clearHidden(shadow, SKIM_HIDDEN);
   if (!blocks.length) return;
   const isContext = (el?: Element | null) =>
     !!el && (el.getAttribute("data-line-type") ?? "").startsWith("context");

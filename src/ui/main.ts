@@ -21,13 +21,13 @@ import {
   fileObjections,
   flowIndex,
 } from "./changes";
-import { allFinished } from "./flow-index";
 import { agentPresence, deskSubtitle, deskTitle, unansweredAsks } from "./topbar-derive";
 import { toggleSignOff } from "./decisions";
 import { installBlockers } from "./blockers";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
 import { toggleSkimGroup } from "./skim";
+import { resetFolds } from "./fold";
 import { render, deferRender } from "./render";
 import { cur, prefetchContents } from "./contents";
 import { adoptDeskStatus, pollState } from "./poll";
@@ -38,12 +38,15 @@ import { setMarkdownTheme } from "./markdown";
 import { ensureIcons } from "./icons";
 import {
   hasGuide,
-  firstGuideIndex,
-  nextFileIndex,
-  prevFileIndex,
-  nextWrapIndex,
-  prevWrapIndex,
-  navOrder,
+  firstGuideStep,
+  navSteps,
+  currentStep,
+  nextStep,
+  prevStep,
+  nextWrapStep,
+  prevWrapStep,
+  reviewTally,
+  stepSlot,
   walkthroughRows,
 } from "./guide";
 import { installProgress, refreshBaseTitle, reviewStats } from "./progress";
@@ -87,7 +90,8 @@ import { updateAwaitingDom } from "./annotations";
 import { threadKey } from "./rests";
 import { openRequest, requestRows } from "./requests";
 import { uuid } from "./uuid";
-import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
+import type { Step } from "./steps";
+import type { ChangeState, ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
 // Close the inline composer when clicking outside it (unless it has unsaved text). The
 // composer/editor live inside the diff DOM now, so match their containers directly.
@@ -157,8 +161,9 @@ installProgress();
 S.treeRows = treeRows;
 // Update the lightweight state synchronously (so the tree's active row repaints
 // immediately — the click feels instant), then run the heavier diff render via deferRender,
-// which shows the "Rendering…" indicator only for a cold open of a big file.
-S.selectFile = async (i) => {
+// which shows the "Rendering…" indicator only for a cold open of a big file. A step is a file, or
+// one part of a file the guide splits (steps.ts); the Files tree opens files whole (selectFile).
+const selectStep = async ({ fileIndex: i, part }: Step) => {
   if (i < 0 || !S.state.files[i]) return; // ignore out-of-range selections
   // Narrow-width drawer: opening a file is the drawer's whole purpose, so get it out of the
   // way. The single funnel for tree/walkthrough clicks + next/prev + guide nav; no-op when shut.
@@ -167,19 +172,23 @@ S.selectFile = async (i) => {
   S.view = "code"; // like the Overview, the UI view is an alternate centre a file selection leaves
   S.preview = null;
   S.fileIndex = i;
+  S.stepPart = part;
   S.fileView = defaultFileView(S.state.files[i]);
-  D.fileDiff = null;
+  D.fileDiff = D.rawFileDiff = null;
+  resetFolds(); // re-opening a part starts with other parts' hunks folded
   cursorReset(); // re-init the line cursor to the new file's first change
   // Move the sidebar highlight in place — switching files no longer rebuilds the row lists
   // (the "active" class left the row models; see applyActiveRow in tree.ts).
   applyActiveRow();
   const rendered = deferRender();
-  // Quietly warm the next file in review order (guide order when guided, else tree order — the
-  // exact resolution keyboard nav uses) so the common next-file step never waits on the wire.
-  const n = nextFileIndex(i);
-  if (n !== null) prefetchContents(S.state.files[n]);
+  // Quietly warm the next step's file in review order (guide order when guided, else tree order —
+  // the exact resolution keyboard nav uses) so the common next step never waits on the wire.
+  const n = nextStep(currentStep());
+  if (n !== null) prefetchContents(S.state.files[n.fileIndex]);
   await rendered;
 };
+S.selectStep = selectStep;
+S.selectFile = (i) => selectStep({ fileIndex: i });
 // Open any repo file (incl. unchanged ones) for read/comment: fetch its contents and show it
 // as a plain view (old === new → no diff blocks). Comments anchor to it like any file.
 S.previewFile = async (path) => {
@@ -203,7 +212,7 @@ S.previewFile = async (path) => {
       removed: 0,
       previewContents: r.contents,
     };
-    D.fileDiff = null;
+    D.fileDiff = D.rawFileDiff = null;
     cursorReset();
     await render();
   } catch {
@@ -256,20 +265,33 @@ S.setStyle = (style) => {
 };
 S.setFileView = (view) => {
   S.fileView = view;
-  D.fileDiff = null;
+  D.fileDiff = D.rawFileDiff = null;
   return render();
 };
+// Where a step's sign-off stands, for the status icons: finished, else with objections
+// ("changes") or without ("clean"). A whole file (`blocks` null) reads the one-file predicates; a
+// part or Rest step its own blocks (flow-index stepFinished/stepObjections).
+function signOffStand(path: string, blocks: ChangeState[] | null) {
+  if (!blocks) return fileFinished(path) ? "finished" : fileObjections(path) ? "changes" : "clean";
+  const ix = flowIndex();
+  if (ix.stepFinished({ path, blocks })) return "finished";
+  return ix.stepObjections({ path, blocks }) ? "changes" : "clean";
+}
 // A double-click's second click would undo the sign-off its first one made. The hint re-reads at
-// once: the pointer is still on the icon, which now does the opposite.
-S.statusClick = (path, e) => {
-  if (e.detail < 2) toggleSignOff(path);
-  if (e.currentTarget instanceof HTMLElement) S.statusHint?.(e.currentTarget, path);
+// once: the pointer is still on the icon, which now does the opposite. A Walkthrough row passes
+// its step's part, so a part's icon signs off (or resets) that part alone.
+S.statusClick = (path, e, part) => {
+  if (e.detail < 2) toggleSignOff(path, part);
+  if (e.currentTarget instanceof HTMLElement) S.statusHint?.(e.currentTarget, path, part);
 };
 // The label is read when the icon is hovered or focused: binding it per row would rescan every
 // decision and comment for every row (see flow-index.ts). data-act tints the icon on hover with the
 // state a click leads to.
-S.statusHint = (el, path) => {
-  const act = fileFinished(path) ? "reset" : fileObjections(path) ? "mark" : "approve";
+S.statusHint = (el, path, part) => {
+  const fileIndex = S.state.files.findIndex((f) => f.path === path);
+  const blocks = part === undefined ? null : (stepSlot({ fileIndex, part })?.blocks ?? null);
+  const stand = signOffStand(path, blocks);
+  const act = stand === "finished" ? "reset" : stand === "changes" ? "mark" : "approve";
   el.dataset.act = act;
   el.title = { approve: "Approve", mark: "Mark reviewed", reset: "Reset review" }[act];
   el.setAttribute("aria-label", el.title);
@@ -290,8 +312,8 @@ S.openSettings = () => {
 S.closeSettings = () => {
   S.settingsOpen = false;
 };
-// Guided review: ⌂ returns to the Overview page; Start enters the per-file flow at the
-// first file in the guide's order.
+// Guided review: ⌂ returns to the Overview page; Start enters the step-by-step flow at the
+// first step in the guide's order.
 S.hasGuide = hasGuide;
 S.openOverview = () => {
   S.overviewOpen = true;
@@ -299,44 +321,43 @@ S.openOverview = () => {
 };
 S.startGuided = () => {
   S.overviewOpen = false;
-  S.selectFile?.(firstGuideIndex());
+  S.selectStep?.(firstGuideStep());
 };
-// Guided navigation: the Overview is the position before the first file. From it, Next
-// enters the first file and Prev is a no-op; within files, Prev off the first → Overview.
+// Guided navigation: the Overview is the position before the first step. From it, Next
+// enters the first step and Prev is a no-op; within steps, Prev off the first → Overview.
 S.guideNext = () => {
   if (S.overviewOpen) {
     S.startGuided?.();
     return;
   }
-  // Off the last file, wrap to the first unreviewed file (else cycle to the first) instead
-  // of dead-ending, so skipped files are surfaced.
-  const n = nextFileIndex(S.fileIndex);
-  const target = n !== null ? n : nextWrapIndex();
-  if (target !== null) S.selectFile?.(target);
+  // Off the last step, wrap to the first unreviewed step (else cycle to the first) instead
+  // of dead-ending, so skipped steps are surfaced.
+  const target = nextStep(currentStep()) ?? nextWrapStep();
+  if (target !== null) S.selectStep?.(target);
 };
 S.guidePrev = () => {
-  // Stepping back from the Overview (the position before the first file) wraps to the end —
-  // the last unreviewed file, else the last file.
+  // Stepping back from the Overview (the position before the first step) wraps to the end —
+  // the last unreviewed step, else the last step.
   if (S.overviewOpen) {
-    const w = prevWrapIndex();
-    if (w !== null) S.selectFile?.(w);
+    const w = prevWrapStep();
+    if (w !== null) S.selectStep?.(w);
     return;
   }
-  // Off the first file, drop to the Overview (unchanged); the wrap happens from there.
-  const p = prevFileIndex(S.fileIndex);
+  // Off the first step, drop to the Overview (unchanged); the wrap happens from there.
+  const p = prevStep(currentStep());
   if (p === null) S.openOverview?.();
-  else S.selectFile?.(p);
+  else S.selectStep?.(p);
 };
-// Review-order file stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else the
-// Files tree's top-to-bottom order (see nextFileIndex).
+// Review-order stepping (⇧←/⇧→) — guide order when guided (or on the Overview), else the
+// Files tree's top-to-bottom order (see nextStep).
 S.nextFile = () => {
   if (hasGuide() || S.overviewOpen) {
     S.guideNext?.();
     return;
   }
   // Off the last file, wrap to the first unreviewed file (else the first file).
-  const target = nextFileIndex(S.fileIndex) ?? nextWrapIndex();
-  if (target !== null) S.selectFile?.(target);
+  const target = nextStep(currentStep()) ?? nextWrapStep();
+  if (target !== null) S.selectStep?.(target);
 };
 S.prevFile = () => {
   if (hasGuide() || S.overviewOpen) {
@@ -345,8 +366,8 @@ S.prevFile = () => {
   }
   // Off the first file, wrap to the last unreviewed file (else the last file). Without a guide
   // there's no Overview to step back into, so the wrap applies straight from the first file.
-  const target = prevFileIndex(S.fileIndex) ?? prevWrapIndex();
-  if (target !== null) S.selectFile?.(target);
+  const target = prevStep(currentStep()) ?? prevWrapStep();
+  if (target !== null) S.selectStep?.(target);
 };
 // Tree-order file stepping (⇧↑/⇧↓) — walk the file rows as shown in the tree (skip folders),
 // selecting the prev/next one (preview for unchanged files).
@@ -370,9 +391,9 @@ S.deskSubtitle = () => (S.state ? deskSubtitle(S.state, uiOnly()) : "");
 // Presence and the open change requests walk every comment and the done state builds the flow
 // index, so one effect derives them once per change into the store, rather than every binding
 // re-deriving them. The review is
-// done when progress is complete; that implies the gate that opens the Send sheet after the last
-// approval (allSignedOff), so Send never turns primary short of it. A desk with no files (UI-only)
-// has no code review to complete.
+// done when every in-flow step is signed off and current (reviewTally), the same count that opens
+// the Send sheet after the last approval, so Send never turns primary short of it. A desk with no
+// files (UI-only) has no code review to complete.
 let shownPresence = S.presence;
 Alpine.effect(() => {
   const presence = agentPresence({
@@ -384,7 +405,8 @@ Alpine.effect(() => {
   });
   if (presence.kind !== shownPresence.kind || presence.line !== shownPresence.line)
     S.presence = shownPresence = presence;
-  S.reviewDone = !!S.state?.files.length && allFinished(S.state, flowIndex());
+  const tally = reviewTally();
+  S.reviewDone = !!S.state?.files.length && tally.done === tally.total;
   S.requests = requestRows();
 });
 // Keyboard help overlay + destructive-action confirm dialog (keys.ts owns the dialog state).
@@ -558,7 +580,7 @@ S.reset = async () => {
   const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" });
   if (r.state) {
     S.state = r.state;
-    D.fileDiff = null;
+    D.fileDiff = D.rawFileDiff = null;
     render();
   }
   toast("Reset review");
@@ -639,7 +661,7 @@ S.selected = {
 // Without a guide, open on the first file in review order — the Files tree's top row — not the
 // first in the diff's own order, which can sit near the tree's bottom and make the first approve
 // wrap to the top. (A guided desk opens on the Overview; a reload keeps the reviewer's file.)
-if (!hasGuide()) S.fileIndex = navOrder()[0] ?? 0;
+if (!hasGuide()) S.fileIndex = navSteps()[0]?.fileIndex ?? 0;
 if (S.state.files[S.fileIndex]) S.fileView = defaultFileView(S.state.files[S.fileIndex]);
 // With a guide attached, land on the Overview page (the guided entry point) and open the
 // sidebar on the user's preferred pane (`w` toggles it per-session from there).

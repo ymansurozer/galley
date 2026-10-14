@@ -13,10 +13,11 @@ type ReviewFile = ReviewState["files"][number];
 type Contents = { oldContents: string; newContents: string };
 
 const CACHE_CAP = 30;
-// Keyed path + contentHash: a reload that rewrites a file changes its hash, so the stale entry
-// falls out on its own (mirrors the server-side cache token).
+// Keyed path + contentHash + oldOid: a reload that rewrites a file changes its hash, and one after
+// a stage changes its old side (oldOid), so the stale entry falls out on its own (mirrors the
+// server-side cache token).
 const cache = new Map<string, Contents>();
-const cacheKey = (f: ReviewFile) => `${f.path}\0${f.contentHash}`;
+const cacheKey = (f: ReviewFile) => `${f.path}\0${f.contentHash}\0${f.oldOid ?? ""}`;
 
 // The current file's resolved contents. The render pass and its synchronous helpers
 // (currentSplittable, the markdown/anchor readers) read from here instead of fetching per call.

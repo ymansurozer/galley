@@ -16,6 +16,7 @@ export const S: Store = Alpine.reactive<Store>({
   // not localStorage — origins change with the random port, files don't.
   diffStyle: "split",
   fileIndex: 0,
+  stepPart: undefined,
   preview: null,
   rendering: false,
   awaitingAgent: false,
@@ -89,6 +90,7 @@ export const D: DiffHolder = {
   instance: null,
   diffCache: new Map(),
   fileDiff: null,
+  rawFileDiff: null,
   lineMap: null,
 };
 
@@ -144,6 +146,7 @@ export async function openEditorAt(path: string, lineNumber: number) {
 export const saveStamp = (): SaveStamp => ({
   token: S.uiProxy?.token ?? null,
   reloadGeneration: S.reloadGeneration,
+  baseDiffHash: S.state.baseDiffHash,
 });
 // Post only the reviewer-owned slice (see reviewerSlice in save.ts) — never the whole
 // (multi-MB) ReviewState. Saves coalesce so rapid approvals don't saturate connections.

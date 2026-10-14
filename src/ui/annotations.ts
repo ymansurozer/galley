@@ -3,6 +3,7 @@ import {
   currentComments,
   currentChanges,
   currentFile,
+  inCurrentStep,
   toDisplayLine,
   fromDisplayLine,
 } from "./changes";
@@ -96,7 +97,8 @@ export function annotations(): AnnotationInput[] {
     metadata: { type: "group", side: g.side, lineNumber: g.line, threads: g.threads },
   }));
   const changes: AnnotationInput[] = [];
-  for (const ch of currentChanges().filter((ch) => ch.status === "pending")) {
+  // Only the step's own blocks render as changes (another step's are plain code in a part view).
+  for (const ch of currentChanges().filter((ch) => ch.status === "pending" && inCurrentStep(ch))) {
     const anchor = ch.displayEndLine ?? toDisplayLine(ch.side, ch.endLine ?? ch.lineNumber);
     // A skimmable block gets a collapse/expand strip. While collapsed, skim.ts hides its rows
     // and the strip stands in for it — so suppress the decision bar (it returns on expand).

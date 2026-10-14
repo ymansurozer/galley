@@ -33,6 +33,7 @@ import type {
   UiSource,
   UiTarget,
 } from "../types";
+import type { Step } from "./steps";
 import type { WalkRow } from "./walkthrough";
 import type { Presence } from "./topbar-derive";
 import type { DeskPin } from "./uilane-derive";
@@ -235,6 +236,9 @@ export type DiffHolder = {
     { wrapper: HTMLElement; inst: import("@pierre/diffs").FileDiff<AnnotationMeta> }
   >;
   fileDiff: import("@pierre/diffs").FileDiffMetadata | null;
+  // The raw diff `fileDiff` was replayed from — what ChangeState positions index. Cleared with
+  // `fileDiff` on every file switch, and null for a view-only render, which has no blocks.
+  rawFileDiff: import("@pierre/diffs").FileDiffMetadata | null;
   // Raw ↔ display line mapping for the current file's rendered (replayed) diff.
   // Rebuilt by replayDecisions on every render; null = identity (no decisions / view-only).
   lineMap: import("./linemap").LineMap | null;
@@ -250,6 +254,9 @@ export interface Store {
   collapsedDirs: Set<string>;
   diffStyle: DiffStyle;
   fileIndex: number;
+  // The current step's part of state.files[fileIndex] (see steps.ts): a guide-entry index, "rest",
+  // or undefined for the whole file. Set only by selectStep (and reseatStep after a reload).
+  stepPart: Step["part"];
   // A non-review file (e.g. an unchanged file) the reviewer opened to read/comment on.
   // When set, it's the "current file" instead of state.files[fileIndex].
   preview: PreviewFile | null;
@@ -361,8 +368,9 @@ export interface Store {
   shotView: { id: string; kind: "crop" | "viewport" } | null;
 
   treeRows?: () => TreeRow[];
-  // Both resolve once the file has rendered.
+  // Both resolve once the file has rendered. selectFile opens the whole file; selectStep a step.
   selectFile?: (i: number) => Promise<void>;
+  selectStep?: (step: Step) => Promise<void>;
   previewFile?: (path: string) => Promise<void>;
   toggleDir?: (full: string, changed: boolean) => void;
   toggleAllDirs?: () => void;
@@ -374,10 +382,11 @@ export interface Store {
   setStyle?: (style: DiffStyle) => void;
   setFileView?: (view: "rendered" | "source") => Promise<void>;
   isMarkdownFile?: () => boolean;
-  // A sidebar row's status icon: sign the file off in place, or reset a finished one. statusHint
-  // labels the icon with what a click will do, read on hover/focus rather than bound per row.
-  statusClick?: (path: string, e: MouseEvent) => void;
-  statusHint?: (el: HTMLElement, path: string) => void;
+  // A sidebar row's status icon: sign the file (or a Walkthrough row's part) off in place, or reset
+  // a finished one. statusHint labels the icon with what a click will do, read on hover/focus
+  // rather than bound per row.
+  statusClick?: (path: string, e: MouseEvent, part?: Step["part"]) => void;
+  statusHint?: (el: HTMLElement, path: string, part?: Step["part"]) => void;
   runToastAction?: () => void;
   splitApplies?: () => boolean;
   applySettings?: () => void;

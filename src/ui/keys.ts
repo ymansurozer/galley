@@ -1,6 +1,6 @@
 import { S } from "./store";
 import { hasGuide } from "./guide";
-import { approveCurrentFile } from "./decisions";
+import { approveCurrentStep } from "./decisions";
 import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
 import { closeComposer, composerInUi } from "./composer";
 import { hasUi, toggleView, uiOnly } from "./appview";
@@ -477,11 +477,11 @@ const HOTKEYS: Hotkey[] = [
   // Finalize (⇧ trio) + app
   {
     combo: "⇧A",
-    desc: "Approve / mark file reviewed",
+    desc: "Approve / mark reviewed (the part on screen, else the file)",
     group: "Review",
     test: shift("A"),
     when: inDiff,
-    run: () => approveCurrentFile(),
+    run: () => approveCurrentStep(),
   },
   {
     combo: "⇧R",
