@@ -110,10 +110,12 @@ export function openThread(key: string | null) {
 // The line the reviewer is looking at keeps its place on screen while rows open and close around
 // it: the cursor's when it's in view, else the slot opening. Split view's other column levels a
 // frame later (Pierre's resize observer), so the re-placing that follows holds it again, for a
-// moment only: a later render or resize mustn't pull the view back.
+// moment only: a later render or resize mustn't pull the view back. A jump's own scroll wins: it
+// holds the row it landed on (cursor.ts landAt), or clears the hold before scrolling smoothly
+// (blockers.ts), which a hold would cut short.
 let held: { el: HTMLElement; top: number; until: number } | null = null;
 
-function holdPlace(el: HTMLElement | null | undefined) {
+export function holdPlace(el: HTMLElement | null | undefined) {
   held = el ? { el, top: el.getBoundingClientRect().top, until: performance.now() + 300 } : null;
 }
 

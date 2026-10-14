@@ -6,7 +6,7 @@ import { isUnanchored } from "./unanchored";
 import { revealLine } from "./expand";
 import { cursorJumpTo, cursorReset, isRendered } from "./cursor";
 import { isFileSkimCollapsed, toggleFileSkim } from "./skim";
-import { openThread, threadKey } from "./rests";
+import { holdPlace, openThread, threadKey } from "./rests";
 
 // ── "Why can't I approve this file?" ─────────────────────────────────────────
 // fileObjections gates Approve on rejected hunks and open change-request comments, but
@@ -71,6 +71,7 @@ function decisionDisplayPos(d: Decision): { side: Side; line: number } {
 // Scroll a thread that isn't on a diff row (the strip's, a rendered markdown file's) into view and
 // flash it.
 function flashThread(el: HTMLElement) {
+  holdPlace(null); // the smooth scroll runs on past the hold's moment
   el.scrollIntoView({ block: "center", behavior: "smooth" });
   el.classList.remove("flash");
   void el.offsetWidth; // restart the animation
@@ -123,6 +124,7 @@ export async function jumpToBlocker(b: Blocker, current: () => boolean = () => t
     return;
   }
   if (b.unanchored) {
+    holdPlace(null);
     diff
       .querySelector<HTMLElement>(".unanchored-strip")
       ?.scrollIntoView({ block: "center", behavior: "smooth" });

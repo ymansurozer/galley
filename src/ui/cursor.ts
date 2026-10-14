@@ -7,7 +7,7 @@ import { openCommentComposer } from "./selection";
 import { render } from "./render";
 import { diffShadowRoot } from "./diff-dom";
 import { type Row, mergeRows, rowMatches as matches } from "./cursor-rows";
-import { followRows, openThreadAt, threadKey } from "./rests";
+import { followRows, holdPlace, openThreadAt, threadKey } from "./rests";
 
 // ── The diff line cursor ─────────────────────────────────────────────────────
 // Keyboard review needs a "current line" the diff doesn't otherwise have. We keep it as a
@@ -211,6 +211,7 @@ function landAt(side: Side, line: number): boolean {
   cur = { side: r.side, line: r.line };
   paint(r);
   r.el.scrollIntoView({ block: "center" });
+  holdPlace(r.el); // where the jump put it, not where an opening card held the view before it
   markCursorChange();
   if (!openThreadAt(side, line)) openThreadAt(r.side, r.line);
   return true;
