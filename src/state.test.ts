@@ -746,7 +746,28 @@ test("a new block identical to an accept staged out of the diff, at exactly its 
     round3.splice(3, 0, "x");
     const s3 = await mergeReviewState(await edit(round3), s2);
     assert.equal(statusOf(s3, "app.ts:additions:4:0:1"), "pending");
-    assert.deepEqual(decided(s3), [["app.ts:additions:4:0:1", "accepted", 4]]);
+    // The staged-out accept is dropped rather than read as the new block's, in the tab and the
+    // agent's result alike; the index already holds what it accepted.
+    assert.deepEqual(decided(s3), []);
+    const result = buildReviewResult(s3, { resultJson: "r.json", sessionDir: "d" });
+    assert.deepEqual(result.accepted, []);
+  });
+});
+
+test("a block below a hunk the user staged by hand keeps its verdicts though its base moved", async () => {
+  await withShiftRepo(async (edit, stage) => {
+    const round1 = withTop(edited({ 12: "D" }));
+    const before = await edit(round1);
+    const saved = {
+      ...before,
+      decisions: [decide(before, "app.ts:additions:14:1:1", "rejected")],
+      signedOffBlocks: signedOff(before, "app.ts:additions:14:1:1"),
+    };
+    // Staged outside the desk, so not in stagedChangeKeys: the l12 block keeps its key and content.
+    await stage(withTop(committedLines));
+    const merged = await mergeReviewState(await edit(round1), saved);
+    assert.equal(statusOf(merged, "app.ts:additions:14:1:1"), "rejected");
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}), ["app.ts:additions:14:1:1"]);
   });
 });
 

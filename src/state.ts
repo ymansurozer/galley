@@ -1325,20 +1325,21 @@ function priorBlocks(
 }
 
 // Where each of the reviewer's records (a decision, a sign-off) finds its block in the rebuilt
-// diff: record key → the key of the block on the same path holding the content the record was made
-// on, at the same base line as the record's block in `prior`, the diff the records were made on —
-// the same place in the file the diff is taken against. A block's key embeds its first line, so an
-// edit above an unchanged block re-keys it, but its base line stays: a block that only shifted is
-// found again, even under a key the shift handed to a different block, and one unchanged in place
-// keeps its own key. Code moved elsewhere in the file sits at another base line, so its records
-// find no block: a re-review, but never a verdict on the wrong lines. Nor does a record whose block
-// wasn't in `prior` (an accept staged out of it), even if a block with its content now sits under
-// its key. In a working-tree review the base is the index, and the desk's own staging (approving a
-// part) moves it under every block below: each block it staged out of the diff since `prior` moves
-// the base line expected of the blocks below it by its net growth. A block the agent reverted
-// leaves the base as it was, and one staged outside the desk isn't known here, so the records of
-// the blocks below that find none. Only a new or re-keyed block takes a record that moved: one that
-// sat under the same key with the same content in `prior` stays put.
+// diff: record key → the key of the block holding the content the record was made on. A block
+// still under the key and content it had in `prior`, the diff the records were made on, keeps its
+// records. A block's key embeds its first line, though, so an edit above an unchanged block re-keys
+// it; such a block takes a record when it sits on the same path at the same base line as the
+// record's block in `prior` — the same place in the file the diff is taken against, which an edit
+// above it doesn't move. So a block that only shifted is found again, even under a key the shift
+// handed to a different block, while code moved elsewhere in the file sits at another base line and
+// its records find no block: a re-review, but never a verdict on the wrong lines. Nor does a record
+// whose block wasn't in `prior` (an accept staged out of it), even if a new block with its content
+// now sits under its key. In a working-tree review the base is the index, and the desk's own staging
+// (approving a part) moves it under every block below: each block it staged out of the diff since
+// `prior` moves the base line expected of the blocks below it by its net growth. A block the agent
+// reverted leaves the base as it was, and one staged outside the desk isn't known here, so the
+// records of blocks below it that also moved find none. Only a new or re-keyed block takes a record
+// that moved: one that sat under the same key with the same content in `prior` stays put.
 function recordBlocks(
   rebuilt: Pick<ReviewState, "files" | "changes">,
   records: Array<{ key: string; hash?: string }>,
@@ -1360,12 +1361,11 @@ function recordBlocks(
     if (!r.hash) continue;
     const was = prior.get(r.key);
     const base = was?.base === undefined ? undefined : baseNow(was.path, was.base);
-    const here = ranges.get(r.key)?.base;
-    // Unchanged in place: its own key holds its content, where `prior` had its block. A review
-    // saved before blocks were (no `prior`), or one without their places, can't say otherwise.
-    const inPlace =
-      prior.size === 0 || (!!was && (base === undefined || here === undefined || here === base));
-    if (hashAt.get(r.key) === r.hash && inPlace) homes.set(r.key, r.key);
+    // Unchanged: its block was in `prior` under its key with its content, and still is, whatever
+    // its base line did (staging by hand above it moves that). A review saved before blocks were
+    // (no `prior`) can't say otherwise.
+    const unchanged = prior.size === 0 || (!!was && (was.hash ?? r.hash) === r.hash);
+    if (hashAt.get(r.key) === r.hash && unchanged) homes.set(r.key, r.key);
     else if (was?.hash === r.hash && base !== undefined)
       waiting.set(`${was.path}\0${r.hash}\0${base}`, r.key);
   }
@@ -1388,9 +1388,9 @@ function recordBlocks(
 // stamp every block's status from them. Decisions keyed to a path the diff now shows renamed move
 // to the new path first; a decision whose block only moved (lines shifted above it) follows it to
 // its new key. A decision whose block is gone from the diff (e.g. accepting it staged the hunk out
-// of the working tree) is *kept* — that's the whole point — and stamps no block, even one that now
-// holds its content under its key. A decision whose block is still visible but whose content
-// changed is dropped as stale. `before`: the diff the decisions were made on (recordBlocks).
+// of the working tree) is *kept* — that's the whole point — while no other block holds its key. A
+// decision whose key another block holds now (its own rewritten, or a new one) is dropped as stale.
+// `before`: the diff the decisions were made on (recordBlocks).
 function carryDecisions(
   rebuilt: Pick<ReviewState, "files" | "changes">,
   saved: Decision[],
@@ -1418,9 +1418,11 @@ function carryDecisions(
     const key = homes.get(d.key);
     const change = key === undefined ? undefined : changeAt.get(key);
     if (key === undefined || !change) {
-      // The agent rewrote this block since it was reviewed → re-review.
-      const there = changeAt.get(d.key);
-      if (there && (!d.reviewedHash || d.reviewedHash !== there.contentHash)) continue;
+      // Another block holds its key now: the agent rewrote this block since it was reviewed
+      // (→ re-review), or a new one, even with its content, took its place. Drop it — kept, it would
+      // read as that block's verdict in the tab and the agent's result, which look decisions up by
+      // key. An accept staged out of the diff already lives in the index.
+      if (changeAt.has(d.key)) continue;
       // An accepted decision whose change vanished is kept (accepting may have staged the
       // hunk out of the diff). A REJECTED decision whose change vanished means the agent
       // reworked the block away — the rejection was honored, and keeping it would leave an
