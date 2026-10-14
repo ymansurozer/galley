@@ -6,7 +6,9 @@
    Approve (green) / Mark Reviewed (orange); a dialog's default action is filled blue. Everything
    else is neutral (a raised push button) or quiet (text until hovered). */
 
-/* Push button: neutral by default. */
+/* Push button: neutral by default.
+   Every button answers the pointer with a colour step and nothing else: no ring, border,
+   shadow or movement. Hover steps its ground or ink a little; pressed steps it a little more. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -30,7 +32,7 @@
 }
 
 .btn:hover {
-  background-image: linear-gradient(var(--fill), var(--fill));
+  background-image: linear-gradient(var(--fill-2), var(--fill-2));
 }
 
 .btn:active {
@@ -45,12 +47,11 @@
 
 /* Filled: the one action the surface is for. A filled button names its ground in --btn-bg,
    --btn-bg-hover and --btn-bg-pressed (the *-fill tokens); .btn.primary is blue, the file's
-   sign-off green or orange (decisions.css). Its hover halo is its own fill. */
+   sign-off green or orange (decisions.css). */
 .btn.primary {
   --btn-bg: var(--blue-fill);
   --btn-bg-hover: var(--blue-fill-hover);
   --btn-bg-pressed: var(--blue-fill-pressed);
-  --halo: var(--btn-bg-hover);
   background: var(--btn-bg);
   color: var(--on-fill);
   box-shadow:
@@ -58,15 +59,13 @@
     0 1px 2px rgb(0 0 0 / 0.2);
 }
 
-/* Hover steps the ground (the *-fill-hover token); the halo is every button's (below). */
+/* Hover and press step the ground (the *-fill-hover and *-fill-pressed tokens). */
 .btn.primary:hover {
   background: var(--btn-bg-hover);
-  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.25);
 }
 
 .btn.primary:active {
   background: var(--btn-bg-pressed);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
 }
 
 .btn.primary:disabled {
@@ -76,33 +75,6 @@
 :is(.btn.primary, .fill):focus-visible {
   outline: 2px solid var(--btn-bg-hover);
   outline-offset: 2px;
-}
-
-/* ── Hover: one treatment for every button ──
-   Approve File / Mark Reviewed's: under the pointer the ground steps (each family names its own
-   step where it's styled) and a soft 3px halo rings the button in its own hue: a filled
-   button's fill (--halo), any other's own colour as it hovers. The halo is an outline, so it
-   adds to whatever edge a button already draws, and gives way to the press and to the keyboard's
-   focus ring. Row-like buttons (sidebar rows, thread rests, strips) keep their row highlight. */
-:is(
-    .btn,
-    .seg > button,
-    .signoff,
-    .blockers-chip,
-    .toast-action,
-    .cbtn,
-    .reply-thread,
-    .resolve-thread,
-    .reopen-inline,
-    .msg-actions button,
-    .sq,
-    .pill-refresh,
-    .nav-toggle,
-    .ovsz-btn,
-    .ovsz-load
-  ):hover:not(:disabled, :active, :focus-visible) {
-  outline: 3px solid color-mix(in srgb, var(--halo, currentColor) 28%, transparent);
-  outline-offset: 0;
 }
 
 /* Quiet: text that becomes a button under the pointer. */
