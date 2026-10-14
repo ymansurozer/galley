@@ -130,11 +130,20 @@
   line-height: 14px;
 }
 
-/* The progress tag beside the title. There's no resting percentage, so it speaks only when asked
-   (hover the bar or the title: "N% · a/b files · x/y lines"), then fades. progress.ts fills it. */
+/* The progress tag. There's no resting percentage, so it speaks only when asked (hover the bar or
+   the title: "N% · a/b files · x/y lines"), then fades. It floats just under the bar, at the bar's
+   start (the canvas's left edge, past the sidebar), over the content without moving it, and it
+   never takes the pointer from what's under it. progress.ts fills it. */
 .top-tag {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 8px;
   display: none;
-  flex: 0 0 auto;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: var(--shadow-float);
   height: 18px;
   padding: 0 7px;
   border-radius: var(--radius-pill);
@@ -163,7 +172,7 @@
 @keyframes tag-in {
   from {
     opacity: 0;
-    transform: translateX(-4px) scale(0.96);
+    transform: translateY(-3px) scale(0.96);
   }
 }
 
@@ -331,6 +340,15 @@ body.file-mode .top-logo,
   align-items: center;
 }
 
+/* The switch's ⇧U sits on the segment it would switch to, as the sidebar's Review | Files shows its
+   W on the inactive tab. */
+.lane-switch .cap {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  font-size: 9px;
+}
+
 .lane-switch > button .ic {
   width: 13px;
   height: 13px;
@@ -388,7 +406,8 @@ body.file-mode .top-logo,
 /* A narrow bar (a phone, or the canvas beside a wide sidebar) keeps every control but compacts
    them: the subtitle, the logo and the green 100% give way (the progress edge still shows it), the
    pill keeps its glyph (its tooltip carries the line), the lane switch keeps its icons, Reset
-   Review its glyph, and the buttons drop their keycaps (their tooltips still carry them). The progress tag floats just under the bar, where it has the bar's width. */
+   Review its glyph, and the switch and the buttons drop their keycaps (their tooltips still carry
+   them). */
 @media (max-width: 760px) {
   .top {
     column-gap: 8px;
@@ -403,16 +422,6 @@ body.file-mode .top-logo,
     display: none !important;
   }
 
-  .top-tag {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 8px;
-    max-width: calc(100% - 16px);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    box-shadow: var(--shadow-float);
-  }
-
   .agent-pill {
     justify-content: center;
     width: 28px;
@@ -421,6 +430,7 @@ body.file-mode .top-logo,
 
   .agent-pill :is(.agent-who, .agent-line),
   .lane-switch > button > span,
+  .lane-switch .keycaps,
   .reset-review > span,
   .top .btn .keycaps {
     display: none;
