@@ -99,8 +99,7 @@
     .pill-refresh,
     .nav-toggle,
     .ovsz-btn,
-    .ovsz-load,
-    .fe-next
+    .ovsz-load
   ):hover:not(:disabled, :active, :focus-visible) {
   outline: 3px solid color-mix(in srgb, var(--halo, currentColor) 28%, transparent);
   outline-offset: 0;
