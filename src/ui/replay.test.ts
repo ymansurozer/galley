@@ -191,6 +191,29 @@ test("the line map tracks real decisions mixed with display-only resolutions", (
     assert.equal(shown.additionLines[map.toDisplay("additions", raw) - 1], NEW[raw - 1] + "\n");
 });
 
+test("every rendered row anchors to a raw line holding the code it shows, in either gutter", () => {
+  const diff = rawDiff();
+  const views: Array<[Step["part"], Partial<Record<string, ChangeState["status"]>>]> = [
+    [0, {}],
+    [1, { P: "rejected" }],
+    [undefined, { P: "accepted", Q: "rejected", R: "rejected", S: "accepted" }],
+  ];
+  for (const [part, status] of views) {
+    const { shown, map } = replay(
+      diff,
+      replayPositions(diff, Object.values(blocks(diff, status)), view(part)),
+    );
+    for (const side of ["additions", "deletions"] as const) {
+      const rows = side === "additions" ? shown.additionLines : shown.deletionLines;
+      rows.forEach((code, i) => {
+        const at = map.anchorAt(side, i + 1);
+        const file = at.side === "additions" ? NEW : OLD;
+        assert.equal(file[at.line - 1] + "\n", code, `${String(part)} ${side} row ${i + 1}`);
+      });
+    }
+  }
+});
+
 test("viewing a part records nothing: its other blocks stay pending in the saved slice", () => {
   const diff = rawDiff();
   const b = blocks(diff, { P: "rejected" });

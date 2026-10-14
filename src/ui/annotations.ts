@@ -5,7 +5,7 @@ import {
   currentFile,
   inCurrentStep,
   toDisplayLine,
-  fromDisplayLine,
+  selectionAnchor,
 } from "./changes";
 import { isUnanchored } from "./unanchored";
 import { acceptChange } from "./decisions";
@@ -431,11 +431,8 @@ export function threadCard(t: ThreadMeta, lost: boolean, surface: CommentSurface
 // The new-comment composer as a card at its line: what it is and where, then the reviewer's
 // composer. S.selected is display space; the header names the file's own line.
 export function composerCard(): HTMLElement {
-  const { side, lineNumber, endLine } = S.selected;
-  const loc = lineLabel(
-    fromDisplayLine(side, lineNumber),
-    endLine === undefined ? undefined : fromDisplayLine(side, endLine),
-  );
+  const at = selectionAnchor(S.selected.side, S.selected.lineNumber, S.selected.endLine);
+  const loc = lineLabel(at.line, at.endLine);
   const card = document.createElement("div");
   card.className = "comment-box thread-card k-new";
   card.innerHTML = `<div class="tc-head"><span class="tc-kind">${BUBBLE}New comment</span>${locHtml({ loc })}</div><div class="meta">${AVATAR.you}<span class="author">You</span></div>`;

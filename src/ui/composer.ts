@@ -1,5 +1,5 @@
 import { S } from "./store";
-import { fromDisplayLine } from "./changes";
+import { rowAnchor } from "./changes";
 import { render } from "./render";
 import { renderUiLane } from "./uilane";
 import type { Side } from "./types";
@@ -82,13 +82,9 @@ export function buildEditor(): HTMLElement {
 // the diff (and identity in the markdown view, where D.lineMap is null), so convert before
 // comparing against a thread's raw anchor.
 export function composerTargets(side: Side, rawLine: number): boolean {
-  return (
-    S.composerOpen &&
-    !S.editingCommentId &&
-    !composerInUi() &&
-    S.selected.side === side &&
-    fromDisplayLine(S.selected.side, S.selected.lineNumber) === rawLine
-  );
+  if (!S.composerOpen || S.editingCommentId || composerInUi()) return false;
+  const at = rowAnchor(S.selected.side, S.selected.lineNumber);
+  return at.side === side && at.line === rawLine;
 }
 
 // Is the open reply composer in this annotation's thread?
