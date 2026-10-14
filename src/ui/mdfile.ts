@@ -2,7 +2,8 @@ import { S, $ } from "./store";
 import { cur } from "./contents";
 import { currentFile, currentComments } from "./changes";
 import { renderMarkdown } from "./markdown";
-import { composerCard, threadCard } from "./annotations";
+import { composerCard } from "./annotations";
+import { threadSlot } from "./rests";
 import { composerInUi, openComposer } from "./composer";
 import type { ReviewComment, ThreadMeta } from "./types";
 
@@ -84,7 +85,7 @@ export function renderMarkdownFile() {
       status: comments.some((c) => c.status === "open") ? "open" : "resolved",
       comments,
     };
-    thread.appendChild(threadCard(meta));
+    thread.appendChild(threadSlot(meta));
     const el = anchorForLine(anchors, line);
     if (!el) container.appendChild(thread);
     else if (el.tagName === "LI") el.appendChild(thread);
@@ -92,7 +93,7 @@ export function renderMarkdownFile() {
   }
 
   // A new line comment (no existing thread on that line) opens an inline composer under
-  // its block; a reply/edit renders inside the thread above via threadCard.
+  // its block; a reply/edit renders inside the thread above, in its card.
   if (
     S.composerOpen &&
     !S.editingCommentId &&
