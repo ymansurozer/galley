@@ -130,7 +130,9 @@
   }
 }
 
-/* ── Toast and the go-to-line pill: a banner floating over the bottom of the desk ── */
+/* ── Toast and the go-to-line pill: a banner floating over the bottom of the canvas ──
+   One line where it fits; on a phone a long toast wraps inside the pill rather than running off
+   the screen. */
 .toast,
 .goline {
   position: absolute;
@@ -141,16 +143,26 @@
   display: none;
   align-items: center;
   gap: 8px;
-  height: 32px;
-  padding: 0 14px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  min-height: 32px;
+  padding: 6px 14px;
   border-radius: 16px;
   background: var(--window);
   box-shadow: var(--shadow-float);
   color: var(--ink);
   font-size: var(--text-md);
   font-weight: 500;
-  white-space: nowrap;
+  line-height: 20px;
   font-variant-numeric: tabular-nums;
+}
+
+/* Wide code view: the banners centre on the canvas, as the sheets do, rather than on the window
+   under the full-height sidebar. */
+@media (min-width: 1101px) {
+  body:not(.single, .file-mode) .app:not(.view-ui) :is(.toast, .goline) {
+    grid-area: 1 / 3 / -1 / 4;
+  }
 }
 
 .toast.show,
@@ -171,6 +183,7 @@
 }
 
 .toast-action {
+  flex: 0 0 auto;
   height: 22px;
   padding: 0 10px;
   border: 0;
@@ -181,23 +194,36 @@
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.15s;
 }
 
 .toast-action:hover {
   background: color-mix(in srgb, var(--blue) 22%, transparent);
 }
 
-/* Go-to-line: a mode indicator for pending typed digits. */
+.toast-action:active {
+  background: color-mix(in srgb, var(--blue) 32%, transparent);
+}
+
+/* Go-to-line: a mode indicator for pending typed digits — the label quiet, the typed number in
+   the code's face, the keys set off by a hairline. */
+.goline {
+  color: var(--ink-2);
+}
+
 .goline b {
   color: var(--ink);
+  font-family: var(--mono);
   font-weight: 600;
 }
 
 .goline .goline-hint {
-  color: var(--ink-2);
   display: flex;
   align-items: center;
   gap: 4px;
   margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--sep-strong);
+  color: var(--ink-2);
   font-weight: 400;
 }

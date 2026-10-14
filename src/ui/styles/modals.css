@@ -130,6 +130,51 @@
   width: 380px;
 }
 
+/* The enlarged screenshot: a wide sheet whose frame hugs the image. A viewport fills the
+   sheet's width, a small crop grows to about half of it, and either shrinks to fit the window's
+   height under the top bar. */
+.modal.shot {
+  display: flex;
+  flex-direction: column;
+  width: 880px;
+}
+
+.modal.shot h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.modal.shot h3 > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shot-frame {
+  align-self: center;
+  max-width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--fill);
+  box-shadow: 0 0 0 0.5px var(--sep-strong);
+}
+
+.shot-frame img {
+  display: block;
+  min-width: min(440px, 100vw - 68px);
+  max-width: 100%;
+  max-height: calc(100vh - 210px);
+  object-fit: contain;
+}
+
 /* Settings: a long sheet that scrolls under its Done footer. */
 .modal.settings {
   padding-bottom: 0;
