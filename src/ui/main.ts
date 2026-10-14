@@ -19,7 +19,10 @@ import {
   fromDisplayLine,
   fileFinished,
   fileObjections,
+  flowIndex,
 } from "./changes";
+import { allFinished } from "./flow-index";
+import { agentPresence, deskSubtitle, deskTitle, unansweredAsks } from "./topbar-derive";
 import { approveCurrentFile, toggleSignOff } from "./decisions";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
@@ -86,7 +89,7 @@ import {
   waitingQuestions,
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
-import { openRequests, stepOpenRequest } from "./requests";
+import { openRequest, requestRows } from "./requests";
 import { uuid } from "./uuid";
 import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
@@ -135,6 +138,17 @@ document.querySelectorAll<HTMLElement>("[data-resize]").forEach((handle) => {
       handle.onpointerup = null;
     };
   };
+});
+
+// Crossing the drawer breakpoint moves the tree between its docked column and the off-canvas
+// drawer (styles/responsive.css). That isn't the drawer opening or closing, so it mustn't play the
+// drawer's slide: the docked tree would sweep out across the canvas for a beat.
+matchMedia("(max-width: 1100px)").addEventListener("change", () => {
+  const tree = document.querySelector<HTMLElement>(".tree");
+  if (!tree) return;
+  tree.classList.add("no-slide");
+  void tree.offsetWidth; // commit the move with transitions off
+  tree.classList.remove("no-slide");
 });
 
 // Keyboard shortcuts: a central scope-aware dispatcher (keys.ts) is the single source of truth.
@@ -369,9 +383,31 @@ S.treeStep = (dir) => {
   if (target.fileIndex !== undefined) S.selectFile?.(target.fileIndex);
   else S.previewFile?.(target.path);
 };
-// The top bar's count of open change requests; a click steps to the next, as `]` does.
-S.openRequests = openRequests;
-S.nextRequest = () => stepOpenRequest(1);
+// The sidebar's Change requests list; a row goes to its request, as `]` / `[` landing on it do.
+S.requestRows = requestRows;
+S.openRequest = openRequest;
+// The top bar: what is under review, the agent's presence, and whether Send Review is the next
+// step.
+S.deskTitle = () => (S.state ? deskTitle(S.state) : "");
+S.deskSubtitle = () => (S.state ? deskSubtitle(S.state, uiOnly()) : "");
+// Presence walks every comment and the done state builds the flow index, so one effect derives
+// them once per change into the store, rather than every binding re-deriving them. The review is
+// done when progress is complete; that implies the gate that opens the Send sheet after the last
+// approval (allSignedOff), so Send never turns primary short of it. A desk with no files (UI-only)
+// has no code review to complete.
+let shownPresence = S.presence;
+Alpine.effect(() => {
+  const presence = agentPresence({
+    awaitingAgent: S.awaitingAgent,
+    queuedReviews: S.queuedReviews,
+    queuedQuestions: S.queuedQuestions,
+    activity: S.agentActivity,
+    unansweredAsks: unansweredAsks(S.state?.comments ?? [], S.state?.annotations ?? []),
+  });
+  if (presence.kind !== shownPresence.kind || presence.line !== shownPresence.line)
+    S.presence = shownPresence = presence;
+  S.reviewDone = !!S.state?.files.length && allFinished(S.state, flowIndex());
+});
 // Keyboard help overlay + destructive-action confirm dialog (keys.ts owns the dialog state).
 S.helpGroups = helpGroups;
 S.confirmYes = confirmYes;

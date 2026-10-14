@@ -6,14 +6,20 @@
   grid-template-rows: 48px 1fr;
 }
 
-/* ── Top bar: what is under review and the hand-back ── */
+/* ── Top bar: what is under review and the hand-back ──
+   [title] · [the agent's presence, centred in what's left] · [lane and file toggles] · [actions].
+   The controls never wrap or shrink; the title gives way first (it truncates), then the pill down
+   to its floor. Each part names its column and spaces itself with a margin rather than the grid's
+   gap, so a hidden pill leaves an empty column and no gap. The bar compacts by its own width (the
+   @container rules below), not the window's: beside a full-height sidebar it covers only the
+   canvas, which a wide sidebar narrows. */
 .top {
   position: relative;
+  container: topbar / inline-size;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 12px;
+  grid-template-columns: minmax(0, max-content) minmax(auto, 1fr) max-content max-content;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 12px 0 14px;
   background: var(--canvas);
   border-bottom: 1px solid var(--sep);
   color: var(--ink-2);
@@ -63,42 +69,158 @@
   white-space: nowrap;
 }
 
-.brand {
-  display: inline-flex;
+/* The branch (or file) under review over "project · mode". Both truncate; their tooltips carry
+   the full text. */
+.top-title {
+  grid-column: 1;
+  display: flex;
   align-items: center;
   gap: 9px;
   min-width: 0;
 }
 
-.brand span {
-  color: var(--ink);
-  font-size: var(--text-md);
-  font-weight: 600;
-  letter-spacing: -0.005em;
+.top-name {
+  min-width: 0;
 }
 
-/* The project under review (the main worktree's folder): a filesystem name, so mono like the
-   paths elsewhere in the chrome, and quiet beside the wordmark. It's the brand's only shrinking
-   part — at narrow widths it truncates and its tooltip carries the full name. */
-.brand .brand-project {
-  min-width: 0;
-  padding-left: 9px;
-  border-left: 1px solid var(--sep-strong);
+.top-name > b,
+.top-name > span {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.top-name > b {
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 17px;
+}
+
+.top-name > span {
   color: var(--ink-2);
-  font-family: var(--mono);
   font-size: var(--text-xs);
-  font-weight: 400;
   line-height: 14px;
 }
 
-.brand-logo {
+/* The brand lives at the sidebar's top; a desk showing no sidebar (one file, file mode, the app)
+   keeps the logo here. */
+.top-logo {
+  display: none;
   width: 20px;
   height: 20px;
   flex: 0 0 auto;
-  border-radius: var(--radius-sm);
+}
+
+body.single .top-logo,
+body.file-mode .top-logo,
+.app.view-ui .top-logo {
+  display: block;
+}
+
+/* The agent's presence, like a Mac activity view: its working line under a running spinner, or
+   amber when nothing is attached to pick the review or question up. */
+.agent-pill {
+  grid-column: 2;
+  justify-self: center;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* The column's width less the pill's own margin. */
+  width: min(440px, 100% - 12px);
+  min-width: clamp(120px, 16cqi, 180px);
+  height: 28px;
+  padding: 0 12px 0 10px;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--fill);
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+  white-space: nowrap;
+}
+
+.agent-pill .agent-who {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.agent-pill .agent-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-spin {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--ink);
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  animation: agent-spin 0.8s steps(8) infinite;
+}
+
+@keyframes agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A blue glint running along the pill's foot while the agent works. */
+.agent-run {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+}
+
+.agent-run > i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, var(--blue), transparent);
+  animation: agent-run 1.6s var(--ease) infinite;
+}
+
+@keyframes agent-run {
+  from {
+    left: -30%;
+  }
+
+  to {
+    left: 100%;
+  }
+}
+
+.agent-off {
+  display: none;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--orange);
+}
+
+.agent-pill.queued {
+  background: var(--orange-wash);
+  box-shadow: none;
+  color: var(--orange-ink);
+}
+
+.agent-pill.queued :is(.agent-spin, .agent-who, .agent-run) {
+  display: none;
+}
+
+.agent-pill.queued .agent-off {
+  display: block;
 }
 
 /* Hamburger that opens the off-canvas file drawer — the topbar's only tree affordance once
@@ -130,18 +252,23 @@
 }
 
 .toggles {
+  grid-column: 3;
   display: flex;
   gap: 8px;
   align-items: center;
-  justify-content: center;
 }
 
 .actions {
-  justify-self: end;
+  grid-column: 4;
   display: flex;
   gap: 6px;
   align-items: center;
-  min-width: 0;
+}
+
+.agent-pill,
+.toggles,
+.actions {
+  margin-left: 12px;
 }
 
 .lane-switch > button .ic {
@@ -149,74 +276,94 @@
   height: 13px;
 }
 
-/* The review's open change requests, in the top bar: a click (or ]) walks to the next one.
-   Quiet beside Send; orange is the change-request color the tree's flag badge wears. Narrow,
-   it keeps the flag and the count; narrower still it would push the actions onto two lines, so
-   it leaves the bar to them (] still walks). */
-.actions .req-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
-  padding: 0 8px;
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.actions .req-chip .ic {
-  color: var(--orange);
-}
-
-.actions .req-chip b {
-  margin-right: -2px;
-  color: var(--orange-ink);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.actions .req-chip:hover {
-  color: var(--ink);
-  background: var(--orange-wash);
-}
-
-@media (max-width: 1100px) {
-  .actions .req-chip .req-label,
-  .actions .req-chip .keycaps {
-    display: none;
-  }
-}
-
-@media (max-width: 760px) {
-  .actions .req-chip {
-    display: none;
-  }
-}
-
-/* Reset Review's glyph stands in for its label on a phone. */
+/* Reset review's glyph stands in for its label on a phone. */
 .reset-review > .ic {
   display: none;
 }
 
-/* Phone widths: the top bar keeps every control but compacts them — the wordmark gives way, the
-   lane switch keeps its icons, Reset Review its glyph, and the buttons drop their keycaps (their
-   tooltips still carry them). */
-@media (max-width: 760px) {
-  .top {
-    grid-template-columns: auto auto minmax(0, 1fr);
-    gap: 8px;
-    padding: 0 8px;
+/* Send Review: a plain push button until every in-flow file is signed off, then the bar's one
+   filled action, with a check, a slow soft ring, and a green 100% beside it (the "% reviewed"
+   label steps aside for it). */
+.send-review > .ic {
+  display: none;
+}
+
+.send-review.primary > .ic {
+  display: block;
+}
+
+.send-review.primary:not(:hover, :active, :focus-visible) {
+  animation: send-ready 2.6s ease-in-out infinite;
+}
+
+@keyframes send-ready {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0.5px 0 rgb(255 255 255 / 0.2),
+      0 1px 2px rgb(0 0 0 / 0.2),
+      0 0 0 0 transparent;
   }
 
-  .brand-logo,
-  .brand > span {
+  50% {
+    box-shadow:
+      inset 0 0.5px 0 rgb(255 255 255 / 0.2),
+      0 1px 2px rgb(0 0 0 / 0.2),
+      0 0 0 5px color-mix(in srgb, var(--blue) 22%, transparent);
+  }
+}
+
+.top-done {
+  display: none;
+  margin-right: 2px;
+  color: var(--green-ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.top.done .top-done {
+  display: inline;
+}
+
+.top.done .top-pct {
+  display: none;
+}
+
+/* A narrow bar (a phone, or the canvas beside a wide sidebar) keeps every control but compacts
+   them: the subtitle, the logo and the percentage give way (the strip still shows progress), the
+   pill keeps its glyph at the controls' side (its tooltip carries the line), the lane switch keeps
+   its icons, Reset review its glyph, and the buttons drop their keycaps (their tooltips still
+   carry them). */
+@media (max-width: 760px) {
+  .top {
+    padding: 0 8px;
+  }
+}
+
+@container topbar (max-width: 760px) {
+  .agent-pill,
+  .toggles,
+  .actions {
+    margin-left: 8px;
+  }
+
+  .top-logo,
+  .top-name > span,
+  .top-pct,
+  .top-done {
     display: none !important;
   }
 
+  .agent-pill {
+    justify-self: end;
+    justify-content: center;
+    width: 28px;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .agent-pill :is(.agent-who, .agent-line),
   .lane-switch > button > span,
   .reset-review > span,
   .top .btn .keycaps {
@@ -240,20 +387,6 @@
     width: 28px;
     padding: 0;
   }
-}
-
-.actions .agent-status {
-  min-width: 0;
-  font-size: var(--text-xs);
-  color: var(--blue-ink);
-  max-width: 260px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.actions .agent-status.queued {
-  color: var(--orange-ink);
 }
 
 .actions .top-settings {

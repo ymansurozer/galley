@@ -14,7 +14,6 @@ import {
   toggleAnnotations,
   toggleAppMode,
 } from "./uilane";
-import { isOpenChange } from "./uilane-derive";
 import { stepOpenRequest } from "./requests";
 import type { ForwardedKey } from "./types";
 import {
@@ -220,12 +219,13 @@ const HOTKEYS: Hotkey[] = [
     when: inDiff,
     run: () => cursorMoveHunk(-1),
   },
+  // Across both views: the walk switches to the one its next request is in.
   {
     combo: "]",
     desc: "Next open change request",
     group: "Navigate",
     test: k("]"),
-    when: inCode,
+    when: navigable,
     run: () => stepOpenRequest(1),
   },
   {
@@ -233,7 +233,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Previous open change request",
     group: "Navigate",
     test: k("["),
-    when: inCode,
+    when: navigable,
     run: () => stepOpenRequest(-1),
   },
   {
@@ -406,7 +406,7 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "⇧U",
-    desc: "Code / UI view",
+    desc: "Code / App view",
     group: "View",
     // Only with both lanes. From inside the app it arrives only while annotating (dispatchKey).
     when: () => navigable() && hasUi() && !uiOnly(),
@@ -461,22 +461,6 @@ const HOTKEYS: Hotkey[] = [
     run: () => stepAnnotation(-1),
   },
   {
-    combo: "]",
-    desc: "Next open change request",
-    group: "UI",
-    test: k("]"),
-    when: () => inUiView() && navigable(),
-    run: () => stepAnnotation(1, isOpenChange),
-  },
-  {
-    combo: "[",
-    desc: "Previous open change request",
-    group: "UI",
-    test: k("["),
-    when: () => inUiView() && navigable(),
-    run: () => stepAnnotation(-1, isOpenChange),
-  },
-  {
     combo: "⇧B",
     desc: "Files drawer (narrow screens)",
     group: "View",
@@ -508,14 +492,17 @@ const HOTKEYS: Hotkey[] = [
     group: "App",
     test: shift("R"),
     when: navigable,
+    // The server's reset clears the app's annotations with the comments, so a desk with an app
+    // says so.
     run: () =>
-      askConfirm("Reset the whole review? This clears every decision and comment.", () =>
-        S.reset?.(),
+      askConfirm(
+        `Reset the whole review? This clears every decision, sign-off${hasUi() ? ", comment and annotation" : " and comment"}.`,
+        () => S.reset?.(),
       ),
   },
   {
     combo: "⇧S",
-    desc: "Send to agent",
+    desc: "Send review",
     group: "App",
     test: shift("S"),
     when: navigable,

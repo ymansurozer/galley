@@ -1,5 +1,6 @@
 import { S, toast, api, persist } from "./store";
 import { currentFile, fileFinished, fileObjections, flowIndex } from "./changes";
+import { allSignedOff } from "./flow-index";
 import { render, deferRender } from "./render";
 import { nextUnreviewedFileIndex, guideProgress } from "./guide";
 import {
@@ -63,13 +64,11 @@ export async function approveFile(path: string, { advance }: { advance: boolean 
   persist();
   const label = clean ? "Approved" : "Marked reviewed";
   const say = (t: string) => toast(stageFailed ? `${label} — couldn't stage ${path}` : t);
-  // The review-complete gate is over in-flow files only (issue 01/07): fully-skimmed files and
-  // pure renames left the flow, so they never block completion (and are never auto-approved).
   // One flow-index pass instead of per-file predicate rescans (see flow-index.ts).
   const ix = flowIndex();
   const scope = S.state.files.filter((f) => !ix.outOfFlow.has(f.path));
   // Every in-flow file signed off → the review is done: prompt to send it back to the agent.
-  if (scope.every((f) => S.state.reviewedFiles!.includes(f.path))) {
+  if (allSignedOff(S.state, ix)) {
     say(`${label} — review complete`);
     render();
     S.promptFinish?.();

@@ -210,6 +210,74 @@
   margin-left: auto;
 }
 
+.side-nav {
+  flex: 0 0 auto;
+}
+
+/* Open change requests, code and app: a row that folds the list under it, its count, and `]`,
+   which walks the list. The chevron rides on the label; the count and the key close the row. */
+.cr-head .flag {
+  color: var(--orange);
+}
+
+.cr-head .chev {
+  margin-right: auto;
+}
+
+.cr-count {
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--orange-wash);
+  color: var(--orange-ink);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The list scrolls on its own past a few rows, so the file list keeps its room. */
+.cr-list {
+  max-height: 30vh;
+  overflow: auto;
+}
+
+/* One compact row per request, indented under the label: its place, then its first line. */
+.node.cr-row {
+  height: 24px;
+  gap: 6px;
+  padding-left: 29px;
+  font-size: var(--text-sm);
+}
+
+.cr-row .ic {
+  width: 12px;
+  height: 12px;
+  color: var(--orange);
+}
+
+.cr-row.app .ic {
+  color: var(--ink-2);
+}
+
+.cr-loc {
+  flex: 0 0 auto;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+}
+
+.cr-row .nm {
+  color: var(--ink-2);
+}
+
+.cr-row:hover .nm {
+  color: var(--ink);
+}
+
 /* A category heading is a jump target too: a click opens the group's first file still to do. */
 .node.walk-cat {
   height: 24px;

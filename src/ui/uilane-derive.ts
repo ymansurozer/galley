@@ -305,23 +305,15 @@ export function stepOrder(groups: readonly PageGroup[], shownResolved: ReadonlyS
   );
 }
 
-// The row after (dir 1) or before (dir -1) `current` in `order`, wrapping, among the rows `keep`
-// admits; `current` needn't be one of them (an ask selected while `]` walks the change requests).
-// With no selection, the first kept row, or the last going back.
-export function stepFrom(
-  order: readonly string[],
-  current: string | null,
-  dir: 1 | -1,
-  keep: (id: string) => boolean = () => true,
-) {
+// The row after (dir 1) or before (dir -1) `current` in `order`, wrapping. With no selection (or
+// one the order doesn't hold), the first row, or the last going back.
+export function stepFrom(order: readonly string[], current: string | null, dir: 1 | -1) {
   const n = order.length;
+  if (!n) return null;
   const i = current ? order.indexOf(current) : -1;
   const from = i < 0 ? (dir > 0 ? -1 : n) : i;
-  for (let s = 1; s <= n; s++) {
-    const id = order[(((from + dir * s) % n) + n) % n]!;
-    if (keep(id)) return id;
-  }
-  return null;
+  // The index wraps into 0..n-1, and n > 0.
+  return order[(((from + dir) % n) + n) % n]!;
 }
 
 // The classes an element had, read off the start of its outline (`<button class="btn primary" …>`).

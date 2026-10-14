@@ -256,10 +256,9 @@ export function applyActiveRow() {
   const path = S.overviewOpen
     ? null
     : (S.preview?.path ?? S.state?.files?.[S.fileIndex]?.path ?? null);
-  for (const el of document.querySelectorAll("#files .node.active, #walk .node.active"))
-    el.classList.remove("active");
+  for (const el of document.querySelectorAll(".tree .node.active")) el.classList.remove("active");
   if (S.overviewOpen)
-    document.querySelector('#walk .node[data-key="overview"]')?.classList.add("active");
+    document.querySelector('.side-nav .node[data-key="overview"]')?.classList.add("active");
   if (path)
     for (const key of [`file:${path}`, `test:${path}`])
       for (const el of document.querySelectorAll(`.node[data-key="${CSS.escape(key)}"]`))

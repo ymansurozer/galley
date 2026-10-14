@@ -8,7 +8,8 @@
 .app.view-ui .guidebar,
 .app.view-ui .diff-area,
 .app.view-ui .top-progress,
-.app.view-ui .top-pct {
+.app.view-ui .top-pct,
+.app.view-ui .top-done {
   display: none !important;
 }
 

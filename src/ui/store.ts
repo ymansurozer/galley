@@ -23,6 +23,8 @@ export const S: Store = Alpine.reactive<Store>({
   agentListening: false,
   queuedQuestions: 0,
   queuedReviews: 0,
+  presence: { kind: "hidden", line: "" },
+  reviewDone: false,
   lastBaseDiffHash: null,
   selected: { side: "additions", lineNumber: 1 },
   // chrome UI flags (templates bind to these)
@@ -43,6 +45,7 @@ export const S: Store = Alpine.reactive<Store>({
   sendFinishing: false,
   overviewOpen: false,
   sidebarTab: "tree",
+  requestsOpen: true,
   treeDrawerOpen: false,
   fileView: "rendered",
   diffScrolled: false,

@@ -89,3 +89,15 @@ export function deriveFlowIndex(s: IndexedState | null | undefined): FlowIndex {
   };
   return { changesByPath, commentsByPath, fullySkimmed, outOfFlow, finished, reviewState };
 }
+
+// The review is complete once every in-flow file is signed off: fully-skimmed files and pure
+// renames left the flow, so they never block it (and are never auto-approved). One gate for the
+// Send sheet opening after the last approval and for Send Review turning primary.
+export const allSignedOff = (s: IndexedState, ix: FlowIndex) =>
+  s.files.every((f) => ix.outOfFlow.has(f.path) || s.reviewedFiles.includes(f.path));
+
+// Progress's own completeness: every in-flow file's sign-off is current (its recorded hash still
+// matches the file). Stricter than allSignedOff: a reload drops stale sign-offs (mergeReviewState),
+// but a save from a tab that hadn't adopted that reload yet writes its old ones back.
+export const allFinished = (s: IndexedState, ix: FlowIndex) =>
+  s.files.every((f) => ix.outOfFlow.has(f.path) || ix.finished(f.path));

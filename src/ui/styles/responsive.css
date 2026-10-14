@@ -94,6 +94,11 @@
     box-shadow: var(--shadow-float);
   }
 
+  /* Set for an instant while the window crosses this breakpoint (main.ts). */
+  .tree.no-slide {
+    transition: none;
+  }
+
   .tree-backdrop.open {
     display: block;
     position: fixed;
