@@ -8,7 +8,7 @@ import { cursorJumpTo, isRendered } from "./cursor";
 // ── "Why can't I approve this file?" ─────────────────────────────────────────
 // fileObjections gates Approve on rejected hunks and open change-request comments, but
 // either can sit far off-screen (or, for an orphaned thread, off the diff entirely). The
-// blockers chip in the diff header counts them and opens a jump list, so the reason a
+// blockers chip in the file bar counts them and opens a jump list, so the reason a
 // file reads "Mark reviewed" / changes-requested is always one click away.
 
 export type Blocker =
@@ -99,7 +99,36 @@ export function jumpToBlocker(b: Blocker) {
   cursorJumpTo(pos.side, pos.line);
 }
 
-// The header chip + its jump-list popover (imperative DOM, like the rest of the header).
+// The open popover, while one is open: a row's jump, a click outside and Esc all close it through
+// `close`, which also drops the outside-click listener.
+let openPop: { wrap: HTMLElement; close: () => void } | null = null;
+
+// Esc's first layer (keys.ts): close the open popover. False when none is showing — a re-render
+// of the bar may have dropped it from the page, and then Esc belongs to the next layer.
+export function closeBlockers(): boolean {
+  if (!openPop) return false;
+  const shown = openPop.wrap.isConnected;
+  openPop.close();
+  return shown;
+}
+
+// One row of the jump list: what kind of blocker, where it sits, and its text.
+function blockerRow(b: Blocker): HTMLButtonElement {
+  const [kind, glyph, label, where, text] =
+    b.kind === "reject"
+      ? ["undone", "arrow-left", "Undone", `L${b.decision.lineNumber}`, b.decision.title]
+      : b.unanchored
+        ? ["lost", "circle-alert", "Lost its place", `was L${b.lineNumber}`, b.preview]
+        : ["change", "flag", "Change request", `L${b.lineNumber}`, b.preview];
+  const row = document.createElement("button");
+  row.className = `blockers-item ${kind}`;
+  row.innerHTML = `<span class="bk-kind"><svg class="ic"><use href="#gly-${glyph}"></use></svg>${label}</span><span class="bk-where"></span><span class="bk-text"></span>`;
+  row.querySelector(".bk-where")!.textContent = where;
+  row.querySelector(".bk-text")!.textContent = text;
+  return row;
+}
+
+// The bar's "N blockers" chip + its jump-list popover (imperative DOM, like the rest of the bar).
 export function blockersChip(): HTMLElement | null {
   const path = currentFile().path;
   const items = fileBlockers(path);
@@ -110,21 +139,28 @@ export function blockersChip(): HTMLElement | null {
   btn.className = "blockers-chip";
   btn.textContent = `${items.length} blocker${items.length === 1 ? "" : "s"}`;
   btn.setAttribute("data-tip", "What's keeping this file from Approved");
+  btn.setAttribute("aria-expanded", "false");
   wrap.appendChild(btn);
   const pop = document.createElement("div");
   pop.className = "blockers-pop";
+  pop.setAttribute("role", "menu");
+  const head = document.createElement("div");
+  head.className = "blockers-head";
+  head.textContent = `Keeping ${path.split("/").pop()} from Approved`;
+  pop.appendChild(head);
+  const close = () => {
+    wrap.classList.remove("open");
+    btn.setAttribute("aria-expanded", "false");
+    document.removeEventListener("click", outside, true);
+    if (openPop?.wrap === wrap) openPop = null;
+  };
+  const outside = (ev: MouseEvent) => {
+    if (!wrap.contains(ev.target as Node)) close();
+  };
   for (const b of items) {
-    const row = document.createElement("button");
-    row.className = "blockers-item";
-    if (b.kind === "reject") {
-      row.innerHTML = `<span class="bk-kind reject">Rejected</span><span class="bk-where">line ${b.decision.lineNumber}</span><span class="bk-text"></span>`;
-      row.querySelector(".bk-text")!.textContent = b.decision.title;
-    } else {
-      row.innerHTML = `<span class="bk-kind change">Change request</span><span class="bk-where">${b.unanchored ? "unanchored" : `line ${b.lineNumber}`}</span><span class="bk-text"></span>`;
-      row.querySelector(".bk-text")!.textContent = b.preview;
-    }
+    const row = blockerRow(b);
     row.onclick = () => {
-      wrap.classList.remove("open");
+      close();
       jumpToBlocker(b);
     };
     pop.appendChild(row);
@@ -132,16 +168,12 @@ export function blockersChip(): HTMLElement | null {
   wrap.appendChild(pop);
   btn.onclick = (e) => {
     e.stopPropagation();
-    const open = wrap.classList.toggle("open");
-    if (open) {
-      const close = (ev: MouseEvent) => {
-        if (!wrap.contains(ev.target as Node)) {
-          wrap.classList.remove("open");
-          document.removeEventListener("click", close, true);
-        }
-      };
-      document.addEventListener("click", close, true);
-    }
+    if (wrap.classList.contains("open")) return close();
+    closeBlockers(); // a popover left open by an earlier render of the bar
+    wrap.classList.add("open");
+    btn.setAttribute("aria-expanded", "true");
+    document.addEventListener("click", outside, true);
+    openPop = { wrap, close };
   };
   return wrap;
 }

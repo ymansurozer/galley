@@ -134,24 +134,41 @@ function ensureCursor(): Row | undefined {
   return r;
 }
 
+// Flash a jumped-to line so the eye finds it: its gutter and code cells, which share a
+// data-line-index within the column (`<code>`) the row was found in. The [data-flash] animation
+// lives in render.ts's in-shadow CSS. The marker comes off when the animation ends, so a later
+// re-render that reuses the cells doesn't replay it.
+function flashRow(r: Row) {
+  const li = r.el.getAttribute("data-line-index");
+  const col = r.el.closest("code");
+  if (!li || !col) return;
+  for (const el of col.querySelectorAll<HTMLElement>(`[data-line-index="${li}"]`)) {
+    el.removeAttribute("data-flash");
+    void el.offsetWidth; // restart the animation
+    el.setAttribute("data-flash", "");
+    el.addEventListener("animationend", () => el.removeAttribute("data-flash"), { once: true });
+  }
+}
+
 // Land the cursor on a specific rendered line (display space) and center it. Context rows merge
 // to a single entry (additions primary, deletions twin in `alt`), so fall back to a line-only
 // match before giving up.
-function landAt(side: Side, line: number): boolean {
+function landAt(side: Side, line: number, flash = false): boolean {
   const list = rows();
   const r = list.find((x) => matches(x, side, line)) ?? list.find((x) => x.line === line);
   if (!r) return false;
   cur = { side: r.side, line: r.line };
   paint(r);
   r.el.scrollIntoView({ block: "center" });
+  if (flash) flashRow(r);
   return true;
 }
 
-// Jump used by the blockers list. Retries once across two frames so a just-triggered
-// collapsed-region expansion (which rerenders) has laid out its rows.
+// Jump used by the blockers list and the change-request walk: land and flash. Retries once across
+// two frames so a just-triggered collapsed-region expansion (which rerenders) has laid out its rows.
 export function cursorJumpTo(side: Side, line: number) {
-  if (!landAt(side, line))
-    requestAnimationFrame(() => requestAnimationFrame(() => landAt(side, line)));
+  if (!landAt(side, line, true))
+    requestAnimationFrame(() => requestAnimationFrame(() => landAt(side, line, true)));
 }
 
 // Whether this DISPLAY line has a rendered row: exactly, not landAt's line-only fallback, whose

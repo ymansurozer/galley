@@ -374,9 +374,15 @@ async function renderCenter() {
       if (phase !== "unmount") applySkimCollapse();
     },
     // @pierre reserves a right-side gutter via `scrollbar-gutter: stable` on the code grid
-    // (for a vertical scrollbar it hides) — drop it so rows fill the full width. previewCSS
-    // (empty unless previewing) neutralizes addition styling to context, in-shadow.
-    unsafeCSS: "[data-code]{scrollbar-gutter:auto}" + previewCSS,
+    // (for a vertical scrollbar it hides) — drop it so rows fill the full width. [data-flash] is
+    // a jumped-to line (cursor.ts flashRow): an orange wash over its own tint that fades, like a
+    // thread's flash off the rows (decisions.css). previewCSS (empty unless previewing)
+    // neutralizes addition styling to context, in-shadow.
+    unsafeCSS:
+      "[data-code]{scrollbar-gutter:auto}" +
+      "[data-flash]{animation:galley-flash 1.2s ease-out}" +
+      "@keyframes galley-flash{0%{box-shadow:inset 0 0 0 100vmax color-mix(in srgb,var(--orange) 25%,transparent)}}" +
+      previewCSS,
   };
   // annotations() is our own AnnotationInput[]; the lib's DiffLineAnnotation<T> is a
   // discriminated union whose assignability check rejects our union-typed metadata,

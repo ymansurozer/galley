@@ -16,6 +16,7 @@ import {
 } from "./uilane";
 import { isOpenChange } from "./uilane-derive";
 import { stepOpenRequest } from "./requests";
+import { closeBlockers } from "./blockers";
 import type { ForwardedKey } from "./types";
 import {
   cursorMoveLine,
@@ -73,8 +74,9 @@ const cmd = (key: string) => (e: KeyboardEvent) =>
 const cmdShift = (key: string) => (e: KeyboardEvent) =>
   e.key === key && (e.metaKey || e.ctrlKey) && e.shiftKey;
 
-// Esc cascade: close the topmost transient surface.
+// Esc cascade: close the topmost transient surface. The popovers over the code come first.
 function escape() {
+  if (closeBlockers()) return;
   if (golineActive()) {
     golineCancel();
     return;
