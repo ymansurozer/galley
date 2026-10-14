@@ -1,6 +1,14 @@
 import { S, D, $ } from "./store";
 import type { ChangeState, Decision, ReviewComment, Side } from "./types";
-import { currentBlockAt, currentFile, inCurrentStep, toDisplayLine } from "./changes";
+import {
+  currentBlockAt,
+  currentChanges,
+  currentFile,
+  inCurrentStep,
+  toDisplayLine,
+} from "./changes";
+import { attributeComment, placeBlocks } from "./flow-index";
+import { currentSlot } from "./guide";
 import { blockStep } from "./steps";
 import { isUnanchored } from "./unanchored";
 import { revealLine } from "./expand";
@@ -120,17 +128,31 @@ export async function jumpToBlocker(b: Blocker, live = () => true) {
   cursorJumpTo(pos.side, pos.line);
 }
 
+// The blockers of the step on screen: the file's, or in a part or Rest view only the step's own (a
+// rejected block of its, a request attributed to one of its blocks), so the chip agrees with the
+// step's "Mark reviewed" (flow-index stepObjections).
+function stepBlockers(path: string, blocks: ChangeState[] | null): Blocker[] {
+  const items = fileBlockers(path);
+  if (!blocks) return items;
+  const own = new Set(blocks.map((c) => c.id));
+  const hunks = S.state.files.find((f) => f.path === path)?.hunks ?? [];
+  const placed = placeBlocks(currentChanges(), hunks);
+  return items.filter((b) =>
+    own.has(b.kind === "reject" ? b.decision.key : (attributeComment(b, placed)?.id ?? "")),
+  );
+}
+
 // The header chip + its jump-list popover (imperative DOM, like the rest of the header).
 export function blockersChip(): HTMLElement | null {
-  const path = currentFile().path;
-  const items = fileBlockers(path);
+  const blocks = currentSlot()?.blocks ?? null;
+  const items = stepBlockers(currentFile().path, blocks);
   if (!items.length) return null;
   const wrap = document.createElement("span");
   wrap.className = "blockers";
   const btn = document.createElement("button");
   btn.className = "blockers-chip";
   btn.textContent = `${items.length} blocker${items.length === 1 ? "" : "s"}`;
-  btn.setAttribute("data-tip", "What's keeping this file from Approved");
+  btn.setAttribute("data-tip", `What's keeping this ${blocks ? "part" : "file"} from Approved`);
   wrap.appendChild(btn);
   const pop = document.createElement("div");
   pop.className = "blockers-pop";

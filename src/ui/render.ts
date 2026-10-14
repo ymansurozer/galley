@@ -8,8 +8,7 @@ import {
   ensureChangesFromFileDiff,
   replayDecisions,
   syncDisplayAnchors,
-  fileFinished,
-  fileObjections,
+  flowIndex,
 } from "./changes";
 import type { AnnotationMeta } from "./types";
 import { applyActiveRow, applyLayoutClasses } from "./tree";
@@ -23,12 +22,19 @@ import {
   handleDiffSelection,
   attachDiffSelectionHandlers,
 } from "./selection";
-import { approveCurrentFile, resetReview } from "./decisions";
+import { approveCurrentStep, resetReview, resetStep } from "./decisions";
 import { blockersChip } from "./blockers";
 import { isMarkdownPath, renderMarkdownFile } from "./mdfile";
 import { renderMarkdown } from "./markdown";
 import { cursorResync, cursorReset, invalidateCursorRows } from "./cursor";
-import { hasGuide, renderOverview, currentFileParts, currentGuideEntry } from "./guide";
+import {
+  currentFileParts,
+  currentGuideEntry,
+  currentSlot,
+  currentStep,
+  hasGuide,
+  renderOverview,
+} from "./guide";
 import { updateProgress } from "./progress";
 import {
   applySkimCollapse,
@@ -423,17 +429,21 @@ async function renderCenter() {
   D.fileDiff = fd;
   D.rawFileDiff = rawFd;
   applyLayoutClasses();
-  // The per-file sign-off action in the diff header. Unfinished → one context button:
-  // "Approve" (clean) or "Mark reviewed" (has a rejected hunk / open requested-change), which
-  // accepts pending hunks, signs off, and advances. Finished → a state pill + Reset to undo.
+  // The sign-off action in the diff header, for the step on screen: a part or Rest step on its
+  // own, else the file. Unfinished → one context button: "Approve" (clean) or "Mark reviewed"
+  // (has a rejected hunk / open requested-change), which accepts pending hunks, signs off, and
+  // advances. Finished → a state pill + Reset to undo.
   const headerActions = () => {
     const wrap = document.createElement("span");
     const filePath = currentFile().path;
+    const blocks = currentSlot()?.blocks ?? null;
+    const step = currentStep();
+    const ix = flowIndex();
     const reset = () => {
       const b = document.createElement("button");
       b.className = "diff-header-action undo";
       b.textContent = "Reset";
-      b.onclick = () => resetReview(filePath);
+      b.onclick = () => (blocks ? resetStep(step) : resetReview(filePath));
       return b;
     };
     // The chip lists what keeps the file from Approved (rejected hunks, open change
@@ -449,20 +459,23 @@ async function renderCenter() {
       collapse.onclick = () => toggleFileSkim(filePath);
       wrap.appendChild(collapse);
     }
-    if (fileFinished(filePath)) {
-      // The file-tree badge carries the approved / changes-requested state; the header just
-      // offers a quiet Reset to undo the sign-off (plus the blockers chip when relevant).
+    if (ix.stepFinished({ path: filePath, blocks })) {
+      // The sidebar badges carry the approved / changes-requested state; the header just offers
+      // a quiet Reset to undo the sign-off (plus the blockers chip when relevant).
       if (chip) wrap.appendChild(chip);
       wrap.appendChild(reset());
     } else {
-      const objections = fileObjections(filePath);
+      const objections = ix.stepObjections({ path: filePath, blocks });
       // Reset (clear in-progress hunk decisions) sits on the left; Approve is always far right.
-      if (S.state.decisionFiles?.includes(filePath)) wrap.appendChild(reset());
+      const decided = blocks
+        ? blocks.some((c) => c.status !== "pending")
+        : S.state.decisionFiles?.includes(filePath);
+      if (decided) wrap.appendChild(reset());
       if (chip) wrap.appendChild(chip);
       const button = document.createElement("button");
       button.className = "diff-header-action" + (objections ? " warn" : "");
       button.innerHTML = `${objections ? "Mark Reviewed" : "Approve"} <kbd>⇧A</kbd>`;
-      button.onclick = () => approveCurrentFile();
+      button.onclick = () => approveCurrentStep();
       wrap.appendChild(button);
     }
     return wrap;

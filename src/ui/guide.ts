@@ -1,6 +1,6 @@
 import { S, $, esc } from "./store";
 import { flowIndex } from "./changes";
-import type { FlowIndex } from "./flow-index";
+import { stepWeight, type FlowIndex } from "./flow-index";
 import { isGuideBaseStale } from "./guide-derive";
 import { navFileOrder, nextUnreviewed, wrapNextTarget, wrapPrevTarget } from "./seek";
 import { isSkimGroupExpanded } from "./skim";
@@ -15,6 +15,7 @@ import {
   stepKey,
   stepPlan,
   type Step,
+  type StepSlot,
 } from "./steps";
 import { treeOrder } from "./tree";
 import { renderMarkdown } from "./markdown";
@@ -41,7 +42,7 @@ function guidePlan(ix: FlowIndex) {
 
 // What navigation needs from one flow-index pass (per-candidate rescans froze big desks — see
 // flow-index.ts): the guided plan (null without a guide), whether a step left the flow (a fully
-// skimmed file or part, a pure rename), and whether it's finished.
+// skimmed file or part, a pure rename), and whether it's signed off.
 function navWith(ix: FlowIndex) {
   const plan = hasGuide() ? guidePlan(ix) : null;
   const slots = plan ? [...plan.listed, ...plan.other] : [];
@@ -54,11 +55,12 @@ function navWith(ix: FlowIndex) {
     const p = pathOf(s);
     return !!p && fileOut(p);
   };
-  // "Finished" for the seek: the step's file is signed off in the current state, matching the
-  // tree badges and floating approve button (an agent edit after sign-off invalidates the hash,
-  // so the file counts as unreviewed again). File-derived for now, so every step of a signed-off
-  // file is finished.
+  // "Finished" for the seek: the step is signed off in the current state, matching its
+  // Walkthrough row and header action (an agent edit after sign-off invalidates the hash, so the
+  // step counts as unreviewed again). A part or Rest step goes by its own blocks' sign-offs.
   const finished = (s: Step) => {
+    const slot = slotOf.get(stepKey(s));
+    if (slot) return ix.stepFinished(slot);
     const p = pathOf(s);
     return !!p && ix.finished(p);
   };
@@ -186,13 +188,47 @@ export function reseatStep(part: Step["part"], title: string | undefined) {
     : undefined;
 }
 
-// Changed lines (additions + deletions) per file path — the weight used for progress, so
-// finishing a big file advances the bar more than a tiny one. Min 1 so every file counts.
-function locByPath(): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const [path, s] of lineStats(S.state?.files ?? []))
-    m.set(path, Math.max(s.added + s.removed, 1));
-  return m;
+// A step at its walkthrough position, with the blocks it covers (see stepPlan): a part's or
+// Rest's slot, else the file whole. null for a step the guide has no slot for, or past the files.
+export function stepSlot(step: Step): StepSlot | null {
+  const f = S.state?.files?.[step.fileIndex];
+  if (!f) return null;
+  if (step.part === undefined) return { step, path: f.path, blocks: null };
+  if (!hasGuide()) return null;
+  const plan = guidePlan(flowIndex());
+  const key = stepKey(step);
+  return [...plan.listed, ...plan.other].find((s) => stepKey(s.step) === key) ?? null;
+}
+
+// The step on screen as a slot: what sign-off, its header action and the blockers chip act on.
+// null on a preview, which isn't in the review.
+export function currentSlot(): StepSlot | null {
+  return S.preview ? null : stepSlot(currentStep());
+}
+
+// The review's in-flow steps: the guided plan's (parts, Rest steps and whole files), or every
+// file whole without a guide. Progress, the review-complete gate and the approve toast count these.
+function flowSlots(ix: FlowIndex): StepSlot[] {
+  const fileOut = (p: string) => ix.outOfFlow.has(p);
+  if (hasGuide()) {
+    const plan = guidePlan(ix);
+    return [...plan.listed, ...plan.other].filter((s) => !slotOutOfFlow(s, fileOut));
+  }
+  return (S.state?.files ?? []).flatMap((f, fileIndex) =>
+    fileOut(f.path) ? [] : [{ step: { fileIndex }, path: f.path, blocks: null }],
+  );
+}
+
+// Where the review stands in steps: how many in-flow steps are signed off, of how many, and
+// whether any is a part or Rest step (the approve toast then counts steps, not files).
+export function reviewTally(): { done: number; total: number; parts: boolean } {
+  const ix = flowIndex();
+  const slots = flowSlots(ix);
+  return {
+    done: slots.filter((s) => ix.stepFinished(s)).length,
+    total: slots.length,
+    parts: slots.some((s) => s.blocks),
+  };
 }
 
 // Guide categories + their steps (plus the trailing "Other" group of unlisted diff files and
@@ -204,7 +240,7 @@ export function walkGroups(): WalkGroup[] {
   return walkthroughGroups(
     S.state.guide!.files,
     S.state.files ?? [],
-    (p) => ix.reviewState(p),
+    (slot) => ix.stepState(slot),
     (p) => ix.outOfFlow.has(p),
     (p) => ix.changesByPath.get(p) ?? [],
   );
@@ -218,23 +254,24 @@ export function walkthroughRows(): WalkRow[] {
   return walkRows(walkGroups(), null, isSkimGroupExpanded());
 }
 
-// Overall review progress for the guide-bar indicator, weighted by changed lines (LOC) rather
-// than file count: "done" sums the LOC of files the reviewer finished (approved OR
+// Overall review progress for the guide-bar indicator, over in-flow steps weighted by their
+// changed lines (LOC) rather than counted, so finishing a big file or part advances the bar more
+// than a tiny one: "done" sums the LOC of steps the reviewer finished (approved OR
 // changes-requested), "approved" the clean-signoff LOC.
 export function guideProgress(): { done: number; approved: number; total: number; pct: number } {
-  const byLines = S.settings.progressBy !== "files";
-  const loc = byLines ? locByPath() : null;
+  const byFiles = S.settings.progressBy === "files";
+  const stats = lineStats(S.state?.files ?? []);
   // One flow-index pass for the whole loop (see flow-index.ts).
   const ix = flowIndex();
   let total = 0,
     done = 0,
     approved = 0;
-  for (const f of S.state?.files ?? []) {
-    // Fully-skimmed files carry no progress weight — they left the flow (issue 07).
-    if (ix.outOfFlow.has(f.path)) continue;
-    const w = byLines ? (loc!.get(f.path) ?? 1) : 1;
+  // Fully-skimmed steps carry no progress weight — they left the flow (issue 07).
+  for (const slot of flowSlots(ix)) {
+    const s = stats.get(slot.path);
+    const w = stepWeight(slot, s ? s.added + s.removed : 0, byFiles);
     total += w;
-    const st = ix.reviewState(f.path);
+    const st = ix.stepState(slot);
     if (st !== "pending") done += w;
     if (st === "approved") approved += w;
   }

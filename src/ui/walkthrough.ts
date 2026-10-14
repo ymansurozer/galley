@@ -76,7 +76,7 @@ export type WalkGroup = {
   files: WalkFile[];
   added: number;
   removed: number;
-  done: number; // files no longer pending
+  done: number; // rows (steps) no longer pending
   total: number;
 };
 
@@ -87,16 +87,18 @@ export type WalkGroup = {
 // its own entry's category. Guide entries absent from the diff are skipped; diff files absent
 // from the guide, and each split file's Rest, land in a trailing "Other" group — so these
 // surfaces always cover everything the progress strip counts and the two can never disagree.
-// `changesOf` supplies a path's change blocks (with their server-stamped `part`/`skim`).
+// `changesOf` supplies a path's change blocks (with their server-stamped `part`/`skim`); `stateOf`
+// gives each row its step's review state, so a part is approved on its own sign-off.
 export function walkthroughGroups(
   guideFiles: GuideFile[],
   files: FileLike[],
-  stateOf: (path: string) => FileReviewState,
+  stateOf: (slot: StepSlot) => FileReviewState,
   fullySkimmed: (path: string) => boolean = () => false,
   changesOf: (path: string) => ChangeState[] = () => [],
 ): WalkGroup[] {
   const stats = lineStats(files);
-  const mkFile = ({ step, path, entry: g, blocks }: StepSlot): WalkFile => {
+  const mkFile = (slot: StepSlot): WalkFile => {
+    const { step, path, entry: g, blocks } = slot;
     const name = path.split("/").pop() || path;
     let s = stats.get(path) ?? { added: 0, removed: 0 };
     if (blocks) {
@@ -122,7 +124,7 @@ export function walkthroughGroups(
       movedFrom: moved,
       added: s.added,
       removed: s.removed,
-      state: stateOf(path),
+      state: stateOf(slot),
     };
   };
   const mkGroup = (category: string, other: boolean, skimmed = false): WalkGroup => ({
