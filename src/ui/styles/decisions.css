@@ -2,9 +2,21 @@
    A compact segmented control under the change's last changed line, set at the code column and
    quiet at rest. The change holding the cursor (cursor.ts markCursorChange) gets a firmer track,
    its keycaps, and a rail down its rows. */
+/* At the code column: @pierre insets each line by its gap (8px), or by 2ch of the code font where
+   it draws classic +/− signs. The row is set in the code's face so `ch` measures the same. */
 .verdict-row {
   min-height: 0;
-  padding: 3px 16px 6px 8px;
+  padding: 3px 16px 6px var(--diffs-gap-inline, 8px);
+  font-family: var(--mono);
+  font-size: var(--code-size, 12.5px);
+}
+
+.verdict-row.signs {
+  padding-left: 2ch;
+}
+
+.verdict {
+  font-family: var(--sans);
 }
 
 /* Its own raised ground, not a tint: the code theme is picked apart from the appearance, so the

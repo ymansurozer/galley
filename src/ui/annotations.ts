@@ -330,7 +330,9 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
   // keycaps; only the one the cursor marks shows them (cursor.ts markCursorChange).
   if (c.type === "change") {
     const el = document.createElement("div");
-    el.className = "annotation verdict-row";
+    // Classic indicators draw +/− signs ahead of the code, so the code column sits further in.
+    el.className =
+      "annotation verdict-row" + (S.settings.diffIndicators === "classic" ? " signs" : "");
     const control = document.createElement("div");
     control.className = "verdict seg xs" + (c.id === cursorChangeId() ? " at-cursor" : "");
     control.dataset.change = c.id;

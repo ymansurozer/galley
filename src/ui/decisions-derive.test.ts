@@ -266,3 +266,17 @@ test("a decided change folds away: it no longer answers, and the rows after it r
   assert.equal(pendingChangeAt(changes, rendered, "additions", 4), replace);
   assert.equal(pendingChangeAt(changes, rendered, "additions", 6), null);
 });
+
+test("a change not yet re-derived against the diff answers on its own side's line range", () => {
+  const { diff, changes } = cursorFile();
+  const [insert, replace] = changes;
+  // As adopted from a poll: the server's blocks carry no change index until the next render.
+  delete insert.changeIndex;
+  delete replace.changeIndex;
+  Object.assign(replace, { displayLineNumber: 6, displayEndLine: 6 });
+  insert.endLine = 3;
+  assert.deepEqual(changeSpan(insert, diff), { additions: [2, 3], deletions: null });
+  assert.equal(pendingChangeAt(changes, diff, "additions", 3), insert, "its raw range");
+  assert.equal(pendingChangeAt(changes, diff, "additions", 6), replace, "its display anchors");
+  assert.equal(pendingChangeAt(changes, diff, "deletions", 4), null, "only its own side");
+});

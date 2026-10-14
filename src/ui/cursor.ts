@@ -25,7 +25,8 @@ let cur: { side: Side; line: number } | null = null;
 // content, not the viewport), so it's stable across scroll — only a re-render, or a resize
 // reflowing line heights, actually changes it. So we cache it and rebuild only on those events:
 // invalidateCursorRows() is wired to @pierre's onPostRender (render.ts — mount / update / unmount,
-// which covers our render() AND @pierre's own expandHunk rerenders) and to window resize (main.ts).
+// which covers our render() AND @pierre's own expandHunk rerenders) and to #diff's own resizes
+// (main.ts: a window resize, or a sidebar drag that rewraps lines without one).
 // Scroll deliberately does NOT invalidate: scrolling never changes the list, and arrow navigation
 // (which scrolls via scrollIntoView) stays on cache hits instead of re-sweeping the file per press.
 let cached: Row[] | null = null;
@@ -322,14 +323,19 @@ function markCursorChange() {
 // the code, in either layout. It runs from the change's first row to the bottom of its last row
 // or its control's row, whichever is lower. The cursor's row list says which rows are the
 // change's (a split row holds both sides); their edges are measured now, since the list's cached
-// tops can lag a reflow it wasn't invalidated for.
+// tops can lag a reflow it wasn't invalidated for. A change whose rows are hidden — a skimmed
+// block collapsed under a cursor that sat in it — has no rows on the list, so no rail.
 function placeRail(diff: HTMLElement, change?: ChangeState, control?: HTMLElement | null) {
-  const span = change && D.fileDiff ? changeSpan(change, D.fileDiff) : null;
+  if (!change || !D.fileDiff) {
+    rail?.remove();
+    return;
+  }
+  const span = changeSpan(change, D.fileDiff);
   const holds = (r: Row) =>
-    !!span &&
-    (spanHolds(span, r.side, r.line) || (!!r.alt && spanHolds(span, r.alt.side, r.alt.line)));
+    spanHolds(span, r.side, r.line) || (!!r.alt && spanHolds(span, r.alt.side, r.alt.line));
+  const shown = (r: Row) => r.el.isConnected && r.el.getBoundingClientRect().height > 0;
   let held = rows().filter(holds);
-  if (held.some((r) => !r.el.isConnected)) {
+  if (held.length && !(shown(held[0]) && shown(held[held.length - 1]))) {
     invalidateCursorRows();
     held = rows().filter(holds);
   }

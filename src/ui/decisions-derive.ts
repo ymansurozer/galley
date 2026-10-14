@@ -16,17 +16,27 @@ export function changeStableKey(part: ChangeContent) {
 // The display lines a change's rows show on each side of the rendered (decision-replayed) diff,
 // first to last, or null for a side it has no rows on. A replace shows both. A change's hunk and
 // change indexes hold in the replayed diff (syncDisplayAnchors reads its anchors the same way).
+// A change without a part to read there — one adopted from a poll, whose server block carries no
+// change index until the next render re-derives it — spans its own side's anchors.
 export type ChangeSpan = Record<Side, [number, number] | null>;
 
 export function changeSpan(
   change: ChangeState,
   rendered: Pick<FileDiffMetadata, "hunks">,
-): ChangeSpan | null {
+): ChangeSpan {
   const part =
     change.changeIndex === undefined
       ? undefined
       : rendered.hunks[change.hunkIndex]?.hunkContent?.[change.changeIndex];
-  if (part?.type !== "change") return null;
+  if (part?.type !== "change") {
+    const own: [number, number] = [
+      change.displayLineNumber ?? change.lineNumber,
+      change.displayEndLine ?? change.endLine ?? change.lineNumber,
+    ];
+    return change.side === "additions"
+      ? { additions: own, deletions: null }
+      : { additions: null, deletions: own };
+  }
   const lines = (index: number, count: number): [number, number] | null =>
     count ? [index + 1, index + count] : null;
   return {
@@ -50,8 +60,7 @@ export function pendingChangeAt(
 ): ChangeState | null {
   for (const c of changes) {
     if (c.status !== "pending") continue;
-    const span = changeSpan(c, rendered);
-    if (span && spanHolds(span, side, line)) return c;
+    if (spanHolds(changeSpan(c, rendered), side, line)) return c;
   }
   return null;
 }
