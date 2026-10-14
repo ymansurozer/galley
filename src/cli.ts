@@ -22,7 +22,6 @@ import {
   readDeskLock,
   resolveMovedFrom,
   resolveGuide,
-  resolveSkim,
   reviewDir,
   sanitizeSession,
   stablePort,
@@ -628,8 +627,8 @@ async function runDesk(
       return;
     }
     // The guide the saved review already carries, given again (a restart re-passing the same
-    // --guide), is carried forward as a restart without --guide carries it: its parts follow
-    // content (carryParts) rather than re-resolving from spans the agent's edits may have moved.
+    // --guide), is carried forward as a restart without --guide carries it: its parts and skims
+    // follow content (carryGuideStamps), not spans the agent's edits may have moved.
     if (!saved?.guide || !sameGuide(loaded, saved.guide)) newGuide = loaded;
   }
   const moveGuide = newGuide ?? saved?.guide;
@@ -661,12 +660,9 @@ async function runDesk(
       process.exitCode = 1;
       return;
     }
-  } else if (state.guide) {
-    // A guide carried forward by the merge (restart without --guide) keeps the parts the merge
-    // carried by content (carryParts); its skims re-resolve leniently against the new diff — stale
-    // spans drop rather than abort (see resolveSkim).
-    resolveSkim(state.rawDiff, state.changes, state.guide, { strict: false }, parsedDiffOf(base));
   }
+  // A guide carried forward by the merge (a restart without a new --guide) keeps the part and skim
+  // stamps the merge carried by content (carryGuideStamps).
   if (mode === "repo") await syncGitState(state);
   await persistReview(state);
 

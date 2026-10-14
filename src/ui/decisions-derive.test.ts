@@ -211,8 +211,8 @@ const parts = (state: ReviewState) => {
   return [blocks.slice(0, 1), blocks.slice(1)] as const;
 };
 // What `galley await` hands the agent once the tab's save lands on the desk.
-const delivered = (desk: ReviewState, tab: ReviewState) => {
-  mergeReviewerSave(desk, reviewerSlice(tab));
+const delivered = async (desk: ReviewState, tab: ReviewState) => {
+  await mergeReviewerSave(desk, reviewerSlice(tab));
   return result(desk).approvedFiles;
 };
 
@@ -231,11 +231,11 @@ test("approving every part of a split file signs the file off, and await reports
       ["approved", "pending"],
     );
     assert.equal(ix.reviewState("a.ts"), "pending", "a part alone doesn't sign the file off");
-    assert.deepEqual(delivered(desk, state), []);
+    assert.deepEqual(await delivered(desk, state), []);
     signOffStep(state, a, part2);
     ix = deriveFlowIndex(state);
     assert.equal(ix.reviewState("a.ts"), "approved");
-    assert.deepEqual(delivered(desk, state), ["a.ts"]);
+    assert.deepEqual(await delivered(desk, state), ["a.ts"]);
   });
 });
 
@@ -260,7 +260,7 @@ test("a split file with one part changes-requested is signed off but not approve
     );
     assert.equal(ix.reviewState("a.ts"), "changes-requested");
     assert.equal(rejected.status, "rejected", "a part's sign-off keeps its rejected block");
-    assert.deepEqual(delivered(desk, state), []);
+    assert.deepEqual(await delivered(desk, state), []);
   });
 });
 
@@ -336,7 +336,7 @@ test("the last in-flow part's sign-off signs off a fully skimmed part too, and t
     const ix = deriveFlowIndex(state);
     assert.equal(ix.stepState({ path: "a.ts", blocks: part2 }), "approved");
     assert.equal(ix.reviewState("a.ts"), "approved");
-    assert.deepEqual(delivered(desk, state), ["a.ts"]);
+    assert.deepEqual(await delivered(desk, state), ["a.ts"]);
   });
 });
 

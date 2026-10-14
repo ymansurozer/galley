@@ -313,25 +313,23 @@ function blocksInSpan(ranges: BlockRange[] | undefined, a: number, b: number): B
 // A block's new-side lines, for an error naming it.
 const blockLines = (r: BlockRange) => (r.lo === r.hi ? `line ${r.lo}` : `lines ${r.lo}-${r.hi}`);
 
-// Resolve a guide's skimBlocks (new-file-side line spans) to the change blocks they enclose and
-// stamp `skim` onto those ChangeState records. Diff-aware, so it lives here rather than in the
-// pure validateGuide. Display-only: it never touches decisions/status. `strict` (initial attach
-// or reload-with-a-NEW-guide) REJECTS a span that matches no block — or a skimBlocks entry on a
-// file absent from the diff — naming the offending path+span, so a bad guide is caught up front.
-// Non-strict (a reload carrying the SAME guide forward) DROPS an unresolvable span silently: the
-// diff advanced under the guide, and a block that changed deserves fresh attention, not a stale
-// collapse. Idempotent — clears prior stamps first. File-level `skim` is a whole-file flag and
-// needs no resolution, so it isn't handled here. A part entry's skimBlocks may only skim its own
-// blocks (or unclaimed ones): run after the parts are stamped (resolveParts, or carryParts on a
-// carry-forward), a span reaching a block another part claims fails strict and is ignored lenient,
-// so one part's skim never pushes another into Skimmed.
-// `preparsed` lets the reload path hand in the DiffFile[] it already parsed (see parsedDiffOf), so
-// the same rawDiff isn't parsed a second time (issue 06); omitted, it parses rawDiff itself.
+// Resolve a NEW guide's skimBlocks (new-file-side line spans: launch with --guide, reload --guide)
+// to the change blocks they enclose and stamp `skim` onto those ChangeState records. Diff-aware,
+// so it lives here rather than in the pure validateGuide. Display-only: it never touches
+// decisions/status. REJECTS a span that matches no block — or a skimBlocks entry on a file absent
+// from the diff — naming the offending path+span, so a bad guide is caught up front. A guide
+// carried across a reload or restart never comes here: its spans drift as lines shift, so its
+// skims follow content instead (carryGuideStamps). Idempotent — clears prior stamps first.
+// File-level `skim` is a whole-file flag and needs no resolution, so it isn't handled here. A part
+// entry's skimBlocks may only skim its own blocks (or unclaimed ones): run after resolveParts, a
+// span reaching a block another part claims fails, so one part's skim never pushes another into
+// Skimmed. `preparsed` lets the reload path hand in the DiffFile[] it already parsed (see
+// parsedDiffOf), so the same rawDiff isn't parsed a second time (issue 06); omitted, it parses
+// rawDiff itself.
 export function resolveSkim(
   rawDiff: string,
   changes: ChangeState[],
   guide: Guide,
-  opts: { strict: boolean },
   preparsed?: DiffFile[],
 ): SkimResolution {
   for (const c of changes) delete c.skim;
@@ -343,26 +341,20 @@ export function resolveSkim(
     for (const span of file.skimBlocks) {
       const [a, b] = span.lines;
       const matched = blocksInSpan(ranges, a, b);
-      if (matched.length === 0) {
-        if (opts.strict)
-          return {
-            ok: false,
-            reason: `guide skimBlocks span [${a}, ${b}] on "${file.path}" matches no change in the diff`,
-          };
-        continue; // stale span on a reload — drop it
-      }
+      if (matched.length === 0)
+        return {
+          ok: false,
+          reason: `guide skimBlocks span [${a}, ${b}] on "${file.path}" matches no change in the diff`,
+        };
       for (const r of matched) {
         const change = changeByKey.get(`${file.path}:${r.stableKey}`);
         if (!change) continue;
         const owner = change.part === undefined ? undefined : guide.files[change.part]?.part;
-        if (file.part && owner && change.part !== gi) {
-          if (opts.strict)
-            return {
-              ok: false,
-              reason: `guide part "${file.part.title}" on "${file.path}": skimBlocks span [${a}, ${b}] reaches the change at ${blockLines(r)}, which part "${owner.title}" claims`,
-            };
-          continue;
-        }
+        if (file.part && owner && change.part !== gi)
+          return {
+            ok: false,
+            reason: `guide part "${file.part.title}" on "${file.path}": skimBlocks span [${a}, ${b}] reaches the change at ${blockLines(r)}, which part "${owner.title}" claims`,
+          };
         change.skim = { reason: span.reason };
       }
     }
@@ -377,7 +369,7 @@ export function resolveSkim(
 // split is caught before it reaches the reviewer. A new untracked file has no diff section — the
 // whole file is one change — so it can't be split, and this says so rather than reporting each
 // span as unmatched. A guide carried across a reload or restart never comes here: its spans drift
-// as lines shift, so its parts follow content instead (carryParts). Idempotent: clears prior
+// as lines shift, so its parts follow content instead (carryGuideStamps). Idempotent: clears prior
 // stamps first. `preparsed` as in resolveSkim.
 export function resolveParts(
   review: GuideDiff,
@@ -436,8 +428,7 @@ type GuideDiff = {
 
 // Every diff-aware check of a NEW guide that stamps change blocks — parts, then skims (which must
 // know each block's part) — over one parse, strictly. The attach paths call this rather than each
-// resolver. A carried-forward guide keeps the parts the merge carried (carryParts) and re-resolves
-// only its skims, leniently.
+// resolver. A carried-forward guide keeps the stamps the merge carried (carryGuideStamps).
 export function resolveGuide(
   review: GuideDiff,
   guide: Guide,
@@ -445,9 +436,7 @@ export function resolveGuide(
 ): SkimResolution {
   const parsed = preparsed ?? parseUnifiedDiff(review.rawDiff);
   const parts = resolveParts(review, guide, parsed);
-  return parts.ok
-    ? resolveSkim(review.rawDiff, review.changes, guide, { strict: true }, parsed)
-    : parts;
+  return parts.ok ? resolveSkim(review.rawDiff, review.changes, guide, parsed) : parts;
 }
 
 export type MovedResolution = { ok: true } | { ok: false; reason: string };
@@ -989,10 +978,33 @@ const REVIEWER_SAVE_KEYS = [
   "signedOffBlocks",
   "decisionFiles",
 ] as const satisfies ReadonlyArray<keyof ReviewerSave>;
+// A save's comments, from a tab still on a diff from before the latest reload or restart, onto the
+// desk's. That reload re-anchored the desk's threads, which the tab never saw: a comment the desk
+// has keeps the desk's anchor and takes the rest, what the reviewer can change on it, from the tab.
+// Its status too, except that a stale mark the reload gave it (its file left the diff) outlasts the
+// "open" the tab still shows; a resolution the reviewer made is theirs. One new in the tab was
+// placed on the tab's diff, and is carried onto the live one as a reload carries the desk's own. One
+// the tab deleted is gone.
+async function mergeStaleComments(desk: ReviewComment[], sent: ReviewComment[], live: ReviewState) {
+  const own = new Map(desk.map((c) => [c.id, c]));
+  const fresh = await carryComments(
+    sent.filter((c) => !own.has(c.id)),
+    live,
+  );
+  const placed = new Map(fresh.map((c) => [c.id, c]));
+  return sent.flatMap((c) => {
+    const d = own.get(c.id);
+    if (!d) return placed.get(c.id) ?? [];
+    const { path, side, lineNumber, endLine, anchorText, unanchored } = d;
+    const status = d.status === "stale" && c.status === "open" ? d.status : c.status;
+    return [{ ...c, path, side, lineNumber, endLine, anchorText, unanchored, status }];
+  });
+}
+
 // `desk`: the live desk's own stamp (types.ts, SaveStamp), to tell a save the tab made before the
 // latest `galley reload` or restart. Without one, every save counts as current. `priorDiff`: the
 // diff the desk held before that reload or restart, the one a tab that hasn't caught up is on.
-export function mergeReviewerSave(
+export async function mergeReviewerSave(
   state: ReviewState,
   body: unknown,
   desk?: SaveStamp,
@@ -1000,6 +1012,15 @@ export function mergeReviewerSave(
 ) {
   if (!body || typeof body !== "object") return;
   const incoming = body as Record<string, unknown>;
+  const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
+  const stale = typeof seen?.baseDiffHash === "string" && seen.baseDiffHash !== state.baseDiffHash;
+  // Comments anchor by their line's text, not by block, so a save's from any older diff merge
+  // (mergeStaleComments) — before anything is written, so the poll never sees them half-placed.
+  const comments =
+    stale && Array.isArray(incoming.comments)
+      ? await mergeStaleComments(state.comments, incoming.comments, state)
+      : incoming.comments;
+  const deskComments = state.comments;
   const deskVerdicts = {
     decisions: state.decisions,
     signedOffBlocks: state.signedOffBlocks,
@@ -1008,9 +1029,9 @@ export function mergeReviewerSave(
     decisionFiles: state.decisionFiles,
   };
   for (const key of REVIEWER_SAVE_KEYS) {
-    if (incoming[key] !== undefined) (state as Record<string, unknown>)[key] = incoming[key];
+    const value = key === "comments" ? comments : incoming[key];
+    if (value !== undefined) (state as Record<string, unknown>)[key] = value;
   }
-  const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
   const beforeReload =
     !!desk && (seen?.token !== desk.token || seen?.reloadGeneration !== desk.reloadGeneration);
   // The tab adopts a reloaded diff only once no save is draining and no composer is open (poll.ts),
@@ -1022,8 +1043,8 @@ export function mergeReviewerSave(
   // Verdicts made on anything older can't be placed safely, so the desk keeps all of its own:
   // decisions, block and file sign-offs, and which files were decided. Taking the tab's file
   // sign-offs without its decisions would sign off a file over a rejection the desk never got.
-  if (typeof seen?.baseDiffHash === "string" && seen.baseDiffHash !== state.baseDiffHash) {
-    const prior = seen.baseDiffHash === priorDiff?.baseDiffHash ? priorDiff : undefined;
+  if (stale) {
+    const prior = seen?.baseDiffHash === priorDiff?.baseDiffHash ? priorDiff : undefined;
     if (prior) {
       if (Array.isArray(incoming.decisions))
         state.decisions = carryDecisions(state, incoming.decisions, prior);
@@ -1035,6 +1056,13 @@ export function mergeReviewerSave(
         );
       signOffCoveredFiles(state);
     } else Object.assign(state, deskVerdicts);
+  }
+  // An agent reply (`galley comment`) lands between the tab's polls, so a save from a tab that
+  // hasn't seen it yet lacks it. The tab can't delete an agent message, so every one the save
+  // lacks is kept.
+  if (Array.isArray(incoming.comments)) {
+    const have = new Set(state.comments.map((c) => c.id));
+    state.comments.push(...deskComments.filter((c) => c.role === "agent" && !have.has(c.id)));
   }
   // Annotations carry data the app page supplied, so they're validated and capped on the way in
   // (uiannotations.ts) rather than taken as sent.
@@ -1303,68 +1331,73 @@ function priorBlocks(
   return blocks;
 }
 
-// A block's key embeds its first line, so an edit above an unchanged block re-keys it, and what the
-// reviewer recorded on it (a decision) loses its block. Returns old key → new key for each record
-// that moved: one no block kept under its own key (same key, same hash), adopted by the block on
-// the same path holding the content the record was made on at the same base line — the same place
-// in the file the diff is taken against. An edit above a block moves its new-side lines but not
-// its base line, so a block that only shifted is found again, even under a key the shift handed to
-// a different block. Code moved elsewhere in the file sits at another base line and comes back
-// pending: a re-review, but never a verdict on the wrong lines. The record's base line is its
-// block's in `prior`, the diff the records were made on, so a record whose block wasn't in that diff
-// (an accept staged out of it) is never adopted. In a working-tree review the base is the index,
-// and the desk's own staging (approving a part) moves it under every block below: each block it
-// staged out of the diff since `prior` moves the base line expected of the blocks below it by its
-// net growth. A block the agent reverted leaves the base as it was, and one staged outside the desk
-// isn't known here, so a block below that comes back pending. Only a new or re-keyed block adopts:
-// one that kept its own record, or that sat under the same key with the same content in `prior`,
-// stays put.
-function movedBlockKeys(
+// Where each of the reviewer's records (a decision, a sign-off) finds its block in the rebuilt
+// diff: record key → the key of the block holding the content the record was made on. A block
+// still under the key and content it had in `prior`, the diff the records were made on, keeps its
+// records. A block's key embeds its first line, though, so an edit above an unchanged block re-keys
+// it; such a block takes a record when it sits on the same path at the same base line as the
+// record's block in `prior` — the same place in the file the diff is taken against, which an edit
+// above it doesn't move. So a block that only shifted is found again, even under a key the shift
+// handed to a different block, while code moved elsewhere in the file sits at another base line and
+// its records find no block: a re-review, but never a verdict on the wrong lines. Nor does a record
+// whose block wasn't in `prior` (an accept staged out of it), even if a new block with its content
+// now sits under its key. In a working-tree review the base is the index, and the desk's own staging
+// (approving a part) moves it under every block below: each block it staged out of the diff since
+// `prior` moves the base line expected of the blocks below it by its net growth. A block the agent
+// reverted leaves the base as it was, and one staged outside the desk isn't known here, so the
+// records of blocks below it that also moved find none. Only a new or re-keyed block takes a record
+// that moved: one that sat under the same key with the same content in `prior` stays put.
+function recordBlocks(
   rebuilt: Pick<ReviewState, "files" | "changes">,
   records: Array<{ key: string; hash?: string }>,
   prior: Map<string, PriorBlock>,
 ) {
+  const ranges = blockRangesByKey(rebuilt.files);
   const hashAt = new Map(rebuilt.changes.map((c) => [`${c.path}:${c.stableKey}`, c.contentHash]));
-  const kept = new Set(
-    records.filter((r) => r.hash && hashAt.get(r.key) === r.hash).map((r) => r.key),
-  );
   const stagedOut = [...prior].flatMap(([key, b]) =>
     b.staged && b.base !== undefined && !hashAt.has(key) ? [{ ...b, base: b.base }] : [],
   );
   // Where a block of `prior` at base line `base` sits in the rebuilt diff's base file.
   const baseNow = (path: string, base: number) =>
     stagedOut.reduce((at, s) => (s.path === path && s.base < base ? at + s.grows : at), base);
-  // Each loose record by the path, content and base line of its block. No two blocks of a file
+  const homes = new Map<string, string>();
+  // Each record whose block moved, by its path, content and base line. No two blocks of a file
   // share a base line, so a slot holds at most one.
   const waiting = new Map<string, string>();
   for (const r of records) {
+    if (!r.hash) continue;
     const was = prior.get(r.key);
-    if (!r.hash || kept.has(r.key) || was?.hash !== r.hash || was.base === undefined) continue;
-    waiting.set(`${was.path}\0${r.hash}\0${baseNow(was.path, was.base)}`, r.key);
+    const base = was?.base === undefined ? undefined : baseNow(was.path, was.base);
+    // Unchanged: its block was in `prior` under its key with its content, and still is, whatever
+    // its base line did (staging by hand above it moves that). A review saved before blocks were
+    // (no `prior`) can't say otherwise.
+    const unchanged = prior.size === 0 || (!!was && (was.hash ?? r.hash) === r.hash);
+    if (hashAt.get(r.key) === r.hash && unchanged) homes.set(r.key, r.key);
+    else if (was?.hash === r.hash && base !== undefined)
+      waiting.set(`${was.path}\0${r.hash}\0${base}`, r.key);
   }
-  const ranges = blockRangesByKey(rebuilt.files);
-  const moved = new Map<string, string>();
+  const held = new Set(homes.values());
   for (const c of rebuilt.changes) {
     const key = `${c.path}:${c.stableKey}`;
     const base = ranges.get(key)?.base;
-    if (kept.has(key) || !c.contentHash || base === undefined) continue;
+    if (held.has(key) || !c.contentHash || base === undefined) continue;
     if (prior.get(key)?.hash === c.contentHash) continue;
     const slot = `${c.path}\0${c.contentHash}\0${base}`;
     const from = waiting.get(slot);
     if (from === undefined) continue;
-    moved.set(from, key);
+    homes.set(from, key);
     waiting.delete(slot);
   }
-  return moved;
+  return homes;
 }
 
 // Decisions are explicit and durable: carry them onto a rebuilt diff as the source of truth, and
 // stamp every block's status from them. Decisions keyed to a path the diff now shows renamed move
 // to the new path first; a decision whose block only moved (lines shifted above it) follows it to
 // its new key. A decision whose block is gone from the diff (e.g. accepting it staged the hunk out
-// of the working tree) is *kept* — that's the whole point. A decision whose block is still
-// visible but whose content changed is dropped as stale. `before`: the diff the decisions were
-// made on (movedBlockKeys).
+// of the working tree) is *kept* — that's the whole point — while no other block holds its key. A
+// decision whose key another block holds now (its own rewritten, or a new one) is dropped as stale.
+// `before`: the diff the decisions were made on (recordBlocks).
 function carryDecisions(
   rebuilt: Pick<ReviewState, "files" | "changes">,
   saved: Decision[],
@@ -1377,7 +1410,7 @@ function carryDecisions(
     if (!newPath) return d;
     return { ...d, path: newPath, key: `${newPath}:${d.key.slice(d.path.length + 1)}` };
   });
-  const moved = movedBlockKeys(
+  const homes = recordBlocks(
     rebuilt,
     migrated.map((d) => ({ key: d.key, hash: d.reviewedHash })),
     priorBlocks(before, renames),
@@ -1389,9 +1422,14 @@ function carryDecisions(
   }
   const carried: Decision[] = [];
   for (const d of migrated) {
-    const key = moved.get(d.key) ?? d.key;
-    const change = changeAt.get(key);
-    if (!change) {
+    const key = homes.get(d.key);
+    const change = key === undefined ? undefined : changeAt.get(key);
+    if (key === undefined || !change) {
+      // Another block holds its key now: the agent rewrote this block since it was reviewed
+      // (→ re-review), or a new one, even with its content, took its place. Drop it — kept, it would
+      // read as that block's verdict in the tab and the agent's result, which look decisions up by
+      // key. An accept staged out of the diff already lives in the index.
+      if (changeAt.has(d.key)) continue;
       // An accepted decision whose change vanished is kept (accepting may have staged the
       // hunk out of the diff). A REJECTED decision whose change vanished means the agent
       // reworked the block away — the rejection was honored, and keeping it would leave an
@@ -1400,8 +1438,6 @@ function carryDecisions(
       if (d.status === "accepted") carried.push(d);
       continue;
     }
-    // The agent rewrote this block since it was reviewed → re-review.
-    if (!d.reviewedHash || d.reviewedHash !== change.contentHash) continue;
     change.status = d.status;
     change.reviewedHash = d.reviewedHash;
     carried.push(key === d.key ? d : { ...d, key, lineNumber: change.lineNumber });
@@ -1424,12 +1460,11 @@ function carrySignOffs(
       if (key.startsWith(`${oldP}:`)) return { key: `${newP}:${key.slice(oldP.length + 1)}`, hash };
     return { key, hash };
   });
-  const moved = movedBlockKeys(rebuilt, migrated, priorBlocks(before, renames));
-  const hashAt = new Map(rebuilt.changes.map((c) => [`${c.path}:${c.stableKey}`, c.contentHash]));
+  const homes = recordBlocks(rebuilt, migrated, priorBlocks(before, renames));
   const carried: Record<string, string> = {};
   for (const { key, hash } of migrated) {
-    const at = moved.get(key) ?? key;
-    if (hashAt.get(at) === hash) carried[at] = hash;
+    const at = homes.get(key);
+    if (at !== undefined) carried[at] = hash;
   }
   return carried;
 }
@@ -1464,24 +1499,28 @@ function signOffCoveredFiles(
 
 type Lines = { lo: number; hi: number };
 
-// A guide carried across a reload or restart keeps each block's part (ChangeState.part) by content,
-// not by its spans: a block's lines move with every edit above it, so re-running the spans would
-// hand it to whichever part now claims those lines. A rebuilt block holding the content of a block
-// of the previous diff (`before`) on the same path, or the path the file was renamed from, is
-// carried over with that block's part, or with none (Rest), paired as decisions are
-// (movedBlockKeys). Every other block, rewritten or new, joins the part its nearest carried-over
-// blocks above and below in the file both belong to. Failing that, it joins the part of one of
-// those two neighbours whose former extent it overlaps, when exactly one does: the new-side lines
-// from that part's first block to its last in `before`, moved as far as the neighbour moved. That
-// keeps an in-place fix to a part's first or last block in its part even where another part borders
-// it, while a block landing clear of both parts around it goes to Rest. A part left with no block
-// has no step.
-export function carryParts(
+// A guide carried across a reload or restart keeps each block's part (ChangeState.part) and skim
+// (ChangeState.skim) by content, not by its spans: a block's lines move with every edit above it,
+// so re-running the spans would hand it to whichever part or skim now claims those lines. A
+// rebuilt block holding the content of a block of the previous diff (`before`) on the same path,
+// or the path the file was renamed from, is carried over with that block's part, or with none
+// (Rest), and its skim, paired as decisions are (recordBlocks). Every other block, rewritten or
+// new, is not skimmed — when unsure the desk shows more, not less — and joins the part its nearest
+// carried-over blocks above and below in the file both belong to. Failing that, it joins the part
+// of one of those two neighbours whose former extent it overlaps, when exactly one does: the
+// new-side lines from that part's first block to its last in `before`, moved as far as the
+// neighbour moved. That keeps an in-place fix to a part's first or last block in its part even
+// where another part borders it, while a block landing clear of both parts around it goes to Rest.
+// A part left with no block has no step.
+export function carryGuideStamps(
   rebuilt: Pick<ReviewState, "files" | "changes">,
   before: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys">,
 ) {
-  for (const c of rebuilt.changes) delete c.part;
-  if (!before.changes.some((c) => c.part !== undefined)) return;
+  for (const c of rebuilt.changes) {
+    delete c.part;
+    delete c.skim;
+  }
+  if (!before.changes.some((c) => c.part !== undefined || c.skim)) return;
   const keyOf = (c: ChangeState) => `${c.path}:${c.stableKey}`;
   // A previous block's key, at its file's new path when this rebuild shows the file renamed.
   const renames = renamesIn(rebuilt.files);
@@ -1489,9 +1528,9 @@ export function carryParts(
   const priorAt = new Map(before.changes.map((c) => [priorKey(c), c]));
   const prior = priorBlocks(before, renames);
   const records = [...prior].map(([key, b]) => ({ key, hash: b.hash }));
-  // New key → the old key of the block that moved there.
-  const movedFrom = new Map(
-    [...movedBlockKeys(rebuilt, records, prior)].map(([from, to]) => [to, from]),
+  // New key → the key of the block it was in `before`.
+  const carriedFrom = new Map(
+    [...recordBlocks(rebuilt, records, prior)].map(([from, to]) => [to, from]),
   );
   const nowLines = blockRangesByKey(rebuilt.files);
   const priorLines = blockRangesByKey(before.files, renames);
@@ -1506,11 +1545,10 @@ export function carryParts(
   type Block = { change: ChangeState; from?: ChangeState };
   const blocksByPath = new Map<string, Block[]>();
   for (const change of rebuilt.changes) {
-    const key = keyOf(change);
-    const kept = !!change.contentHash && priorAt.get(key)?.contentHash === change.contentHash;
-    const fromKey = kept ? key : movedFrom.get(key);
+    const fromKey = carriedFrom.get(keyOf(change));
     const from = fromKey === undefined ? undefined : priorAt.get(fromKey);
     if (from?.part !== undefined) change.part = from.part;
+    if (from?.skim) change.skim = from.skim;
     const blocks = blocksByPath.get(change.path) ?? [];
     blocks.push({ change, from });
     blocksByPath.set(change.path, blocks);
@@ -1551,7 +1589,48 @@ export function carryParts(
   }
 }
 
-export async function mergeReviewState(base: ReviewState, saved: ReviewState | null) {
+// Comments carried onto a rebuilt diff: moved to a renamed file's new path, marked stale (a change
+// request) or dropped (anything else) once their file is gone from the diff, and re-anchored onto
+// the lines their anchor text now sits on (reanchorComments).
+async function carryComments(comments: ReviewComment[], rebuilt: ReviewState) {
+  const currentFiles = new Set(rebuilt.files.map((file) => file.path));
+  const renameMap = renamesIn(rebuilt.files);
+  const carried = comments
+    .map((comment) => {
+      const newPath = renameMap.get(comment.path);
+      return newPath ? { ...comment, path: newPath } : comment;
+    })
+    .map((comment) =>
+      currentFiles.has(comment.path) ? comment : { ...comment, status: "stale" as const },
+    )
+    .filter((comment) => currentFiles.has(comment.path) || comment.intent === "action");
+  // Re-anchoring reads each commented file's contents on demand (the state embeds none). Fetch only
+  // the files carrying an OPEN comment — the set reanchorComments actually processes — so a reload
+  // spawns at most one content read per commented file, not per file in the diff. A read that fails
+  // (a git object dropped mid-reload) is swallowed to no-contents: the thread just falls to the
+  // file-level unanchored strip rather than crashing the whole reload.
+  const openPaths = new Set(carried.filter((c) => c.status === "open").map((c) => c.path));
+  const contentsByPath = new Map<string, FileContents>();
+  // Read every commented file concurrently — each is an independent `git show` spawn, so awaiting
+  // them one at a time serialized the whole set behind the slowest read on every reload.
+  await Promise.all(
+    rebuilt.files
+      .filter((f) => openPaths.has(f.path))
+      .map(async (f) => {
+        const resolved = await readFileContents(rebuilt, f).catch(() => undefined);
+        if (resolved) contentsByPath.set(f.path, resolved);
+      }),
+  );
+  return reanchorComments(carried, rebuilt.files, (p) => contentsByPath.get(p));
+}
+
+// `stampSource`: the diff to carry the guide's part and skim stamps from, when it isn't `saved`'s
+// own — the last diff with blocks, after a round that reverted everything (carryGuideStamps).
+export async function mergeReviewState(
+  base: ReviewState,
+  saved: ReviewState | null,
+  stampSource?: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys">,
+) {
   if (!saved) return base;
   const currentFiles = new Set(base.files.map((file) => file.path));
   // A file that became a git-native rename on THIS reload arrives at its new path, but every
@@ -1570,9 +1649,9 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
     return key;
   };
   const decisions = carryDecisions(base, effectiveDecisions(saved), saved);
-  // The guide is carried forward below, and its parts with it. A new guide given with this reload
-  // or restart re-resolves them from its own spans afterwards (resolveGuide).
-  carryParts(base, saved);
+  // The guide is carried forward below, and its part and skim stamps with it. A new guide given
+  // with this reload or restart re-resolves them from its own spans afterwards (resolveGuide).
+  carryGuideStamps(base, stampSource ?? saved);
   // A file's approval/sign-off survives reload only if the file is still present AND its
   // content hash is unchanged. A file whose content the agent rewrote (or that has no
   // recorded hash — e.g. an old "viewed" session) drops back to pending for re-review, unless
@@ -1592,36 +1671,11 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
   const reviewedFileHashes = Object.fromEntries(
     reviewedFiles.map((file) => [file, savedHashes[file]!]),
   );
-  const comments = saved.comments
-    .map((comment) =>
-      renameMap.has(comment.path) ? { ...comment, path: migratePath(comment.path) } : comment,
-    )
-    .map((comment) =>
-      currentFiles.has(comment.path) ? comment : { ...comment, status: "stale" as const },
-    )
-    .filter((comment) => currentFiles.has(comment.path) || comment.intent === "action");
-  // Re-anchoring reads each commented file's contents on demand (the state embeds none). Fetch only
-  // the files carrying an OPEN comment — the set reanchorComments actually processes — so a reload
-  // spawns at most one content read per commented file, not per file in the diff. A read that fails
-  // (a git object dropped mid-reload) is swallowed to no-contents: the thread just falls to the
-  // file-level unanchored strip rather than crashing the whole reload.
-  const openPaths = new Set(comments.filter((c) => c.status === "open").map((c) => c.path));
-  const contentsByPath = new Map<string, FileContents>();
-  // Read every commented file concurrently — each is an independent `git show` spawn, so awaiting
-  // them one at a time serialized the whole set behind the slowest read on every reload.
-  await Promise.all(
-    base.files
-      .filter((f) => openPaths.has(f.path))
-      .map(async (f) => {
-        const resolved = await readFileContents(base, f).catch(() => undefined);
-        if (resolved) contentsByPath.set(f.path, resolved);
-      }),
-  );
   const merged = {
     ...base,
     id: saved.id,
     createdAt: saved.createdAt,
-    comments: reanchorComments(comments, base.files, (p) => contentsByPath.get(p)),
+    comments: await carryComments(saved.comments, base),
     reviewedFiles,
     reviewedFileHashes,
     signedOffBlocks: carrySignOffs(base, saved.signedOffBlocks ?? {}, saved),
@@ -1632,7 +1686,7 @@ export async function mergeReviewState(base: ReviewState, saved: ReviewState | n
     decisionFiles: (saved.decisionFiles ?? []).map(migratePath),
     decisions,
     // Carry the attached guide forward across reload/restart (the rebuilt base has none), its
-    // entries at the paths renamed files moved to, as their blocks' parts are (carryParts).
+    // entries at the paths renamed files moved to, as their blocks' parts are (carryGuideStamps).
     guide: saved.guide
       ? {
           ...saved.guide,
