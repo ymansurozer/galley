@@ -2,13 +2,13 @@ import { S, $ } from "./store";
 import { currentSlot, progressDetail } from "./guide";
 import { slotOutOfFlow } from "./steps";
 import { flowIndex } from "./changes";
-import { approvePreview, approveTag, progressSummary } from "./progress-derive";
+import { approvePreview, progressSummary } from "./progress-derive";
 
 // Review progress lives on the top bar's bottom edge, with or without a guide: a quiet gauge with
 // the ⇧A tail ahead of its fill, and no resting percentage. A tag beside the title speaks when
-// asked (hover the bar or the title) or when a sign-off raises progress, then fades. Imperative
-// rather than Alpine because the *moment* of progress is animated: the fill glides from where it
-// stood and the bar swells for a beat.
+// asked (hover the bar or the title), then fades. Imperative rather than Alpine because the
+// *moment* of progress is animated: the fill glides from where it stood and a rise swells the bar
+// for a beat.
 
 // Tab title carries progress too ("(58%) Galley — repo · main"), so it reads from other tabs.
 // The base names the project and what of it is under review, so multiple desks are
@@ -27,21 +27,16 @@ export function refreshBaseTitle() {
 
 // What the bar last drew, and what progress counted by then; null until the first paint.
 let shown: { pct: number; byLines: boolean } | null = null;
-// A rise's tag holds the stage until then; hovering doesn't replace it.
-let riseUntil = 0;
-let riseTimer = 0;
 let swellTimer = 0;
-const RISE_MS = 2000;
 const SWELL_MS = 300;
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
 // Fill the tag: its figure, then the rest.
-function showTag(figure: string, rest: string, rise: boolean) {
+function showTag(figure: string, rest: string) {
   const tag = $("progressTag");
   const b = document.createElement("b");
   b.textContent = figure;
   tag.replaceChildren(b, rest);
-  tag.classList.toggle("up", rise);
   tag.classList.remove("out");
   tag.classList.add("show");
 }
@@ -71,19 +66,7 @@ function showSummary(d = progressDetail()) {
   const p = d.progress;
   const lines = d.byLines ? { done: p.done, total: p.total } : null;
   const s = progressSummary(p.pct, d.steps, lines, d.steps.unit);
-  showTag(s.pct, ` · ${s.detail}`, false);
-}
-
-// A sign-off raised progress: the tag says by how much and where it stands, for a moment.
-function showRise(gain: number, to: number) {
-  showTag(`+${gain}%`, ` → ${to}%`, true);
-  riseUntil = performance.now() + RISE_MS;
-  clearTimeout(riseTimer);
-  riseTimer = window.setTimeout(() => {
-    riseUntil = 0;
-    if (hovered()) showSummary();
-    else hideTag();
-  }, RISE_MS);
+  showTag(s.pct, ` · ${s.detail}`);
 }
 
 function swell(strip: HTMLElement) {
@@ -95,11 +78,9 @@ function swell(strip: HTMLElement) {
 // Hovering the bar or the title asks for the numbers.
 export function installProgress() {
   for (const el of [$("progressStrip"), document.querySelector(".top-name")]) {
-    el?.addEventListener("pointerenter", () => {
-      if (performance.now() >= riseUntil) showSummary();
-    });
+    el?.addEventListener("pointerenter", () => showSummary());
     el?.addEventListener("pointerleave", () => {
-      if (performance.now() >= riseUntil && !hovered()) hideTag();
+      if (!hovered()) hideTag();
     });
   }
 }
@@ -135,19 +116,15 @@ export function updateProgress() {
   $("progressFill").style.width = `${pct}%`;
   $("progressTail").style.left = `${pct}%`;
   $("progressTail").style.width = `${ahead?.tail ?? 0}%`;
-  // A rise is a sign-off's moment: the bar swells while the fill glides, and the tag says what it
-  // gained. The first paint and a switch of what progress counts by aren't moments, and a drop
-  // just glides back (its toast says why).
-  const rise = shown?.byLines === d.byLines ? approveTag(shown.pct, pct) : null;
+  // A rise is a sign-off's moment: the bar swells while the fill glides. The first paint and a
+  // switch of what progress counts by aren't moments, and a drop just glides back (its toast says
+  // why).
+  const rose = shown?.byLines === d.byLines && pct > shown.pct;
   shown = { pct, byLines: d.byLines };
-  if (rise) {
-    if (!reducedMotion.matches) swell(strip);
-    showRise(rise.gain, rise.to);
-  } else if (performance.now() >= riseUntil) {
-    // Past a rise's moment the tag follows the pointer, whatever happened while the bar was away.
-    if (hovered()) showSummary(d);
-    else hideTag();
-  }
+  if (rose && !reducedMotion.matches) swell(strip);
+  // The tag follows the pointer, whatever happened while the bar was away.
+  if (hovered()) showSummary(d);
+  else hideTag();
 }
 
 // Whole-review numbers for the completion prompt — a small receipt of the work done.

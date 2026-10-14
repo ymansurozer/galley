@@ -24,11 +24,6 @@ export function approvePreview(
   return { tail: after - p.pct, after };
 }
 
-// The tag a rise shows beside the title: what the bar gained and where it now stands. A drop (a
-// reload reset an approval) shows none; its toast says why.
-export const approveTag = (before: number, after: number) =>
-  after > before ? { gain: after - before, to: after } : null;
-
 // The hover tag: "N%" over "a/b files · x/y lines", or files only when progress counts files.
 export function progressSummary(
   pct: number,
