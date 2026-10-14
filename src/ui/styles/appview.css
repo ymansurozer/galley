@@ -33,14 +33,15 @@
   visibility: hidden;
 }
 
-/* Browser-chrome bar: the same height and surface as the code view's file bar. */
+/* Browser-chrome bar: the same height and surface as the code view's file bar, a toolbar's quiet
+   icon buttons, a recessed address field, and compact segmented controls. */
 .chrome {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: var(--subbar-h);
-  padding: 6px 10px;
+  height: var(--subbar-h);
+  padding: 0 10px;
   background: var(--canvas);
   border-bottom: 1px solid var(--sep);
   font-size: var(--text-sm);
@@ -120,8 +121,17 @@
   outline: none;
 }
 
+/* The viewport presets and Interact | Annotate: the file bar's compact size. */
+.chrome .seg {
+  padding: 1.5px;
+  border-radius: var(--radius-sm);
+}
+
 .chrome .seg > button {
+  height: 22px;
   padding: 0 8px;
+  border-radius: 4px;
+  font-size: var(--text-xs);
 }
 
 .chrome .vpsize {
@@ -141,20 +151,25 @@
 }
 
 .chrome .pagepin {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   border: 0;
   border-radius: var(--radius-pill);
   display: inline-grid;
   place-items: center;
   background: var(--orange);
   color: var(--on-fill);
+  font-family: var(--sans);
   font-size: var(--text-2xs);
-  font-weight: 700;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
   cursor: pointer;
+  transition: transform 0.12s;
+}
+
+.chrome .pagepin:hover {
+  transform: scale(1.12);
 }
 
 .chrome .pagepin.q {

@@ -19,8 +19,9 @@ import {
   pickedInApp,
   placedInApp,
   placeFloatingComposer,
+  placePinCard,
   resumeUiComposer,
-  selectAnnotation,
+  pinsInApp,
   setUiComposerAside,
   syncBridge,
 } from "./uilane";
@@ -233,6 +234,7 @@ export function setViewport(viewport: Viewport) {
   S.viewport = viewport;
   sizeFrame();
   placeFloatingComposer();
+  placePinCard();
 }
 
 // Fit fills the stage. A preset renders the app at its real CSS size, so the app's own media
@@ -381,7 +383,7 @@ export function installAppView() {
       return;
     }
     if (msg.type === "anchor") return movedInApp(msg.rect);
-    if (msg.type === "select") return selectAnnotation(msg.id);
+    if (msg.type === "pins") return pinsInApp(msg.pins, msg.clicked);
     if (msg.type === "placements") return placedInApp(msg.placements);
     if (msg.type === "key") {
       if (forwardedKeyRuns(msg, appModeNow())) dispatchKey(msg);
@@ -404,5 +406,6 @@ export function installAppView() {
   new ResizeObserver(() => {
     sizeFrame();
     placeFloatingComposer();
+    placePinCard();
   }).observe($("appStage"));
 }

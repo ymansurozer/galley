@@ -98,7 +98,11 @@ import { located, refind, type Located } from "./refind";
     else if (msg.type === "mode" && (msg.mode === "annotate" || msg.mode === "interact"))
       annotate.setMode(msg.mode);
     else if (msg.type === "marks" && Array.isArray(msg.marks))
-      annotate.setMarks(msg.marks, msg.selected ?? null, msg.picking === true);
+      annotate.setMarks(
+        msg.marks,
+        msg.selected ?? null,
+        typeof msg.picking === "number" && Number.isSafeInteger(msg.picking) ? msg.picking : null,
+      );
     else if (msg.type === "clearPicks") annotate.clearPicks();
     else if (msg.type === "relook") annotate.relook();
     else if (msg.type === "capture" && typeof msg.id === "number") {

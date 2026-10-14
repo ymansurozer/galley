@@ -1,9 +1,9 @@
 /* ── The annotation sidebar (the "Quiet" design) ─────────────────────────────────────────
    Calm by default: colour appears only where kind needs it. One axis (--ann-ax) carries page
    names, bodies and the resolved toggle; numbers hang in the gutter to its left like footnote
-   marks. The thread inside an expanded row is the code lane's and isn't restyled here — only
-   the space around it is. The sidebar's column width is a variable: the code view lays a
-   warmed app out beside the same space. */
+   marks. A selected row's thread opens as its pin's card over the app, the code lane's card.
+   The sidebar's column width is a variable: the code view lays a warmed app out beside the
+   same space. */
 .app {
   --annside-w: 360px;
 }
@@ -134,7 +134,7 @@
   display: none;
 }
 
-/* The gutter is kept so a scrollbar that appears when a row expands doesn't narrow the rows.
+/* The gutter is kept so a scrollbar that appears as the list grows doesn't narrow the rows.
    uilane.ts keeps rows in place itself (its gaps), so the browser's scroll anchoring stays out
    of it rather than correcting the same move twice. */
 .ann-list {
@@ -303,48 +303,26 @@
   color: var(--ink);
 }
 
-/* Expanded: one block set apart from its neighbours. A ground runs behind the row, its context
-   line and its thread, with an edge in the kind's colour down its left; the row heads it.
-   Expanding moves nothing already on screen: the row keeps its collapsed box and type, the
-   edge is a shadow, and only what opens below the row takes space. */
-.ann-item {
-  margin-bottom: 8px;
-  padding-bottom: 12px;
-  background: var(--fill-2);
-}
-
-.ann-item.k-change {
-  box-shadow: inset 2px 0 0 var(--ann-change);
-}
-
-.ann-item.k-question {
-  box-shadow: inset 2px 0 0 var(--ann-question);
-}
-
-.ann-item.resolved {
-  box-shadow: inset 2px 0 0 var(--sep-strong);
-}
-
-.ann-item .ann-row:hover {
-  background: none;
-}
-
-.ann-item .annotation {
-  width: auto;
-  margin: 0 6px;
-}
-
-/* The expanded row's one muted line of context, its parts text links. */
+/* The pin card's muted line of detail under its header, its parts text links. */
 .ann-ctx {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px;
+  gap: 2px 6px;
   min-width: 0;
-  margin-top: -3px;
-  padding: 0 14px 8px var(--ann-ax);
+  margin: 1px 0 4px;
   font-size: var(--text-xs);
   line-height: 16px;
   color: var(--ink-3);
+}
+
+.ann-target {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
 }
 
 .ann-src {
@@ -402,21 +380,42 @@ button.ann-shot:hover {
   white-space: nowrap;
 }
 
-/* The floating composer: beside the picked element, its card the code lane's composer. */
+/* The floating composer beside the picked element, and the selected annotation's card beside its
+   pin: the code lane's cards, lifted over the app. */
 .ucomposer {
   position: fixed;
   z-index: 40;
   display: none;
   width: 380px;
   max-width: calc(100vw - 24px);
-  padding: 10px;
-  border-radius: var(--radius-xl);
-  background: var(--window);
-  box-shadow: var(--shadow-float);
 }
 
 .ucomposer.show {
   display: block;
+}
+
+/* The pin card rests over the app but under the dialogs (20) it opens, such as the screenshot. It
+   takes focus from the app when its pin opens it, so Esc reaches the desk; it draws no ring for
+   that. */
+#pinCard {
+  z-index: 15;
+}
+
+#pinCard:focus {
+  outline: none;
+}
+
+.ucomposer > .annotation {
+  padding: 0;
+}
+
+.ucomposer .thread-card {
+  max-width: none;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  box-shadow:
+    0 0 0 0.5px var(--sep-strong),
+    var(--shadow-float);
 }
 
 .ucomposer .composer-card {

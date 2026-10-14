@@ -61,10 +61,19 @@ export function readBridgeMessage(data: unknown, token: string): BridgeMessage |
     const rect = readRect(d.rect);
     return rect && { type: "anchor", token, rect };
   }
-  if (d.type === "select")
-    return typeof d.id === "string" && d.id.length <= 64
-      ? { type: "select", token, id: d.id }
-      : null;
+  if (d.type === "pins") {
+    const { clicked } = d;
+    if (!Array.isArray(d.pins) || !(clicked === undefined || clicked === null || isId(clicked)))
+      return null;
+    const pins = d.pins
+      .slice(0, PLACEMENTS_CAP)
+      .filter(isObj)
+      .flatMap(({ id, rect }) => {
+        const r = readRect(rect);
+        return isId(id) && r ? [{ id, rect: r }] : [];
+      });
+    return { type: "pins", token, pins, ...(clicked !== undefined && { clicked }) };
+  }
   if (d.type === "placements") {
     if (!Array.isArray(d.placements)) return null;
     const placements: Placements = d.placements
@@ -152,6 +161,8 @@ export const forwardedKeyRuns = (k: ForwardedKey, mode: AppMode) =>
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+// An annotation id, as the desk gave it to the page.
+const isId = (v: unknown): v is string => typeof v === "string" && v.length <= 64;
 // A path on the app's own origin. Absolute and protocol-relative URLs lead elsewhere, and so does a
 // backslash in the path, which the URL parser reads as a slash (`/\evil.example`). Routes carry no
 // control characters.
