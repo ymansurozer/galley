@@ -45,11 +45,12 @@
 
 /* Filled: the one action the surface is for. A filled button names its ground in --btn-bg,
    --btn-bg-hover and --btn-bg-pressed (the *-fill tokens); .btn.primary is blue, the file's
-   sign-off green or orange (decisions.css). */
+   sign-off green or orange (decisions.css). Its hover halo is its own fill. */
 .btn.primary {
   --btn-bg: var(--blue-fill);
   --btn-bg-hover: var(--blue-fill-hover);
   --btn-bg-pressed: var(--blue-fill-pressed);
+  --halo: var(--btn-bg-hover);
   background: var(--btn-bg);
   color: var(--on-fill);
   box-shadow:
@@ -57,12 +58,10 @@
     0 1px 2px rgb(0 0 0 / 0.2);
 }
 
-/* Hover steps the ground (the *-fill-hover token) and haloes it in its own hue. */
+/* Hover steps the ground (the *-fill-hover token); the halo is every button's (below). */
 .btn.primary:hover {
   background: var(--btn-bg-hover);
-  box-shadow:
-    inset 0 0.5px 0 rgb(255 255 255 / 0.25),
-    0 0 0 3px color-mix(in srgb, var(--btn-bg-hover) 28%, transparent);
+  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.25);
 }
 
 .btn.primary:active {
@@ -77,6 +76,34 @@
 :is(.btn.primary, .fill):focus-visible {
   outline: 2px solid var(--btn-bg-hover);
   outline-offset: 2px;
+}
+
+/* ── Hover: one treatment for every button ──
+   Approve File / Mark Reviewed's: under the pointer the ground steps (each family names its own
+   step where it's styled) and a soft 3px halo rings the button in its own hue: a filled
+   button's fill (--halo), any other's own colour as it hovers. The halo is an outline, so it
+   adds to whatever edge a button already draws, and gives way to the press and to the keyboard's
+   focus ring. Row-like buttons (sidebar rows, thread rests, strips) keep their row highlight. */
+:is(
+    .btn,
+    .seg > button,
+    .signoff,
+    .blockers-chip,
+    .toast-action,
+    .cbtn,
+    .reply-thread,
+    .resolve-thread,
+    .reopen-inline,
+    .msg-actions button,
+    .sq,
+    .pill-refresh,
+    .nav-toggle,
+    .ovsz-btn,
+    .ovsz-load,
+    .fe-next
+  ):hover:not(:disabled, :active, :focus-visible) {
+  outline: 3px solid color-mix(in srgb, var(--halo, currentColor) 28%, transparent);
+  outline-offset: 0;
 }
 
 /* Quiet: text that becomes a button under the pointer. */
@@ -147,6 +174,10 @@
 
 .seg > button:hover {
   color: var(--ink);
+}
+
+.seg > button:not(.active):hover {
+  background: var(--fill);
 }
 
 .seg > button.active {

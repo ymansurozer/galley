@@ -118,7 +118,7 @@ export function annotations(): AnnotationInput[] {
       });
       if (collapsed) continue;
     }
-    // With per-change verdicts off no change gets its Undo | Keep control.
+    // With per-change verdicts off no change gets its Keep | Undo control.
     if (!S.settings.perChangeVerdicts) continue;
     changes.push({
       side: ch.side,
@@ -483,7 +483,7 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     (el.querySelector(".skim-toggle") as HTMLButtonElement).onclick = () => toggleSkimBlock(c.id);
     return el;
   }
-  // A pending change's Undo | Keep, under its last changed line. Every control carries its
+  // A pending change's Keep | Undo, under its last changed line. Every control carries its
   // keycaps; only the one the cursor marks shows them (cursor.ts markCursorChange).
   if (c.type === "change") {
     const el = document.createElement("div");
@@ -503,8 +503,8 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
       return b;
     };
     control.append(
-      decide("reject", "Undo", "⇧N", "rejected"),
       decide("accept", "Keep", "⇧Y", "accepted"),
+      decide("reject", "Undo", "⇧N", "rejected"),
     );
     el.appendChild(control);
     return el;
