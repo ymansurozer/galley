@@ -14,17 +14,15 @@ import {
   nextNumber,
   openChangeCount,
   outlineClasses,
-  pageGroups,
   pageMarks,
-  pageName,
   placeComposer,
   requestsChange,
-  rowTitle,
   sendSummary,
   sourcePlace,
   stepFrom,
   stepOrder,
   targetLabel,
+  trayPins,
   turnAnnotationInto,
   turnInto,
   turnsInto,
@@ -69,59 +67,7 @@ function ann(
   };
 }
 
-test("pages group on path + query, ordered by their lowest number; rows in number order", () => {
-  const groups = pageGroups([
-    ann("c", 3, "/files?tab=all"),
-    ann("a", 1, "/files?tab=docs"),
-    ann("b", 2, "/files?tab=all"),
-    ann("d", 4, "/files?tab=docs", { status: "resolved" }),
-  ]);
-  assert.deepEqual(
-    groups.map((g) => [g.route, g.open.map((a) => a.number), g.resolved.map((a) => a.number)]),
-    [
-      ["/files?tab=docs", [1], [4]],
-      ["/files?tab=all", [2, 3], []],
-    ],
-  );
-});
-
-test("a page is not checked while an open annotation on it hasn't been looked for since the reload", () => {
-  const groups = pageGroups([
-    ann("a", 1, "/p", { placement: "unvisited" }),
-    ann("b", 2, "/p", { placement: "unplaced" }),
-    ann("c", 3, "/q", { placement: "unplaced" }),
-    ann("d", 4, "/r", { placement: "unvisited", status: "resolved" }),
-  ]);
-  assert.deepEqual(
-    groups.map((g) => [g.route, g.unchecked]),
-    [
-      ["/p", true],
-      ["/q", false],
-      ["/r", false],
-    ],
-  );
-  assert.deepEqual(
-    groups[0]!.open.map((a) => a.id),
-    ["a", "b"],
-    "unplaced and unchecked rows stay in their page's list, in number order",
-  );
-});
-
-test("a page group whose annotations are all resolved still lists them, behind the toggle", () => {
-  const [g] = pageGroups([ann("a", 1, "/x", { status: "resolved" })]);
-  assert.deepEqual(g!.open, []);
-  assert.equal(g!.resolved.length, 1);
-});
-
-test("a page is named by its title's first part, else its route", () => {
-  assert.equal(pageName("File Management · Okafor — I-485", "/m"), "File Management");
-  assert.equal(pageName("Matters | GrapeCase", "/m"), "Matters");
-  assert.equal(pageName("Settings", "/s"), "Settings");
-  assert.equal(pageName(undefined, "/app/matters?tab=files"), "/app/matters?tab=files");
-  assert.equal(pageName("  ", "/s"), "/s");
-});
-
-test("counts, numbering, the row's first line and its tooltip", () => {
+test("counts, numbering and the first line", () => {
   const list = [ann("a", 1, "/"), ann("b", 7, "/", { status: "resolved" }), ann("c", 2, "/")];
   assert.equal(openChangeCount(list), 2);
   assert.equal(nextNumber(list, 7), 8);
@@ -134,67 +80,65 @@ test("counts, numbering, the row's first line and its tooltip", () => {
   );
   assert.equal(firstLine("# Heading\nbody"), "Heading");
   assert.equal(firstLine("> quoted"), "quoted");
-  assert.equal(rowTitle(list[0]!), "#1 · Change request");
-  assert.equal(rowTitle(list[1]!), "#7 · Change request · Resolved");
-  assert.equal(
-    rowTitle(ann("u", 3, "/", { placement: "unplaced" })),
-    "#3 · Change request · Unplaced",
-  );
-  assert.equal(
-    rowTitle(ann("v", 4, "/", { placement: "unvisited" })),
-    "#4 · Change request · Not checked",
-  );
-  assert.equal(
-    rowTitle(ann("w", 5, "/", { placement: "unplaced", status: "resolved" })),
-    "#5 · Change request · Resolved",
-  );
 });
 
-test("⇧↓/⇧↑ step through the visible rows in list order and wrap", () => {
-  const groups = pageGroups([
-    ann("a", 1, "/p"),
-    ann("b", 2, "/q"),
-    ann("c", 3, "/p", { status: "resolved" }),
+test("⇧↓/⇧↑ step through every annotation by number, across pages and resolved, and wrap", () => {
+  const order = stepOrder([
     ann("d", 4, "/q"),
+    ann("a", 1, "/p"),
+    ann("c", 3, "/p", { status: "resolved" }),
+    ann("b", 2, "/q"),
   ]);
-  assert.deepEqual(stepOrder(groups, new Set()), ["a", "b", "d"]);
-  const order = stepOrder(groups, new Set(["/p"]));
-  assert.deepEqual(order, ["a", "c", "b", "d"]);
+  assert.deepEqual(order, ["a", "b", "c", "d"]);
   assert.equal(stepFrom(order, null, 1), "a");
   assert.equal(stepFrom(order, null, -1), "d");
-  assert.equal(stepFrom(order, "c", 1), "b");
+  assert.equal(stepFrom(order, "b", 1), "c");
   assert.equal(stepFrom(order, "d", 1), "a");
   assert.equal(stepFrom(order, "a", -1), "d");
   assert.equal(stepFrom([], null, 1), null);
 });
 
-test("the page gets pins for its open annotations, and for a resolved one only while selected", () => {
+test("the page gets pins for all its annotations, the resolved ones dimmed", () => {
   const list = [ann("a", 1, "/p"), ann("b", 2, "/q"), ann("c", 3, "/p", { status: "resolved" })];
-  assert.deepEqual(marksFor(list, "/p", null), [
-    {
-      id: "a",
-      number: 1,
-      target: {
-        kind: "element",
-        elements: [{ selector: "#el-a", tag: "button", rect: { x: 0, y: 0, width: 1, height: 1 } }],
-      },
-      resolved: false,
-      question: false,
+  assert.deepEqual(marksFor(list, "/p")[0], {
+    id: "a",
+    number: 1,
+    target: {
+      kind: "element",
+      elements: [{ selector: "#el-a", tag: "button", rect: { x: 0, y: 0, width: 1, height: 1 } }],
     },
-  ]);
+    resolved: false,
+    question: false,
+  });
   assert.equal(
-    marksFor([ann("q", 4, "/p", { intent: "question" })], "/p", null)[0]!.question,
+    marksFor([ann("q", 4, "/p", { intent: "question" })], "/p")[0]!.question,
     true,
     "a question's pin is drawn as one",
   );
   assert.deepEqual(
-    marksFor(list, "/p", "c").map((m) => [m.id, m.resolved]),
+    marksFor(list, "/p").map((m) => [m.id, m.resolved]),
     [
       ["a", false],
       ["c", true],
     ],
   );
-  assert.deepEqual(marksFor(list, "/elsewhere", "a"), []);
+  assert.deepEqual(marksFor(list, "/elsewhere"), []);
+});
+
+test("the tray holds this page's annotations that weren't found on it, by number", () => {
+  const list = [
+    ann("u2", 5, "/p", { placement: "unplaced", status: "resolved" }),
+    ann("u1", 2, "/p", { placement: "unplaced", intent: "question" }),
+    ann("placed", 1, "/p"),
+    ann("unvisited", 3, "/p", { placement: "unvisited" }),
+    ann("elsewhere", 4, "/q", { placement: "unplaced" }),
+    ann("page", 6, "/p", { placement: "unplaced", target: { kind: "page" } }),
+  ];
+  assert.deepEqual(trayPins(list, "/p", "u1"), [
+    { id: "u1", number: 2, question: true, resolved: false, selected: true },
+    { id: "u2", number: 5, question: false, resolved: true, selected: false },
+  ]);
+  assert.deepEqual(trayPins(list, "/r", null), []);
 });
 
 const uiEl = (selector: string, rect = { x: 0, y: 0, width: 1, height: 1 }) => ({
@@ -224,7 +168,7 @@ test("each kind's pin finds its target its own way, and a page annotation's pin 
     rect: r,
   });
   assert.deepEqual(
-    marksFor(list, "/p", null).map((m) => [m.id, m.target]),
+    marksFor(list, "/p").map((m) => [m.id, m.target]),
     [
       ["e", { kind: "element", elements: [found("#a"), found("#b")] }],
       [
@@ -236,15 +180,14 @@ test("each kind's pin finds its target its own way, and a page annotation's pin 
     ],
   );
   assert.deepEqual(pageMarks(list, "/p", null), [
-    { id: "pg", number: 5, question: false, selected: false },
+    { id: "pg", number: 5, question: false, resolved: false, selected: false },
   ]);
   assert.deepEqual(pageMarks(list, "/q", null), []);
   const resolved = ann("pr", 6, "/p", { target: { kind: "page" }, status: "resolved" });
-  assert.deepEqual(pageMarks([resolved], "/p", null), [], "a resolved page pin leaves the bar");
   assert.deepEqual(
-    pageMarks([resolved], "/p", "pr").map((m) => [m.id, m.selected]),
-    [["pr", true]],
-    "until its revealed row is selected",
+    pageMarks([resolved], "/p", "pr").map((m) => [m.id, m.resolved, m.selected]),
+    [["pr", true, true]],
+    "a resolved page pin stays in the bar, dimmed",
   );
 });
 
@@ -259,7 +202,7 @@ test("a pin's target can be posted to the page while the store holds the annotat
     source: proxied({ file: "/app/pages/files.vue", line: 3, via: "vue-tracer" as const }),
   };
   const region = ann("r", 1, "/p", { target: { kind: "region", rect, elements: [proxied(el)] } });
-  assert.doesNotThrow(() => structuredClone(marksFor([region], "/p", null)));
+  assert.doesNotThrow(() => structuredClone(marksFor([region], "/p")));
 });
 
 test("a pin carries what the bridge checks a match against: text, name, classes and source", () => {
@@ -478,7 +421,7 @@ const msg = (id: string, role: "user" | "agent", at: string, intent?: Message["i
 const T0 = "2026-10-13T10:00:00.000Z";
 const T1 = "2026-10-13T10:01:00.000Z";
 
-test("a question waits until an agent reply follows it; the head counts it and the tooltip says so", () => {
+test("a question waits until an agent reply follows it, and the head counts it", () => {
   const waiting = ann("q", 2, "/", {
     intent: "question",
     comments: [msg("q1", "user", T0, "question")],
@@ -506,13 +449,6 @@ test("a question waits until an agent reply follows it; the head counts it and t
   const list = [waiting, answered, replied, askedInChange, resolved];
   assert.equal(waitingCount(list), 2, "the open, unanswered ones");
   assert.equal(openChangeCount(list), 2, "questions aren't change requests");
-  assert.deepEqual(list.map(rowTitle), [
-    "#2 · Question · Waiting",
-    "#3 · Question · Answered",
-    "#1 · Change request · Agent replied",
-    "#4 · Change request · Waiting",
-    "#5 · Question · Resolved",
-  ]);
 });
 
 test("a question whose thread requests a change counts as an open change request, as the Send sends it", () => {
@@ -551,7 +487,7 @@ test("turning an annotation into a question turns its pin and what's sent togeth
   const a = ann("a", 1, "/", {
     comments: [msg("a1", "user", T0, "action"), msg("a2", "agent", T1)],
   });
-  const pin = () => marksFor([a], "/", null)[0]!.question;
+  const pin = () => marksFor([a], "/")[0]!.question;
   assert.equal(requestsChange(a), true);
 
   turnAnnotationInto(a, "question", T2);
@@ -559,7 +495,7 @@ test("turning an annotation into a question turns its pin and what's sent togeth
   assert.equal(a.comments[0]!.intent, "question");
   assert.equal(pin(), true);
   assert.equal(requestsChange(a), false, "no longer sent as a change request");
-  assert.equal(rowTitle(a), "#1 · Question · Waiting", "the reply from before doesn't answer it");
+  assert.equal(isWaiting(a), true, "the reply from before doesn't answer it");
 
   turnAnnotationInto(a, "action", T3);
   assert.equal(a.intent, "change");
@@ -574,7 +510,6 @@ test("turning an annotation into a question turns its pin and what's sent togeth
   assert.equal(isWaiting(a), true);
   a.comments.push(msg("a4", "agent", "2026-10-13T10:05:00.000Z"));
   assert.equal(isWaiting(a), false);
-  assert.equal(rowTitle(a), "#1 · Question · Answered");
 });
 
 test("only a reviewer's change request or question turns", () => {

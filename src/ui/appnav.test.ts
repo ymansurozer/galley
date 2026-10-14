@@ -342,7 +342,6 @@ const key = (k: string, code: string, shiftKey = false, altKey = false) => ({
 
 test("readBridgeMessage passes up only the UI view's keys, never ones that send, reset or confirm", () => {
   for (const ok of [
-    key("L", "KeyL", true),
     key("U", "KeyU", true),
     key("ArrowDown", "ArrowDown", true),
     key("ArrowUp", "ArrowUp", true),
@@ -363,25 +362,26 @@ test("readBridgeMessage passes up only the UI view's keys, never ones that send,
     key("Enter", "Enter"), // confirms the dialog ⇧R opens
     key("S", "KeyS", true), // ⇧S: send
     key("A", "KeyA", true), // ⇧A: approve
+    key("L", "KeyL", true), // ⇧L: the annotation list, gone with it
     key("P", "KeyP", true, true),
     key("Escape", "Escape", true),
     key("x".repeat(40), "KeyX"),
   ])
     assert.equal(readBridgeMessage(forged, TOKEN), null, JSON.stringify(forged));
-  assert.equal(readBridgeMessage({ ...key("L", "KeyL", true), shiftKey: "yes" }, TOKEN), null);
+  assert.equal(readBridgeMessage({ ...key("U", "KeyU", true), shiftKey: "yes" }, TOKEN), null);
 });
 
 test("a forwarded key runs only while annotating, except ⌥A", () => {
   const altA = { key: "a", code: "KeyA", shiftKey: false, altKey: true };
   const altP = { key: "p", code: "KeyP", shiftKey: false, altKey: true };
-  const shiftL = { key: "L", code: "KeyL", shiftKey: true, altKey: false };
+  const shiftDown = { key: "ArrowDown", code: "ArrowDown", shiftKey: true, altKey: false };
   const escape = { key: "Escape", code: "Escape", shiftKey: false, altKey: false };
   assert.equal(forwardedKeyRuns(altA, "interact"), true);
   assert.equal(forwardedKeyRuns(altP, "interact"), false);
-  assert.equal(forwardedKeyRuns(shiftL, "interact"), false);
+  assert.equal(forwardedKeyRuns(shiftDown, "interact"), false);
   assert.equal(forwardedKeyRuns(escape, "interact"), false, "in Interact, Esc belongs to the app");
   assert.equal(forwardedKeyRuns(altP, "annotate"), true);
-  assert.equal(forwardedKeyRuns(shiftL, "annotate"), true);
+  assert.equal(forwardedKeyRuns(shiftDown, "annotate"), true);
   assert.equal(forwardedKeyRuns(escape, "annotate"), true);
 });
 

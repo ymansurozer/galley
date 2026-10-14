@@ -78,8 +78,8 @@ const STYLE = `
 
 // Keys that scroll the page: they still reach it in Annotate mode.
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
-// The UI view's ⇧ chords passed up while annotating: sidebar, next / previous, Code / UI.
-const FORWARDED_SHIFT = new Set(["L", "U", "ArrowDown", "ArrowUp"]);
+// The UI view's ⇧ chords passed up while annotating: next / previous annotation, Code / App.
+const FORWARDED_SHIFT = new Set(["U", "ArrowDown", "ArrowUp"]);
 // How far the pointer moves before a press becomes a drag, and the smallest box a drag picks.
 const DRAG_START = 5;
 const MIN_REGION = 8;

@@ -24,12 +24,17 @@
   position: relative;
 }
 
-/* The code view keeps a loaded app laid out in the box the UI view shows it in (the centre
-   column beside the annotation sidebar, placed on .main), unseen and inert, so it warms in the
-   background at the stage's real size and the first switch re-lays out nothing. */
+/* The app fills the canvas: in the UI view the centre column is .main's only one. */
+.app.view-ui .main {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The code view keeps a loaded app laid out in the box the UI view shows it in (all of .main),
+   unseen and inert, so it warms in the background at the stage's real size and the first switch
+   re-lays out nothing. */
 .app:not(.view-ui) .uiview {
   position: absolute;
-  inset: 0 var(--annside-w) 0 0;
+  inset: 0;
   visibility: hidden;
 }
 
@@ -40,8 +45,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: var(--subbar-h);
-  padding: 0 10px;
+  min-height: var(--subbar-h);
+  padding: 6px 10px;
   background: var(--canvas);
   border-bottom: 1px solid var(--sep);
   font-size: var(--text-sm);
@@ -142,15 +147,18 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* A page annotation's pin: in the address bar, since it has no spot on the page. Tinted by
-   kind like the page's pins (orange change request, blue question). */
+/* The pins the desk draws itself: a page annotation's in the address bar, since it has no spot on
+   the page, and an unplaced one's in the stage's tray. Tinted by kind like the page's pins (orange
+   change request, blue question), dimmed once resolved. */
 .chrome .pagepins {
   flex: 0 0 auto;
   display: flex;
   gap: 3px;
 }
 
-.chrome .pagepin {
+.chrome .pagepin,
+.traypin {
+  flex: 0 0 auto;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
@@ -168,18 +176,50 @@
   transition: transform 0.12s;
 }
 
-.chrome .pagepin:hover {
+:is(.chrome .pagepin, .traypin):hover {
   transform: scale(1.12);
 }
 
-.chrome .pagepin.q {
+:is(.chrome .pagepin, .traypin).q {
   background: var(--blue);
 }
 
-.chrome .pagepin.sel {
+:is(.chrome .pagepin, .traypin).resolved {
+  background: var(--fill-3);
+  color: var(--ink-2);
+}
+
+:is(.chrome .pagepin, .traypin).sel {
   box-shadow:
     0 0 0 2px var(--canvas),
     0 0 0 3.5px var(--blue);
+}
+
+/* The page's annotations whose target couldn't be found on it: their pins in a small tray at the
+   stage's top-left, over the app. */
+.unplaced-tray {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: calc(100% - 20px);
+  padding: 5px 7px 5px 10px;
+  overflow-x: auto;
+  border-radius: var(--radius-pill);
+  background: var(--window);
+  box-shadow:
+    0 0 0 0.5px var(--sep-strong),
+    0 6px 20px rgb(0 0 0 / 0.2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.unplaced-tray > span {
+  margin-right: 2px;
 }
 
 /* After `galley reload`: the app is never reloaded under the reviewer — this asks. */
@@ -281,35 +321,6 @@
   color: var(--ink-2);
   font-size: var(--text-sm);
   background: var(--canvas);
-}
-
-/* The UI lane's open change-request count, on the collapsed sidebar's rail. Orange like a change
-   request; ghosted at zero. The header's lane switch carries no count. */
-.lane-count {
-  min-width: 17px;
-  height: 16px;
-  padding: 0 5px;
-  margin-left: 6px;
-  border-radius: var(--radius-pill);
-  display: inline-grid;
-  place-items: center;
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--orange-ink);
-  background: var(--orange-wash);
-}
-
-.lane-count.zero {
-  color: var(--ink-3);
-  background: var(--fill-2);
-}
-
-/* The rail's count of questions waiting on the agent: blue like a question, shown only when
-   there are some. */
-.lane-count.waiting {
-  color: var(--blue-ink);
-  background: var(--blue-wash);
 }
 
 /* Interact / Annotate: a segmented control; Annotate lights up blue so the mode reads at a

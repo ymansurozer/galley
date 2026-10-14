@@ -11,7 +11,6 @@ import {
   selectAnnotation,
   setAppMode,
   stepAnnotation,
-  toggleAnnotations,
   toggleAppMode,
 } from "./uilane";
 import { stepOpenRequest } from "./requests";
@@ -119,10 +118,6 @@ function escape() {
   }
   if (inUiView() && S.appMode === "annotate") {
     setAppMode("interact");
-    return;
-  }
-  if (inUiView() && S.annotationsOpen && matchMedia("(max-width: 1100px)").matches) {
-    S.annotationsOpen = false;
     return;
   }
   // A lone line selection (keyboard cursor, or a click that left the highlight without an open
@@ -442,14 +437,6 @@ const HOTKEYS: Hotkey[] = [
     test: (e) => e.code === "KeyP" && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey,
     when: () => inUiView() && !inModal(),
     run: () => annotatePage(),
-  },
-  {
-    combo: "⇧L",
-    desc: "Annotations sidebar",
-    group: "UI",
-    test: shift("L"),
-    when: () => inUiView() && navigable(),
-    run: () => toggleAnnotations(),
   },
   {
     combo: "⇧↓",

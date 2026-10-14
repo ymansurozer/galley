@@ -1,20 +1,11 @@
-import type { UiAnnotationRecord, UiTarget } from "./types";
-import {
-  firstLine,
-  pageName,
-  rowTitle,
-  targetElements,
-  targetLabel,
-  type PageGroup,
-  type SourcePlace,
-} from "./uilane-derive";
+import type { UiTarget } from "./types";
+import { targetElements, targetLabel, type SourcePlace } from "./uilane-derive";
 import { keycapsNode } from "./keycaps";
 
-// The UI lane's nodes that carry page-sourced text: a page group's head (route, title), a row,
-// the floating composer's head (the picked target's selectors and label) and its quote, and source
-// links (the file and component the page named). Built with textContent and properties, never
-// innerHTML, so nothing the app page sent can become markup or a handler in the desk. Store-free,
-// so a DOM-only test can build them.
+// The UI lane's nodes that carry page-sourced text: the floating composer's head (the picked
+// target's selectors and label) and its quote, and source links (the file and component the page
+// named). Built with textContent and properties, never innerHTML, so nothing the app page sent can
+// become markup or a handler in the desk. Store-free, so a DOM-only test can build them.
 
 function node<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
@@ -26,38 +17,6 @@ function node<K extends keyof HTMLElementTagNameMap>(
   el.className = className;
   if (text) el.textContent = text;
   return el;
-}
-
-// One line per page: its name, "not checked" while its annotations haven't been looked for since
-// the last reload, the open count; title and route in the tooltip.
-export function pageHead(doc: Document, g: PageGroup): HTMLButtonElement {
-  const head = node(doc, "button", "ann-head");
-  head.dataset.route = g.route;
-  head.title = g.title ? `${g.title}\n${g.route}` : g.route;
-  head.append(node(doc, "span", "ann-page-name", pageName(g.title, g.route)));
-  if (g.unchecked) {
-    const unchecked = node(doc, "span", "ann-unchecked", "not checked");
-    unchecked.title = "Not checked since the last reload — open the page to re-find them";
-    head.append(unchecked);
-  }
-  head.append(node(doc, "span", "ann-count", g.open.length ? String(g.open.length) : ""));
-  return head;
-}
-
-// A row: the number (tinted by kind) and the body's first line; the tooltip carries the state.
-export function rowLine(doc: Document, a: UiAnnotationRecord, selected: boolean): HTMLDivElement {
-  const line = node(
-    doc,
-    "div",
-    `ann-row k-${a.intent}${a.status === "resolved" ? " resolved" : ""}${selected ? " sel" : ""}`,
-  );
-  line.dataset.annotation = a.id;
-  line.title = rowTitle(a);
-  line.append(
-    node(doc, "span", "ann-num", String(a.number)),
-    node(doc, "span", "ann-body", firstLine(a.comments[0]?.body ?? "")),
-  );
-  return line;
 }
 
 // The floating composer's head: the number the annotation will get, what was picked (its tooltip
@@ -100,7 +59,7 @@ export const quoteLine = (doc: Document, quote: string) =>
 // (its capture failed, in this tab or in one since closed or reloaded).
 export type ShotStatus = "capturing" | "stored" | "failed";
 
-// The screenshot part of an expanded row's context line: a quiet "capturing…", then a link that
+// The screenshot part of a pin card's line of detail: a quiet "capturing…", then a link that
 // enlarges the stored pair, or a quiet failure note whose tooltip says why when the tab knows. The
 // reason can come from the app page (the bridge's error), so it's only ever text.
 export function shotLink(
