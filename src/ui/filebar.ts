@@ -17,9 +17,10 @@ import { isOversizedPlaceholder } from "./oversized";
 // rendered markdown, preview). render() mounts it as #diff's first child, where it sits sticky
 // under the top bar while the view scrolls beneath it. #diff is also where every jump scrolls
 // (cursor, go-to-line, blockers, the change-request walk), so the bar's height is mirrored into
-// --file-bar-h, which #diff's scroll-padding-top reads: a scrollIntoView then lands below the bar
-// instead of under it. The element persists across renders (its contents are rebuilt), so one
-// observer tracks it for the session — including its wrap at narrow widths.
+// --file-bar-h, the scroll-margin-top of everything under it (diff.css, and the rows' in-shadow
+// CSS in render.ts): a scrollIntoView then lands below the bar instead of under it. The element
+// persists across renders (its contents are rebuilt), so one observer tracks it for the session —
+// including its wrap at narrow widths.
 let bar: HTMLElement | null = null;
 function barElement(): HTMLElement {
   if (bar) return bar;

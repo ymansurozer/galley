@@ -2,12 +2,19 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  /* Jumps land below the sticky file bar, not under it (filebar.ts measures it). */
-  scroll-padding-top: var(--file-bar-h, 0px);
   background: var(--canvas);
   padding: 0;
   /* @pierre reserves a right-side scrollbar gutter; we scroll on #diff itself, so drop it */
   --diffs-scrollbar-gutter-override: 0px;
+}
+
+/* Whatever scrolls into view under the sticky file bar lands below it, not under it (filebar.ts
+   measures the bar; @pierre's rows get the same margin in its shadow, render.ts). It's a margin
+   on the targets, not scroll-padding on #diff: padding would also cover the bar itself, and
+   focusing one of its buttons would scroll the diff to "reveal" it. */
+#diff > :not(.file-bar),
+#diff > :not(.file-bar) * {
+  scroll-margin-top: var(--file-bar-h, 0px);
 }
 
 #diff > * {
