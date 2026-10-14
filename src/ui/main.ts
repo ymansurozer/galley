@@ -90,6 +90,7 @@ import {
   waitingQuestions,
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
+import { updateAwaitingDom } from "./annotations";
 import { openRequest, requestRows } from "./requests";
 import { uuid } from "./uuid";
 import type { ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
@@ -101,7 +102,7 @@ document.addEventListener(
   (e) => {
     if (!S.composerOpen) return;
     const target = e.target as HTMLElement;
-    if (target.closest?.(".composer-card, .msg-edit")) return;
+    if (target.closest?.(".composer-card, .msg-edit, .thread-card.k-new")) return;
     // Defer the closing render: this fires on pointerdown, before the click reaches a diff
     // control (Keep/Undo/Reply). Rendering now rebuilds the diff and destroys that control,
     // so the browser drops the pending click and the user's press is swallowed.
@@ -585,6 +586,8 @@ S.send = async (overallNote = "") => {
   });
   if (r && r.sent) {
     S.awaitingAgent = true;
+    // The change requests went with it: their held bands go now, not on the next poll.
+    updateAwaitingDom();
     toast("Sent to agent");
   } else toast("Could not send review");
 };
