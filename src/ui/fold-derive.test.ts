@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { diffAcceptRejectHunk, parseDiffFromFile, type FileDiffMetadata } from "@pierre/diffs";
 import type { ChangeState, GuideFile } from "../types.js";
 import { changeStableKey } from "./decisions-derive.js";
-import { foldedHunks, hunkAt } from "./fold-derive.js";
+import { foldedHunks, hunkAt, openedFor, shownFolds } from "./fold-derive.js";
 import { replayPositions } from "./replay.js";
 import { inStep, type Step } from "./steps.js";
 
@@ -136,4 +136,27 @@ test("hunkAt names the hunk whose rows hold a line on either side, and none betw
   assert.equal(hunkAt(diff, "additions", 9), undefined);
   assert.equal(hunkAt(diff, "deletions", 20), undefined);
   assert.equal(hunkAt(diff, "additions", 41), undefined);
+});
+
+test("an open thread keeps its hunk unfolded only while it is open", () => {
+  const diff = rawDiff();
+  // Fees' view folds hunks 1 and 3; a thread on line 15 sits in hunk 1.
+  const thread = [{ side: "additions" as const, line: 15 }];
+  assert.deepEqual(shownFolds(diff, [1, 3], new Set(), thread), [3]);
+  // Resolved: no open thread holds hunk 1, so it folds again.
+  assert.deepEqual(shownFolds(diff, [1, 3], new Set(), []), [1, 3]);
+  // A hunk the reviewer opened stays open with no thread in it.
+  assert.deepEqual(shownFolds(diff, [1, 3], new Set([3]), []), [1]);
+});
+
+test("the reviewer's opened folds hold for their view and start over in another", () => {
+  const opened = { view: "diff-a|guide-a|account.ts|0", hunks: new Set([1]) };
+  assert.equal(openedFor(opened, "diff-a|guide-a|account.ts|0"), opened);
+  // A reload that moved the diff, a guide swap, or another step is another view.
+  for (const view of [
+    "diff-b|guide-a|account.ts|0",
+    "diff-a|guide-b|account.ts|0",
+    "diff-a|guide-a|account.ts|1",
+  ])
+    assert.deepEqual(openedFor(opened, view), { view, hunks: new Set() });
 });

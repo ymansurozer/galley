@@ -41,3 +41,32 @@ export function hunkAt(diff: FileDiffMetadata, side: Side, line: number): number
   });
   return i === -1 ? undefined : i;
 }
+
+// The hunks folded right now: the candidates (foldedHunks), less those the reviewer opened and
+// those holding an open thread (`threads`, display lines of `diff`), as the desk unfolds
+// @pierre's collapsed regions hiding one. Threads are read afresh on every pass, so a hunk a
+// thread held open folds again once the thread resolves; the reviewer's own openings stay.
+export function shownFolds(
+  diff: FileDiffMetadata,
+  candidates: number[],
+  opened: ReadonlySet<number>,
+  threads: Array<{ side: Side; line: number }>,
+): number[] {
+  const open = new Set(opened);
+  for (const t of threads) {
+    const h = hunkAt(diff, t.side, t.line);
+    if (h !== undefined) open.add(h);
+  }
+  return candidates.filter((h) => !open.has(h));
+}
+
+// The folds the reviewer opened (hunk indexes), and the view they were opened in: one step of one
+// diff under one guide.
+export type Opened = { view: string; hunks: Set<number> };
+
+// The reviewer's openings for `view`: kept while it's the view they were made in, else none. A
+// reload that moved the diff or a guide swap that re-stamped parts can shift hunk indexes or
+// change which hunks fold, and another step is a different fold set altogether.
+export function openedFor(prev: Opened, view: string): Opened {
+  return prev.view === view ? prev : { view, hunks: new Set() };
+}

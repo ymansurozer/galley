@@ -10,7 +10,7 @@ import { render } from "./render";
 import { diffShadowRoot } from "./diff-dom";
 import { diffColumns, misalignedColumns } from "./skim-dom";
 import { clearFolds, foldHunks, type FoldRun } from "./fold-dom";
-import { foldedHunks, hunkAt } from "./fold-derive";
+import { foldedHunks, openedFor, shownFolds, type Opened } from "./fold-derive";
 import { isUnanchored } from "./unanchored";
 
 // ── Folding other parts' hunks ───────────────────────────────────────────────
@@ -32,17 +32,18 @@ import { isUnanchored } from "./unanchored";
 // already resolved them, so nothing else changes.
 const FOLD_OTHER_PARTS = true;
 
-// The folded hunks opened in the step on screen (shown-diff hunk indexes): by a click, or by an
-// open thread inside. Survives re-renders and layout switches; every step selection clears it, so
-// re-opening a part starts folded.
-const unfolded = new Set<number>();
+// The folds the reviewer opened in the view on screen (shown-diff hunk indexes). They survive
+// re-renders and layout switches, and start over in another view (openedFor): a reload that moved
+// the diff, a guide swap, another step — and on every step selection, so re-opening a part starts
+// folded.
+let opened: Opened = { view: "", hunks: new Set() };
 
 export function resetFolds() {
-  unfolded.clear();
+  opened = { view: "", hunks: new Set() };
 }
 
 function unfold(hunks: number[]) {
-  for (const h of hunks) unfolded.add(h);
+  for (const h of hunks) opened.hunks.add(h);
   render();
 }
 
@@ -83,16 +84,19 @@ export function applyHunkFolds() {
   const partView = !S.preview && S.stepPart !== undefined;
   if (!FOLD_OTHER_PARTS || !partView || S.settings.unchangedLines === "expand" || !raw || !shown)
     return;
-  // An open thread inside a folded hunk opens it, as the desk unfolds @pierre's collapsed regions
-  // hiding one (expand.ts).
   const file = currentFile();
-  for (const c of currentComments()) {
-    if (c.status !== "open" || isUnanchored(c, file)) continue;
-    const h = hunkAt(shown, c.side, toDisplayLine(c.side, c.lineNumber));
-    if (h !== undefined) unfolded.add(h);
-  }
-  const folds = foldedHunks(raw, shown, currentChanges(), inCurrentStep).filter(
-    (h) => !unfolded.has(h),
+  opened = openedFor(
+    opened,
+    JSON.stringify([S.state.baseDiffHash, S.state.guide ?? null, file.path, S.stepPart]),
+  );
+  const threads = currentComments()
+    .filter((c) => c.status === "open" && !isUnanchored(c, file))
+    .map((c) => ({ side: c.side, line: toDisplayLine(c.side, c.lineNumber) }));
+  const folds = shownFolds(
+    shown,
+    foldedHunks(raw, shown, currentChanges(), inCurrentStep),
+    opened.hunks,
+    threads,
   );
   if (!folds.length) return;
   // Rows carry data-line-index "unified,split"; each layout numbers them by its own half.
