@@ -20,6 +20,7 @@ import {
 import { render } from "./render";
 import { isBlockSkimCollapsed, skimStripLabel, toggleSkimBlock } from "./skim";
 import { firstLine, turnsInto } from "./uilane-derive";
+import { agentPresence } from "./topbar-derive";
 import { asksChange } from "./requests-derive";
 import {
   lineLabel,
@@ -149,17 +150,23 @@ export function annotations(): AnnotationInput[] {
   return [...changes, ...threads, ...composers];
 }
 
-// The waiting indicator under an unanswered question has three states, derived per
-// poll tick from the desk-liveness fields: queued (the question never reached an
-// agent — nothing is awaiting), active (delivered, and the agent posted a `galley
-// status` line), or plain waiting. Desk-global by design: one desk, one agent.
+// The waiting band under an unanswered question has three states, derived per poll tick from
+// the desk-liveness fields: queued (the question never reached an agent — nothing is awaiting),
+// active (delivered, and the agent posted a `galley status` line), or plain waiting. It's the top
+// bar's presence rule (topbar-derive) asked about this one question, sent review or not, so the
+// two never disagree. Desk-global by design: one desk, one agent.
 export function awaitingParts() {
-  const queued = S.queuedQuestions > 0;
-  return {
-    queued,
-    label: queued ? "No agent attached — question queued" : "Working",
-    activity: queued ? "" : (S.agentActivity ?? ""),
-  };
+  const presence = agentPresence({
+    awaitingAgent: false,
+    queuedReviews: 0,
+    queuedQuestions: S.queuedQuestions,
+    activity: S.agentActivity,
+    unansweredAsks: 1,
+  });
+  // "Working · <activity>" splits into its label and the activity, which reads brighter.
+  const [label = "Working", ...activity] =
+    presence.kind === "hidden" ? [] : presence.line.split(" · ");
+  return { queued: presence.kind === "notAttached", label, activity: activity.join(" · ") };
 }
 
 // Patch every mounted waiting band in place, and show or hide the held bands. Called from the
