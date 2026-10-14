@@ -15,7 +15,7 @@ import { isUnanchored } from "./unanchored";
 import { revealLine } from "./expand";
 import { cursorJumpTo, cursorReset, isRendered } from "./cursor";
 import { isFileSkimCollapsed, toggleFileSkim } from "./skim";
-import { holdPlace, openThread, threadKey } from "./rests";
+import { holdPlace } from "./rests";
 
 // ── "Why can't I approve this file?" ─────────────────────────────────────────
 // fileObjections gates Approve on rejected hunks and open change-request comments, but
@@ -93,7 +93,7 @@ function flashLineThread(side: Side, lineNumber: number) {
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
       const el = $("diff").querySelector<HTMLElement>(
-        `.thread-group [data-thread="${side}:${lineNumber}"]`,
+        `.line-thread [data-thread="${side}:${lineNumber}"]`,
       );
       if (!el) return;
       el.classList.remove("flash");
@@ -145,10 +145,9 @@ export async function jumpToBlocker(b: Blocker, current: () => boolean = () => t
     diff.querySelector<HTMLElement>(`.unanchored-strip [data-thread="${b.side}:${b.lineNumber}"]`);
   if (thread) {
     cursorReset(); // off the rows, so the cursor can't hold the place
-    const slot =
-      thread.closest<HTMLElement>(".thread-slot") ?? thread.querySelector(".thread-slot");
-    if (slot) openThread(slot.dataset.key!); // every slot carries its key
-    flashThread(slot ?? thread);
+    flashThread(
+      thread.closest<HTMLElement>(".thread-slot") ?? thread.querySelector(".thread-slot") ?? thread,
+    );
     return;
   }
   if (b.unanchored) {
@@ -163,9 +162,6 @@ export async function jumpToBlocker(b: Blocker, current: () => boolean = () => t
   // Unfold only when the line isn't rendered: each expansion reveals more lines, so unfolding a
   // line that already renders would widen the run on every jump to it.
   if (!isRendered(b.side, line)) revealLine(b.side, b.lineNumber);
-  // Landing on the line opens its thread (cursor.ts); opening it first holds even when the line
-  // only renders once the reveal's re-render lands.
-  if (b.kind === "thread") openThread(threadKey({ path, side: b.side, lineNumber: b.lineNumber }));
   cursorJumpTo(b.side, line);
   if (b.kind === "thread") flashLineThread(b.side, b.lineNumber);
 }

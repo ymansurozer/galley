@@ -1,4 +1,4 @@
-import { S, D, esc, toast, persist } from "./store";
+import { S, esc, toast, persist } from "./store";
 import {
   currentComments,
   currentChanges,
@@ -39,11 +39,10 @@ import type {
 } from "./types";
 import { keycapsHtml } from "./keycaps";
 import { cursorChangeId } from "./cursor";
-import { diffLayout, threadGroups } from "./thread-groups";
-import { threadGroupElement, threadKey, threadSlot } from "./rests";
+import { threadAnnotation, threadKey, threadSlot } from "./rests";
 
 export function annotations(): AnnotationInput[] {
-  const lineThreads: (ThreadMeta & { line: number })[] = [];
+  const threads: AnnotationInput[] = [];
   const groups = new Map<string, ReviewComment[]>();
   for (const c of currentComments()) {
     const key = `${c.side}:${c.lineNumber}`;
@@ -70,32 +69,20 @@ export function annotations(): AnnotationInput[] {
       status: comments.some((c) => c.status === "open") ? "open" : "resolved",
       comments,
     };
-    lineThreads.push({ ...t, line: t.lineNumber });
+    // The annotation goes to @pierre in DISPLAY coordinates (it matches rendered gutter numbers);
+    // the thread keeps its raw line so thread actions filter comments correctly.
+    threads.push({ side: t.side, lineNumber: toDisplayLine(t.side, t.lineNumber), metadata: t });
   }
-  // A reply or an edit happens in its thread's card, so that thread is the open one.
-  const editing = S.editingCommentId
-    ? S.state.comments.find((c) => c.id === S.editingCommentId && c.path === file?.path)
-    : undefined;
-  // Any open thread on the composer's line hosts the reply, a lost one in the unanchored block too
-  // (a group of comments holds at least one).
+  // A thread showing as its card on the composer's line hosts the reply: an open one (a lost one
+  // in the unanchored block too), or the expanded resolved one (a group holds at least one comment).
   const replying =
-    S.composerOpen && !editing && !composerInUi()
+    S.composerOpen && !S.editingCommentId && !composerInUi()
       ? [...groups.values()].find(
           (cs) =>
-            cs.some((c) => c.status === "open") && composerTargets(cs[0]!.side, cs[0]!.lineNumber),
-        )?.[0]
+            (cs.some((c) => c.status === "open") || threadKey(cs[0]!) === S.openThread) &&
+            composerTargets(cs[0]!.side, cs[0]!.lineNumber),
+        )
       : undefined;
-  const composing = editing ?? replying;
-  if (composing) S.openThread = threadKey(composing);
-  // One annotation per group of nearby threads, at its last line. It goes to @pierre in DISPLAY
-  // coordinates (it matches rendered gutter numbers); the threads keep their raw lines so thread
-  // actions filter comments correctly.
-  const layout = D.fileDiff ? diffLayout(D.fileDiff) : { changes: [], hunks: [] };
-  const threads: AnnotationInput[] = threadGroups(lineThreads, toDisplayLine, layout).map((g) => ({
-    side: g.side,
-    lineNumber: g.line,
-    metadata: { type: "group", side: g.side, lineNumber: g.line, threads: g.threads },
-  }));
   const changes: AnnotationInput[] = [];
   // Only the step's own blocks render as changes (another step's are plain code in a part view).
   for (const ch of currentChanges().filter((ch) => ch.status === "pending" && inCurrentStep(ch))) {
@@ -244,13 +231,14 @@ export function lineThread(c: ThreadMeta): ThreadControls {
     setStatus: (status) => {
       // Resolving rests the thread and closes its own reply composer while it holds no draft:
       // there's nothing left to reply to, and it would come back on the line as a new comment. A
-      // draft stays, and so does its card.
-      if (
-        status === "resolved" &&
-        !(composerTargets(c.side, c.lineNumber) && S.composerBody.trim())
-      ) {
-        if (composerTargets(c.side, c.lineNumber)) S.composerOpen = false;
-        if (S.openThread === threadKey(c)) S.openThread = null;
+      // draft stays, and so does its card, now as the expanded resolved one.
+      if (status === "resolved") {
+        const mine = composerTargets(c.side, c.lineNumber);
+        if (mine && S.composerBody.trim()) S.openThread = threadKey(c);
+        else {
+          if (mine) S.composerOpen = false;
+          if (S.openThread === threadKey(c)) S.openThread = null;
+        }
       }
       S.state.comments
         .filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber)
@@ -509,5 +497,5 @@ export function renderAnnotation(a: { metadata: AnnotationMeta }) {
     el.appendChild(control);
     return el;
   }
-  return threadGroupElement(c);
+  return threadAnnotation(c, toDisplayLine(c.side, c.lineNumber));
 }

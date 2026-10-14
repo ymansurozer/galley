@@ -15,15 +15,13 @@
   color: var(--ink);
 }
 
-/* Room around the rests and cards in the code column. A group stacks its threads: rests, and
-   the one open card in its place. */
-/* Their left edge is the code text's, as the Undo | Keep control's is (decisions.css): @pierre
+/* Room around a thread under its line in the code column: its card, or its rest while it's
+   resolved. Their left edge is the code text's, as the Undo | Keep control's is (decisions.css): @pierre
    insets each line by its gap, or by 2ch of the code font where it draws classic +/− signs. The
    row is set in the code's face so `ch` measures the same; the rests and cards set their own. */
-.annotation:is(.thread-group, .composer-annotation) {
+.annotation:is(.line-thread, .composer-annotation) {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   padding: 4px 16px 6px var(--diffs-gap-inline, 8px);
   font-family: var(--mono);
   font-size: var(--code-size, 12.5px);
@@ -32,11 +30,11 @@
   contain: inline-size;
 }
 
-.annotation:is(.thread-group, .composer-annotation).signs {
+.annotation:is(.line-thread, .composer-annotation).signs {
   padding-left: 2ch;
 }
 
-.thread-group:has(.thread-card) {
+.line-thread:has(.thread-card) {
   padding-block: 6px 8px;
 }
 
@@ -46,15 +44,14 @@
 }
 
 @media (max-width: 760px) {
-  .annotation:is(.thread-group, .composer-annotation) {
+  .annotation:is(.line-thread, .composer-annotation) {
     padding-right: 8px;
   }
 }
 
-/* ── Rests: a thread at rest is one line under its line ──
-   Its state glyph, who spoke last, the first line of what they said, and the count, tinted by
-   what the thread is: a change request orange, a question waiting with a turning ring, the
-   agent's word blue. A resolved thread rests muted, on its opening message. */
+/* ── Rests: a resolved thread is one muted line under its line ──
+   A ✓, who opened it, the first line of what they said, and the count. A click, or the cursor
+   landing on its line, expands it to its card (rests.ts). */
 .rest {
   display: flex;
   align-items: center;
@@ -66,9 +63,9 @@
   padding: 0 9px;
   border: 0;
   border-radius: var(--radius);
-  background: var(--raised);
-  box-shadow: 0 0 0 0.5px var(--sep-strong);
-  color: var(--ink-2);
+  background: transparent;
+  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
+  color: var(--ink-3);
   font-family: var(--sans);
   font-size: var(--text-sm);
   text-align: left;
@@ -80,14 +77,14 @@
 }
 
 .rest:hover {
-  background-image: linear-gradient(var(--fill), var(--fill));
+  background-color: var(--fill);
   box-shadow:
-    0 0 0 0.5px var(--sep-strong),
+    inset 0 0 0 0.5px var(--sep-strong),
     0 0 0 3px var(--fill-2);
 }
 
 .rest:active {
-  background-image: linear-gradient(var(--fill-2), var(--fill-2));
+  background-color: var(--fill-2);
 }
 
 .rest-glyph {
@@ -96,7 +93,6 @@
   place-items: center;
   width: 14px;
   height: 14px;
-  color: var(--blue);
 }
 
 .rest-glyph .ic {
@@ -104,39 +100,9 @@
   height: 13px;
 }
 
-.rest-glyph.awaiting-answer {
-  color: var(--blue);
-}
-
-.rest-glyph.awaiting-answer.queued {
-  color: var(--orange);
-}
-
-.rest-glyph .tc-spin {
-  margin: 0;
-}
-
-.rest.k-change .rest-glyph,
-.rest.k-change .rest-text {
-  color: var(--orange-ink);
-}
-
-.rest.k-change .rest-glyph {
-  color: var(--orange);
-}
-
-.rest.k-note .rest-glyph {
-  color: var(--ink-2);
-}
-
 .rest-who {
   flex: 0 0 auto;
-  color: var(--ink);
   font-weight: 600;
-}
-
-.rest-who.agent {
-  color: var(--blue-ink);
 }
 
 .rest-text {
@@ -148,47 +114,8 @@
 
 .rest-n {
   flex: 0 0 auto;
-  color: var(--ink-3);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
-}
-
-.rest-loc {
-  flex: 0 0 auto;
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: var(--text-2xs);
-}
-
-.rest.k-resolved {
-  background: transparent;
-  box-shadow: inset 0 0 0 0.5px var(--sep-strong);
-  color: var(--ink-3);
-}
-
-.rest.k-resolved .rest-glyph,
-.rest.k-resolved .rest-who {
-  color: var(--ink-3);
-}
-
-/* The marks tying a group's rows to their lines (rests.ts placeThreadMarks): each row's line
-   number repeated in the number column, in the code theme's number colour. Over the code, under
-   the sticky bar; the pointer passes through. */
-.thread-marks {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 3;
-  pointer-events: none;
-}
-
-.tm-num {
-  position: absolute;
-  padding-right: 8px;
-  transform: translateY(-50%);
-  font: 500 var(--text-2xs) / 1 var(--mono);
-  text-align: right;
-  opacity: 0.8;
 }
 
 .thread-card {
