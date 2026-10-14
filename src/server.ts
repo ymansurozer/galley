@@ -1265,6 +1265,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           state.lastAnnotationNumber = 0;
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
+          state.signedOffBlocks = {};
           state.stagedFiles = [];
           state.stagedChangeKeys = [];
           state.decisionFiles = [];

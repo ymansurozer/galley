@@ -32,6 +32,7 @@ test("reviewerSlice carries only reviewer-owned fields — no rawDiff, no file c
     ],
     reviewedFiles: ["a.ts"],
     reviewedFileHashes: { "a.ts": "H" },
+    signedOffBlocks: { "a.ts:k1": "H" },
     stagedFiles: ["a.ts"],
     stagedChangeKeys: ["a.ts:k1"],
     decisionFiles: ["a.ts"],
@@ -56,6 +57,7 @@ test("reviewerSlice carries only reviewer-owned fields — no rawDiff, no file c
     "lastAnnotationNumber",
     "reviewedFileHashes",
     "reviewedFiles",
+    "signedOffBlocks",
   ]);
   // The heavy/server-owned fields are absent from the wire.
   const wire = slice as Record<string, unknown>;

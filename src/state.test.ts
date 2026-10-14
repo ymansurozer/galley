@@ -385,6 +385,7 @@ test("mergeReviewState migrates a decision + open comment + sign-off across a re
     comments: [comment({ id: "c1", path: "old.ts", intent: "action", anchorText: "x" })],
     reviewedFiles: ["old.ts"],
     reviewedFileHashes: { "old.ts": "H" },
+    signedOffBlocks: { "old.ts:k1": "H" },
   });
   const merged = await mergeReviewState(base, saved);
   // Decision re-keyed to the new path and carried forward (content unchanged).
@@ -397,6 +398,7 @@ test("mergeReviewState migrates a decision + open comment + sign-off across a re
   // A pure rename keeps its content hash, so the prior sign-off survives, re-keyed.
   assert.deepEqual(merged.reviewedFiles, ["new.ts"]);
   assert.equal(merged.reviewedFileHashes!["new.ts"], "H");
+  assert.deepEqual(merged.signedOffBlocks, { "new.ts:k1": "H" });
 });
 
 // ── Decisions across line shifts ─────────────────────────────────────────────
@@ -614,6 +616,62 @@ test("a save from a tab still on the pre-reload diff lands on the reloaded block
     const current = live.decisions!.filter((d) => d.status === "accepted");
     mergeReviewerSave(live, { decisions: current, seen: seen(live.baseDiffHash) });
     assert.deepEqual(decided(live), [["app.ts:additions:10:1:1", "accepted", 10]]);
+  });
+});
+
+// The sign-off entry the tab writes on a block (decisions-derive.ts signOffBlocks).
+const signedOff = (st: ReviewState, ...keys: string[]) =>
+  Object.fromEntries(
+    keys.map((key) => {
+      const c = st.changes.find((ch) => `${ch.path}:${ch.stableKey}` === key);
+      assert.ok(c?.contentHash, `block ${key} is in the diff`);
+      return [key, c.contentHash];
+    }),
+  );
+
+test("a block sign-off survives a reload while its block is there with the content it was signed off on", async () => {
+  await withShiftRepo(async (edit) => {
+    const before = await edit(edited({ 5: "A", 8: "L8", 11: "L11" }));
+    const saved = {
+      ...before,
+      signedOffBlocks: {
+        ...signedOff(before, "app.ts:additions:5:1:1", "app.ts:additions:8:1:1"),
+        "app.ts:additions:11:1:1": "another content",
+        "gone.ts:additions:1:0:1": "h",
+      },
+    };
+    const merged = await mergeReviewState(
+      await edit(edited({ 5: "A", 8: "L8 again", 11: "L11" })),
+      saved,
+    );
+    assert.deepEqual(Object.keys(merged.signedOffBlocks ?? {}), ["app.ts:additions:5:1:1"]);
+  });
+});
+
+test("a save from a tab still on the pre-reload diff carries its block sign-offs onto the reloaded blocks", async () => {
+  await withShiftRepo(async (edit) => {
+    const live = await edit(edited({ 8: "L8", 11: "L11" }));
+    const oldDiff = live.baseDiffHash;
+    const prior = { baseDiffHash: oldDiff, changes: live.changes };
+    const signed = signedOff(live, "app.ts:additions:8:1:1", "app.ts:additions:11:1:1");
+    Object.assign(
+      live,
+      await mergeReviewState(await edit(insertAbove(edited({ 8: "L8", 11: "L11" }))), live),
+    );
+    const seen = (baseDiffHash: string) => ({ token: null, reloadGeneration: 0, baseDiffHash });
+    mergeReviewerSave(live, { signedOffBlocks: signed, seen: seen(oldDiff) }, undefined, prior);
+    assert.deepEqual(live.signedOffBlocks, {
+      "app.ts:additions:10:1:1": signed["app.ts:additions:8:1:1"],
+      "app.ts:additions:13:1:1": signed["app.ts:additions:11:1:1"],
+    });
+    // From further back than the desk remembers, the desk keeps its own.
+    mergeReviewerSave(
+      live,
+      { signedOffBlocks: {}, seen: seen("two diffs back") },
+      undefined,
+      prior,
+    );
+    assert.equal(Object.keys(live.signedOffBlocks ?? {}).length, 2);
   });
 });
 

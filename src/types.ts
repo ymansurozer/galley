@@ -244,6 +244,11 @@ export type ReviewState = {
   // goes stale when the file's content changes.
   reviewedFiles: string[];
   reviewedFileHashes?: Record<string, string>;
+  // Change blocks the reviewer signed off, `path:stableKey` → the block's contentHash at sign-off:
+  // a guide part (or Rest) is done while each of its blocks has a current entry. Once every block
+  // of a file has one, the file's own sign-off above is written too, so approval and the agent's
+  // ReviewResult stay file-level.
+  signedOffBlocks?: Record<string, string>;
   stagedFiles: string[];
   stagedChangeKeys?: string[];
   decisionFiles?: string[];
@@ -280,6 +285,7 @@ export type ReviewerSave = Pick<
   | "comments"
   | "reviewedFiles"
   | "reviewedFileHashes"
+  | "signedOffBlocks"
   | "decisionFiles"
   | "annotations"
   | "lastAnnotationNumber"
