@@ -143,13 +143,14 @@ export function closeComposer(deferRender = false) {
   document.addEventListener("click", settle); // bubble: runs after the target's own handlers
 }
 
-// After every render the diff DOM (and any composer inside it) is rebuilt from scratch, so
-// re-focus the open composer and restore its caret from the store. No-op when none is open.
+// After every render the diff DOM (and any composer inside it) is rebuilt from scratch, and so are
+// the UI lane's floating composer and pin card, so re-focus the open composer and restore its caret
+// from the store. No-op when none is open.
 export function restoreComposerFocus() {
   if (!S.composerOpen) return;
   const ta = document.querySelector<HTMLTextAreaElement>(
     composerInUi()
-      ? "#uiComposer .js-composer-focus, #annotationList .js-composer-focus"
+      ? "#uiComposer .js-composer-focus, #pinCard .js-composer-focus"
       : ".js-composer-focus",
   );
   if (!ta) return;

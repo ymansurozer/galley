@@ -412,10 +412,35 @@ test("the app warms in the code view once the diff has rendered and there's an a
   assert.equal(shouldWarm({ ...ready, view: "ui" }), false);
 });
 
-test("readBridgeMessage reads pin clicks and anchor moves", () => {
-  const select = { type: "select", token: TOKEN, id: "a-1" };
-  assert.deepEqual(readBridgeMessage(select, TOKEN), select);
-  assert.equal(readBridgeMessage({ ...select, id: 3 }, TOKEN), null);
+test("readBridgeMessage reads pin rects and clicks, and anchor moves", () => {
+  const rect = { x: 10, y: 20, width: 20, height: 20 };
+  const pins = { type: "pins", token: TOKEN, pins: [{ id: "a-1", rect }] };
+  assert.deepEqual(readBridgeMessage(pins, TOKEN), pins);
+  assert.deepEqual(readBridgeMessage({ ...pins, clicked: "a-1" }, TOKEN), {
+    ...pins,
+    clicked: "a-1",
+  });
+  assert.deepEqual(readBridgeMessage({ ...pins, clicked: null }, TOKEN), {
+    ...pins,
+    clicked: null,
+  });
+  // A malformed pin is dropped, the rest kept; a malformed click or list drops the message.
+  assert.deepEqual(
+    readBridgeMessage(
+      {
+        ...pins,
+        pins: [
+          { id: 3, rect },
+          { id: "a-2", rect: { x: 1 } },
+        ],
+      },
+      TOKEN,
+    ),
+    { type: "pins", token: TOKEN, pins: [] },
+  );
+  assert.equal(readBridgeMessage({ ...pins, clicked: 3 }, TOKEN), null);
+  assert.equal(readBridgeMessage({ ...pins, pins: "a-1" }, TOKEN), null);
+  assert.equal(readBridgeMessage({ ...pins, token: "other" }, TOKEN), null);
   const anchor = { type: "anchor", token: TOKEN, rect: { x: 1, y: 2, width: 3, height: 4 } };
   assert.deepEqual(readBridgeMessage(anchor, TOKEN), anchor);
   assert.equal(readBridgeMessage({ ...anchor, rect: { x: 1 } }, TOKEN), null);

@@ -14,6 +14,7 @@ import {
   annotationSource,
   askStamp,
   draftAnchor,
+  isOpenChange,
   marksFor,
   markTarget,
   nextNumber,
@@ -25,6 +26,7 @@ import {
   sourcePlace,
   stepFrom,
   stepOrder,
+  targetLabel,
   turnAnnotationInto,
   turnsInto,
   waitingCount,
@@ -43,6 +45,7 @@ import type {
   AnnotationDraft,
   AppMode,
   PickedTarget,
+  PinRect,
   Rect,
   UiAnnotationRecord,
   UiPage,
@@ -51,9 +54,9 @@ import type {
 } from "./types";
 
 // The UI lane's annotations: Annotate mode, the floating composer on a picked target or the page,
-// the sidebar (the "Quiet" list: page groups, one-line rows, a row expands to its thread), and the
-// pins the bridge draws. Annotations live on S.state.annotations and save through the reviewer
-// slice like comments do. Threads render through the code lane's own thread component, keyed by
+// the sidebar (the "Quiet" list: page groups, one-line rows), and the pins the bridge draws, the
+// selected one's thread opening as a card beside its pin. Annotations live on S.state.annotations
+// and save through the reviewer slice like comments do. Threads render through the code lane's own thread component, keyed by
 // annotation id. The lane gates nothing: no approval, blockers or progress.
 
 const annotationsOf = () => S.state?.annotations ?? [];
@@ -212,7 +215,8 @@ export function selectAnnotation(id: string | null, fromList = false) {
   revealing = null;
   if (a) {
     if (a.status === "resolved") S.shownResolved.add(a.page.route);
-    S.annotationsOpen = true;
+    // Its card opens over the app, where the narrow list's drawer would cover it.
+    if (narrow()) S.annotationsOpen = false;
     if (S.view === "ui" && a.page.route !== S.app.route) {
       if (a.target.kind !== "page") revealing = a.id;
       appGo(a.page.route);
@@ -322,6 +326,7 @@ export function appPageChanged(fresh: boolean) {
     S.pendingPicks = 0;
   }
   pickDraft = null;
+  pinRects = new Map();
   const placed = placePageAnnotations();
   if (S.annotationDraft) closeComposer();
   else renderUiLane();
@@ -377,8 +382,10 @@ export function syncBridge() {
   const marks = {
     marks: marksFor(annotationsOf(), S.app.route, S.selectedAnnotation),
     selected: S.selectedAnnotation,
-    // The composer is on the bridge's last pick (a page draft is the desk's own).
-    picking: !!S.annotationDraft && S.annotationDraft.target.kind !== "page",
+    // The composer is on the bridge's last pick (a page draft is the desk's own): the number its
+    // draft pin shows.
+    picking:
+      S.annotationDraft && S.annotationDraft.target.kind !== "page" ? upcomingNumber() : null,
   };
   const key = JSON.stringify(marks);
   if (key !== sentMarks) {
@@ -517,8 +524,8 @@ export function submitUiComposer(intent: "action" | "question") {
     };
     list.push(created);
     S.state.lastAnnotationNumber = created.number;
+    // Its card opens on its new pin.
     S.selectedAnnotation = created.id;
-    if (!narrow()) S.annotationsOpen = true;
     if (intent === "question") asked = { annotation: created.id, message: message.id };
     toast(`#${created.number} ${intent === "question" ? "asked — waiting for answer" : "added"}`);
   } else if (a) {
@@ -586,6 +593,7 @@ function threadControls(a: UiAnnotationRecord): ThreadControls {
 // Everything the lane draws from the store: the sidebar list, the floating composer, and the pins.
 export function renderUiLane() {
   renderList();
+  renderPinCard();
   renderFloatingComposer();
   restoreComposerFocus();
   syncBridge();
@@ -620,43 +628,139 @@ function renderList() {
   placeGaps(host);
 }
 
-// One row: the number (tinted by kind) and the body's first line. Selected, it expands to the
-// thread, through the code lane's thread component.
-function row(a: UiAnnotationRecord): HTMLElement {
-  const selected = a.id === S.selectedAnnotation;
-  const line = rowLine(document, a, selected);
-  if (!selected) return line;
-  const item = document.createElement("div");
-  item.className = `ann-item k-${a.intent}${a.status === "resolved" ? " resolved" : ""}`;
-  item.append(line);
-  // One muted line of context: the screenshot, then where the element came from.
+// One row: the number (tinted by kind) and the body's first line. The selected one is marked; its
+// thread opens as its pin's card.
+const row = (a: UiAnnotationRecord) => rowLine(document, a, a.id === S.selectedAnnotation);
+
+// The pin card's line of detail under its header: what was annotated (and how many more elements),
+// the screenshot, where the element came from, and whether it was found on its page.
+function annotationDetails(a: UiAnnotationRecord): HTMLElement {
   const ctx = document.createElement("div");
   ctx.className = "ann-ctx";
-  ctx.append(shotLink(document, shotStatus(a), captureErrors.get(a.id), () => openShot(a.id)));
+  const sep = () => Object.assign(document.createElement("span"), { textContent: "·" });
+  const target = document.createElement("span");
+  target.className = "ann-target";
+  target.textContent = targetLabel(a.target);
+  ctx.append(target);
+  const more = a.target.kind === "element" ? a.target.elements.length - 1 : 0;
+  if (more > 0)
+    ctx.append(Object.assign(document.createElement("span"), { textContent: `+${more} more` }));
+  ctx.append(
+    sep(),
+    shotLink(document, shotStatus(a), captureErrors.get(a.id), () => openShot(a.id)),
+  );
   const source = annotationSource(a.target);
-  if (source) {
-    const sep = document.createElement("span");
-    sep.textContent = "·";
+  if (source)
     ctx.append(
-      sep,
+      sep(),
       sourceLink(document, sourcePlace(source, S.state.root), "ann-src", openEditorAt),
     );
-  }
   if (a.placement === "unplaced") {
-    const sep = document.createElement("span");
-    sep.textContent = "·";
     const note = document.createElement("span");
     note.className = "ann-unplaced";
     note.textContent = "Unplaced";
     note.title = "Couldn't find it on its page when the page last loaded. It's still sent.";
-    ctx.append(sep, note);
+    ctx.append(sep(), note);
   }
-  item.append(ctx);
-  const thread = document.createElement("div");
-  thread.className = `annotation${a.status === "resolved" ? " resolved" : ""}`;
-  thread.append(buildCommentThread(a, threadControls(a)));
-  item.append(thread);
-  return item;
+  return ctx;
+}
+
+// The selected annotation's thread as a card beside its pin, in the code lane's card language: its
+// kind and number, the line of detail, then the thread. It shows while the app is on the
+// annotation's page; picking elsewhere, Esc, or its pin again closes it.
+let cardFor: string | null = null;
+let cardOpenedAt = 0;
+function renderPinCard() {
+  const host = $("pinCard");
+  const a = find(S.selectedAnnotation);
+  if (!a || S.view !== "ui" || a.page.route !== S.app.route) {
+    cardFor = null;
+    host.classList.remove("show");
+    host.replaceChildren();
+    return;
+  }
+  if (cardFor !== a.id) {
+    cardFor = a.id;
+    cardOpenedAt = performance.now();
+    host.style.visibility = "hidden";
+  }
+  const head = {
+    kind: a.intent === "question" ? ("question" as const) : ("change" as const),
+    loc: `#${a.number}`,
+    held: isOpenChange(a),
+  };
+  const card = buildCommentThread({ ...a, head }, threadControls(a));
+  const details = annotationDetails(a);
+  const top = card.querySelector(".tc-head, .thread-summary");
+  if (top) top.after(details);
+  else card.prepend(details);
+  host.replaceChildren(inAnnotation(card));
+  host.classList.add("show");
+  placePinCard();
+}
+
+// A card in the wrapper the thread styles (and the composer's buttons) are scoped to.
+function inAnnotation(card: HTMLElement) {
+  const wrap = document.createElement("div");
+  wrap.className = "annotation";
+  wrap.append(card);
+  return wrap;
+}
+
+// Keep the card beside its pin as the app scrolls, resizes or changes preset. A page annotation's
+// pin is in the address bar. A pin the bridge hasn't reported yet (its page settling, or scrolling
+// it into view) gets a moment before the card settles at the stage's corner; a pin that scrolled
+// out of sight leaves the card where it was. Narrow screens show it as a bottom sheet (CSS).
+const PIN_WAIT_MS = 600;
+let pinWait = 0;
+export function placePinCard() {
+  const host = $("pinCard");
+  const a = find(cardFor);
+  if (!a || !host.classList.contains("show") || matchMedia("(max-width: 700px)").matches) {
+    host.style.visibility = "";
+    return;
+  }
+  const pin = pinRects.get(a.id);
+  const pagePin =
+    a.target.kind === "page" && document.querySelector(`.pagepin[data-id="${CSS.escape(a.id)}"]`);
+  const anchor = pin ? fromAppViewport(pin) : pagePin ? pagePin.getBoundingClientRect() : null;
+  const placed = host.style.visibility !== "hidden";
+  if (!anchor) {
+    if (placed) return;
+    const wait = PIN_WAIT_MS - (performance.now() - cardOpenedAt);
+    if (a.placement !== "unplaced" && wait > 0) {
+      clearTimeout(pinWait);
+      pinWait = window.setTimeout(placePinCard, wait);
+      return;
+    }
+  }
+  const stage = $("appStage").getBoundingClientRect();
+  if (!stage.width) return;
+  const { left, top } = placeComposer(
+    anchor,
+    { width: host.offsetWidth, height: host.offsetHeight },
+    stage,
+  );
+  host.style.left = `${left}px`;
+  host.style.top = `${top}px`;
+  host.style.visibility = "";
+}
+
+// Where the bridge drew this page's pins (in the app's viewport), and a click on one or off them.
+// A click on a pin opens its card, or closes it when it's the open one; a press on the page closes
+// it.
+let pinRects = new Map<string, Rect>();
+export function pinsInApp(pins: readonly PinRect[], clicked?: string | null) {
+  pinRects = new Map(pins.map((p) => [p.id, p.rect]));
+  if (clicked === undefined) return placePinCard();
+  if (clicked === null) {
+    if (S.selectedAnnotation) selectAnnotation(null);
+    return;
+  }
+  const opening = clicked !== S.selectedAnnotation;
+  selectAnnotation(opening ? clicked : null);
+  // The click left the tab's focus in the app, where the desk's keys (Esc to close) don't reach.
+  if (opening) $("pinCard").focus({ preventScroll: true });
 }
 
 function renderFloatingComposer() {
@@ -683,10 +787,11 @@ function renderFloatingComposer() {
     chips.append(chip);
     parts.push(chips);
   }
+  // The code lane's composer card: what will be annotated, then the composer.
   const card = document.createElement("div");
-  card.className = "annotation";
-  card.append(buildComposer());
-  host.replaceChildren(...parts, card);
+  card.className = "comment-box thread-card k-new";
+  card.append(...parts, buildComposer());
+  host.replaceChildren(inAnnotation(card));
   host.classList.add("show");
   placeFloatingComposer();
 }
@@ -712,6 +817,20 @@ export function placeFloatingComposer() {
 export const uiSendSummary = () => sendSummary(annotationsOf());
 
 export function installUiLane() {
+  // A primary press outside the open pin card closes it: not on the card, a composer, a row of the
+  // list (they open and close it themselves), the browser chrome (a preset or a reload keeps it on
+  // its pin; leaving the page hides it), or the screenshot it opened. A press in the app reaches the
+  // desk from the bridge instead (pinsInApp).
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      const t = e.target instanceof Element ? e.target : null;
+      const own = t?.closest(".ucomposer, .chrome, #annotationList, .modal-backdrop");
+      if (!cardFor || e.button !== 0 || own) return;
+      selectAnnotation(null);
+    },
+    true,
+  );
   const list = $("annotationList");
   // Gaps go once the list has settled: what's scrolled out of sight above when a scroll ends (not
   // during one, which would fight its momentum), and the rest when the pointer leaves.

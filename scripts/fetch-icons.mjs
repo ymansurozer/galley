@@ -39,7 +39,7 @@ const ICON_MAP = {
   "gly-fit": "lucide:scan",
   // UI lane: the Interact / Annotate mode toggle and the annotation sidebar's collapse / expand.
   "gly-pointer": "lucide:mouse-pointer-2",
-  "gly-annotate": "lucide:message-square-plus",
+  "gly-annotate": "lucide:pin",
   // UI lane: the chrome bar's page-annotation button.
   "gly-page-note": "lucide:sticky-note",
   "gly-panel-close": "lucide:panel-right-close",

@@ -96,6 +96,11 @@ function escape() {
     closeShot();
     return;
   }
+  // The open pin card over the app, unless a composer in it is open: that goes first, then the card.
+  if (inUiView() && S.selectedAnnotation && !(S.composerOpen && composerInUi())) {
+    selectAnnotation(null);
+    return;
+  }
   // The popovers over the code: above everything in it, below the dialogs (which close the
   // blockers list as they open — see installBlockers). Then the guide card opened over the code.
   if (closeBlockers()) return;
@@ -106,18 +111,14 @@ function escape() {
     closeComposer(); // rebuilds the lane so the inline composer's DOM goes away
     return;
   }
-  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate, then the expanded
-  // row, then the narrow-width drawer.
+  // The UI view unwinds ⇧-picks waiting for ⇧'s release first, then Annotate, then the
+  // narrow-width drawer.
   if (inUiView() && S.appMode === "annotate" && S.pendingPicks) {
     clearPendingPicks();
     return;
   }
   if (inUiView() && S.appMode === "annotate") {
     setAppMode("interact");
-    return;
-  }
-  if (inUiView() && S.selectedAnnotation) {
-    selectAnnotation(null);
     return;
   }
   if (inUiView() && S.annotationsOpen && matchMedia("(max-width: 1100px)").matches) {
