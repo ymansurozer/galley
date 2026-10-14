@@ -71,26 +71,54 @@ export function threadGroupElement(g: GroupMeta): HTMLElement {
 }
 
 // Open a thread as its card (null: none), closing the one open before. Only those two slots
-// change. The cursor's line, else the opened slot, keeps its place on screen while the rows
-// around it move. A card holding a reply or an edit with text in it stays open: closing it would
-// hide the draft.
+// change. A card holding a reply or an edit with text in it stays open, since closing it would
+// hide the draft; an empty one closes with its card.
 export function openThread(key: string | null) {
   const was = S.openThread;
   if (was === key) return;
   const slots = [...document.querySelectorAll<HTMLElement>(".thread-slot")];
-  const drafting = slots.some(
-    (s) => s.dataset.key === was && s.querySelector(".js-composer-focus"),
-  );
-  if (drafting && S.composerBody.trim()) return;
+  if (slots.some((s) => s.dataset.key === was && s.querySelector(".js-composer-focus"))) {
+    if (S.composerBody.trim()) return;
+    S.composerOpen = false;
+    S.editingCommentId = null;
+  }
   S.openThread = key;
-  const keep =
-    cursorRowEl() ?? slots.find((s) => s.dataset.key === key && s.closest("#diff")) ?? null;
-  const before = keep?.getBoundingClientRect().top;
+  const view = $("diff").getBoundingClientRect();
+  const row = cursorRowEl();
+  const r = row?.getBoundingClientRect();
+  holdPlace(
+    r && r.bottom > view.top && r.top < view.bottom
+      ? row
+      : slots.find((s) => s.dataset.key === key && s.closest("#diff")),
+  );
   for (const slot of slots)
     if (slot.dataset.key === was || slot.dataset.key === key) fill(slot, slot.dataset.key === key);
-  if (keep?.isConnected && before !== undefined)
-    $("diff").scrollTop += keep.getBoundingClientRect().top - before;
+  keepHeldPlace();
   invalidateCursorRows();
+}
+
+// The line the reviewer is looking at keeps its place on screen while rows open and close around
+// it: the cursor's when it's in view, else the slot opening. Split view's other column levels a
+// frame later (Pierre's resize observer), so the re-placing that follows holds it again, for a
+// moment only: a later render or resize mustn't pull the view back.
+let held: { el: HTMLElement; top: number; until: number } | null = null;
+
+function holdPlace(el: HTMLElement | null | undefined) {
+  held = el ? { el, top: el.getBoundingClientRect().top, until: performance.now() + 300 } : null;
+}
+
+function keepHeldPlace() {
+  if (!held || !held.el.isConnected || performance.now() > held.until) {
+    held = null;
+    return;
+  }
+  $("diff").scrollTop += held.el.getBoundingClientRect().top - held.top;
+}
+
+// What follows the rows moving (cursor.ts invalidateCursorRows): the held place, then the marks.
+export function followRows() {
+  keepHeldPlace();
+  placeThreadMarks();
 }
 
 // The cursor landed on a display line: the thread anchored there opens. False when none is.
@@ -103,10 +131,12 @@ export function openThreadAt(side: Side, line: number): boolean {
   return true;
 }
 
-// Esc's layer for the open card (keys.ts): close it. False when no card is showing.
+// Esc's layer for the open card (keys.ts): close it. False when no card is showing, the App view
+// hiding the code included.
 export function closeThreadCard(): boolean {
   const key = S.openThread;
   if (
+    S.view !== "code" ||
     !key ||
     ![...document.querySelectorAll<HTMLElement>(".thread-slot")].some((s) => s.dataset.key === key)
   )
@@ -121,7 +151,7 @@ export function closeThreadCard(): boolean {
 // cursor's row geometry whenever the rows move (invalidateCursorRows), never on scroll.
 let marks: HTMLElement | null = null;
 
-export function placeThreadMarks() {
+function placeThreadMarks() {
   const diff = $("diff");
   const groups = diff.querySelectorAll<HTMLElement>(".thread-group");
   if (!groups.length) {

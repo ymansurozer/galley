@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Side } from "./types";
-import { changeBlocks, threadGroups, type ChangeBlock } from "./thread-groups.js";
+import { diffLayout, threadGroups, type ChangeBlock, type Span } from "./thread-groups.js";
 
 type T = { side: Side; line: number; status?: "open" | "resolved" };
 const t = (line: number, over: Partial<T> = {}): T => ({
@@ -17,38 +17,46 @@ const block = (id: string, add: [number, number], del: [number, number] = [add[0
     additions: { from: add[0], count: add[1] },
     deletions: { from: del[0], count: del[1] },
   }) satisfies ChangeBlock;
+// One hunk over the whole file unless a test says otherwise: every line renders.
+const span = (add: [number, number], del: [number, number] = add): Span => ({
+  additions: { from: add[0], count: add[1] },
+  deletions: { from: del[0], count: del[1] },
+});
+const lay = (changes: ChangeBlock[] = [], hunks = [span([1, 999])]) => ({ changes, hunks });
 const shape = (groups: ReturnType<typeof threadGroups<T>>) =>
   groups.map((g) => `${g.line}:[${g.threads.map((x) => x.line).join(",")}]`);
 
 test("threads within 2 lines of each other in one change gather under the last", () => {
   const blocks = [block("c1", [8, 12])];
-  assert.deepEqual(shape(threadGroups([t(15), t(10), t(12)], same, blocks)), [
+  assert.deepEqual(shape(threadGroups([t(15), t(10), t(12)], same, lay(blocks))), [
     "12:[10,12]",
     "15:[15]",
   ]);
   // Each step counts from the previous anchor, so a run of close anchors stays one group.
-  assert.deepEqual(shape(threadGroups([t(10), t(12), t(14)], same, blocks)), ["14:[10,12,14]"]);
+  assert.deepEqual(shape(threadGroups([t(10), t(12), t(14)], same, lay(blocks))), [
+    "14:[10,12,14]",
+  ]);
 });
 
 test("nothing gathers across changes, or between a change and the code around it", () => {
   const blocks = [block("c1", [8, 4]), block("c2", [12, 3])];
-  assert.deepEqual(shape(threadGroups([t(11), t(12)], same, blocks)), ["11:[11]", "12:[12]"]);
+  assert.deepEqual(shape(threadGroups([t(11), t(12)], same, lay(blocks))), ["11:[11]", "12:[12]"]);
   // Line 7 is context just above c1; line 8 is c1's first line.
-  assert.deepEqual(shape(threadGroups([t(7), t(8)], same, blocks)), ["7:[7]", "8:[8]"]);
+  assert.deepEqual(shape(threadGroups([t(7), t(8)], same, lay(blocks))), ["7:[7]", "8:[8]"]);
 });
 
 test("context lines gather within one unchanged run; a deletion between them splits it", () => {
   // A pure deletion sits before new line 21: no additions-side lines, but it splits the run.
   const blocks = [block("del", [21, 0], [20, 3])];
-  assert.deepEqual(shape(threadGroups([t(3), t(5)], same, blocks)), ["5:[3,5]"]);
-  assert.deepEqual(shape(threadGroups([t(20), t(22)], same, blocks)), ["20:[20]", "22:[22]"]);
+  assert.deepEqual(shape(threadGroups([t(3), t(5)], same, lay(blocks))), ["5:[3,5]"]);
+  assert.deepEqual(shape(threadGroups([t(20), t(22)], same, lay(blocks))), ["20:[20]", "22:[22]"]);
 });
 
 test("the two sides never gather: their numbers count different files", () => {
   const groups = threadGroups(
     [t(10, { side: "deletions" }), t(11, { side: "additions" })],
     same,
-    [],
+    lay(),
   );
   assert.deepEqual(
     groups.map((g) => `${g.side}:${g.line}`),
@@ -57,7 +65,7 @@ test("the two sides never gather: their numbers count different files", () => {
 });
 
 test("resolved threads rest in their groups like open ones", () => {
-  const groups = threadGroups([t(10, { status: "resolved" }), t(11), t(30)], same, []);
+  const groups = threadGroups([t(10, { status: "resolved" }), t(11), t(30)], same, lay());
   assert.deepEqual(shape(groups), ["11:[10,11]", "30:[30]"]);
   assert.deepEqual(
     groups.flatMap((g) => g.threads.map((x) => `${x.line}${x.status === "resolved" ? "✓" : ""}`)),
@@ -69,7 +77,7 @@ test("anchors gather by where they render after Keep / Undo renumbered the lines
   // Undoing an 8-line addition above line 32 pulls every later new-side line up by 8: raw 40
   // renders at 32, two lines under raw 30. By raw numbers they'd be 10 apart.
   const undone = (_side: Side, line: number) => (line > 31 ? line - 8 : line);
-  const groups = threadGroups([t(30), t(40)], undone, []);
+  const groups = threadGroups([t(30), t(40)], undone, lay());
   assert.deepEqual(shape(groups), ["32:[30,40]"]);
   assert.deepEqual(
     groups[0]!.threads.map((x) => x.display),
@@ -79,8 +87,20 @@ test("anchors gather by where they render after Keep / Undo renumbered the lines
 
 test("a range thread anchors at its first line, where it mounts", () => {
   const range = { ...t(10), endLine: 14 };
-  assert.deepEqual(shape(threadGroups([range, t(12)], same, [])), ["12:[10,12]"]);
-  assert.deepEqual(shape(threadGroups([range, t(15)], same, [])), ["10:[10]", "15:[15]"]);
+  assert.deepEqual(shape(threadGroups([range, t(12)], same, lay())), ["12:[10,12]"]);
+  assert.deepEqual(shape(threadGroups([range, t(15)], same, lay())), ["10:[10]", "15:[15]"]);
+});
+
+test("a group never spans a hunk's edge or a fold: it would mount on a folded line", () => {
+  // Hunk A shows lines 1–10, lines 11–29 are folded, hunk B shows 30–40.
+  const folded = lay([], [span([1, 10]), span([30, 11])]);
+  assert.deepEqual(shape(threadGroups([t(10), t(11, { status: "resolved" })], same, folded)), [
+    "10:[10]",
+    "11:[11]",
+  ]);
+  assert.deepEqual(shape(threadGroups([t(29), t(30)], same, folded)), ["29:[29]", "30:[30]"]);
+  // Within one folded stretch, threads still gather (they unfold together).
+  assert.deepEqual(shape(threadGroups([t(15), t(16)], same, folded)), ["16:[15,16]"]);
 });
 
 test("the rendered diff's change parts become blocks; context parts don't", () => {
@@ -108,9 +128,13 @@ test("the rendered diff's change parts become blocks; context parts don't", () =
         ],
       },
     ],
-  } as unknown as Parameters<typeof changeBlocks>[0];
-  assert.deepEqual(changeBlocks(rendered), [
-    { id: "0:1", additions: { from: 4, count: 2 }, deletions: { from: 4, count: 1 } },
-    { id: "0:3", additions: { from: 8, count: 0 }, deletions: { from: 7, count: 2 } },
-  ]);
+  } as unknown as Parameters<typeof diffLayout>[0];
+  assert.deepEqual(diffLayout(rendered), {
+    changes: [
+      { id: "0:1", additions: { from: 4, count: 2 }, deletions: { from: 4, count: 1 } },
+      { id: "0:3", additions: { from: 8, count: 0 }, deletions: { from: 7, count: 2 } },
+    ],
+    // The hunk runs from its first part to its last: new lines 1–7, old lines 1–8.
+    hunks: [{ additions: { from: 1, count: 7 }, deletions: { from: 1, count: 8 } }],
+  });
 });

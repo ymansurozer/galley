@@ -7,7 +7,7 @@ import { openCommentComposer } from "./selection";
 import { render } from "./render";
 import { diffShadowRoot } from "./diff-dom";
 import { type Row, mergeRows, rowMatches as matches } from "./cursor-rows";
-import { openThreadAt, placeThreadMarks } from "./rests";
+import { followRows, openThreadAt, threadKey } from "./rests";
 
 // ── The diff line cursor ─────────────────────────────────────────────────────
 // Keyboard review needs a "current line" the diff doesn't otherwise have. We keep it as a
@@ -34,16 +34,38 @@ let cached: Row[] | null = null;
 
 export function invalidateCursorRows() {
   cached = null;
+  watchColumns();
   // The rows just moved (a render, an expansion, a resize, a card opening): the rail and the
-  // thread marks follow once they've laid out.
+  // thread rows follow once they've laid out.
   if (!followQueued) {
     followQueued = true;
     requestAnimationFrame(() => {
       followQueued = false;
       if (rail?.isConnected) markCursorChange();
-      placeThreadMarks();
+      followRows();
     });
   }
+}
+
+// Rows also move with no render: split view's columns level a frame after a card opens (Pierre's
+// own resize observer), and a reply field can be dragged taller. So the code columns' sizes are
+// watched, each column once.
+const columns = new ResizeObserver(() => invalidateCursorRows());
+let watchedRoot: ShadowRoot | null = null;
+let watched = new WeakSet<Element>();
+
+function watchColumns() {
+  const root = diffShadowRoot();
+  if (root !== watchedRoot) {
+    columns.disconnect();
+    watched = new WeakSet();
+    watchedRoot = root;
+  }
+  for (const code of root?.querySelectorAll("code") ?? [])
+    if (!watched.has(code)) {
+      watched.add(code);
+      columns.observe(code);
+    }
 }
 
 // The row showing a display line (either column of a context row), for the thread marks.
@@ -422,6 +444,8 @@ export function cursorResolve() {
   }
   const open = thread.some((c) => c.status === "open");
   thread.forEach((c) => (c.status = open ? "resolved" : "open"));
+  // A resolved thread rests (a thread holds at least the comment that started it).
+  if (open && S.openThread === threadKey(thread[0]!)) S.openThread = null;
   render();
   persist();
   toast(open ? "Resolved" : "Reopened");
