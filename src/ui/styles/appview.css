@@ -149,8 +149,8 @@
 }
 
 /* The pins the desk draws itself: a page annotation's in the address bar, since it has no spot on
-   the page, and an unplaced one's in the stage's tray. Tinted by kind like the page's pins (orange
-   change request, blue question), dimmed once resolved. */
+   the page, and an unplaced one's in the stage's tray. The page's speech bubble, smaller: the
+   kind's glyph and the number, a change request's flag on orange, a question's message on blue. */
 .chrome .pagepins {
   flex: 0 0 auto;
   display: flex;
@@ -159,41 +159,75 @@
 
 .chrome .pagepin,
 .traypin {
+  --pin: var(--orange-fill);
+  position: relative;
   flex: 0 0 auto;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 26px;
+  height: 18px;
+  padding: 0 6px;
   border: 0;
-  border-radius: var(--radius-pill);
-  display: inline-grid;
-  place-items: center;
-  background: var(--orange);
+  border-radius: 9px 9px 9px 2px;
+  background: var(--pin);
   color: var(--on-fill);
   font-family: var(--sans);
   font-size: var(--text-2xs);
-  font-weight: 600;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: transform 0.12s;
+  transition: background-color 0.12s;
 }
 
+:is(.chrome .pagepin, .traypin) .ic {
+  width: 10px;
+  height: 10px;
+  stroke-width: 2.6;
+}
+
+/* Hover steps the pin's colour toward the ink, as every button answers the pointer. */
 :is(.chrome .pagepin, .traypin):hover {
-  transform: scale(1.12);
+  background: color-mix(in srgb, var(--pin) 82%, var(--ink));
 }
 
 :is(.chrome .pagepin, .traypin).q {
-  background: var(--blue);
+  --pin: var(--blue-fill);
+}
+
+/* Its card is open: the ink fill, as on the page. */
+:is(.chrome .pagepin, .traypin).sel {
+  --pin: var(--ink);
+  color: var(--canvas);
 }
 
 :is(.chrome .pagepin, .traypin).resolved {
-  background: var(--fill-3);
-  color: var(--ink-2);
+  filter: grayscale(1);
+  opacity: 0.55;
 }
 
-:is(.chrome .pagepin, .traypin).sel {
-  box-shadow:
-    0 0 0 2px var(--canvas),
-    0 0 0 3.5px var(--blue);
+/* A question still waiting on the agent: a soft ring that keeps rippling out. */
+:is(.chrome .pagepin, .traypin).waiting::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--blue);
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  animation: pin-ping 1.6s ease-out infinite;
+}
+
+@keyframes pin-ping {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.85);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
 }
 
 /* The page's annotations whose target couldn't be found on it: their pins in a small tray at the

@@ -113,7 +113,6 @@
   --btn-bg: var(--green-fill);
   --btn-bg-hover: var(--green-fill-hover);
   --btn-bg-pressed: var(--green-fill-pressed);
-  --halo: var(--btn-bg-hover);
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -144,12 +143,10 @@
 .signoff:hover {
   background: var(--btn-bg-hover);
   color: var(--on-fill);
-  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.25);
 }
 
 .signoff:active {
   background: var(--btn-bg-pressed);
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
 }
 
 /* The "N blockers" chip + jump list: what keeps a file from Approved, one click away. An orange
@@ -171,16 +168,16 @@
   font-weight: 600;
   white-space: nowrap;
   color: var(--orange-ink);
-  transition: box-shadow 0.15s;
+  transition: background-color 0.15s;
 }
 
 .blockers-chip:hover,
 .blockers.open .blockers-chip {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--orange) 45%, transparent);
+  background: color-mix(in srgb, var(--orange) 20%, transparent);
 }
 
 .blockers-chip:active {
-  background: color-mix(in srgb, var(--orange) 22%, transparent);
+  background: color-mix(in srgb, var(--orange) 27%, transparent);
 }
 
 .blockers-chip:focus-visible {
@@ -327,56 +324,4 @@
 .unanchored-strip .annotation.flash,
 .md-file .md-thread.flash {
   animation: blocker-flash 1.2s ease-out;
-}
-
-.file-header-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 10px;
-}
-
-.file-header-actions button,
-.file-header-actions label {
-  border: 1px solid var(--sep);
-  border-radius: var(--radius-sm);
-  background: var(--raised);
-  color: var(--ink-2);
-  padding: 3px 7px;
-  font-size: var(--text-sm);
-  line-height: 16px;
-}
-
-.file-header-actions button:hover,
-.file-header-actions label:hover {
-  color: var(--ink);
-  border-color: var(--sep-strong);
-}
-
-.file-header-actions .stage {
-  background: var(--green-wash);
-  color: var(--green-ink);
-  border-color: color-mix(in srgb, var(--green) 38%, transparent);
-}
-
-.file-header-actions .stage:hover {
-  background: var(--green-wash);
-  border-color: color-mix(in srgb, var(--green) 65%, transparent);
-  color: var(--green-ink);
-}
-
-.file-header-actions .unstage {
-  background: transparent;
-  color: var(--orange-ink);
-  border-color: color-mix(in srgb, var(--orange) 45%, transparent);
-}
-
-.file-header-actions input {
-  width: auto;
-  margin: 0 5px 0 0;
-  vertical-align: -1px;
-}
-
-.file-action-dock {
-  display: none;
 }

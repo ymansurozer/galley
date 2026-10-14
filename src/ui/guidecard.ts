@@ -8,7 +8,7 @@ import type { GuideFile } from "./types";
 // ── The guide card ───────────────────────────────────────────────────────────
 // The guide's note on the step on screen: one card under the file bar, in the flow, for any view
 // of a file or part the guide has an entry for. Once it scrolls up under the bar it comes back
-// pinned as one line inside the bar (clamped orientation · inline flag · chevron), and the chevron
+// pinned as one line inside the bar (the start of the orientation · chevron), and a click on it
 // opens the full note over the code. A stale guide says so inside the card. A split file's Rest,
 // or the file opened whole, has no entry of its own: its card says what the view holds instead.
 
@@ -146,7 +146,9 @@ export function guideMiniElement(): HTMLElement {
 
 // Fill the pinned line for the step on screen and return it for the bar to carry, or null when the
 // step has no card. A different step starts closed and unpinned; the observer re-reports the new
-// card. A Rest's or a whole split file's line is the whole of its note, so it has no chevron.
+// card. The line is the book tile, the start of the orientation (or of a Rest's or a whole split
+// file's note) clipped at about half the bar, and the chevron. Anywhere on it opens the full note,
+// where the flag, the skim mark and the stale line wait.
 export function guideMini(): HTMLElement | null {
   const note = stepNote();
   const step = `${currentFile()?.path ?? ""}\n${S.preview ? "" : (S.stepPart ?? "")}`;
@@ -157,31 +159,22 @@ export function guideMini(): HTMLElement | null {
   }
   if (!note) return null;
   const m = guideMiniElement();
-  const stale = guideStale();
-  const from = JSON.stringify([step, note, stale]);
+  const from = JSON.stringify([step, note, guideStale()]);
   if (from === builtFrom && m.firstChild) return m;
   builtFrom = from;
   const line = el("div", "gm-line");
-  line.appendChild(bookIcon());
+  line.onclick = () => setOpen(!open);
+  const orient = el("span", "gm-orient");
   if (!("entry" in note)) {
-    line.appendChild(el("span", "gm-orient note", note.line));
-    if (stale) line.appendChild(staleMark());
-    m.replaceChildren(line);
-    return m;
+    orient.classList.add("note");
+    orient.textContent = note.line;
+  } else if (note.entry.orientation) {
+    orient.classList.add("md");
+    orient.innerHTML = renderMarkdown(note.entry.orientation);
+  } else if (note.entry.skimReason) {
+    orient.classList.add("skim");
+    orient.textContent = `skimmed · ${note.entry.skimReason}`;
   }
-  const { entry } = note;
-  const mark = skimMark(entry);
-  if (mark) line.appendChild(mark);
-  const orient = el("span", "gm-orient" + (entry.orientation ? " md" : " skim"));
-  if (entry.orientation) orient.innerHTML = renderMarkdown(entry.orientation);
-  else if (entry.skimReason) orient.textContent = skimText(entry);
-  line.appendChild(orient);
-  if (entry.flag) {
-    const f = el("span", "gm-flag");
-    f.innerHTML = `<svg class="ic"><use href="#gly-flag"></use></svg><span class="md">${renderMarkdown(entry.flag)}</span>`;
-    line.appendChild(f);
-  }
-  if (stale) line.appendChild(staleMark());
   const chev = document.createElement("button");
   chev.className = "btn icon sm gm-toggle";
   chev.setAttribute("aria-label", "Show the full guide note");
@@ -189,22 +182,14 @@ export function guideMini(): HTMLElement | null {
   chev.dataset.tip = "Guide note";
   chev.innerHTML = `<svg class="ic"><use href="#gly-chevron"></use></svg>`;
   chev.onclick = (e) => {
-    e.stopPropagation();
+    e.stopPropagation(); // the line's own click would toggle it straight back
     setOpen(!open);
   };
-  line.appendChild(chev);
+  line.append(bookIcon(), orient, chev);
   const full = el("div", "gm-full");
-  full.appendChild(fullBody(entry));
+  full.appendChild("entry" in note ? fullBody(note.entry) : lineBody(note.line));
   m.replaceChildren(line, full);
   return m;
-}
-
-// The pinned line's "stale": no room for the stale line's copy, which its tooltip carries.
-function staleMark(): HTMLElement {
-  const s = el("span", "gm-stale");
-  s.title = STALE;
-  s.append(el("span", "gc-stale-dot"), "stale");
-  return s;
 }
 
 // Replay the entrance on `target`: only on a pin or an open, never on a render.

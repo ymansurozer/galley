@@ -360,7 +360,7 @@ body.file-mode .top-logo,
   display: block;
 }
 
-.send-review.primary:not(:hover, :active, :focus-visible) {
+.send-review.primary:not(:active, :focus-visible) {
   animation: send-ready 2.6s ease-in-out infinite;
 }
 

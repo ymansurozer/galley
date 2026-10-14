@@ -71,20 +71,15 @@
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
-  transition:
-    background-color 0.15s,
-    box-shadow 0.15s;
+  transition: background-color 0.15s;
 }
 
 .rest:hover {
-  background-color: var(--fill);
-  box-shadow:
-    inset 0 0 0 0.5px var(--sep-strong),
-    0 0 0 3px var(--fill-2);
+  background-color: var(--fill-2);
 }
 
 .rest:active {
-  background-color: var(--fill-2);
+  background-color: var(--fill-3);
 }
 
 .rest-glyph {
@@ -485,7 +480,7 @@
 }
 
 .thread-card .reply-thread:hover {
-  box-shadow: inset 0 0 0 0.5px var(--ink-3);
+  background-image: linear-gradient(var(--fill-2), var(--fill-2));
   color: var(--ink-2);
 }
 
