@@ -352,6 +352,12 @@ async function renderCenter() {
   // values — so a one-sided render of an unchanged file isn't all-green. These must be set
   // INSIDE @pierre's shadow (via unsafeCSS below): the context vars they reference only exist
   // there, so a host-level override referencing them is invalid and silently reverts.
+  // @pierre's light mixes leave a dark theme's hunk separators (and their expand buttons) at the
+  // background's own lightness, so they'd vanish: lift them 15% toward white, as its dark mixes do.
+  const separatorCSS =
+    codeScheme(S.settings.theme) === "dark"
+      ? ":host{--diffs-bg-separator:color-mix(in lab,var(--diffs-bg) 85%,#fff)}"
+      : "";
   const previewCSS = previewing
     ? "[data-code]{--diffs-bg-addition-override:var(--diffs-bg-context);--diffs-bg-addition-emphasis-override:var(--diffs-bg-context);--diffs-bg-addition-number-override:var(--diffs-bg-context-gutter);--diffs-fg-number-addition-override:var(--diffs-fg-number)}"
     : "";
@@ -362,11 +368,13 @@ async function renderCenter() {
   const diffIndicators = previewing ? "none" : S.settings.diffIndicators;
   const opts = {
     // The code theme is the user's pick regardless of appearance (the settings dropdown groups
-    // dark and light themes; mixing is allowed). Both slots get it — themeType only decides
-    // which slot @pierre reads plus its own chrome colours, which follow the theme's own scheme
-    // like everything else drawn in the code canvas.
+    // dark and light themes; mixing is allowed). Both slots get it, so themeType only picks
+    // which of @pierre's own mixes tint the rows: always its light ones. Its dark ones tint a
+    // dark theme's changed lines 20% (against 12%) and their words at 20% (against 15%), which
+    // reads pale on a dark canvas; the light ones are a light theme's own. separatorCSS keeps a
+    // dark theme's hunk separators where the dark mixes put them.
     theme: { dark: S.settings.theme, light: S.settings.theme },
-    themeType: codeScheme(S.settings.theme),
+    themeType: "light" as const,
     diffStyle,
     diffIndicators,
     expandUnchanged,
@@ -405,6 +413,7 @@ async function renderCenter() {
       "[data-line-type]{scroll-margin-top:var(--jump-top,0px)}" +
       "[data-flash]{animation:galley-flash 1.2s ease-out}" +
       "@keyframes galley-flash{0%{box-shadow:inset 0 0 0 100vmax color-mix(in srgb,var(--orange) 25%,transparent)}}" +
+      separatorCSS +
       previewCSS,
   };
   // annotations() is our own AnnotationInput[]; the lib's DiffLineAnnotation<T> is a
