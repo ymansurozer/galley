@@ -111,10 +111,12 @@ function openEditorButton(): HTMLElement {
 }
 
 // The file's one filled button: Approve File (clean, green) or Mark Reviewed (it carries a
-// rejected change or an open change request, orange). Either signs off and advances.
-function signOffButton(objections: boolean): HTMLElement {
+// rejected change or an open change request, orange). Either signs off and advances. The end
+// row's copy (`filled` false) is a neutral push button, so the code view keeps one filled button
+// when both are on screen.
+function signOffButton(objections: boolean, filled = true): HTMLElement {
   const b = document.createElement("button");
-  b.className = "signoff fill" + (objections ? " warn" : "");
+  b.className = filled ? "signoff fill" + (objections ? " warn" : "") : "btn";
   b.innerHTML = `${objections ? "Mark Reviewed" : "Approve File"} ${keycapsHtml("⇧A")}`;
   b.onclick = () => approveCurrentFile();
   return b;
@@ -272,7 +274,10 @@ export function fileEnd(): HTMLElement {
     text.append(" · next: ", go, keycapsNode(document, "⇧→"));
   }
   const objections = fileObjections(path);
-  row.append(text, fileFinished(path) ? signedOffState(objections) : signOffButton(objections));
+  row.append(
+    text,
+    fileFinished(path) ? signedOffState(objections) : signOffButton(objections, false),
+  );
   return row;
 }
 

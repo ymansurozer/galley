@@ -225,13 +225,6 @@
   outline-offset: 1px;
 }
 
-/* At the end of the page there's room: the sign-off steps up to a full-size button. */
-.file-end .signoff {
-  height: 28px;
-  padding: 0 7px 0 12px;
-  font-size: var(--text-md);
-}
-
 .file-end .fb-state {
   display: inline-flex;
   align-items: center;
