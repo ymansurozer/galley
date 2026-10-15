@@ -1,6 +1,26 @@
 # Changelog
 
 
+## v0.8.0
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.7.6...v0.8.0)
+
+### 🚀 Enhancements
+
+- Desk polish — quieter desk, clearer sidebar, thinking view ([#123](https://github.com/ymansurozer/galley/pull/123))
+
+### 🩹 Fixes
+
+- Keep guide parts' change blocks when the tab opens a file ([#120](https://github.com/ymansurozer/galley/pull/120))
+
+### 📖 Documentation
+
+- Rewrite the README around the review loop ([#121](https://github.com/ymansurozer/galley/pull/121))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.7.6
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.7.5...v0.7.6)
