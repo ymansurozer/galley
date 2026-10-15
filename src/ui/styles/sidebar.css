@@ -284,12 +284,12 @@
   color: var(--ink);
 }
 
-/* A category heading is an eyebrow over its files, set apart from them by shape (small, capitals,
-   tracked out) rather than by brightness. It is a jump target too: a click opens the group's first
-   file still to do. */
+/* A category heading is an eyebrow over its files. It stands out by shape (small, capitals,
+   tracked out) and by brightness: full ink, a step above the files beneath it. It is a jump
+   target too: a click opens the group's first file still to do. */
 .node.walk-cat {
   height: 22px;
-  color: var(--ink-3);
+  color: var(--ink);
   font-size: var(--text-2xs);
   font-weight: 600;
 }
@@ -300,25 +300,10 @@
   letter-spacing: 0.06em;
 }
 
-/* Every group but the first opens under a hairline; the first sits right under the nav block,
-   whose own gap sets it off. The rule lives in the margin, outside the row, so the hover fill
-   never takes it in. */
+/* Every group but the first opens after a gap; the first sits right under the nav block, whose own
+   gap sets it off. */
 .node.walk-cat:not(:first-of-type) {
-  margin-top: 14px;
-}
-
-.node.walk-cat:not(:first-of-type)::before {
-  content: "";
-  position: absolute;
-  top: -7px;
-  right: 8px;
-  left: 8px;
-  height: 1px;
-  background: var(--sep);
-}
-
-.node.walk-cat:hover {
-  color: var(--ink);
+  margin-top: 12px;
 }
 
 /* A flagged file: the guide asks for a closer look. The flag alone marks it; the name keeps the
