@@ -563,8 +563,8 @@ export async function buildDiffSource(opts: {
     if (tracked) {
       const rawDiff = await git(["diff", "--no-ext-diff", "-M", "--", rel], root);
       if (rawDiff.trim()) {
-        // New side is the working tree — hashed locally (no committed OID). The UI re-diffs old/new
-        // (fetched on open against the INDEX baseline via readFileContents), not these hunks.
+        // New side is the working tree — hashed locally (no committed OID). The UI renders these
+        // hunks over old/new (fetched on open against the INDEX baseline via readFileContents).
         const parsedDiff = parseUnifiedDiff(rawDiff);
         const { files, changes } = await assembleDiff(
           parsedDiff,
@@ -591,10 +591,11 @@ export async function buildDiffSource(opts: {
   if (opts.staged) args.push("--cached");
   if (opts.path) args.push("--", opts.path);
   const rawDiff = await git(args, root);
-  // Each side must match what the diff was taken against, because the UI re-diffs the
-  // old/new contents itself instead of rendering these hunks. Unstaged diffs working
-  // tree vs INDEX, so old reads :0 — a HEAD baseline would resurrect already-staged
-  // changes as pending diff on every reload. Staged (--cached) diffs index vs HEAD.
+  // Each side must match what the diff was taken against, because the UI renders these hunks
+  // over the old/new contents (re-diffing the two sides itself where they don't match — see
+  // changes-derive.ts parseRawDiff). Unstaged diffs working tree vs INDEX, so old reads :0 — a
+  // HEAD baseline would resurrect already-staged changes as pending diff on every reload.
+  // Staged (--cached) diffs index vs HEAD.
   // Staged: the new side is the index (committed object) — harvest its OIDs from `git diff
   // --raw` in one process. Unstaged: the new side is the dirty working tree (`git diff --raw`
   // reports it as all-zeros), so no harvest — assembleDiff hashes the working copy instead.

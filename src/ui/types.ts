@@ -209,11 +209,12 @@ export type AnnotationInput = { side: Side; lineNumber: number; metadata: Annota
 type Pierre = typeof import("@pierre/diffs");
 // The diff lib's classes/instance/parsed-diff are kept OUT of the reactive store
 // (an Alpine Proxy breaks the library's element-identity checks). Plain holder.
-// The three refs are wired once at import (difflib.ts) and never read before that,
+// The four refs are wired once at import (difflib.ts) and never read before that,
 // so they're non-null; the parsed `fileDiff` and rendered `instance` come and go.
 export type DiffHolder = {
   FileDiff: Pierre["FileDiff"];
   parseDiffFromFile: Pierre["parseDiffFromFile"];
+  processFile: Pierre["processFile"];
   diffAcceptRejectHunk: Pierre["diffAcceptRejectHunk"];
   // FileDiff is generic over its annotation metadata — ours is AnnotationMeta.
   instance: import("@pierre/diffs").FileDiff<AnnotationMeta> | null;

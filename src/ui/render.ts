@@ -8,6 +8,7 @@ import {
   replayDecisions,
   syncDisplayAnchors,
 } from "./changes";
+import { parseRawDiff } from "./changes-derive";
 import type { AnnotationMeta } from "./types";
 import { applyActiveRow, applyLayoutClasses } from "./tree";
 import { annotations, renderAnnotation } from "./annotations";
@@ -342,10 +343,11 @@ async function renderCenter() {
     D.lineMap = null;
   } else {
     const oldF = { name: oldName, contents: cur.oldContents, cacheKey: ckey(cur.oldContents) };
-    // Changes (identity, raw anchors) derive from the raw diff; the rendered diff is the
+    // Changes (identity, raw anchors) derive from the raw diff — git's, the one the server keyed
+    // the file's blocks on (changes-derive.ts parseRawDiff); the rendered diff is the
     // decision-replayed one, so display anchors must be re-read from it (resolutions
     // renumber lines — see linemap.ts).
-    rawFd = D.parseDiffFromFile(oldF, newF);
+    rawFd = parseRawDiff(D, f.hunks ?? [], oldF, newF);
     ensureChangesFromFileDiff(rawFd);
     fd = replayDecisions(rawFd);
     syncDisplayAnchors(fd);

@@ -84,8 +84,8 @@ test("pr mode: base..HEAD committed changes → verdict-only (not stageable)", a
   assert.ok(src!.changes.every((c) => c.stageable === false));
 });
 
-// The old side must read from the INDEX, not HEAD: the UI re-diffs old/new contents
-// itself, so a HEAD baseline resurrects already-staged hunks as pending diff. (Staging
+// The old side must read from the INDEX, not HEAD: the UI renders the diff over the old/new
+// contents, so a HEAD baseline resurrects already-staged hunks as pending diff. (Staging
 // is what advances the review baseline between rounds — see buildDiffSource.)
 test("repo mode: staged content is the old-side baseline, not HEAD", async () => {
   write("a.txt", "a\nROUND1\nc\n");

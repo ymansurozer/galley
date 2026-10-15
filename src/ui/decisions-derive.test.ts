@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { diffAcceptRejectHunk, parseDiffFromFile } from "@pierre/diffs";
+import { diffAcceptRejectHunk, parseDiffFromFile, processFile } from "@pierre/diffs";
 import {
   buildReviewResult,
   buildReviewState,
@@ -24,6 +24,7 @@ import {
   signOff,
   signOffStep,
 } from "./decisions-derive.js";
+import { parseRawDiff } from "./changes-derive.js";
 import { deriveFlowIndex } from "./flow-index.js";
 import { reviewerSlice } from "./save.js";
 
@@ -74,9 +75,12 @@ test("a never-opened file's server block keys are the keys opening it derives cl
     for (const [p, keys] of Object.entries(expected)) {
       const server = state.changes.filter((c) => c.path === p).map((c) => c.stableKey);
       assert.deepEqual(server, keys, `${p}: server block keys`);
-      // Exactly what render.ts does on open: parse the file's two sides, key each change part.
+      // Exactly what render.ts does on open: parse the file's diff over its two sides, key each
+      // change part.
       const { oldContents, newContents } = await readFileContents(state, fileOf(state, p));
-      const diff = parseDiffFromFile(
+      const diff = parseRawDiff(
+        { processFile, parseDiffFromFile },
+        fileOf(state, p).hunks,
         { name: p, contents: oldContents },
         { name: p, contents: newContents },
       );
@@ -170,8 +174,8 @@ test("an untracked file signed off unopened accepts its block once opening deriv
     const b = fileOf(state, "b.ts");
     signOff(state, b);
     assert.deepEqual(result(state).accepted, [], "no server block to accept at sign-off");
-    // What opening it derives (changes.ts deriveChanges): one undecided block, with no server
-    // contentHash to carry over.
+    // What opening it derives (changes-derive.ts deriveChanges): one undecided block, with no
+    // server contentHash to carry over.
     state.changes.push({
       id: "b.ts:additions:1:0:2",
       path: "b.ts",
