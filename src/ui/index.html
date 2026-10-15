@@ -136,7 +136,7 @@
           </template></div>
         <div id="walk" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'" x-cloak>
           <template x-for="r in $store.g.walkthroughRows()" :key="r.key">
-            <div class="node" :data-key="r.key" :data-path="r.path" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '', r.kind==='file' && r.flag ? 'flagged' : '']"
+            <div class="node" :data-key="r.key" :data-path="r.path" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '']"
               @click="r.kind!=='cat' ? $store.g.selectStep({fileIndex: r.fileIndex, part: r.part}) : (r.skimmed ? $store.g.toggleSkimGroup() : $store.g.selectStep(r.jump))">
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='cat' && r.skimmed"><use href="#gly-chevron"></use></svg>
               <span class="nm walk-cat-name" x-show="r.kind==='cat'" x-text="r.category" :title="r.category"></span>
