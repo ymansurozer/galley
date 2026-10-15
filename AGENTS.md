@@ -16,7 +16,7 @@ pnpm lint         # oxlint + oxfmt --check
 pnpm lint:fix     # oxlint --fix + oxfmt (formats)
 pnpm test         # node:test via tsx, all src/**/*.test.ts
 pnpm smoke        # end-to-end agent-contract test against dist/ — requires pnpm build first
-pnpm release      # lint + check + test + build + smoke + changelogen --release --push
+pnpm release      # lint + check + test + build + smoke + changelogen --release --push --no-github
 ```
 
 Run a single test file:
@@ -57,3 +57,4 @@ The worlds do not import each other at runtime. `src/types.ts` is the single sou
 - Comments in this codebase explain _why_ and record invariants (see `state.ts`, `types.ts`); match that style.
 - Formatting/linting is oxfmt/oxlint — run `pnpm lint:fix` rather than hand-formatting.
 - Version bumps and CHANGELOG are handled by `changelogen` via `pnpm release` (tag push triggers the npm publish workflow); don't edit CHANGELOG.md or the version by hand.
+- Releases go through `pnpm release` only. Pin a version with `pnpm release -r X.Y.Z`: below 1.0, a `feat` bumps only the patch. The release workflow creates the GitHub Release once the tag lands, which is why the script passes `--no-github`. Don't run a bare `changelogen --release` without it. Its local GitHub sync would make GitHub create the tag on main's head, on the wrong commit, and start a release from there.

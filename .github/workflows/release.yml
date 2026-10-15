@@ -13,6 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # A release tag must sit on its own `chore(release)` commit. A tag GitHub made on main's head
+      # (package.json still the previous version) fails here, before anything is built or published.
+      - name: Tag matches package.json
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME is on a commit whose package.json says $VERSION — not a release commit."
+            exit 1
+          fi
       - run: corepack enable
       - uses: actions/setup-node@v5
         with:
