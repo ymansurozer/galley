@@ -113,10 +113,17 @@
   color: var(--ink-2);
 }
 
-.modal .lane .sub {
+/* What a receipt holds back ("Not sent: …"), quiet under its line: a lane's, or the lead's when
+   the sheet has no lanes. */
+.modal .sub {
   margin-top: 2px;
   color: var(--ink-2);
   font-size: var(--text-xs);
+}
+
+.modal p + .sub {
+  margin-top: 4px;
+  font-size: var(--text-sm);
 }
 
 .modal.send textarea {

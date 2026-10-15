@@ -73,26 +73,14 @@ export function updateProgress() {
   if (rose && !reducedMotion.matches) swell(strip);
 }
 
-// Whole-review numbers for the completion prompt — a small receipt of the work done.
-export function reviewStats(): {
-  files: number;
-  lines: number;
-  comments: number;
-  rejections: number;
-} {
+// Whole-review numbers for the Send receipt and the completion prompt.
+export function reviewStats(): { files: number; rejections: number } {
   // Files out of the flow — fully skimmed or pure renames (issue 01/07) — stay out of the
-  // completion receipt's file and line totals so the numbers match the progress bar and the gate.
-  // One flow-index pass instead of a per-file rescan (see flow-index.ts).
+  // completion prompt's file count so it matches the progress bar and the gate. One flow-index
+  // pass instead of a per-file rescan (see flow-index.ts).
   const outOfFlow = flowIndex().outOfFlow;
-  const scope = (S.state?.files ?? []).filter((f) => !outOfFlow.has(f.path));
-  let lines = 0;
-  for (const f of scope)
-    for (const h of f.hunks ?? []) for (const l of h.lines) if (l.kind !== "context") lines++;
   return {
-    files: scope.length,
-    lines,
-    comments: (S.state?.comments ?? []).filter((c) => c.role === "user" && c.status === "open")
-      .length,
+    files: (S.state?.files ?? []).filter((f) => !outOfFlow.has(f.path)).length,
     rejections: (S.state?.changes ?? []).filter((c) => c.status === "rejected").length,
   };
 }
