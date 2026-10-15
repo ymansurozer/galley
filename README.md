@@ -16,7 +16,7 @@
 
 Code editors and IDEs were built for a coding-first world. Their diff view is fine for a quick glance, but not for working through a big change or going back and forth with the agent that wrote it.
 
-Galley is my attempt at a real review surface: you review, hit **Send to Agent**, and your agent acts on your decisions and replies in place.
+Galley is my attempt at a real review surface: you review, hit **Send Review**, and your agent acts on your decisions and replies in place.
 
 I'm not saying this is *the* review surface. I built it in a week and I'm still figuring out the shape. But this is what I think it should be.
 
@@ -48,7 +48,7 @@ I'm not saying this is *the* review surface. I built it in a week and I'm still 
    galley pr feature-branch     # review a branch's commits vs its merge-base
    ```
 
-   Galley prints the desk's URL and stays running; open it in your browser (or pass `--open` and Galley opens the tab for you). You review and click **Send to Agent**; the agent attaches, acts on each send, and replies in the same tab. The full agent contract — modes, the event loop, all flags (`--path`, `--port`, `--open`, `--guide`, …), `ReviewResult`, and the guided-review schema — is printed by **`galley spec`**.
+   Galley prints the desk's URL and stays running; open it in your browser (or pass `--open` and Galley opens the tab for you). You review and click **Send Review**; the agent attaches, acts on each send, and replies in the same tab. The full agent contract — modes, the event loop, all flags (`--path`, `--port`, `--open`, `--guide`, …), `ReviewResult`, and the guided-review schema — is printed by **`galley spec`**.
 
 ### Reviewing on a remote machine
 
@@ -72,7 +72,7 @@ The printed URL is what you open in the remote browser; the agent's `galley awai
 - **A beautiful and functional diff view** built on `@pierre/diffs`.
 - **Per-line comment threads.** Comment on any line. Ask questions — as many as you like, without waiting — and your agent answers live in the thread; leave a change request and it rides to the handoff.
 - **Per-change accept/reject.** Accept or reject individual changes, or sign off a whole file.
-- **A tight handoff loop.** Hit **Send to Agent** and your agent gets a structured review. It makes the edits, re-diffs into the same tab, and replies in place.
+- **A tight handoff loop.** Hit **Send Review** and your agent gets a structured review. It makes the edits, re-diffs into the same tab, and replies in place.
 - **Guided review.** Your agent can attach a guide: an overview, the files in a sensible order, a per-file orientation (the lens to read it with) and category, and the risky ones flagged.
 - **Focused review.** Ask your agent to skim the noise ("ignore the import churn") and the guide marks it: skimmed changes collapse behind one-line strips, and files that are pure noise leave the flow entirely — folded into a Skimmed group, with no progress weight. Everything stays one click from visible, and nothing is ever auto-approved.
 - **Four review modes.** The working tree, the staged diff, a single file (tracked or not, like a plan, PRD, or issue), or a branch against its merge-base.
@@ -94,7 +94,7 @@ Galley is opinionated about exactly one thing: the review surface. It's a protoc
 
 Immediate to-dos, in rough priority order.
 
-- [ ] **Command palette**: add a discoverable Cmd/Ctrl+Shift+P palette for common review actions: file filter, find in diffs, next/previous file or change, accept/reject/request change, approve file, toggle layout/settings/sidebar, open in editor, reload, and Send to Agent. Keep keyboard shortcuts as the fast path, but make every major action searchable.
+- [ ] **Command palette**: add a discoverable Cmd/Ctrl+Shift+P palette for common review actions: file filter, find in diffs, next/previous file or change, accept/reject/request change, approve file, toggle layout/settings/sidebar, open in editor, reload, and Send Review. Keep keyboard shortcuts as the fast path, but make every major action searchable.
 - [ ] **Commit/range/branch review modes**: expand beyond working/staged/file/PR branch reviews with `galley commit <ref>`, `galley range <base>..<head>` / `<base>...<head>`, and `galley branch <base>` so Galley can review historical or comparison diffs without requiring a dirty working tree.
 - [ ] **Lazy diff/content loading + large/binary-file guards**: today every changed file's full contents are read and shipped up front; the only large-file handling is client-side render deferral. Move the guard to the data layer: classify each file by byte size and ship lightweight patch data first, hydrating full contents, highlighting, and rendered markdown on demand when a file is opened. Per-file `loadState` (`ready | deferred | too-large | binary | error`) with two byte tiers — an *eager* limit (~1 MiB, loaded up front) and a *manual* limit (~2 MiB, deferred until opened); over that is `too-large` (skipped with a summary + explicit load-anyway action), plus an image byte cap. Add **binary detection** (NUL-byte scan) so binaries are skipped rather than read as UTF-8 and handed to @pierre.
 
