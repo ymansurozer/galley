@@ -534,9 +534,13 @@ export async function buildDiffSource(opts: {
   base?: string;
 }): Promise<DiffSource | null> {
   const { mode, root } = opts;
+  // `-U3` pins git's context to the default whatever the user's `diff.context` says: the tab
+  // renders these hunks (changes-derive.ts parseRawDiff), and @pierre places a zero-count side one
+  // line off, so `diff.context=0`'s mid-file `@@ -2,0 +3,2 @@` hunks would break every replay.
+  const DIFF = ["diff", "--no-ext-diff", "-M", "-U3"];
   if (mode === "pr") {
     const base = opts.base ?? "HEAD";
-    const rawDiff = await git(["diff", "--no-ext-diff", "-M", `${base}..HEAD`], root);
+    const rawDiff = await git([...DIFF, `${base}..HEAD`], root);
     if (!rawDiff.trim()) return null;
     // The new side is HEAD (committed) — one `git diff --raw` harvests every new-side OID, so the
     // file-level key needs no per-file re-hash and assembleDiff reads no blob contents at all.
@@ -561,7 +565,7 @@ export async function buildDiffSource(opts: {
       ));
     const working = await fs.readFile(abs, "utf8").catch(() => "");
     if (tracked) {
-      const rawDiff = await git(["diff", "--no-ext-diff", "-M", "--", rel], root);
+      const rawDiff = await git([...DIFF, "--", rel], root);
       if (rawDiff.trim()) {
         // New side is the working tree — hashed locally (no committed OID). The UI renders these
         // hunks over old/new (fetched on open against the INDEX baseline via readFileContents).
@@ -587,7 +591,7 @@ export async function buildDiffSource(opts: {
   // repo
   // -M asks git itself to detect renames, so committed/staged renames render deterministically
   // regardless of the user's `diff.renames` config (see buildDiffSource's contract).
-  const args = ["diff", "--no-ext-diff", "-M"];
+  const args = [...DIFF];
   if (opts.staged) args.push("--cached");
   if (opts.path) args.push("--", opts.path);
   const rawDiff = await git(args, root);
