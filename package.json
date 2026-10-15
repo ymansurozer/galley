@@ -46,7 +46,7 @@
     "smoke": "node scripts/smoke.mjs",
     "perf-smoke": "node scripts/perf-smoke.mjs",
     "prepack": "pnpm build",
-    "release": "pnpm lint && pnpm check && pnpm test && pnpm build && pnpm smoke && changelogen --release --push"
+    "release": "pnpm lint && pnpm check && pnpm test && pnpm build && pnpm smoke && changelogen --release --push --no-github"
   },
   "devDependencies": {
     "@types/alpinejs": "^3.13.11",
