@@ -1,7 +1,7 @@
 {
   "name": "galley-diff",
   "version": "0.7.6",
-  "description": "An integrated review environment (IRE) for code you didn't write by hand — review a git diff in the browser, then hand a structured review back to your coding agent.",
+  "description": "A review desk for your coding agent's output: review its diff in the browser, then hand a structured review back to it.",
   "keywords": [
     "git",
     "diff",
