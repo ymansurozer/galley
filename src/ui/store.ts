@@ -139,7 +139,7 @@ export async function openEditorAt(path: string, lineNumber: number) {
       method: "POST",
       body: JSON.stringify({ path, lineNumber }),
     });
-    toast(res.ok ? "Opened in editor" : res.error || "Could not open editor");
+    if (!res.ok) toast(res.error || "Could not open editor");
   } catch {
     toast("Could not open editor");
   }

@@ -1,4 +1,4 @@
-import { S, esc, toast, persist } from "./store";
+import { S, esc, persist } from "./store";
 import {
   currentComments,
   currentChanges,
@@ -237,7 +237,6 @@ export function lineThread(c: ThreadMeta): ThreadControls {
         .filter((x) => x.path === c.path && x.side === c.side && x.lineNumber === c.lineNumber)
         .forEach((x) => (x.status = status));
       render();
-      toast(status === "resolved" ? "Resolved" : "Reopened");
       persist();
     },
     edit: editComment,

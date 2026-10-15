@@ -1,14 +1,7 @@
 import { S, toast, api, persist } from "./store";
 import { currentFile, fileFinished, fileObjections, flowIndex } from "./changes";
 import { render, deferRender } from "./render";
-import {
-  currentStep,
-  guideProgress,
-  nextUnreviewedStep,
-  reviewTally,
-  skimmedStepBlocks,
-  stepSlot,
-} from "./guide";
+import { currentStep, nextUnreviewedStep, reviewTally, skimmedStepBlocks, stepSlot } from "./guide";
 import {
   captureFileReview,
   clearFileReview,
@@ -139,26 +132,21 @@ export async function approveStep(step: Step, { advance }: { advance: boolean })
   signedOff(clean, stageFailed ? file.path : null, advance);
 }
 
-// After a sign-off: toast it, prompt to send the review once every in-flow step is signed off, else
-// (with `advance`) seek the next unreviewed step. `unstaged` names a file a wanted stage failed on.
+// After a sign-off: say so if a wanted stage failed (`unstaged` names the file), prompt to send the
+// review once every in-flow step is signed off, else (with `advance`) seek the next unreviewed
+// step. A sign-off that went through says nothing — the progress bar and the sidebar show it.
 function signedOff(clean: boolean, unstaged: string | null, advance: boolean) {
-  const label = clean ? "Approved" : "Marked reviewed";
-  const say = (t: string) => toast(unstaged ? `${label} — couldn't stage ${unstaged}` : t);
+  if (unstaged) toast(`${clean ? "Approved" : "Marked reviewed"} — couldn't stage ${unstaged}`);
   // The review-complete gate is over in-flow steps only (issue 01/07): fully-skimmed files and
   // parts and pure renames left the flow, so they never block completion (and are never
   // auto-approved). One flow-index pass instead of per-step predicate rescans (see flow-index.ts).
-  const { done, total, parts } = reviewTally();
+  const { done, total } = reviewTally();
   // Every in-flow step signed off → the review is done: prompt to send it back to the agent.
   if (done === total) {
-    say(`${label} — review complete`);
     render();
     S.promptFinish?.();
     return;
   }
-  // Each sign-off toasts the running score ("7 of 12 files · 58%", or steps once the guide splits
-  // a file) so progress is felt at the moment it moves, not just visible in the bar. % matches the
-  // strip (LOC-weighted by default).
-  say(`${label} — ${done} of ${total} ${parts ? "steps" : "files"} · ${guideProgress().pct}%`);
   // Seek the next unreviewed step, wrapping past the end so a reviewer who jumped ahead is
   // carried back to the steps they skipped instead of dead-ending here.
   const next = advance ? nextUnreviewedStep(currentStep()) : null;
@@ -220,7 +208,7 @@ async function undoReset(
     !res?.ok || res.index === undefined
       ? !prior.staged && !prior.stagedChangeKeys.length // nothing to put back, or no way to
       : await restage(prior, res.index);
-  toast(restaged ? "Reset undone" : `Restored — couldn't re-stage ${prior.path}`);
+  if (!restaged) toast(`Restored — couldn't re-stage ${prior.path}`);
 }
 
 // A part's (or Rest's) Reset: its blocks' decisions and sign-offs and the file's sign-off clear,
@@ -266,7 +254,7 @@ async function undoStepReset(state: ReviewState, prior: FileReview, unstaged: Ch
   persist();
   // Stage again exactly the blocks the Reset took out.
   const { failed } = await moveBlocks(prior.path, unstaged, true);
-  toast(failed.length ? `Restored — couldn't re-stage ${prior.path}` : "Reset undone");
+  if (failed.length) toast(`Restored — couldn't re-stage ${prior.path}`);
 }
 
 async function restage(prior: FileReview, index: IndexEntry): Promise<boolean> {
@@ -303,7 +291,6 @@ export async function rejectFile(path: string) {
   }
   S.state.decisionFiles = S.state.decisionFiles || [];
   if (!S.state.decisionFiles.includes(path)) S.state.decisionFiles.push(path);
-  toast("Rejected file");
   render();
   persist();
 }
@@ -321,7 +308,6 @@ export async function acceptChange(id: string, status: Decision["status"]) {
   // No need to apply the decision to D.fileDiff here: renderCenter unconditionally rebuilds
   // D.fileDiff from the raw diff (parse → ensureChanges → replayDecisions) every render, so a
   // pre-render mutation is thrown away — the replay below picks the new status up from the record.
-  toast(status === "rejected" ? "Undone" : "Kept");
   render();
   persist();
 }

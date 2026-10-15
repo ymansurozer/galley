@@ -50,7 +50,7 @@ import {
   stepSlot,
   walkthroughRows,
 } from "./guide";
-import { installProgress, refreshBaseTitle, reviewStats } from "./progress";
+import { refreshBaseTitle, reviewStats } from "./progress";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import { renderKeycaps } from "./keycaps";
 import { installTooltips } from "./tooltip";
@@ -157,7 +157,6 @@ matchMedia("(max-width: 1100px)").addEventListener("change", () => {
 installKeys();
 installTooltips();
 installBlockers();
-installProgress();
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
@@ -534,7 +533,6 @@ const submitComment = (intent: "question" | "action") => {
     S.composerOpen = false;
     render();
     persist();
-    toast("Comment updated");
     return;
   }
   const now = new Date().toISOString();
@@ -571,10 +569,7 @@ const submitComment = (intent: "question" | "action") => {
   S.composerOpen = false;
   render();
   persist();
-  if (intent === "question") {
-    void askComment(c.id);
-    toast("Asked — waiting for answer");
-  } else toast("Comment saved");
+  if (intent === "question") void askComment(c.id);
 };
 S.saveComment = () => submitComment("action"); // editing Save + the `c` shortcut default
 S.ask = () => submitComment("question");
@@ -586,7 +581,6 @@ S.reset = async () => {
     D.fileDiff = D.rawFileDiff = null;
     render();
   }
-  toast("Reset review");
 };
 S.send = async (overallNote = "") => {
   // Post only the reviewer-owned slice — never the whole (multi-MB) ReviewState. Big desks
@@ -602,7 +596,6 @@ S.send = async (overallNote = "") => {
     S.awaitingAgent = true;
     // The change requests went with it: their held bands go now, not on the next poll.
     updateAwaitingDom();
-    toast("Sent to agent");
   } else toast("Could not send review");
 };
 

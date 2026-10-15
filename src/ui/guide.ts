@@ -214,7 +214,7 @@ export function currentSlot(): StepSlot | null {
 }
 
 // The review's in-flow steps: the guided plan's (parts, Rest steps and whole files), or every
-// file whole without a guide. Progress, the review-complete gate and the approve toast count these.
+// file whole without a guide. Progress and the review-complete gate count these.
 function flowSlots(ix: FlowIndex): StepSlot[] {
   const fileOut = (p: string) => ix.outOfFlow.has(p);
   if (hasGuide()) {
@@ -226,15 +226,13 @@ function flowSlots(ix: FlowIndex): StepSlot[] {
   );
 }
 
-// Where the review stands in steps: how many in-flow steps are signed off, of how many, and
-// whether any is a part or Rest step (the approve toast then counts steps, not files).
-export function reviewTally(): { done: number; total: number; parts: boolean } {
+// Where the review stands in steps: how many in-flow steps are signed off, of how many.
+export function reviewTally(): { done: number; total: number } {
   const ix = flowIndex();
   const slots = flowSlots(ix);
   return {
     done: slots.filter((s) => ix.stepFinished(s)).length,
     total: slots.length,
-    parts: slots.some((s) => s.blocks),
   };
 }
 
@@ -264,14 +262,9 @@ export function walkthroughRows(): WalkRow[] {
 // Overall review progress for the progress edge, over in-flow steps weighted by their
 // changed lines (LOC) rather than counted, so finishing a big file or part advances the bar more
 // than a tiny one: "done" sums the LOC of steps the reviewer finished (approved OR
-// changes-requested), "approved" the clean-signoff LOC.
-export function guideProgress(): { done: number; approved: number; total: number; pct: number } {
-  return progressDetail().progress;
-}
-
-// guideProgress with what it was built from, for the progress edge: the flow index (a step's
-// state, whether it left the flow), a step's weight, and the in-flow step counts. One pass each,
-// so the edge reads the open step and the hover numbers without rebuilding them.
+// changes-requested), "approved" the clean-signoff LOC. It comes with what it was built from: the
+// flow index (a step's state, whether it left the flow) and a step's weight. One pass each, so the
+// edge reads the open step without rebuilding them.
 export function progressDetail() {
   const byFiles = S.settings.progressBy === "files";
   const stats = lineStats(S.state?.files ?? []);
@@ -283,22 +276,14 @@ export function progressDetail() {
   const ix = flowIndex();
   let total = 0,
     done = 0,
-    approved = 0,
-    steps = 0,
-    stepsDone = 0,
-    parts = false;
+    approved = 0;
   const slots = flowSlots(ix);
   // Fully-skimmed steps carry no progress weight — they left the flow (issue 07).
   for (const slot of slots) {
     const w = weight(slot);
     total += w;
-    steps++;
-    if (slot.blocks) parts = true;
     const st = ix.stepState(slot);
-    if (st !== "pending") {
-      done += w;
-      stepsDone++;
-    }
+    if (st !== "pending") done += w;
     if (st === "approved") approved += w;
   }
   // total === 0 means every changed file is fully skimmed (a desk always has ≥1 file, and the
@@ -306,8 +291,6 @@ export function progressDetail() {
   // than a misleading 0%.
   return {
     progress: { done, approved, total, pct: total ? Math.round((done / total) * 100) : 100 },
-    // In steps, which are files unless the guide splits one into parts (the approve toast's rule).
-    steps: { done: stepsDone, total: steps, unit: parts ? ("steps" as const) : ("files" as const) },
     byLines: !byFiles,
     ix,
     weight,

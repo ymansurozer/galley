@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { approvePreview, progressSummary } from "./progress-derive.js";
+import { approvePreview } from "./progress-derive.js";
 
 const pending = { outOfFlow: false, state: "pending" } as const;
 
@@ -49,25 +49,4 @@ test("approvePreview: a file already signed off has no tail", () => {
 
 test("approvePreview: no open file, no tail", () => {
   assert.equal(approvePreview({ done: 40, total: 200, pct: 20 }, null), null);
-});
-
-test("progressSummary: lines mode names files and lines", () => {
-  assert.deepEqual(progressSummary(47, { done: 3, total: 9 }, { done: 120, total: 294 }), {
-    pct: "47%",
-    detail: "3/9 files · 120/294 lines",
-  });
-});
-
-test("progressSummary: a guide that splits files counts steps", () => {
-  assert.deepEqual(progressSummary(50, { done: 2, total: 4 }, null, "steps"), {
-    pct: "50%",
-    detail: "2/4 steps",
-  });
-});
-
-test("progressSummary: files mode names files only", () => {
-  assert.deepEqual(progressSummary(33, { done: 2, total: 6 }, null), {
-    pct: "33%",
-    detail: "2/6 files",
-  });
 });

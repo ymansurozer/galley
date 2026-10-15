@@ -2,13 +2,11 @@ import { S, $ } from "./store";
 import { currentSlot, progressDetail } from "./guide";
 import { slotOutOfFlow } from "./steps";
 import { flowIndex } from "./changes";
-import { approvePreview, progressSummary } from "./progress-derive";
+import { approvePreview } from "./progress-derive";
 
 // Review progress lives on the top bar's bottom edge, with or without a guide: a quiet gauge with
-// the ⇧A tail ahead of its fill, and no resting percentage. A tag beside the title speaks when
-// asked (hover the bar or the title), then fades. Imperative rather than Alpine because the
-// *moment* of progress is animated: the fill glides from where it stood and a rise swells the bar
-// for a beat.
+// the ⇧A tail ahead of its fill. Imperative rather than Alpine because the *moment* of progress is
+// animated: the fill glides from where it stood and a rise swells the bar for a beat.
 
 // Tab title carries progress too ("(58%) Galley — repo · main"), so it reads from other tabs.
 // The base names the project and what of it is under review, so multiple desks are
@@ -31,62 +29,14 @@ let swellTimer = 0;
 const SWELL_MS = 300;
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
-// Fill the tag: its figure, then the rest.
-function showTag(figure: string, rest: string) {
-  const tag = $("progressTag");
-  const b = document.createElement("b");
-  b.textContent = figure;
-  tag.replaceChildren(b, rest);
-  tag.classList.remove("out");
-  tag.classList.add("show");
-}
-
-function hideTag() {
-  const tag = $("progressTag");
-  if (!tag.classList.contains("show") || tag.classList.contains("out")) return;
-  tag.classList.add("out");
-  tag.addEventListener(
-    "animationend",
-    () => {
-      // A show since the fade began took the tag back.
-      if (tag.classList.contains("out")) tag.classList.remove("show", "out");
-    },
-    { once: true },
-  );
-}
-
-// Whether the pointer rests on the bar or the title, read live: a hidden bar (the App view) never
-// gets the pointerleave a kept flag would wait for.
-const hovered = () =>
-  $("progressStrip").matches(":hover") || !!document.querySelector(".top-name:hover");
-
-// The hover tag: where progress stands, with the steps (and lines) behind it, all guideProgress's.
-function showSummary(d = progressDetail()) {
-  if (!S.state?.files?.length || S.view === "ui") return hideTag();
-  const p = d.progress;
-  const lines = d.byLines ? { done: p.done, total: p.total } : null;
-  const s = progressSummary(p.pct, d.steps, lines, d.steps.unit);
-  showTag(s.pct, ` · ${s.detail}`);
-}
-
 function swell(strip: HTMLElement) {
   strip.classList.add("swell");
   clearTimeout(swellTimer);
   swellTimer = window.setTimeout(() => strip.classList.remove("swell"), SWELL_MS);
 }
 
-// Hovering the bar or the title asks for the numbers.
-export function installProgress() {
-  for (const el of [$("progressStrip"), document.querySelector(".top-name")]) {
-    el?.addEventListener("pointerenter", () => showSummary());
-    el?.addEventListener("pointerleave", () => {
-      if (!hovered()) hideTag();
-    });
-  }
-}
-
 // Called from render(): every state mutation that can move progress ends in a render, so
-// this is the single repaint point (and it must stay cheap — guideProgress is one pass).
+// this is the single repaint point (and it must stay cheap — progressDetail is one pass).
 export function updateProgress() {
   const strip = $("progressStrip");
   if (!strip) return;
@@ -122,9 +72,6 @@ export function updateProgress() {
   const rose = shown?.byLines === d.byLines && pct > shown.pct;
   shown = { pct, byLines: d.byLines };
   if (rose && !reducedMotion.matches) swell(strip);
-  // The tag follows the pointer, whatever happened while the bar was away.
-  if (hovered()) showSummary(d);
-  else hideTag();
 }
 
 // Whole-review numbers for the completion prompt — a small receipt of the work done.
