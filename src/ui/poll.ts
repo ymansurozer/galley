@@ -137,10 +137,7 @@ export async function pollState() {
   // The agent's replies in UI annotation threads (`galley comment --ui`) join the same way; a save
   // from this tab before they arrive keeps them on the server (mergeReviewerSave).
   const uiReplies = mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
-  if (uiReplies || incoming.some((c) => c.role === "agent")) {
-    S.awaitingAgent = false;
-    toast("Agent replied");
-  }
+  if (uiReplies || incoming.some((c) => c.role === "agent")) S.awaitingAgent = false;
   // render() redraws the UI lane too.
   if (incoming.length) render();
   else if (uiReplies) renderUiLane();

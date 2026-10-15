@@ -400,7 +400,6 @@ export function submitUiComposer(intent: "action" | "question") {
       m.body = body;
       m.updatedAt = now;
     }
-    toast("Comment updated");
   } else if (draft) {
     const list = (S.state.annotations ??= []);
     created = {
@@ -418,11 +417,9 @@ export function submitUiComposer(intent: "action" | "question") {
     // Its card opens on its new pin.
     S.selectedAnnotation = created.id;
     if (intent === "question") asked = { annotation: created.id, message: message.id };
-    toast(`#${created.number} ${intent === "question" ? "asked — waiting for answer" : "added"}`);
   } else if (a) {
     a.comments.push(message);
     if (intent === "question") asked = { annotation: a.id, message: message.id };
-    toast(intent === "question" ? "Asked — waiting for answer" : "Comment saved");
   }
   // Started before the composer closes, so the card it renders already reads "capturing…".
   if (created) captureScreenshots(created);
@@ -440,7 +437,6 @@ function threadControls(a: UiAnnotationRecord): ThreadControls {
       if (S.composerAnnotation === a.id) closeComposer();
       a.status = status;
       renderUiLane();
-      toast(status === "resolved" ? "Resolved" : "Reopened");
       persist();
     },
     edit: (messageId) => {
@@ -456,10 +452,7 @@ function threadControls(a: UiAnnotationRecord): ThreadControls {
       turnAnnotationInto(a, intent, new Date().toISOString());
       renderUiLane();
       persist();
-      if (intent === "question") {
-        void askAgent(a.id, opener.id);
-        toast(`#${a.number} turned into an ask — waiting for answer`);
-      } else toast(`#${a.number} turned into a change request — it goes with the next Send`);
+      if (intent === "question") void askAgent(a.id, opener.id);
     },
     // The opening message is the annotation's body: deleting it deletes the annotation. Later
     // messages delete like code comments.
@@ -468,11 +461,7 @@ function threadControls(a: UiAnnotationRecord): ThreadControls {
       if (a.comments[0]?.id === messageId) {
         S.state.annotations = annotationsOf().filter((x) => x.id !== a.id);
         if (S.selectedAnnotation === a.id) S.selectedAnnotation = null;
-        toast(`Deleted #${a.number}`);
-      } else {
-        a.comments = a.comments.filter((m) => m.id !== messageId);
-        toast("Comment deleted");
-      }
+      } else a.comments = a.comments.filter((m) => m.id !== messageId);
       renderUiLane();
       persist();
     },

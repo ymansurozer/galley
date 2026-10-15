@@ -29,7 +29,6 @@ export async function deleteComment(id: string) {
   S.state.comments = S.state.comments.filter((c) => c.id !== id);
   render();
   await persist(); // await so the next poll can't re-add it before the save lands
-  toast("Comment deleted");
 }
 
 // Hand a question to the agent now, once the save carrying it has landed: the desk builds the
@@ -56,8 +55,5 @@ export function turnComment(id: string) {
   turnInto(comment, intent, new Date().toISOString());
   render();
   persist();
-  if (intent === "question") {
-    void askComment(id);
-    toast("Turned into an ask — waiting for answer");
-  } else toast("Turned into a change request — it goes with the next Send");
+  if (intent === "question") void askComment(id);
 }

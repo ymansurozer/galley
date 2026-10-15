@@ -14,8 +14,7 @@
    beside a full-height sidebar it covers only the canvas, which a wide sidebar narrows. */
 .top {
   position: relative;
-  /* Over .main, which a narrow bar's floating progress tag overlaps; under the dialogs (20), the
-     toasts (25) and the drawer (30). */
+  /* Over .main; under the dialogs (20), the toasts (25) and the drawer (30). */
   z-index: 10;
   container: topbar / inline-size;
   display: grid;
@@ -43,7 +42,7 @@
   transition: height 0.15s var(--ease);
 }
 
-/* A taller reach for the hover tag than the 3px it draws. */
+/* A taller reach for the hover than the 3px it draws. */
 .top-progress::before {
   content: "";
   position: absolute;
@@ -100,14 +99,7 @@
   min-width: 0;
 }
 
-.top-name-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.top-name-row > b,
+.top-name > b,
 .top-name > span {
   display: block;
   min-width: 0;
@@ -116,7 +108,7 @@
   white-space: nowrap;
 }
 
-.top-name-row > b {
+.top-name > b {
   color: var(--ink);
   font-size: var(--text-md);
   font-weight: 600;
@@ -128,58 +120,6 @@
   color: var(--ink-2);
   font-size: var(--text-xs);
   line-height: 14px;
-}
-
-/* The progress tag. There's no resting percentage, so it speaks only when asked (hover the bar or
-   the title: "N% · a/b files · x/y lines"), then fades. It floats just under the bar, at the bar's
-   start (the canvas's left edge, past the sidebar), over the content without moving it, and it
-   never takes the pointer from what's under it. progress.ts fills it. */
-.top-tag {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 8px;
-  display: none;
-  max-width: calc(100% - 16px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-  box-shadow: var(--shadow-float);
-  height: 18px;
-  padding: 0 7px;
-  border-radius: var(--radius-pill);
-  background: linear-gradient(var(--fill-2), var(--fill-2)) var(--canvas);
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  line-height: 18px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.top-tag.show {
-  display: block;
-  animation: tag-in 0.3s var(--spring);
-}
-
-.top-tag.out {
-  animation: tag-out 0.2s var(--ease) forwards;
-}
-
-.top-tag > b {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-@keyframes tag-in {
-  from {
-    opacity: 0;
-    transform: translateY(-3px) scale(0.96);
-  }
-}
-
-@keyframes tag-out {
-  to {
-    opacity: 0;
-  }
 }
 
 /* The brand lives at the sidebar's top; a desk showing no sidebar (one file, file mode, a UI-only
