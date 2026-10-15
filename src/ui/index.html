@@ -381,8 +381,10 @@
       <div class="modal-backdrop" id="sendModal" :class="{show: $store.g.sendOpen}" @click.self="$store.g.sendCancel()">
         <div class="modal send">
           <p x-text="$store.g.sendMsg"></p>
+          <div class="sub" x-show="$store.g.sendNotSent" x-text="$store.g.sendNotSent"></div>
           <div class="lanes" x-show="$store.g.sendLanes">
-            <div class="lane" x-show="$store.g.sendLanes?.code"><b>Code</b><div x-text="$store.g.sendLanes?.code"></div></div>
+            <div class="lane" x-show="$store.g.sendLanes?.code"><b>Code</b><div><span x-text="$store.g.sendLanes?.code"></span><div class="sub"
+                  x-show="$store.g.sendLanes?.codeNotSent" x-text="$store.g.sendLanes?.codeNotSent"></div></div></div>
             <div class="lane"><b>UI</b><div><span x-text="$store.g.sendLanes?.ui"></span><div class="sub"
                   x-show="$store.g.sendLanes?.uiNotSent" x-text="$store.g.sendLanes?.uiNotSent"></div></div></div>
           </div>
