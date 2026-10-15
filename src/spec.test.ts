@@ -21,6 +21,8 @@ const ANCHORS = [
   "galley comment",
   "galley reload",
   "galley status",
+  // status lines build the step trail under a waiting question
+  "one short line per step",
   '"kind":"question"',
   '"kind":"review"',
   // a question is READ-ONLY: answer it, don't edit code in response (guards issue 04)

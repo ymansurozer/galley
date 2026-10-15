@@ -26,11 +26,12 @@ import {
   cardLoc,
   intentPill,
   messageWaiting,
-  questionStatus,
+  pendingAnswer,
   questionWaiting,
   showsHeld,
   threadKind,
   type ThreadKind,
+  type TrailStep,
 } from "./thread-derive";
 import type {
   AnnotationInput,
@@ -148,28 +149,57 @@ export function annotations(): AnnotationInput[] {
   return [...changes, ...threads, ...composers];
 }
 
-// The status line under an unanswered question, from the desk-liveness fields each poll tick
-// (thread-derive questionStatus).
-export const awaitingParts = () =>
-  questionStatus({
-    awaitingAgent: S.awaitingAgent,
-    queuedReviews: S.queuedReviews,
-    queuedQuestions: S.queuedQuestions,
-    activity: S.agentActivity,
-  });
+// The pending answer under an unanswered question asked at `askTime`, from the desk-liveness
+// fields and the tab's activity trail each poll tick (thread-derive pendingAnswer).
+const pendingParts = (askTime: string) =>
+  pendingAnswer(
+    {
+      awaitingAgent: S.awaitingAgent,
+      queuedReviews: S.queuedReviews,
+      queuedQuestions: S.queuedQuestions,
+      activity: S.agentActivity,
+    },
+    S.agentTrail,
+    askTime,
+  );
 
-// Patch every mounted question status in place, and show or hide the held chips. Called from the
+const stepHtml = (s: TrailStep) => `<li${s.live ? ' class="live"' : ""}>${esc(s.body)}</li>`;
+
+// Bring a pending answer's step list to `steps` without redrawing the steps it already shows: the
+// trail grows at its end and drops its oldest past the cap, so the shown steps that still lead it
+// stay, and only new ones join (the list is a polite live region, so a screen reader hears just
+// those, and the live step's pulse doesn't restart every tick).
+function patchSteps(list: Element, steps: TrailStep[]) {
+  const shown = [...list.children];
+  let drop = 0;
+  while (
+    drop < shown.length &&
+    shown.slice(drop).some((li, i) => li.textContent !== steps[i]?.body)
+  )
+    drop++;
+  for (const li of shown.slice(0, drop)) li.remove();
+  list.insertAdjacentHTML(
+    "beforeend",
+    steps
+      .slice(shown.length - drop)
+      .map(stepHtml)
+      .join(""),
+  );
+  [...list.children].forEach((li, i) => li.classList.toggle("live", steps[i]?.live === true));
+}
+
+// Patch every mounted pending answer in place, and show or hide the held chips. Called from the
 // 1.5s poll and on Send: activity/presence changes alone must not trigger a full render() (it
-// rebuilds the diff DOM), so they're updated directly.
+// rebuilds the diff DOM), so they're updated directly. render() drops a pending answer once the
+// agent's reply lands in its thread (the poll renders on any new comment), so none outlives it.
 export function updateAwaitingDom() {
-  const parts = awaitingParts();
-  for (const el of document.querySelectorAll(".awaiting-answer")) {
+  for (const el of document.querySelectorAll<HTMLElement>(".awaiting-answer")) {
+    const parts = pendingParts(el.dataset.ask ?? "");
     el.classList.toggle("queued", parts.queued);
     const label = el.querySelector(".awaiting-label");
     if (label && label.textContent !== parts.label) label.textContent = parts.label;
-    const activity = el.querySelector(".agent-activity");
-    const text = parts.activity ? ` · ${parts.activity}` : "";
-    if (activity && activity.textContent !== text) activity.textContent = text;
+    const list = el.querySelector(".agent-steps");
+    if (list) patchSteps(list, parts.steps);
   }
   // Only a change request draws a held chip, so the review's sent state alone decides it.
   const hide = !showsHeld(true, S.awaitingAgent);
@@ -177,9 +207,12 @@ export function updateAwaitingDom() {
     if (el.hidden !== hide) el.hidden = hide;
 }
 
-function awaitingHtml() {
-  const parts = awaitingParts();
-  return `<div class="msg-status awaiting-answer${parts.queued ? " queued" : ""}"><span class="tc-spin" aria-hidden="true"></span><span><span class="awaiting-label">${esc(parts.label)}</span><span class="agent-activity">${parts.activity ? esc(` · ${parts.activity}`) : ""}</span></span></div>`;
+// The agent's message-to-be after a question it hasn't answered: "Thinking…" over the steps it
+// posted since the question was asked, or amber words when nothing picked the question up. Its
+// ask time rides along so updateAwaitingDom can pick the question's steps.
+function pendingHtml(askTime: string) {
+  const parts = pendingParts(askTime);
+  return `<div class="msg agent pending awaiting-answer${parts.queued ? " queued" : ""}" data-ask="${esc(askTime)}"><div class="meta">${AVATAR.agent}<span class="author agent">Agent</span></div><div class="pending-body" aria-live="polite"><span class="awaiting-label">${esc(parts.label)}</span><ol class="agent-steps">${parts.steps.map(stepHtml).join("")}</ol></div></div>`;
 }
 
 // Coarse relative time for a message ("now", "5m ago", "3h ago", "2d ago", else a date). The
@@ -297,10 +330,10 @@ function headHtml(c: ThreadView, head: NonNullable<ThreadView["head"]>) {
 }
 
 // The card for one thread: its header, the messages (each with its author's avatar, and the
-// reviewer's own with Edit / Delete / Turn into; a question waiting on the agent says so under
-// it), then Reply… and Resolve. A resolved thread rests as one line with Reopen. The one thread
-// component: the diff annotations, the unanchored block, the markdown-file view (mdfile.ts) and
-// the UI lane's pin card (uilane.ts) all render through it.
+// reviewer's own with Edit / Delete / Turn into; a question waiting on the agent is followed by
+// the agent's pending answer), then Reply… and Resolve. A resolved thread rests as one line with
+// Reopen. The one thread component: the diff annotations, the unanchored block, the markdown-file
+// view (mdfile.ts) and the UI lane's pin card (uilane.ts) all render through it.
 export function buildCommentThread(
   c: ThreadView,
   controls: ThreadControls,
@@ -347,10 +380,13 @@ export function buildCommentThread(
       // The body is left empty for the message being edited — buildEditor replaces it
       // below (it needs live DOM wiring, not an innerHTML string).
       const body = editing ? "" : `<div class="md">${renderCommentBody(m, surface)}</div>`;
-      // A question waiting on the agent carries its status under it (live-patched by
-      // updateAwaitingDom) until an agent reply lands after it.
-      const status = !resolved && !editing && messageWaiting(m, c.comments) ? awaitingHtml() : "";
-      return `<div class="msg${own ? "" : " agent"}${editing ? " editing" : ""}" data-id="${m.id}"><div class="meta">${own ? AVATAR.you : AVATAR.agent}<span class="author${own ? "" : " agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div>${body}${status}</div>`;
+      // A question waiting on the agent is followed by the agent's pending answer (live-patched
+      // by updateAwaitingDom) until an agent reply lands after it and takes its place.
+      const pending =
+        !resolved && !editing && messageWaiting(m, c.comments)
+          ? pendingHtml(m.askedAt ?? m.createdAt)
+          : "";
+      return `<div class="msg${own ? "" : " agent"}${editing ? " editing" : ""}" data-id="${m.id}"><div class="meta">${own ? AVATAR.you : AVATAR.agent}<span class="author${own ? "" : " agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div>${body}</div>${pending}`;
     })
     .join("");
   // Reply… hides while its own composer is open (only Resolve stays). A resolved thread's card

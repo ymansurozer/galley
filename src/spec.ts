@@ -72,7 +72,8 @@ done
 - A reply in the desk, to a question or to a change request, is read there: never repeat or
   summarize it in your own chat or harness output (echoing it doubles the tokens). At most say
   briefly that you replied in the desk.
-- \`galley status --body "…"\` — ephemeral one-line "doing X now" beside the reviewer's spinner.
+- \`galley status --body "…"\` — ephemeral one-line "doing X now": each shows as a step in a trail
+  under the reviewer's waiting question, so post one short line per step while answering.
   Cleared by your next comment; stale after ~90s (keep posting through long work); never
   persisted; exits 0 even with no desk.
 - \`galley reload [--guide <file>]\` — re-diff the working tree into the live desk (your edits are
