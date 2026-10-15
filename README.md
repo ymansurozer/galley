@@ -12,7 +12,7 @@ Review its diff in your browser, ask questions, request changes, hit **Send Revi
 
 </div>
 
-<!-- Demo video: the user-attachments URL of the uploaded MP4 goes on this line, alone, so GitHub plays it inline. -->
+https://github.com/user-attachments/assets/3cab5a2f-7cce-4b08-9ebc-71dfdf9164e4
 
 ## How it works
 
