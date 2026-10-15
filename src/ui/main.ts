@@ -50,7 +50,8 @@ import {
   stepSlot,
   walkthroughRows,
 } from "./guide";
-import { installProgress, refreshBaseTitle, reviewStats } from "./progress";
+import { refreshBaseTitle, reviewStats } from "./progress";
+import { codeSendSummary } from "./send-derive";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import { renderKeycaps } from "./keycaps";
 import { installTooltips } from "./tooltip";
@@ -157,7 +158,6 @@ matchMedia("(max-width: 1100px)").addEventListener("change", () => {
 installKeys();
 installTooltips();
 installBlockers();
-installProgress();
 
 // Store methods the reactive chrome calls ($store.g.*)
 S.treeRows = treeRows;
@@ -417,58 +417,42 @@ Alpine.effect(() => {
 S.helpGroups = helpGroups;
 S.confirmYes = confirmYes;
 S.confirmNo = confirmNo;
-// Pluralize a count with its noun: plural(1, "file") → "1 file", plural(3, "file") → "3 files".
-const plural = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
 // Open the Send modal: a receipt of what's about to go, plus an empty (always fresh) note box.
 // An attached agent picks the review up the instant it's sent, so there's no taking it back —
 // this is the moment to look, and to leave an overall instruction for the whole review.
-const openSendModal = (msg: string, lanes: Store["sendLanes"] = null) => {
+const openSendModal = (msg: string, lanes: Store["sendLanes"], notSent = "") => {
   S.sendMsg = msg;
+  S.sendNotSent = notSent;
   S.sendLanes = lanes;
   S.sendNote = "";
   S.sendOpen = true;
   setTimeout(() => $("sendNote")?.focus(), 0); // after Alpine shows it (mirrors the composer)
 };
-// With a UI lane the receipt splits by lane: the code line (none on a UI-only desk) and the UI one.
-const codeReceipt = () => {
-  const { files, lines, comments, rejections } = reviewStats();
-  return [
-    plural(files, "file"),
-    plural(lines, "changed line"),
-    comments ? plural(comments, "comment") : "",
-    rejections ? plural(rejections, "rejected hunk") : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
+// The receipt says what the review asks of the agent, not how big the diff is. With a UI lane it
+// splits by lane: the code lines (none on a UI-only desk) and the UI ones. Without one, the code
+// line reads inline in the lead, with what it holds back under it.
+const codeSummary = () => codeSendSummary(S.state?.comments ?? [], reviewStats().rejections);
+const openReceipt = (lead: string, question: string) => {
+  if (!hasUi()) {
+    const { code, codeNotSent } = codeSummary();
+    openSendModal(`${lead}: ${code}. ${question}`, null, codeNotSent);
+    return;
+  }
+  const code = uiOnly() ? { code: null, codeNotSent: "" } : codeSummary();
+  openSendModal(`${lead}. ${question}`, { ...code, ...uiSendSummary() });
 };
-const sendLanes = (): Store["sendLanes"] =>
-  hasUi() ? { code: uiOnly() ? null : codeReceipt(), ...uiSendSummary() } : null;
-// Fired after the last file is approved — a small receipt of the work done (files, lines,
-// comments, rejections) plus the offer to send the finished review back to the agent.
+// Fired after the last file is approved: the offer to send the finished review back to the agent.
 S.promptFinish = () => {
-  const { files, lines, comments, rejections } = reviewStats();
-  const extras = [
-    comments ? plural(comments, "comment") : "",
-    rejections ? plural(rejections, "rejected hunk") : "",
-  ].filter(Boolean);
-  const what = files === 1 ? "the file" : `all ${files} files`;
-  const tail = extras.length ? extras.join(", ") : "all clean";
-  openSendModal(
-    `You've reviewed ${what} — ${plural(lines, "changed line")}, ${tail}. Send the review back to the agent?`,
-    sendLanes(),
+  const { files } = reviewStats();
+  openReceipt(
+    `You've reviewed ${files === 1 ? "the file" : `all ${files} files`}`,
+    "Send the review back to the agent?",
   );
 };
 // Every manual send — the Send button and ⇧S — routes through this receipt-style modal: a
-// glance at what's about to go (files, lines, comments, rejections) before the one-way handoff.
-// (The button used to call send() directly with no confirm at all, which made accidental sends
-// too easy.)
-S.confirmSend = () => {
-  if (hasUi()) {
-    openSendModal("You're about to send your review. Send to the agent?", sendLanes());
-    return;
-  }
-  openSendModal(`You're about to send your review: ${codeReceipt()}. Send to the agent?`);
-};
+// glance at what's about to go before the one-way handoff. (The button used to call send()
+// directly with no confirm at all, which made accidental sends too easy.)
+S.confirmSend = () => openReceipt("You're about to send your review", "Send to the agent?");
 // Confirm the Send modal: the typed note (trimmed; empty → omitted) rides along as the one-time
 // overall instruction. Cancel leaves the review untouched. New annotations' screenshots still being
 // captured or uploaded go too if they land within SHOTS_WAIT_MS, while the dialog says so; past
@@ -534,7 +518,6 @@ const submitComment = (intent: "question" | "action") => {
     S.composerOpen = false;
     render();
     persist();
-    toast("Comment updated");
     return;
   }
   const now = new Date().toISOString();
@@ -571,10 +554,7 @@ const submitComment = (intent: "question" | "action") => {
   S.composerOpen = false;
   render();
   persist();
-  if (intent === "question") {
-    void askComment(c.id);
-    toast("Asked — waiting for answer");
-  } else toast("Comment saved");
+  if (intent === "question") void askComment(c.id);
 };
 S.saveComment = () => submitComment("action"); // editing Save + the `c` shortcut default
 S.ask = () => submitComment("question");
@@ -586,7 +566,6 @@ S.reset = async () => {
     D.fileDiff = D.rawFileDiff = null;
     render();
   }
-  toast("Reset review");
 };
 S.send = async (overallNote = "") => {
   // Post only the reviewer-owned slice — never the whole (multi-MB) ReviewState. Big desks
@@ -600,9 +579,9 @@ S.send = async (overallNote = "") => {
   });
   if (r && r.sent) {
     S.awaitingAgent = true;
+    S.undeliveredAsks.clear(); // the questions went with the review
     // The change requests went with it: their held bands go now, not on the next poll.
     updateAwaitingDom();
-    toast("Sent to agent");
   } else toast("Could not send review");
 };
 

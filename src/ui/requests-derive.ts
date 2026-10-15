@@ -37,6 +37,18 @@ export const asksChange = (c: ReviewComment) =>
 
 const threadKey = (c: ReviewComment) => `${c.path}\n${c.side}:${c.lineNumber}`;
 
+// The code threads: a path's comments on one side and line, in comment order. The Send's receipt
+// counts by the same threads as this list (send-derive.ts).
+export function codeThreads(comments: readonly ReviewComment[]): ReviewComment[][] {
+  const threads = new Map<string, ReviewComment[]>();
+  for (const c of comments) {
+    const thread = threads.get(threadKey(c));
+    if (thread) thread.push(c);
+    else threads.set(threadKey(c), [c]);
+  }
+  return [...threads.values()];
+}
+
 // List order: the code requests, then the app's. Code goes by the step's place in review order
 // (`rank`; a file outside it, such as a preview, ranks Infinity and those go by path), so a split
 // file's requests come part by part, then the strip (it sits above the diff), then by line, the
@@ -64,14 +76,8 @@ export function openRequestList(
   unanchored: (c: ReviewComment) => boolean,
   annotations: readonly UiAnnotationRecord[],
 ): OpenRequest[] {
-  const threads = new Map<string, ReviewComment[]>();
-  for (const c of comments) {
-    const thread = threads.get(threadKey(c));
-    if (thread) thread.push(c);
-    else threads.set(threadKey(c), [c]);
-  }
   const list: OpenRequest[] = [];
-  for (const thread of threads.values()) {
+  for (const thread of codeThreads(comments)) {
     const ask = thread.find(asksChange);
     if (!ask) continue;
     const { path, side, lineNumber } = ask;

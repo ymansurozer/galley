@@ -4,7 +4,9 @@ import { codeScheme } from "./shiki-curated";
 export const DEFAULT_SETTINGS: Settings = {
   appearance: "dark",
   lineDiffType: "word-alt",
-  diffIndicators: "bars",
+  // Quiet by default: the diff's own add/remove tinting already marks changes, so a fresh
+  // desk skips the gutter bars. Anyone who has saved settings keeps what they chose.
+  diffIndicators: "none",
   hunkSeparators: "line-info",
   overflow: "wrap",
   lineHighlight: "full",
@@ -24,7 +26,9 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarDefault: "tree",
   markdownView: "auto",
   stageOnAccept: false,
-  perChangeVerdicts: true,
+  // Off by default: file-level approval is the base review flow; per-block Keep/Undo, ⇧Y/⇧N
+  // and the change rail are opt-in, so a new reviewer isn't handed a verdict on every hunk.
+  perChangeVerdicts: false,
   editorCommand: "",
 };
 

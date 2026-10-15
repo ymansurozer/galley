@@ -1,4 +1,5 @@
 import type {
+  AgentActivity,
   AppMode,
   BridgeMessage,
   BridgeNav,
@@ -36,6 +37,7 @@ import type {
 import type { Step } from "./steps";
 import type { WalkRow } from "./walkthrough";
 import type { Presence } from "./topbar-derive";
+import type { TrailEntry } from "./thread-derive";
 import type { DeskPin } from "./uilane-derive";
 import type { OpenRequest, RequestRow } from "./requests-derive";
 
@@ -257,6 +259,11 @@ export interface Store {
   // Transient desk-liveness from /api/state (DeskStatus fields). Held OUTSIDE
   // S.state so they never ride a /api/save round-trip into the persisted review.
   agentActivity: string | null;
+  // Each distinct activity line this tab saw, the steps a waiting question shows (thread-derive).
+  agentTrail: readonly TrailEntry[];
+  // Question message ids whose ask didn't reach the desk. No agent has them, so their pending
+  // answer says so instead of "Thinking…" until a Send carries them. Tab memory only.
+  undeliveredAsks: Set<string>;
   agentListening: boolean;
   queuedQuestions: number;
   queuedReviews: number;
@@ -291,6 +298,8 @@ export interface Store {
   // never persisted). ⌘↵ sends, Enter is a newline, Esc cancels.
   sendOpen: boolean;
   sendMsg: string;
+  // What the receipt holds back ("Not sent: …"), under sendMsg when there are no lanes; "" for none.
+  sendNotSent: string;
   sendNote: string;
   // Send was confirmed and waits on new annotations' screenshots (capped): the dialog says so.
   sendFinishing: boolean;
@@ -357,8 +366,9 @@ export interface Store {
   // messages). Null for the code lane's composers and the floating one.
   composerAnnotation: string | null;
   // The Send dialog's receipt split by lane, when the desk has a UI lane (code is null on a
-  // UI-only desk). Null without a UI lane: the dialog shows sendMsg alone, as it always has.
-  sendLanes: { code: string | null; ui: string; uiNotSent: string } | null;
+  // UI-only desk), each lane's line with what it holds back under it. Null without a UI lane: the
+  // dialog reads the code line inline in sendMsg, with sendNotSent under it.
+  sendLanes: { code: string | null; codeNotSent: string; ui: string; uiNotSent: string } | null;
   // The enlarged screenshot: whose, and which of its two images. Null when closed.
   shotView: { id: string; kind: "crop" | "viewport" } | null;
 
@@ -458,6 +468,7 @@ export type AppFrame = {
 };
 
 export type {
+  AgentActivity,
   AppMode,
   BridgeMessage,
   BridgeNav,

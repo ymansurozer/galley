@@ -21,6 +21,8 @@ export const S: Store = Alpine.reactive<Store>({
   rendering: false,
   awaitingAgent: false,
   agentActivity: null,
+  agentTrail: [],
+  undeliveredAsks: new Set(),
   agentListening: false,
   queuedQuestions: 0,
   queuedReviews: 0,
@@ -43,6 +45,7 @@ export const S: Store = Alpine.reactive<Store>({
   confirmMsg: "",
   sendOpen: false,
   sendMsg: "",
+  sendNotSent: "",
   sendNote: "",
   sendFinishing: false,
   overviewOpen: false,
@@ -139,7 +142,7 @@ export async function openEditorAt(path: string, lineNumber: number) {
       method: "POST",
       body: JSON.stringify({ path, lineNumber }),
     });
-    toast(res.ok ? "Opened in editor" : res.error || "Could not open editor");
+    if (!res.ok) toast(res.error || "Could not open editor");
   } catch {
     toast("Could not open editor");
   }

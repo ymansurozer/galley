@@ -495,5 +495,4 @@ export function cursorResolve() {
   if (open && S.openThread === threadKey(thread[0]!)) S.openThread = null;
   render();
   persist();
-  toast(open ? "Resolved" : "Reopened");
 }

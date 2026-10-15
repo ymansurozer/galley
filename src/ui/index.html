@@ -21,8 +21,7 @@
            logo shows only where no sidebar carries the brand. -->
       <div class="top-title"><button class="nav-toggle" data-tip="Sidebar" data-tip-keys="⇧B" aria-label="Toggle sidebar"
           @click="$store.g.treeDrawerOpen = !$store.g.treeDrawerOpen"><svg class="ic" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg></button><svg class="top-logo" aria-hidden="true" viewBox="4 -5 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"><g filter="url(#tb_f0)"><circle cx="54.0259" cy="55.9741" r="44.0259" fill="#EB5103"/></g><g filter="url(#tb_f1)"><circle cx="72.6284" cy="55.9741" r="44.0259" fill="#EFCA44"/></g><g filter="url(#tb_f2)"><circle cx="64.5923" cy="54.0259" r="44.0259" fill="#FAF6EA"/></g><defs><filter id="tb_f0" x="0.699" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="tb_f1" x="19.301" y="2.647" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter><filter id="tb_f2" x="11.265" y="0.699" width="106.654" height="106.654" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feBlend mode="normal" in="SourceGraphic" in2="bg" result="shape"/><feGaussianBlur stdDeviation="4.6505"/></filter></defs></svg><div
-          class="top-name"><div class="top-name-row"><b x-text="$store.g.deskTitle()" :title="$store.g.deskTitle()"></b><span
-              class="top-tag" id="progressTag" role="status"></span></div><span
+          class="top-name"><b x-text="$store.g.deskTitle()" :title="$store.g.deskTitle()"></b><span
             x-text="$store.g.deskSubtitle()" :title="$store.g.deskSubtitle()"></span></div></div>
       <div class="toggles">
         <!-- Code / App lane switch, centred on the bar: only when the desk has a UI target and a diff.
@@ -136,7 +135,7 @@
           </template></div>
         <div id="walk" x-show="$store.g.hasGuide && $store.g.hasGuide() && $store.g.sidebarTab==='walkthrough'" x-cloak>
           <template x-for="r in $store.g.walkthroughRows()" :key="r.key">
-            <div class="node" :data-key="r.key" :data-path="r.path" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '', r.kind==='file' && r.flag ? 'flagged' : '']"
+            <div class="node" :data-key="r.key" :data-path="r.path" :class="[r.kind==='cat' ? 'walk-cat' : r.cls, r.kind==='cat' && r.skimmed ? 'walk-skim' : '']"
               @click="r.kind!=='cat' ? $store.g.selectStep({fileIndex: r.fileIndex, part: r.part}) : (r.skimmed ? $store.g.toggleSkimGroup() : $store.g.selectStep(r.jump))">
               <svg class="ic chev" :class="{open: r.open}" x-show="r.kind==='cat' && r.skimmed"><use href="#gly-chevron"></use></svg>
               <span class="nm walk-cat-name" x-show="r.kind==='cat'" x-text="r.category" :title="r.category"></span>
@@ -382,8 +381,10 @@
       <div class="modal-backdrop" id="sendModal" :class="{show: $store.g.sendOpen}" @click.self="$store.g.sendCancel()">
         <div class="modal send">
           <p x-text="$store.g.sendMsg"></p>
+          <div class="sub" x-show="$store.g.sendNotSent" x-text="$store.g.sendNotSent"></div>
           <div class="lanes" x-show="$store.g.sendLanes">
-            <div class="lane" x-show="$store.g.sendLanes?.code"><b>Code</b><div x-text="$store.g.sendLanes?.code"></div></div>
+            <div class="lane" x-show="$store.g.sendLanes?.code"><b>Code</b><div><span x-text="$store.g.sendLanes?.code"></span><div class="sub"
+                  x-show="$store.g.sendLanes?.codeNotSent" x-text="$store.g.sendLanes?.codeNotSent"></div></div></div>
             <div class="lane"><b>UI</b><div><span x-text="$store.g.sendLanes?.ui"></span><div class="sub"
                   x-show="$store.g.sendLanes?.uiNotSent" x-text="$store.g.sendLanes?.uiNotSent"></div></div></div>
           </div>
