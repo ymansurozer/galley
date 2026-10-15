@@ -22,6 +22,7 @@ export const S: Store = Alpine.reactive<Store>({
   awaitingAgent: false,
   agentActivity: null,
   agentTrail: [],
+  undeliveredAsks: new Set(),
   agentListening: false,
   queuedQuestions: 0,
   queuedReviews: 0,

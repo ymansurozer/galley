@@ -579,6 +579,7 @@ S.send = async (overallNote = "") => {
   });
   if (r && r.sent) {
     S.awaitingAgent = true;
+    S.undeliveredAsks.clear(); // the questions went with the review
     // The change requests went with it: their held bands go now, not on the next poll.
     updateAwaitingDom();
   } else toast("Could not send review");

@@ -1,6 +1,7 @@
 import { S, toast, persist, saver } from "./store";
 import { toDisplayLine } from "./changes";
 import { render } from "./render";
+import { updateAwaitingDom } from "./annotations";
 import { askStamp, turnInto, turnsInto } from "./uilane-derive";
 
 // Edit & delete the reviewer's own comments. Agent replies (role "agent") are
@@ -43,7 +44,12 @@ export async function askComment(id: string) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ id }),
   }).catch(() => null);
-  if (!res?.ok) toast("Couldn't reach the agent — the question goes with the next Send");
+  if (res?.ok) S.undeliveredAsks.delete(id);
+  else {
+    S.undeliveredAsks.add(id);
+    toast("Couldn't reach the agent — the question goes with the next Send");
+    updateAwaitingDom();
+  }
 }
 
 // Turn the reviewer's opening comment into the other kind. A change request turned into a question

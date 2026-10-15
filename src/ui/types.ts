@@ -261,6 +261,9 @@ export interface Store {
   agentActivity: string | null;
   // Each distinct activity line this tab saw, the steps a waiting question shows (thread-derive).
   agentTrail: readonly TrailEntry[];
+  // Question message ids whose ask didn't reach the desk. No agent has them, so their pending
+  // answer says so instead of "Thinking…" until a Send carries them. Tab memory only.
+  undeliveredAsks: Set<string>;
   agentListening: boolean;
   queuedQuestions: number;
   queuedReviews: number;

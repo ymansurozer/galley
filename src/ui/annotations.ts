@@ -151,7 +151,7 @@ export function annotations(): AnnotationInput[] {
 
 // The pending answer under an unanswered question asked at `askTime`, from the desk-liveness
 // fields and the tab's activity trail each poll tick (thread-derive pendingAnswer).
-const pendingParts = (askTime: string) =>
+const pendingParts = (askTime: string, msgId: string) =>
   pendingAnswer(
     {
       awaitingAgent: S.awaitingAgent,
@@ -161,6 +161,7 @@ const pendingParts = (askTime: string) =>
     },
     S.agentTrail,
     askTime,
+    S.undeliveredAsks.has(msgId),
   );
 
 const stepHtml = (s: TrailStep) => `<li${s.live ? ' class="live"' : ""}>${esc(s.body)}</li>`;
@@ -194,7 +195,7 @@ function patchSteps(list: Element, steps: TrailStep[]) {
 // agent's reply lands in its thread (the poll renders on any new comment), so none outlives it.
 export function updateAwaitingDom() {
   for (const el of document.querySelectorAll<HTMLElement>(".awaiting-answer")) {
-    const parts = pendingParts(el.dataset.ask ?? "");
+    const parts = pendingParts(el.dataset.ask ?? "", el.dataset.msg ?? "");
     el.classList.toggle("queued", parts.queued);
     const label = el.querySelector(".awaiting-label");
     if (label && label.textContent !== parts.label) label.textContent = parts.label;
@@ -209,10 +210,11 @@ export function updateAwaitingDom() {
 
 // The agent's message-to-be after a question it hasn't answered: "Thinking…" over the steps it
 // posted since the question was asked, or amber words when nothing picked the question up. Its
-// ask time rides along so updateAwaitingDom can pick the question's steps.
-function pendingHtml(askTime: string) {
-  const parts = pendingParts(askTime);
-  return `<div class="msg agent pending awaiting-answer${parts.queued ? " queued" : ""}" data-ask="${esc(askTime)}"><div class="meta">${AVATAR.agent}<span class="author agent">Agent</span></div><div class="pending-body" aria-live="polite"><span class="awaiting-label">${esc(parts.label)}</span><ol class="agent-steps">${parts.steps.map(stepHtml).join("")}</ol></div></div>`;
+// ask time and the question's id ride along so updateAwaitingDom can pick the question's steps and
+// tell whether its ask never got through.
+function pendingHtml(askTime: string, msgId: string) {
+  const parts = pendingParts(askTime, msgId);
+  return `<div class="msg agent pending awaiting-answer${parts.queued ? " queued" : ""}" data-ask="${esc(askTime)}" data-msg="${esc(msgId)}"><div class="meta">${AVATAR.agent}<span class="author agent">Agent</span></div><div class="pending-body" aria-live="polite"><span class="awaiting-label">${esc(parts.label)}</span><ol class="agent-steps">${parts.steps.map(stepHtml).join("")}</ol></div></div>`;
 }
 
 // Coarse relative time for a message ("now", "5m ago", "3h ago", "2d ago", else a date). The
@@ -384,7 +386,7 @@ export function buildCommentThread(
       // by updateAwaitingDom) until an agent reply lands after it and takes its place.
       const pending =
         !resolved && !editing && messageWaiting(m, c.comments)
-          ? pendingHtml(m.askedAt ?? m.createdAt)
+          ? pendingHtml(m.askedAt ?? m.createdAt, m.id)
           : "";
       return `<div class="msg${own ? "" : " agent"}${editing ? " editing" : ""}" data-id="${m.id}"><div class="meta">${own ? AVATAR.you : AVATAR.agent}<span class="author${own ? "" : " agent"}">${own ? "You" : "Agent"}</span>${badge}<time>${esc(relTime(m.createdAt))}${edited}</time>${actions}</div>${body}</div>${pending}`;
     })

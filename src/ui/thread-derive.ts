@@ -76,12 +76,21 @@ export function trailSteps(
 // (topbar-derive) read from the same signals, this question counted as unanswered, so the two
 // never disagree. Amber with the top bar's words when nothing picked the review or the question
 // up; else "Thinking…" over the steps the agent posted since it was asked. Desk-global by design:
-// one desk, one agent, so two waiting questions share the steps after the later ask.
+// one desk, one agent, so two waiting questions share the steps after the later ask. A question
+// whose ask never reached the desk (`undelivered`) has no agent on it whatever the presence says:
+// it says so, amber, and goes with the next Send.
 export function pendingAnswer(
   s: Omit<PresenceSignals, "unansweredAsks">,
   trail: readonly TrailEntry[],
   askTime: string,
+  undelivered = false,
 ) {
+  if (undelivered)
+    return {
+      queued: true,
+      label: "Not delivered — goes with the next Send",
+      steps: [] as TrailStep[],
+    };
   const presence = agentPresence({ ...s, unansweredAsks: 1 });
   return presence.kind === "notAttached"
     ? { queued: true, label: presence.line, steps: [] as TrailStep[] }

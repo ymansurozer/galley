@@ -256,6 +256,21 @@ test("a question waiting on the agent: thinking with its steps, or queued in the
       .label,
     "Thinking…",
   );
+  // An ask that never reached the desk says so, over a thinking agent and over a missing one.
+  const notDelivered = {
+    queued: true,
+    label: "Not delivered — goes with the next Send",
+    steps: [],
+  };
+  assert.deepEqual(
+    pendingAnswer({ ...idle, activity: "Reading quota.ts" }, trail, t(10), true),
+    notDelivered,
+  );
+  assert.deepEqual(
+    pendingAnswer({ ...idle, queuedQuestions: 1 }, trail, t(10), true),
+    notDelivered,
+  );
+  assert.equal(pendingAnswer(idle, trail, t(10), false).label, "Thinking…");
 });
 
 test("the held chip shows for a change request until the review is sent", () => {

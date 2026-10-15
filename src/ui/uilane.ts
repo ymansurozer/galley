@@ -1,5 +1,5 @@
 import { S, $, openEditorAt, toast, persist, persistSoon, saver } from "./store";
-import { buildCommentThread, type ThreadControls } from "./annotations";
+import { buildCommentThread, updateAwaitingDom, type ThreadControls } from "./annotations";
 import {
   buildComposer,
   closeComposer,
@@ -372,7 +372,12 @@ async function askAgent(annotationId: string, messageId: string) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ annotationId, messageId }),
   }).catch(() => null);
-  if (!res?.ok) toast("Couldn't reach the agent — the question goes with the next Send");
+  if (res?.ok) S.undeliveredAsks.delete(messageId);
+  else {
+    S.undeliveredAsks.add(messageId);
+    toast("Couldn't reach the agent — the question goes with the next Send");
+    updateAwaitingDom();
+  }
 }
 
 // Submit the UI lane's open composer, as a change request ("action") or a question: a new
