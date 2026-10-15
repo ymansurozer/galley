@@ -84,8 +84,8 @@ test("pr mode: base..HEAD committed changes → verdict-only (not stageable)", a
   assert.ok(src!.changes.every((c) => c.stageable === false));
 });
 
-// The old side must read from the INDEX, not HEAD: the UI re-diffs old/new contents
-// itself, so a HEAD baseline resurrects already-staged hunks as pending diff. (Staging
+// The old side must read from the INDEX, not HEAD: the UI renders the diff over the old/new
+// contents, so a HEAD baseline resurrects already-staged hunks as pending diff. (Staging
 // is what advances the review baseline between rounds — see buildDiffSource.)
 test("repo mode: staged content is the old-side baseline, not HEAD", async () => {
   write("a.txt", "a\nROUND1\nc\n");
@@ -399,4 +399,23 @@ test("mode-only and same-path binary changes still produce no review entry", asy
   const src = await buildDiffSource({ mode: "repo", root: dir });
   assert.equal(src, null); // no text hunks and same-path → both drop; nothing else → null
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("repo mode: hunks keep git's default context even under diff.context=0", async () => {
+  // The tab renders these hunks over the file (changes-derive.ts), and @pierre misplaces a
+  // zero-context hunk's empty side by a line — so the desk pins -U3 whatever the user's config.
+  write("ctx.txt", "1\n2\n3\n4\n5\n6\n7\n");
+  git(["add", "ctx.txt"]);
+  git(["commit", "-qm", "ctx"]);
+  git(["config", "diff.context", "0"]);
+  try {
+    write("ctx.txt", "1\n2\n3\nnew\n4\n5\n6\n7\n");
+    const src = await buildDiffSource({ mode: "repo", root, path: "ctx.txt" });
+    const hunk = src!.files.find((f) => f.path === "ctx.txt")!.hunks![0]!;
+    assert.equal(hunk.header.startsWith("@@ -1,6 +1,7 @@"), true, hunk.header);
+    assert.equal(hunk.lines.filter((l) => l.kind === "context").length, 6);
+  } finally {
+    git(["config", "--unset", "diff.context"]);
+    git(["checkout", "--", "ctx.txt"]);
+  }
 });

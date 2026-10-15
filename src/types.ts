@@ -613,7 +613,7 @@ export type PollPayload = Pick<
 >;
 
 // The structured payload printed to stdout (and written to result.json) when
-// the reviewer clicks "Send to agent". This is the handoff contract.
+// the reviewer clicks "Send Review". This is the handoff contract.
 export type ReviewResult = {
   session: string;
   repoRoot: string;

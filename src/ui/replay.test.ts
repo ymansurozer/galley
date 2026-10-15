@@ -55,8 +55,8 @@ function rawDiff(): FileDiffMetadata {
   );
 }
 
-// The file's blocks as the tab derives them (changes.ts deriveChanges), named P..S in document
-// order, each with its part stamp and the given status.
+// The file's blocks as the tab derives them (changes-derive.ts deriveChanges), named P..S in
+// document order, each with its part stamp and the given status.
 function blocks(
   diff: FileDiffMetadata,
   status: Partial<Record<string, ChangeState["status"]>> = {},

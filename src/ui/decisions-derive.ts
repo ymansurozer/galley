@@ -6,7 +6,7 @@ type ReviewFile = ReviewState["files"][number];
 // The key a change block (and the decision on it, `path:stableKey`) goes by. It must equal the
 // server's changeStableKeyFromBlock (git.ts): a file signed off from the sidebar before it was
 // ever opened records its decisions against the server's blocks, and opening it re-derives them
-// here (changes.ts deriveChanges), matching each decision back by this key.
+// here (changes-derive.ts deriveChanges), matching each decision back by this key.
 export function changeStableKey(part: ChangeContent) {
   const side = part.additions > 0 ? "additions" : "deletions";
   const lineNumber = (side === "additions" ? part.additionLineIndex : part.deletionLineIndex) + 1;

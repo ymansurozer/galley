@@ -12,7 +12,7 @@
 export const SPEC = `galley agent contract
 
 Galley serves a localhost browser desk over a git diff. A human accepts/rejects changes,
-comments, and asks questions, then clicks Send to Agent; the desk stays live across rounds. You
+comments, and asks questions, then clicks Send Review; the desk stays live across rounds. You
 attach via CLI subcommands — receive each Send, answer questions, post replies that appear live,
 and re-diff your edits into the same tab. No model runs in the desk; the review is the human's.
 

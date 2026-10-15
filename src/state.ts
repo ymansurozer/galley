@@ -534,9 +534,13 @@ export async function buildDiffSource(opts: {
   base?: string;
 }): Promise<DiffSource | null> {
   const { mode, root } = opts;
+  // `-U3` pins git's context to the default whatever the user's `diff.context` says: the tab
+  // renders these hunks (changes-derive.ts parseRawDiff), and @pierre places a zero-count side one
+  // line off, so `diff.context=0`'s mid-file `@@ -2,0 +3,2 @@` hunks would break every replay.
+  const DIFF = ["diff", "--no-ext-diff", "-M", "-U3"];
   if (mode === "pr") {
     const base = opts.base ?? "HEAD";
-    const rawDiff = await git(["diff", "--no-ext-diff", "-M", `${base}..HEAD`], root);
+    const rawDiff = await git([...DIFF, `${base}..HEAD`], root);
     if (!rawDiff.trim()) return null;
     // The new side is HEAD (committed) — one `git diff --raw` harvests every new-side OID, so the
     // file-level key needs no per-file re-hash and assembleDiff reads no blob contents at all.
@@ -561,10 +565,10 @@ export async function buildDiffSource(opts: {
       ));
     const working = await fs.readFile(abs, "utf8").catch(() => "");
     if (tracked) {
-      const rawDiff = await git(["diff", "--no-ext-diff", "-M", "--", rel], root);
+      const rawDiff = await git([...DIFF, "--", rel], root);
       if (rawDiff.trim()) {
-        // New side is the working tree — hashed locally (no committed OID). The UI re-diffs old/new
-        // (fetched on open against the INDEX baseline via readFileContents), not these hunks.
+        // New side is the working tree — hashed locally (no committed OID). The UI renders these
+        // hunks over old/new (fetched on open against the INDEX baseline via readFileContents).
         const parsedDiff = parseUnifiedDiff(rawDiff);
         const { files, changes } = await assembleDiff(
           parsedDiff,
@@ -587,14 +591,15 @@ export async function buildDiffSource(opts: {
   // repo
   // -M asks git itself to detect renames, so committed/staged renames render deterministically
   // regardless of the user's `diff.renames` config (see buildDiffSource's contract).
-  const args = ["diff", "--no-ext-diff", "-M"];
+  const args = [...DIFF];
   if (opts.staged) args.push("--cached");
   if (opts.path) args.push("--", opts.path);
   const rawDiff = await git(args, root);
-  // Each side must match what the diff was taken against, because the UI re-diffs the
-  // old/new contents itself instead of rendering these hunks. Unstaged diffs working
-  // tree vs INDEX, so old reads :0 — a HEAD baseline would resurrect already-staged
-  // changes as pending diff on every reload. Staged (--cached) diffs index vs HEAD.
+  // Each side must match what the diff was taken against, because the UI renders these hunks
+  // over the old/new contents (re-diffing the two sides itself where they don't match — see
+  // changes-derive.ts parseRawDiff). Unstaged diffs working tree vs INDEX, so old reads :0 — a
+  // HEAD baseline would resurrect already-staged changes as pending diff on every reload.
+  // Staged (--cached) diffs index vs HEAD.
   // Staged: the new side is the index (committed object) — harvest its OIDs from `git diff
   // --raw` in one process. Unstaged: the new side is the dirty working tree (`git diff --raw`
   // reports it as all-zeros), so no harvest — assembleDiff hashes the working copy instead.

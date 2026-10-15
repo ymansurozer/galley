@@ -4,7 +4,8 @@ import { cur } from "./contents";
 import { anchorSelection, buildLineMap, identityLineMap } from "./linemap";
 import { blockAt, changePosition, replayPositions } from "./replay";
 import { inStep } from "./steps";
-import { acceptSignedOffBlocks, changeStableKey } from "./decisions-derive";
+import { acceptSignedOffBlocks } from "./decisions-derive";
+import { deriveChanges } from "./changes-derive";
 import { deriveFlowIndex, type FlowIndex } from "./flow-index";
 import type { ChangeState, ReviewComment, ReviewState, Side } from "./types";
 
@@ -88,58 +89,11 @@ export function fileReviewState(path: string): FileReviewState {
   return fileObjections(path) ? "changes-requested" : "approved";
 }
 
-export function deriveChanges(
-  diff: FileDiffMetadata,
-  path: string,
-  previous = new Map<string, ChangeState>(),
-): ChangeState[] {
-  const derived: ChangeState[] = [];
-  diff.hunks.forEach((h, hunkIndex) => {
-    (h.hunkContent || []).forEach((part, contentIndex) => {
-      if (part.type !== "change") return;
-      const side = part.additions > 0 ? "additions" : "deletions";
-      const lineNumber =
-        (side === "additions" ? part.additionLineIndex : part.deletionLineIndex) + 1;
-      const stableKey = changeStableKey(part);
-      const id = `${path}:${stableKey}`;
-      const prev = previous.get(id);
-      // Status comes from the explicit decision record (source of truth), not from
-      // whether the hunk happens to be staged.
-      const decision = (S.state.decisions || []).find((d) => d.key === id);
-      const status: ChangeStatus = decision?.status ?? "pending";
-      derived.push({
-        id,
-        path,
-        hunkIndex,
-        changeIndex: contentIndex,
-        stableKey,
-        side,
-        lineNumber,
-        endLine:
-          side === "additions"
-            ? part.additionLineIndex + (part.additions || 1)
-            : part.deletionLineIndex + (part.deletions || 1),
-        title: `${part.deletions || 0} removed · ${part.additions || 0} added`,
-        status,
-        stageable: prev?.stageable,
-        contentHash: prev?.contentHash,
-        reviewedHash: decision?.reviewedHash ?? prev?.reviewedHash,
-        // Server-stamped skim rides on the change's identity; carry it across client
-        // re-derivation. A rewritten block gets a new id → no prev → skim drops on its own.
-        skim: prev?.skim,
-        // The guide part that claims the block rides the same identity (absent = Rest).
-        part: prev?.part,
-      });
-    });
-  });
-  return derived;
-}
-
 export function ensureChangesFromFileDiff(diff = D.fileDiff) {
   if (!diff) return;
   const path = currentFile().path;
   const previous = new Map(S.state.changes.filter((c) => c.path === path).map((c) => [c.id, c]));
-  const derived = deriveChanges(diff, path, previous);
+  const derived = deriveChanges(diff, path, previous, S.state.decisions || []);
   S.state.changes = S.state.changes.filter((c) => c.path !== path).concat(derived);
   // Blocks a sign-off couldn't see (an untracked add signed off unopened) are accepted now.
   const file = S.state.files.find((f) => f.path === path);

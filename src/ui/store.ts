@@ -87,6 +87,7 @@ export const D: DiffHolder = {
   // hot-path call sites don't each need a non-null assertion.
   FileDiff: null as unknown as DiffHolder["FileDiff"],
   parseDiffFromFile: null as unknown as DiffHolder["parseDiffFromFile"],
+  processFile: null as unknown as DiffHolder["processFile"],
   diffAcceptRejectHunk: null as unknown as DiffHolder["diffAcceptRejectHunk"],
   instance: null,
   diffCache: new Map(),
