@@ -4,53 +4,97 @@
 
 # Galley
 
-**An integrated review environment (IRE) for code you didn't write by hand.**
+**A review desk for your coding agent's output.**
+
+Review its diff in your browser, ask questions, request changes, hit **Send Review**,<br>and your agent makes the edits and replies in the same tab.
 
 [![CI](https://github.com/ymansurozer/galley/actions/workflows/ci.yml/badge.svg)](https://github.com/ymansurozer/galley/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/galley-diff.svg)](https://www.npmjs.com/package/galley-diff) [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-<img src="assets/screenshot.png" alt="Galley — a guided review: pending changes with accept/reject, a question waiting on the agent, and a change request" width="80%" />
-
 </div>
 
-<br>
+https://github.com/user-attachments/assets/3cab5a2f-7cce-4b08-9ebc-71dfdf9164e4
 
-Code editors and IDEs were built for a coding-first world. Their diff view is fine for a quick glance, but not for working through a big change or going back and forth with the agent that wrote it.
+## How it works
 
-Galley is my attempt at a real review surface: you review, hit **Send Review**, and your agent acts on your decisions and replies in place.
+1. **Your agent opens a desk.** When it has changes for you, it runs `galley` and attaches a guide: the diff grouped by concern, a note on how to read each file, and the risky ones flagged.
+2. **You review.** Keep or undo each change. Ask a question and your agent answers live in the thread. Leave a change request and it waits for the handoff. Switch to the running app and annotate the page itself.
+3. **You hit Send Review.** Your agent gets one structured review: every decision, request and annotation.
+4. **Your agent follows up.** It makes the edits, re-diffs them into the same tab, and replies in place. Review the new round, or approve and you're done.
 
-I'm not saying this is *the* review surface. I built it in a week and I'm still figuring out the shape. But this is what I think it should be.
+## Quick start
 
-> The name comes from the *galley proof*: in printing, the rough proof pulled for proofreading and corrections before a text goes to press. You mark it up, then it ships. Same idea, for code.
+Needs **Node 22+** and **git**.
 
-## Getting started
-
-1. **Install the CLI** (needs **Node 22+** and **git**):
+1. **Install the CLI:**
 
    ```bash
    npm install -g galley-diff        # global, for any repo
    # or: npm install -D galley-diff   # per-project
    ```
 
-2. **Teach your agent to drive it.** Install the skill for on-demand use:
+2. **Teach your agent to use it.** Install the skill:
 
    ```bash
    npx skills add ymansurozer/galley
    ```
 
-   Or paste the [snippet](./skills/galley/agents-snippet.md) into your agent's `AGENTS.md` / `CLAUDE.md` to always review via Galley.
+   Or paste the [snippet](./skills/galley/agents-snippet.md) into your agent's `AGENTS.md` / `CLAUDE.md` to always review through Galley.
 
-3. **Start a review:**
+3. **Ask your agent to review its changes with Galley** (with the skill: `/galley`). It starts the desk and gives you the URL. Open it and review.
 
-   ```bash
-   galley                       # review the working-tree diff
-   galley --diff staged         # review the staged diff
-   galley file path/to/plan.md  # review a single file or artifact (e.g. a generated plan)
-   galley pr feature-branch     # review a branch's commits vs its merge-base
-   ```
+You can also start a desk yourself:
 
-   Galley prints the desk's URL and stays running; open it in your browser (or pass `--open` and Galley opens the tab for you). You review and click **Send Review**; the agent attaches, acts on each send, and replies in the same tab. The full agent contract — modes, the event loop, all flags (`--path`, `--port`, `--open`, `--guide`, …), `ReviewResult`, and the guided-review schema — is printed by **`galley spec`**.
+```bash
+galley                       # the working-tree diff
+galley --diff staged         # the staged diff
+galley file path/to/plan.md  # a single file, like a plan or PRD
+galley pr feature-branch     # a branch against its merge-base
+```
 
-### Reviewing on a remote machine
+`galley spec` prints the full agent contract: the modes, the event loop, every flag, the review result and the guide schema.
+
+## What makes it good
+
+### Guided reviews
+
+<img src="assets/guided.png" alt="A guided file in Galley: the guide card with its flag, a change request the agent has answered, and an answered question" width="100%" />
+
+Your agent groups the diff by concern, puts the files in order, notes what to check in each, and flags the risky ones. Ask it to skip the noise and those changes fold away, one click from visible.
+
+### Threads your agent answers
+
+Comment on any line. Questions get answered live, so you never wait. Change requests go out with **Send Review** and come back with a reply.
+
+### Review the running app, too
+
+<img src="assets/app.png" alt="The app view in Galley: an invoice page with a change request pinned to its Overdue badge and the agent's reply" width="100%" />
+
+Your agent hands over its dev server and the desk gets an **App** tab. Annotate any element, region or text; your agent gets a screenshot of each.
+
+### Keyboard-first
+
+Move, keep, undo, comment, approve and send without the mouse.
+
+### Also
+
+- **Four review modes:** working tree, staged, a single file, or a branch.
+- **Keep or undo** each change, or approve a whole file.
+- **Open in editor** at the current line.
+- **Make it yours:** layout, wrapping, theme and fonts.
+- **Remote review:** agent on a server, you on your laptop ([below](#reviewing-on-a-remote-machine)).
+
+## Why Galley
+
+Code editors were built for writing code. Their diff view is fine for a quick glance, but not for working through a big change or going back and forth with the agent that wrote it. Galley is a surface built for that. I'm still finding its shape, but this is what I think review should feel like.
+
+- **No model runs here.** Galley doesn't call an LLM or orchestrate one. It renders the diff, validates the structured input it's given, and hands a result back.
+- **Your agent, not ours.** The contract is plain JSON over stdout and a localhost server: Claude Code, Codex, Cursor or a shell script can drive it. The guide, the answers and the code changes are all *your* agent's work. Galley gives it somewhere to land.
+- **Local and private.** The desk binds to loopback (`127.0.0.1`) on a stable port per session. No telemetry. Your browser may fetch a web font; switch to system fonts and even that stops.
+- **It won't touch your repo unless you ask.** Galley never edits your tracked files.
+
+> The name comes from the *galley proof*: in printing, the rough proof pulled for proofreading and corrections before a text goes to press. You mark it up, then it ships. Same idea, for code.
+
+## Reviewing on a remote machine
 
 By default the desk binds to `127.0.0.1` — loopback-only, unreachable from any other device. For a remote-dev setup (the agent and desk run on a server, you review from a browser on your laptop), `--host` binds it wider:
 
@@ -66,37 +110,6 @@ The printed URL is what you open in the remote browser; the agent's `galley awai
 > **The desk API is unauthenticated.** Anyone who can reach the bound address can drive the desk — run your configured editor command, stage and reset changes, mutate the git index, read any file in the repo. Bind beyond loopback **only** on a fully trusted network: a personal tailnet, or a host whose firewall blocks the port from everything else. **Never on a shared office/coffee-shop LAN.**
 >
 > **With a UI target, the desk also serves your dev app.** `--ui` / `galley ui` adds a second port, bound the same way, that proxies the running app — including whatever session you signed into it with. Anyone who can reach that port uses the app as you. Two desks proxying the same app on the same host name share its cookies, so switching between them may sign you out.
-
-## Features
-
-- **A beautiful and functional diff view** built on `@pierre/diffs`.
-- **Per-line comment threads.** Comment on any line. Ask questions — as many as you like, without waiting — and your agent answers live in the thread; leave a change request and it rides to the handoff.
-- **Per-change accept/reject.** Accept or reject individual changes, or sign off a whole file.
-- **A tight handoff loop.** Hit **Send Review** and your agent gets a structured review. It makes the edits, re-diffs into the same tab, and replies in place.
-- **Guided review.** Your agent can attach a guide: an overview, the files in a sensible order, a per-file orientation (the lens to read it with) and category, and the risky ones flagged.
-- **Focused review.** Ask your agent to skim the noise ("ignore the import churn") and the guide marks it: skimmed changes collapse behind one-line strips, and files that are pure noise leave the flow entirely — folded into a Skimmed group, with no progress weight. Everything stays one click from visible, and nothing is ever auto-approved.
-- **Four review modes.** The working tree, the staged diff, a single file (tracked or not, like a plan, PRD, or issue), or a branch against its merge-base.
-- **Review the running app, too.** Your agent hands over its dev server (`galley ui http://localhost:3000`, or `--ui` at start), and the desk shows the app behind a **Code / UI** switch. Annotate an element, a region, some text or a whole page with a change request or a question; your agent gets screenshots of each and, in Vue and Nuxt apps, the source `file:line`. No diff yet? It opens as a UI-only desk. Works the same from a remote machine.
-- **Keyboard-first.** Intuitive navigation: move by file, line, or change, and accept, reject, comment, or approve without touching the mouse.
-- **Open in editor.** Configure a repo-scoped editor command and jump from the review desk to the current file and line.
-- **Customize** diff layout, intra-line, hunk separators, wrapping, code-highlight theme, and fonts.
-
-## Principles
-
-Galley is opinionated about exactly one thing: the review surface. It's a protocol and an interface, nothing more. How you review, and what you review with, stays yours.
-
-- **No model runs here.** Galley doesn't call an LLM or orchestrate one. It renders the diff, validates the structured input it's given, and hands a result back.
-- **Your agent, not ours.** The contract is plain JSON over stdout and a localhost server, with no assumption about who's on the other end: Claude Code, Cursor, Codex, a shell script. The guided review, the answers to your questions, the code changes themselves are all *your* agent's work. Galley just gives it somewhere to land.
-- **Local and private.** The server binds to loopback (`127.0.0.1`) on a stable per-session port. No telemetry. Your browser may fetch a web font; switch to system fonts and even that stops. (For remote-dev setups, `--host` can bind it wider — see [Reviewing on a remote machine](#reviewing-on-a-remote-machine); the default stays loopback-only. With a UI target, the app's proxy is a second port under the same rules.)
-- **It won't touch your repo unless you ask.** Galley never edits your tracked files.
-
-## Roadmap
-
-Immediate to-dos, in rough priority order.
-
-- [ ] **Command palette**: add a discoverable Cmd/Ctrl+Shift+P palette for common review actions: file filter, find in diffs, next/previous file or change, accept/reject/request change, approve file, toggle layout/settings/sidebar, open in editor, reload, and Send Review. Keep keyboard shortcuts as the fast path, but make every major action searchable.
-- [ ] **Commit/range/branch review modes**: expand beyond working/staged/file/PR branch reviews with `galley commit <ref>`, `galley range <base>..<head>` / `<base>...<head>`, and `galley branch <base>` so Galley can review historical or comparison diffs without requiring a dirty working tree.
-- [ ] **Lazy diff/content loading + large/binary-file guards**: today every changed file's full contents are read and shipped up front; the only large-file handling is client-side render deferral. Move the guard to the data layer: classify each file by byte size and ship lightweight patch data first, hydrating full contents, highlighting, and rendered markdown on demand when a file is opened. Per-file `loadState` (`ready | deferred | too-large | binary | error`) with two byte tiers — an *eager* limit (~1 MiB, loaded up front) and a *manual* limit (~2 MiB, deferred until opened); over that is `too-large` (skipped with a summary + explicit load-anyway action), plus an image byte cap. Add **binary detection** (NUL-byte scan) so binaries are skipped rather than read as UTF-8 and handed to @pierre.
 
 ## License
 
