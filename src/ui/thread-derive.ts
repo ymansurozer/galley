@@ -1,4 +1,4 @@
-import type { ThreadMessage } from "./types";
+import type { AgentActivity, ThreadMessage } from "./types";
 import { answered } from "./uilane-derive";
 import { agentPresence, type PresenceSignals } from "./topbar-derive";
 
@@ -21,8 +21,8 @@ export function threadKind(
   return mine.length ? "note" : "agent";
 }
 
-// A reviewer's question waits on the agent until an agent reply lands after it was asked; its own
-// status line sits under it until then. Each question waits on its own: one asked after the
+// A reviewer's question waits on the agent until an agent reply lands after it was asked; its
+// pending answer sits under it until then. Each question waits on its own: one asked after the
 // agent's answer to an earlier one waits again.
 export const messageWaiting = (m: ThreadMessage, comments: readonly ThreadMessage[]) =>
   m.role !== "agent" && m.intent === "question" && !answered(m, comments);
@@ -31,15 +31,52 @@ export const messageWaiting = (m: ThreadMessage, comments: readonly ThreadMessag
 export const questionWaiting = (comments: readonly ThreadMessage[]) =>
   comments.some((m) => messageWaiting(m, comments));
 
-// A waiting question's status line: the top bar's presence rule (topbar-derive) read from the same
-// signals, this question counted as unanswered, so the two never disagree. Amber with the top
-// bar's words when nothing picked the review or the question up; else "Working", and what the
-// agent says it's doing once it says. Desk-global by design: one desk, one agent.
-export function questionStatus(s: Omit<PresenceSignals, "unansweredAsks">) {
+// The agent's `galley status` lines as the tab saw them: `at` is the desk's stamp, seenAt the tab's
+// when a poll first delivered the line. Ask stamps are the tab's too, so a question's steps are
+// picked by seenAt and never compare two machines' clocks (a desk can serve a browser elsewhere).
+// Kept in tab memory only: a reload restarts it from the current line.
+export type TrailEntry = { body: string; at: string; seenAt: string };
+export type TrailStep = { body: string; live: boolean };
+
+const TRAIL_CAP = 8;
+
+// Record the activity a poll delivered. Each poll repeats the latest line, so only a body unlike
+// the newest entry's is a new step; the same body posted again (a new `at`) is no new step but
+// counts as seen now, so a question asked since shows it. No activity (none yet, cleared by the
+// agent's reply, or stale) records nothing. Unchanged, the same array comes back.
+export function recordActivity(
+  trail: readonly TrailEntry[],
+  activity: AgentActivity | null,
+  seenAt: string,
+): readonly TrailEntry[] {
+  if (!activity) return trail;
+  const last = trail.at(-1);
+  const seen = { body: activity.body, at: activity.at, seenAt };
+  if (last?.body !== activity.body) return [...trail, seen].slice(-TRAIL_CAP);
+  return last.at === activity.at ? trail : [...trail.slice(0, -1), seen];
+}
+
+// The steps a question shows: the lines seen from its ask on, oldest first, the newest live.
+export function trailSteps(trail: readonly TrailEntry[], askTime: string): TrailStep[] {
+  const since = Date.parse(askTime);
+  const shown = trail.filter((e) => Date.parse(e.seenAt) >= since);
+  return shown.map((e, i) => ({ body: e.body, live: i === shown.length - 1 }));
+}
+
+// What stands in for the agent's answer under a waiting question: the top bar's presence rule
+// (topbar-derive) read from the same signals, this question counted as unanswered, so the two
+// never disagree. Amber with the top bar's words when nothing picked the review or the question
+// up; else "Thinking…" over the steps the agent posted since it was asked. Desk-global by design:
+// one desk, one agent, so two waiting questions share the steps after the later ask.
+export function pendingAnswer(
+  s: Omit<PresenceSignals, "unansweredAsks">,
+  trail: readonly TrailEntry[],
+  askTime: string,
+) {
   const presence = agentPresence({ ...s, unansweredAsks: 1 });
   return presence.kind === "notAttached"
-    ? { queued: true, label: presence.line, activity: "" }
-    : { queued: false, label: "Working", activity: s.activity ?? "" };
+    ? { queued: true, label: presence.line, steps: [] as TrailStep[] }
+    : { queued: false, label: "Thinking…", steps: trailSteps(trail, askTime) };
 }
 
 // "Held for Send" chips a change request's header until the review is sent. While the agent has

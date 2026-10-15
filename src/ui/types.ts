@@ -1,4 +1,5 @@
 import type {
+  AgentActivity,
   AppMode,
   BridgeMessage,
   BridgeNav,
@@ -36,6 +37,7 @@ import type {
 import type { Step } from "./steps";
 import type { WalkRow } from "./walkthrough";
 import type { Presence } from "./topbar-derive";
+import type { TrailEntry } from "./thread-derive";
 import type { DeskPin } from "./uilane-derive";
 import type { OpenRequest, RequestRow } from "./requests-derive";
 
@@ -257,6 +259,8 @@ export interface Store {
   // Transient desk-liveness from /api/state (DeskStatus fields). Held OUTSIDE
   // S.state so they never ride a /api/save round-trip into the persisted review.
   agentActivity: string | null;
+  // Each distinct activity line this tab saw, the steps a waiting question shows (thread-derive).
+  agentTrail: readonly TrailEntry[];
   agentListening: boolean;
   queuedQuestions: number;
   queuedReviews: number;
@@ -458,6 +462,7 @@ export type AppFrame = {
 };
 
 export type {
+  AgentActivity,
   AppMode,
   BridgeMessage,
   BridgeNav,

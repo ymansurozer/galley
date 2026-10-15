@@ -6,6 +6,7 @@ import { updateAwaitingDom } from "./annotations";
 import { adoptUiStatus, adoptUiTarget, syncView } from "./appview";
 import { renderUiLane } from "./uilane";
 import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
+import { recordActivity } from "./thread-derive";
 import type { DeskStatus, PollPayload, ReviewState } from "./types";
 
 // Pull the transient DeskStatus fields off a server payload into the store and
@@ -22,6 +23,7 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
     ...server
   } = payload;
   S.agentActivity = agentActivity?.body ?? null;
+  S.agentTrail = recordActivity(S.agentTrail, agentActivity ?? null, new Date().toISOString());
   S.agentListening = agentListening ?? false;
   S.queuedQuestions = queuedQuestions ?? 0;
   S.queuedReviews = queuedReviews ?? 0;

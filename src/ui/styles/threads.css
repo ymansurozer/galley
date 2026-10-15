@@ -391,58 +391,97 @@
   }
 }
 
-/* A question's status, under it until the agent answers: working in blue, amber when no agent
-   will pick the question up. On its hue's -band, so it stands off the card in either scheme. */
-.msg-status {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  width: fit-content;
-  max-width: 100%;
-  margin-top: 6px;
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--blue-band);
-  color: var(--blue-ink);
-  font-size: var(--text-xs);
-  line-height: 1.4;
+/* The agent's pending answer, an agent message until its reply takes the place: "Thinking…" with
+   light sweeping through the word, over the steps it posted since the question (its `galley
+   status` lines). Earlier steps recede; the one it's on now is at full ink, its dot breathing.
+   Queued, nothing is thinking: the words stand still in amber and no steps show. */
+.pending-body {
+  margin-top: 3px;
+  font-size: var(--text-md);
+  line-height: 1.55;
 }
 
-.msg-status.queued {
-  background: var(--orange-band);
+.pending .awaiting-label {
+  background: linear-gradient(100deg, var(--ink-3) 40%, var(--ink) 50%, var(--ink-3) 60%) 100% 0 /
+    300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: think-sweep 2.2s linear infinite;
+}
+
+.pending.queued .awaiting-label {
+  background: none;
   color: var(--orange-ink);
-}
-
-.awaiting-answer .awaiting-label {
+  font-size: var(--text-sm);
   font-weight: 600;
-}
-
-/* The activity line is the informative part — full ink, brighter than the label. */
-.awaiting-answer .agent-activity {
-  color: var(--ink);
-}
-
-/* Working: a turning ring. Queued, nothing is working on it: the ring stands still, dotted. */
-.tc-spin {
-  flex: 0 0 auto;
-  width: 11px;
-  height: 11px;
-  margin-top: 2px;
-  border: 1.5px solid currentColor;
-  border-right-color: transparent;
-  border-radius: var(--radius-pill);
-  animation: tc-spin 0.9s linear infinite;
-}
-
-.queued .tc-spin {
-  border-style: dotted;
-  border-right-color: currentColor;
   animation: none;
 }
 
-@keyframes tc-spin {
+@keyframes think-sweep {
   to {
-    transform: rotate(360deg);
+    background-position: 0 0;
+  }
+}
+
+.agent-steps {
+  margin: 3px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.agent-steps:empty {
+  display: none;
+}
+
+.agent-steps li {
+  position: relative;
+  padding-left: 13px;
+  overflow-wrap: break-word;
+}
+
+.agent-steps li + li {
+  margin-top: 2px;
+}
+
+/* Centred on the first line: half its height (1.45em) less half the dot. */
+.agent-steps li::before {
+  content: "";
+  position: absolute;
+  top: calc(0.725em - 2.5px);
+  left: 1px;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.agent-steps li.live {
+  color: var(--ink);
+}
+
+/* The top bar's refresh dot breathes the same way (breathe: appview.css). */
+.agent-steps li.live::before {
+  background: var(--blue);
+  opacity: 1;
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+/* base.css shortens every animation under reduced motion, which would leave the sweep flickering
+   on: here the word stands still in solid ink, and the dot stops breathing. */
+@media (prefers-reduced-motion: reduce) {
+  .pending .awaiting-label {
+    background: none;
+    color: var(--ink-2);
+    animation: none;
+  }
+
+  .agent-steps li.live::before {
+    animation: none;
   }
 }
 
