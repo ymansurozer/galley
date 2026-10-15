@@ -185,20 +185,31 @@ test("a question shows the steps the tab saw from its ask on, oldest first, the 
     entry("Reading quota.ts", 9, 10),
     entry("Tracing the reset", 14, 15),
   ];
-  assert.deepEqual(trailSteps(trail, t(10)), [
+  assert.deepEqual(trailSteps(trail, t(10), "Tracing the reset"), [
     { body: "Reading quota.ts", live: false },
     { body: "Tracing the reset", live: true },
   ]);
-  assert.deepEqual(trailSteps(trail, t(20)), []);
+  assert.deepEqual(trailSteps(trail, t(20), "Tracing the reset"), []);
+});
+
+test("once the agent's line goes stale, its steps stay but none is live", () => {
+  const trail = [entry("Reading quota.ts", 9, 10), entry("Tracing the reset", 14, 15)];
+  assert.deepEqual(trailSteps(trail, t(10), null), [
+    { body: "Reading quota.ts", live: false },
+    { body: "Tracing the reset", live: false },
+  ]);
 });
 
 test("a question's steps are timed on the tab's clock, never the desk's", () => {
   // The desk's clock runs a minute behind the tab's: the line was posted after the ask all the same.
-  assert.deepEqual(trailSteps([entry("Reading quota.ts", -50, 12)], t(10)), [
+  assert.deepEqual(trailSteps([entry("Reading quota.ts", -50, 12)], t(10), "Reading quota.ts"), [
     { body: "Reading quota.ts", live: true },
   ]);
   // And a minute ahead: the line the tab saw before the ask is still from before it.
-  assert.deepEqual(trailSteps([entry("Reviewing the diff", 70, 8)], t(10)), []);
+  assert.deepEqual(
+    trailSteps([entry("Reviewing the diff", 70, 8)], t(10), "Reviewing the diff"),
+    [],
+  );
 });
 
 test("a question waiting on the agent: thinking with its steps, or queued in the top bar's words", () => {
@@ -214,6 +225,12 @@ test("a question waiting on the agent: thinking with its steps, or queued in the
     queued: false,
     label: "Thinking…",
     steps: [{ body: "Reading quota.ts", live: true }],
+  });
+  // The agent went quiet (its line went stale): still thinking, its steps kept, none live.
+  assert.deepEqual(pendingAnswer(idle, trail, t(10)), {
+    queued: false,
+    label: "Thinking…",
+    steps: [{ body: "Reading quota.ts", live: false }],
   });
   // Nothing picked the question up: no steps, whatever the trail holds.
   assert.deepEqual(pendingAnswer({ ...idle, queuedQuestions: 1 }, trail, t(10)), {

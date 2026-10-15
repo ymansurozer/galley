@@ -56,11 +56,20 @@ export function recordActivity(
   return last.at === activity.at ? trail : [...trail.slice(0, -1), seen];
 }
 
-// The steps a question shows: the lines seen from its ask on, oldest first, the newest live.
-export function trailSteps(trail: readonly TrailEntry[], askTime: string): TrailStep[] {
+// The steps a question shows: the lines seen from its ask on, oldest first. The newest is live
+// while it's still the agent's current line (`activity`); once that's stale or gone, say the
+// agent died, the steps stay and none is live.
+export function trailSteps(
+  trail: readonly TrailEntry[],
+  askTime: string,
+  activity: string | null,
+): TrailStep[] {
   const since = Date.parse(askTime);
   const shown = trail.filter((e) => Date.parse(e.seenAt) >= since);
-  return shown.map((e, i) => ({ body: e.body, live: i === shown.length - 1 }));
+  return shown.map((e, i) => ({
+    body: e.body,
+    live: i === shown.length - 1 && e.body === activity,
+  }));
 }
 
 // What stands in for the agent's answer under a waiting question: the top bar's presence rule
@@ -76,7 +85,7 @@ export function pendingAnswer(
   const presence = agentPresence({ ...s, unansweredAsks: 1 });
   return presence.kind === "notAttached"
     ? { queued: true, label: presence.line, steps: [] as TrailStep[] }
-    : { queued: false, label: "Thinking…", steps: trailSteps(trail, askTime) };
+    : { queued: false, label: "Thinking…", steps: trailSteps(trail, askTime, s.activity) };
 }
 
 // "Held for Send" chips a change request's header until the review is sent. While the agent has
