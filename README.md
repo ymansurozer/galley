@@ -17,7 +17,7 @@ https://github.com/user-attachments/assets/3cab5a2f-7cce-4b08-9ebc-71dfdf9164e4
 ## How it works
 
 1. **Your agent opens a desk.** When it has changes for you, it runs `galley` and attaches a guide: the diff grouped by concern, a note on how to read each file, and the risky ones flagged.
-2. **You review.** Keep or undo each change. Ask a question and your agent answers live in the thread. Leave a change request and it waits for the handoff. Switch to the running app and annotate the page itself.
+2. **You review.** Approve each file as you go. Ask a question and your agent answers live in the thread. Leave a change request and it waits for the handoff. Switch to the running app and annotate the page itself.
 3. **You hit Send Review.** Your agent gets one structured review: every decision, request and annotation.
 4. **Your agent follows up.** It makes the edits, re-diffs them into the same tab, and replies in place. Review the new round, or approve and you're done.
 
@@ -73,12 +73,12 @@ Your agent hands over its dev server and the desk gets an **App** tab. Annotate 
 
 ### Keyboard-first
 
-Move, keep, undo, comment, approve and send without the mouse.
+Move, comment, approve and send without the mouse.
 
 ### Also
 
 - **Four review modes:** working tree, staged, a single file, or a branch.
-- **Keep or undo** each change, or approve a whole file.
+- **Approve a whole file**, or turn on per-change verdicts in Settings to keep or undo each change.
 - **Open in editor** at the current line.
 - **Make it yours:** layout, wrapping, theme and fonts.
 - **Remote review:** agent on a server, you on your laptop ([below](#reviewing-on-a-remote-machine)).
