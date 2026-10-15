@@ -67,8 +67,7 @@ export function updateProgress() {
   $("progressTail").style.left = `${pct}%`;
   $("progressTail").style.width = `${ahead?.tail ?? 0}%`;
   // A rise is a sign-off's moment: the bar swells while the fill glides. The first paint and a
-  // switch of what progress counts by aren't moments, and a drop just glides back (its toast says
-  // why).
+  // switch of what progress counts by aren't moments, and a drop just glides back.
   const rose = shown?.byLines === d.byLines && pct > shown.pct;
   shown = { pct, byLines: d.byLines };
   if (rose && !reducedMotion.matches) swell(strip);
