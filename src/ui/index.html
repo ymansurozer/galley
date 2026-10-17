@@ -39,8 +39,7 @@
             class="agent-spin" viewBox="0 0 16 16" aria-hidden="true"><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.18"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.3" transform="rotate(45 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.41" transform="rotate(90 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.53" transform="rotate(135 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.64" transform="rotate(180 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.76" transform="rotate(225 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.87" transform="rotate(270 8 8)"/><line x1="8" y1="1.6" x2="8" y2="4.6" opacity="0.99" transform="rotate(315 8 8)"/></svg><i
             class="agent-off" aria-hidden="true"></i><b class="agent-who">Agent</b><span class="agent-line"
             x-text="$store.g.presence.line"></span><span class="agent-run" aria-hidden="true"><i></i></span></div><button
-          class="btn quiet danger reset-review" data-tip="Reset Review" data-tip-keys="⇧R" aria-label="Reset Review" @click="$store.g.reset()"><svg class="ic"><use href="#gly-refresh"></use></svg><span>Reset Review</span></button><span
-          class="top-done">100%</span><button class="btn send-review" :class="{primary: $store.g.reviewDone && !$store.g.awaitingAgent}"
+          class="btn quiet danger reset-review" data-tip="Reset Review" data-tip-keys="⇧R" aria-label="Reset Review" @click="$store.g.reset()"><svg class="ic"><use href="#gly-refresh"></use></svg><span>Reset Review</span></button><button class="btn send-review" :class="{primary: $store.g.reviewDone && !$store.g.awaitingAgent}"
           :disabled="$store.g.awaitingAgent" @click="$store.g.confirmSend()"><svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg><span
             x-text="$store.g.awaitingAgent ? 'Waiting for Agent…' : 'Send Review'">Send Review</span> <kbd x-keys>⇧S</kbd></button></div>
       <!-- Review progress along the bar's bottom edge (progress.ts): the fill, and the ⇧A tail ahead
@@ -61,10 +60,10 @@
           <button type="button" class="rail-btn" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak
             :class="{active: $store.g.overviewOpen && $store.g.view==='code'}" aria-label="Overview" data-tip="Overview"
             :data-tip-keys="$store.g.view==='code' ? 'o' : null" data-tip-align="right" @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg></button>
-          <button type="button" class="rail-btn" x-show="$store.g.requests.length" x-cloak aria-label="Change requests"
+          <button type="button" class="rail-btn" aria-label="Change requests"
             data-tip="Change requests" data-tip-keys="]" data-tip-align="right"
             @click="$store.g.requestsOpen = true; $store.g.sidebarCollapsed = false"><svg class="ic flag"><use href="#gly-flag"></use></svg><span
-              class="cr-count" x-text="$store.g.requests.length"></span></button>
+              class="cr-count" :class="{none: !$store.g.requests.length}" x-text="$store.g.requests.length"></span></button>
           <button type="button" class="rail-btn rail-tab" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak
             :class="{active: $store.g.sidebarTab==='walkthrough'}" aria-label="Review" data-tip="Review"
             :data-tip-keys="$store.g.sidebarTab==='tree' ? 'w' : null" data-tip-align="right"
@@ -80,17 +79,18 @@
           <button :class="{active: $store.g.sidebarTab==='tree'}" @click="$store.g.setSidebarTab('tree')">Files <kbd x-keys x-show="$store.g.sidebarTab!=='tree'">w</kbd></button>
         </div>
         <!-- Above either list: the Overview (a guided desk's, on either tab and in the App view) and the
-             open change requests (both tabs, a guide-less desk, and the App view). -->
-        <div class="side-nav" x-show="($store.g.hasGuide && $store.g.hasGuide()) || $store.g.requests.length">
+             change requests (always, even with none open, so the reviewer knows where they'll land). -->
+        <div class="side-nav">
           <!-- "active" while the Overview shows, patched like the file rows' (applyActiveRow). -->
           <div class="node overview-row" data-key="overview" x-show="$store.g.hasGuide && $store.g.hasGuide()"
             @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg><span class="nm">Overview</span><kbd x-keys>o</kbd></div>
-          <div class="node cr-head" x-show="$store.g.requests.length" x-cloak role="button" tabindex="0" :aria-expanded="$store.g.requestsOpen"
+          <div class="node cr-head" role="button" tabindex="0" :aria-expanded="$store.g.requestsOpen"
             @click="$store.g.requestsOpen = !$store.g.requestsOpen" @keydown.enter.stop.prevent="$store.g.requestsOpen = !$store.g.requestsOpen"
             @keydown.space.stop.prevent="$store.g.requestsOpen = !$store.g.requestsOpen"><svg class="ic flag"><use href="#gly-flag"></use></svg><span
               class="nm">Change requests</span><svg class="ic chev" :class="{open: $store.g.requestsOpen}"><use href="#gly-chevron"></use></svg><span
-              class="cr-count" x-text="$store.g.requests.length"></span><kbd x-keys>]</kbd></div>
-          <div class="cr-list" x-show="$store.g.requestsOpen && $store.g.requests.length" x-cloak>
+              class="cr-count" :class="{none: !$store.g.requests.length}" x-text="$store.g.requests.length"></span><kbd x-keys>]</kbd></div>
+          <div class="cr-list" x-show="$store.g.requestsOpen" x-cloak>
+            <div class="node cr-empty" x-show="!$store.g.requests.length">No open change requests</div>
             <template x-for="r in $store.g.requests" :key="r.key">
               <div class="node cr-row" :class="{app: r.kind==='app'}" :title="r.loc + ' — ' + r.text" @click="$store.g.openRequest(r)">
                 <svg class="ic" x-show="r.kind==='code'"><use href="#gly-flag"></use></svg>

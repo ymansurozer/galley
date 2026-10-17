@@ -212,9 +212,8 @@
 }
 
 /* The sidebar reads as three parts: the switch, the nav block (the Overview and the change
-   requests), and the list. The switch keeps 8px under it, the nav block 10px, on either tab; an
-   empty nav block (a guide-less desk with no requests) hides, so the list keeps the switch's
-   place. */
+   requests), and the list. The switch keeps 8px under it, the nav block 10px, on either tab. The
+   change requests row always shows, even with none open. */
 .side-nav {
   flex: 0 0 auto;
   margin-bottom: 10px;
@@ -242,6 +241,21 @@
   line-height: 16px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+/* No open requests: the count goes quiet rather than orange. */
+.cr-count.none {
+  background: var(--fill-2);
+  color: var(--ink-3);
+}
+
+/* The open list's placeholder when there's nothing in it. */
+.node.cr-empty {
+  height: 24px;
+  padding-left: 29px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  cursor: default;
 }
 
 /* The list scrolls on its own past a few rows, so the file list keeps its room. */
