@@ -328,21 +328,8 @@ body.file-mode .top-logo,
   }
 }
 
-.top-done {
-  display: none;
-  margin-right: 2px;
-  color: var(--green-ink);
-  font-size: var(--text-md);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.top.done .top-done {
-  display: inline;
-}
-
 /* A narrow bar (a phone, or the canvas beside a wide sidebar) keeps every control but compacts
-   them: the subtitle, the logo and the green 100% give way (the progress edge still shows it), the
+   them: the subtitle and the logo give way, the
    pill keeps its glyph (its tooltip carries the line), the lane switch keeps its icons, Reset
    Review its glyph, and the switch and the buttons drop their keycaps (their tooltips still carry
    them). */
@@ -355,8 +342,7 @@ body.file-mode .top-logo,
 
 @container topbar (max-width: 760px) {
   .top-logo,
-  .top-name > span,
-  .top-done {
+  .top-name > span {
     display: none !important;
   }
 

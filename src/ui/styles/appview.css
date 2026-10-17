@@ -5,7 +5,6 @@
    the gear in the header (as on single-file desks). */
 .app.view-ui .diff-area,
 .app.view-ui .top-progress,
-.app.view-ui .top-done,
 .app.view-ui :is(.side-switch, .tree-title, #files, #walk, .rail-tab),
 .app.ui-only :is(.tree, .resizer, .tree-backdrop, .nav-toggle) {
   display: none !important;
