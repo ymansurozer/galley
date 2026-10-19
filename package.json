@@ -1,6 +1,6 @@
 {
   "name": "galley-diff",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "A review desk for your coding agent's output: review its diff in the browser, then hand a structured review back to it.",
   "keywords": [
     "git",

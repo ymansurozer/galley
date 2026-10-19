@@ -1,6 +1,23 @@
 # Changelog
 
 
+## v0.8.1
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.8.0...v0.8.1)
+
+### 🚀 Enhancements
+
+- GALLEY_PORT_RANGE keeps desk and app ports inside an operator range ([#130](https://github.com/ymansurozer/galley/pull/130))
+
+### 🩹 Fixes
+
+- Stop releases from tagging main's head ([#128](https://github.com/ymansurozer/galley/pull/128))
+- Always list change requests in the sidebar, drop the 100% label ([#129](https://github.com/ymansurozer/galley/pull/129))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.8.0
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.7.6...v0.8.0)
