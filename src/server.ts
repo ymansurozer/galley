@@ -24,7 +24,7 @@ import {
 } from "./git.js";
 import { validateGuide } from "./guide.js";
 import { createSerializer } from "./mutex.js";
-import { parseUiTarget, startUiProxy } from "./proxy.js";
+import { parseUiTarget, startUiProxy, tryListen } from "./proxy.js";
 import type { UiProxy } from "./proxy.js";
 import {
   anchorTextFor,
@@ -1555,17 +1555,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   const candidates = range ? portRangeWalk(preferred, range) : preferred ? [preferred] : [];
   let bound = false;
   for (const candidate of candidates) {
-    bound = await new Promise<boolean>((resolve, reject) => {
-      const onError = (error: NodeJS.ErrnoException) => {
-        if (error.code === "EADDRINUSE" || error.code === "EACCES") resolve(false);
-        else reject(error);
-      };
-      server.once("error", onError);
-      server.listen(candidate, host, () => {
-        server.removeListener("error", onError);
-        resolve(true);
-      });
-    });
+    bound = await tryListen(server, candidate, host);
     if (bound) break;
   }
   if (!bound) {
@@ -1575,13 +1565,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       );
     else if (preferred)
       console.error(`Port ${preferred} is taken — falling back to a random port.`);
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, host, () => {
-        server.removeListener("error", reject);
-        resolve();
-      });
-    });
+    if (!(await tryListen(server, 0, host)))
+      throw new Error("no port to bind, not even a random one");
   }
   server.on("close", () => {
     if (idleTimer) clearInterval(idleTimer);

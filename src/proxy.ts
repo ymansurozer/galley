@@ -583,25 +583,39 @@ async function listenNextFree(
     : preferred
       ? Array.from({ length: 10 }, (_, i) => preferred + i)
       : [];
-  for (const candidate of [...candidates, 0]) {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(candidate, host, () => {
-          server.removeListener("error", reject);
-          resolve();
-        });
-      });
-      const address = server.address();
-      return typeof address === "object" && address ? address.port : 0;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (candidate === 0 || (code !== "EADDRINUSE" && code !== "EACCES")) throw error;
-      if (range && candidate === candidates.at(-1))
-        console.error(
-          `GALLEY_PORT_RANGE: every port in ${range.lo}-${range.hi} is taken — falling back to a random port for the app.`,
-        );
-    }
+  for (const candidate of candidates) {
+    if (await tryListen(server, candidate, host)) return boundPortOf(server);
   }
-  throw new Error("unreachable: port 0 always binds or throws");
+  if (range)
+    console.error(
+      `GALLEY_PORT_RANGE: every port in ${range.lo}-${range.hi} is taken — falling back to a random port for the app.`,
+    );
+  if (!(await tryListen(server, 0, host)))
+    throw new Error("no port to bind, not even a random one");
+  return boundPortOf(server);
+}
+
+// Bind `port`: true once listening, false when it's taken (EADDRINUSE/EACCES), any other error
+// rejects. The "listening" and "error" handlers remove each other, so walking a long run of taken
+// ports leaves no listener behind on the server (no MaxListenersExceededWarning).
+export function tryListen(server: http.Server, port: number, host: string) {
+  return new Promise<boolean>((resolve, reject) => {
+    const onListening = () => {
+      server.removeListener("error", onError);
+      resolve(true);
+    };
+    const onError = (error: NodeJS.ErrnoException) => {
+      server.removeListener("listening", onListening);
+      if (error.code === "EADDRINUSE" || error.code === "EACCES") resolve(false);
+      else reject(error);
+    };
+    server.once("listening", onListening);
+    server.once("error", onError);
+    server.listen(port, host);
+  });
+}
+
+function boundPortOf(server: http.Server) {
+  const address = server.address();
+  return typeof address === "object" && address ? address.port : 0;
 }

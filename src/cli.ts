@@ -685,9 +685,8 @@ async function runDesk(
     .filter(Boolean);
   // GALLEY_PORT_RANGE (lo-hi) keeps the ports Galley picks — the desk's and the UI proxy's — inside
   // an operator-chosen range, so every origin fits an exact-origin allowlist. An explicit --port is
-  // the reviewer's choice and stays exactly as given.
+  // bound as given; the listeners walk the range only from a preferred port inside it.
   const portRange = resolvePortRange(process.env.GALLEY_PORT_RANGE, console.error);
-  const explicitPort = typeof args.port === "string";
   const { url, lockUrl } = await startServer({
     state,
     priorDiff: saved
@@ -698,8 +697,11 @@ async function runDesk(
           stagedChangeKeys: saved.stagedChangeKeys,
         }
       : undefined,
-    port: explicitPort ? Number(args.port) : stablePort(state.root, state.session, portRange),
-    portRange: explicitPort ? undefined : portRange,
+    port:
+      typeof args.port === "string"
+        ? Number(args.port)
+        : stablePort(state.root, state.session, portRange),
+    portRange,
     host,
     allowedHosts,
     uiPort: stableUiPort(state.root, state.session, portRange),

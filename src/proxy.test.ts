@@ -706,3 +706,36 @@ test("with every GALLEY_PORT_RANGE port held, startUiProxy warns once naming the
     await block.releaseAll();
   }
 });
+
+test("walking past more than 10 held GALLEY_PORT_RANGE ports leaks no listeners on the proxy", async () => {
+  const block = await holdPortBlock(12);
+  const warnings: Error[] = [];
+  const onWarning = (w: Error) => warnings.push(w);
+  process.on("warning", onWarning);
+  try {
+    await block.release(block.hi);
+    const proxy = await startUiProxy({
+      host: "127.0.0.1",
+      port: block.lo,
+      portRange: { lo: block.lo, hi: block.hi },
+      allowedHosts: ["127.0.0.1"],
+      deskPort: DESK_PORT,
+      token: TOKEN,
+      target: () => undefined,
+      bridgeJs: async () => null,
+    });
+    try {
+      assert.equal(proxy.port, block.hi);
+      await new Promise((resolve) => setImmediate(resolve)); // warnings are emitted on next tick
+      assert.deepEqual(
+        warnings.filter((w) => w.name === "MaxListenersExceededWarning").map((w) => w.message),
+        [],
+      );
+    } finally {
+      proxy.close();
+    }
+  } finally {
+    process.off("warning", onWarning);
+    await block.releaseAll();
+  }
+});

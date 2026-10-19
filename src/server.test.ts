@@ -2352,6 +2352,41 @@ test("with a GALLEY_PORT_RANGE, a held desk port falls back to the next free por
   }
 });
 
+test("walking past more than 10 held GALLEY_PORT_RANGE ports leaks no listeners", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-portrange-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const block = await holdPortBlock(12);
+  const warnings: Error[] = [];
+  const onWarning = (w: Error) => warnings.push(w);
+  process.on("warning", onWarning);
+  try {
+    await block.release(block.hi);
+    const handle = await startServer({
+      state: state(root),
+      open: false,
+      idleTimeoutMs: 0,
+      port: block.lo,
+      portRange: { lo: block.lo, hi: block.hi },
+    });
+    try {
+      assert.equal(Number(new URL(handle.url).port), block.hi);
+      await new Promise((resolve) => setImmediate(resolve)); // warnings are emitted on next tick
+      assert.deepEqual(
+        warnings.filter((w) => w.name === "MaxListenersExceededWarning").map((w) => w.message),
+        [],
+      );
+    } finally {
+      handle.server.close();
+    }
+  } finally {
+    process.off("warning", onWarning);
+    await block.releaseAll();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("with every GALLEY_PORT_RANGE port held, the desk warns once naming the range and starts on a random port", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "galley-portrange-"));
   const oldHome = process.env.HOME;
