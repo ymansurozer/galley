@@ -44,20 +44,54 @@ export function hash(text: string) {
   return crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
-// Deterministic per-repo+session port (41000–50999). A restarted desk binds the same
-// origin, so an already-open tab self-heals through its state poll instead of dying on
-// a dead random port. Collisions with foreign processes fall back to a random port at
-// listen time (startServer).
-export function stablePort(root: string, session: string, salt = "") {
-  const key = `${root}:${sanitizeSession(session)}${salt}`;
-  return 41000 + (parseInt(hash(key).slice(0, 8), 16) % 10000);
+// An inclusive port range Galley picks its ports from (GALLEY_PORT_RANGE). Absent → DEFAULT_PORT_RANGE.
+export type PortRange = { lo: number; hi: number };
+const DEFAULT_PORT_RANGE: PortRange = { lo: 41000, hi: 50999 };
+
+// GALLEY_PORT_RANGE ("lo-hi", inclusive, 1 ≤ lo ≤ hi ≤ 65535) narrows the ports Galley picks so an
+// operator can list every desk origin in an exact-origin allowlist (Chrome's insecure-origins flag).
+// Unset/blank → undefined; malformed → one warning, then undefined, so the default range applies.
+export function resolvePortRange(
+  value: string | undefined,
+  warn: (message: string) => void,
+): PortRange | undefined {
+  const text = value?.trim();
+  if (!text) return undefined;
+  const m = /^(\d+)-(\d+)$/.exec(text);
+  const lo = m ? Number(m[1]) : NaN;
+  const hi = m ? Number(m[2]) : NaN;
+  if (lo >= 1 && lo <= hi && hi <= 65535) return { lo, hi };
+  warn(`GALLEY_PORT_RANGE: "${text}" is not a lo-hi port range within 1-65535 — ignoring it.`);
+  return undefined;
+}
+
+// Every port of `range` once, starting at `preferred` and wrapping from hi back to lo — the order
+// a listener probes when its preferred port is taken, so it stays inside the range.
+export function portRangeWalk(preferred: number, range: PortRange) {
+  const size = range.hi - range.lo + 1;
+  return Array.from({ length: size }, (_, i) => range.lo + ((preferred - range.lo + i) % size));
+}
+
+export function inPortRange(port: number, range: PortRange) {
+  return port >= range.lo && port <= range.hi;
+}
+
+// Deterministic per-repo+session port (41000–50999, or GALLEY_PORT_RANGE). A restarted desk binds
+// the same origin, so an already-open tab self-heals through its state poll instead of dying on
+// a dead random port. Collisions with foreign processes fall back at listen time (startServer).
+export function stablePort(root: string, session: string, range?: PortRange) {
+  return rangePort(`${root}:${sanitizeSession(session)}`, range);
 }
 
 // The UI proxy's port: the same scheme with a salt (one no sanitized session can produce), so a
 // restarted desk serves the app on the same origin too — the open tab's iframe and its session
 // cookies keep working. Collisions fall back to the next free port (startUiProxy).
-export function stableUiPort(root: string, session: string) {
-  return stablePort(root, session, ":ui");
+export function stableUiPort(root: string, session: string, range?: PortRange) {
+  return rangePort(`${root}:${sanitizeSession(session)}:ui`, range);
+}
+
+function rangePort(key: string, range = DEFAULT_PORT_RANGE) {
+  return range.lo + (parseInt(hash(key).slice(0, 8), 16) % (range.hi - range.lo + 1));
 }
 
 export function sanitizeSession(session: string) {

@@ -106,6 +106,14 @@ GALLEY_HOST=0.0.0.0 galley            # same, via env — the default when --hos
 
 The printed URL is what you open in the remote browser; the agent's `galley await`/`comment`/`reload` subcommands keep talking to the desk over loopback on the same machine, so they're unaffected. If you reach the desk by a name that isn't the machine's hostname or the bound address (a tailnet MagicDNS FQDN, say), add it to `GALLEY_ALLOWED_HOSTS` (comma-separated) so the origin guard accepts it.
 
+Each desk picks a stable port per repo and session from 41000–50999, and the app it shows through `--ui` gets a second one. That's too many origins to list one by one. Over plain `http://`, the remote browser isn't in a secure context, so APIs like `crypto.randomUUID`, `navigator.clipboard` and service workers are missing from your app's pages. Chrome's `chrome://flags/#unsafely-treat-insecure-origin-as-secure` fixes that, but it takes only exact `http://host:port` origins, and it can't hold ten thousand of them. Set `GALLEY_PORT_RANGE` to keep every port Galley picks inside a range you list there:
+
+```bash
+GALLEY_PORT_RANGE=41000-41099 galley --host 0.0.0.0   # desk and app ports stay in 41000–41099
+```
+
+Ports are still stable per repo and session, mapped into the range. When one is taken, Galley takes the next free port in the range, wrapping round. A small range collides more often, and a desk that lands on a different port gets a new origin, so an open tab stops reconnecting by itself. Size the range for the desks you run at once (each with `--ui` takes two ports). If the whole range is taken, Galley warns and falls back to a random port. An explicit `--port` is used as given, even outside the range.
+
 > [!WARNING]
 > **The desk API is unauthenticated.** Anyone who can reach the bound address can drive the desk — run your configured editor command, stage and reset changes, mutate the git index, read any file in the repo. Bind beyond loopback **only** on a fully trusted network: a personal tailnet, or a host whose firewall blocks the port from everything else. **Never on a shared office/coffee-shop LAN.**
 >

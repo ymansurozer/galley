@@ -55,11 +55,13 @@ const waitForDeskUrl = (child) =>
   });
 // Keep the smoke hermetic to the caller's shell: devbox setups export GALLEY_HOST (and
 // GALLEY_ALLOWED_HOSTS) so real desks bind beyond loopback, but waitForDeskUrl asserts the
-// loopback URL — an inherited GALLEY_HOST would make every run time out. No update-check
-// network call at desk start either.
+// loopback URL — an inherited GALLEY_HOST would make every run time out. They may export
+// GALLEY_PORT_RANGE too, which would move the desk's port. No update-check network call at desk
+// start either.
 const ENV = { ...process.env, GALLEY_NO_UPDATE_CHECK: "1" };
 delete ENV.GALLEY_HOST;
 delete ENV.GALLEY_ALLOWED_HOSTS;
+delete ENV.GALLEY_PORT_RANGE;
 
 const cli = (...args) =>
   execFileSync("node", [CLI, ...args], { encoding: "utf8", env: ENV }).trim();

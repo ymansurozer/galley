@@ -3,6 +3,8 @@ import net from "node:net";
 import type { Duplex } from "node:stream";
 import { pipeline, Transform } from "node:stream";
 import zlib from "node:zlib";
+import { inPortRange, portRangeWalk } from "./state.js";
+import type { PortRange } from "./state.js";
 
 // The UI proxy: a second listener per desk that reverse-proxies the agent's running dev server at
 // the root of its own origin, so the desk's UI view can show the app in an iframe. A different
@@ -313,6 +315,9 @@ export type UiProxyOptions = {
   host: string;
   // Preferred port (stableUiPort); taken → the next ones, then a random port. 0 = random.
   port: number;
+  // GALLEY_PORT_RANGE: when `port` lies inside it, "the next ones" are the rest of the range
+  // (wrapping hi → lo), never a port past hi.
+  portRange?: PortRange;
   // Host names the desk's origin guard trusts (resolveBinding); accepted here on the proxy port.
   allowedHosts: readonly string[];
   // The desk's port: the desk origin (frame-ancestors, the bridge's postMessage target) is the
@@ -551,7 +556,7 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
     });
   });
 
-  port = await listenNextFree(server, opts.host, opts.port);
+  port = await listenNextFree(server, opts.host, opts.port, opts.portRange);
   return {
     server,
     port,
@@ -563,10 +568,21 @@ export async function startUiProxy(opts: UiProxyOptions): Promise<UiProxy> {
   };
 }
 
-// Bind the preferred port, else the next few, else a random one — a restarted desk normally gets
-// its stable port back, and a foreign process holding it never fails the launch.
-async function listenNextFree(server: http.Server, host: string, preferred: number) {
-  const candidates = preferred ? Array.from({ length: 10 }, (_, i) => preferred + i) : [];
+// Bind the preferred port, else the next few (the rest of GALLEY_PORT_RANGE, when the preferred
+// port is one of its own), else a random one — a restarted desk normally gets its stable port
+// back, and a foreign process holding it never fails the launch.
+async function listenNextFree(
+  server: http.Server,
+  host: string,
+  preferred: number,
+  portRange?: PortRange,
+) {
+  const range = portRange && inPortRange(preferred, portRange) ? portRange : undefined;
+  const candidates = range
+    ? portRangeWalk(preferred, range)
+    : preferred
+      ? Array.from({ length: 10 }, (_, i) => preferred + i)
+      : [];
   for (const candidate of [...candidates, 0]) {
     try {
       await new Promise<void>((resolve, reject) => {
@@ -581,6 +597,10 @@ async function listenNextFree(server: http.Server, host: string, preferred: numb
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (candidate === 0 || (code !== "EADDRINUSE" && code !== "EACCES")) throw error;
+      if (range && candidate === candidates.at(-1))
+        console.error(
+          `GALLEY_PORT_RANGE: every port in ${range.lo}-${range.hi} is taken — falling back to a random port for the app.`,
+        );
     }
   }
   throw new Error("unreachable: port 0 always binds or throws");

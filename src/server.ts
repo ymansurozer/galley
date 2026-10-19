@@ -31,11 +31,13 @@ import {
   buildReviewResult,
   buildReviewState,
   hash,
+  inPortRange,
   mergeReviewerSave,
   mergeReviewState,
   parsedDiffOf,
   nowIso,
   persistReview,
+  portRangeWalk,
   questionPayload,
   readFileContents,
   readGlobalSettings,
@@ -49,6 +51,7 @@ import {
   writeFileAtomic,
   writeGlobalSettings,
 } from "./state.js";
+import type { PortRange } from "./state.js";
 import type {
   AgentActivity,
   AwaitEvent,
@@ -88,6 +91,9 @@ export type ServerOptions = {
   // (mergeReviewerSave). Absent for a fresh review.
   priorDiff?: Pick<ReviewState, "baseDiffHash" | "changes" | "files" | "stagedChangeKeys">;
   port?: number;
+  // GALLEY_PORT_RANGE: when `port` lies inside it, a taken port falls back to the next free one in
+  // the range (wrapping) rather than a random one, and the UI proxy's walk stays inside it too.
+  portRange?: PortRange;
   // Bind address. Defaults to 127.0.0.1 (loopback-only) — the desk stays local unless explicitly
   // opted into a broader bind (--host / GALLEY_HOST). See resolveBinding for how this shapes the
   // origin guard, the printed URL, and the lock-file URL.
@@ -514,6 +520,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     (uiProxyStart ??= startUiProxy({
       host,
       port: options.uiPort ?? 0,
+      portRange: options.portRange,
       allowedHosts: binding.allowedHosts,
       deskPort: boundPort(),
       token: uiToken,
@@ -1539,23 +1546,43 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     }
   });
 
-  // Prefer the requested (stable per-session) port; if a foreign process holds it,
-  // fall back to a random one rather than failing the launch.
-  await new Promise<void>((resolve, reject) => {
-    const preferred = options.port ?? 0;
-    const onError = (error: NodeJS.ErrnoException) => {
-      if (preferred !== 0 && (error.code === "EADDRINUSE" || error.code === "EACCES")) {
-        console.error(`Port ${preferred} is taken — falling back to a random port.`);
+  // Prefer the requested (stable per-session) port; if a foreign process holds it, try the rest
+  // of GALLEY_PORT_RANGE when the port is one of its own, else (or once the range is exhausted) a
+  // random port — never fail the launch.
+  const preferred = options.port ?? 0;
+  const range =
+    options.portRange && inPortRange(preferred, options.portRange) ? options.portRange : undefined;
+  const candidates = range ? portRangeWalk(preferred, range) : preferred ? [preferred] : [];
+  let bound = false;
+  for (const candidate of candidates) {
+    bound = await new Promise<boolean>((resolve, reject) => {
+      const onError = (error: NodeJS.ErrnoException) => {
+        if (error.code === "EADDRINUSE" || error.code === "EACCES") resolve(false);
+        else reject(error);
+      };
+      server.once("error", onError);
+      server.listen(candidate, host, () => {
         server.removeListener("error", onError);
-        server.listen(0, host, resolve);
-      } else reject(error);
-    };
-    server.once("error", onError);
-    server.listen(preferred, host, () => {
-      server.removeListener("error", onError);
-      resolve();
+        resolve(true);
+      });
     });
-  });
+    if (bound) break;
+  }
+  if (!bound) {
+    if (range)
+      console.error(
+        `GALLEY_PORT_RANGE: every port in ${range.lo}-${range.hi} is taken — falling back to a random port.`,
+      );
+    else if (preferred)
+      console.error(`Port ${preferred} is taken — falling back to a random port.`);
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, host, () => {
+        server.removeListener("error", reject);
+        resolve();
+      });
+    });
+  }
   server.on("close", () => {
     if (idleTimer) clearInterval(idleTimer);
     uiProxy?.close();
