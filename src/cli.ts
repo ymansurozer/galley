@@ -22,6 +22,7 @@ import {
   readDeskLock,
   resolveMovedFrom,
   resolveGuide,
+  resolvePortRange,
   reviewDir,
   sanitizeSession,
   stablePort,
@@ -682,6 +683,10 @@ async function runDesk(
     .split(",")
     .map((h) => h.trim())
     .filter(Boolean);
+  // GALLEY_PORT_RANGE (lo-hi) keeps the ports Galley picks — the desk's and the UI proxy's — inside
+  // an operator-chosen range, so every origin fits an exact-origin allowlist. An explicit --port is
+  // bound as given; the listeners walk the range only from a preferred port inside it.
+  const portRange = resolvePortRange(process.env.GALLEY_PORT_RANGE, console.error);
   const { url, lockUrl } = await startServer({
     state,
     priorDiff: saved
@@ -692,10 +697,14 @@ async function runDesk(
           stagedChangeKeys: saved.stagedChangeKeys,
         }
       : undefined,
-    port: typeof args.port === "string" ? Number(args.port) : stablePort(state.root, state.session),
+    port:
+      typeof args.port === "string"
+        ? Number(args.port)
+        : stablePort(state.root, state.session, portRange),
+    portRange,
     host,
     allowedHosts,
-    uiPort: stableUiPort(state.root, state.session),
+    uiPort: stableUiPort(state.root, state.session, portRange),
     open: args.open === true,
     idleTimeoutMs:
       Number.isFinite(idleMinutes) && idleMinutes >= 0 ? idleMinutes * 60_000 : undefined,
@@ -772,7 +781,7 @@ Usage:
 Common flags:
   --repo <path>     Repo to review (default: cwd)
   --session <id>    Review session id (default: branch / file-<path> / pr-<ref>)
-  --port <n>        Server port (default: a stable per-session port (41000–50999))
+  --port <n>        Server port (default: a stable per-session port (41000–50999, or GALLEY_PORT_RANGE))
   --host <addr>     Bind address (default: 127.0.0.1, loopback-only). Bind beyond loopback ONLY on a
                     fully trusted network — the desk API is unauthenticated (see README)
   --guide <file>    Attach an AI review guide (JSON)
@@ -787,6 +796,7 @@ Env:
   GALLEY_NO_UPDATE_CHECK=1   Skip the new-version check at desk start
   GALLEY_HOST=<addr>         Default --host when the flag is absent
   GALLEY_ALLOWED_HOSTS=a,b   Extra Host authorities to accept when bound beyond loopback
+  GALLEY_PORT_RANGE=lo-hi    Pick the desk and app ports inside this range (e.g. 41000-41099)
 
 Docs: https://github.com/ymansurozer/galley`;
 

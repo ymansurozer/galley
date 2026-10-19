@@ -313,7 +313,8 @@ field — for a part, its path, title and span.
   only if the server actually answers. The lock url is always loopback-reachable, so your
   subcommands work unchanged even when the desk is bound beyond loopback (--host <addr> /
   GALLEY_HOST, for remote-dev — the browser url printed at start differs then; operator concern,
-  not yours).
+  not yours). GALLEY_PORT_RANGE (lo-hi) likewise narrows the ports a desk picks; it changes no
+  subcommand either.
 - A desk with no open tab and no attached agent for 2h auto-exits (--idle-timeout <min> at start
   overrides; 0 = never). An in-flight await pins it alive. Nothing is lost — state persists on
   every save and a restart reopens the session on the same port, so the old tab self-heals.

@@ -31,6 +31,8 @@ import {
   resolveSkim,
   reviewDir,
   sanitizeSession,
+  portRangeWalk,
+  resolvePortRange,
   stablePort,
   stableUiPort,
   writeFileAtomic,
@@ -1767,6 +1769,55 @@ test("stablePort is deterministic per repo+session and stays in range", () => {
   assert.notEqual(a, stablePort("/other/repo", "main")); // repo-sensitive
   // The raw session name and its sanitized form land on the same port (deskSession sanitizes).
   assert.equal(stablePort("/work/repo", "feature/x"), stablePort("/work/repo", "feature-x"));
+});
+
+test("with a GALLEY_PORT_RANGE, the desk and UI ports are deterministic, distinct, and inside it", () => {
+  const range = { lo: 41000, hi: 41099 };
+  for (const [root, session] of [
+    ["/work/repo", "main"],
+    ["/work/repo", "feature-x"],
+    ["/other/repo", "main"],
+  ]) {
+    const desk = stablePort(root, session, range);
+    const ui = stableUiPort(root, session, range);
+    assert.equal(desk, stablePort(root, session, range));
+    assert.equal(ui, stableUiPort(root, session, range));
+    assert.ok(desk >= 41000 && desk <= 41099, `desk ${desk} in range`);
+    assert.ok(ui >= 41000 && ui <= 41099, `ui ${ui} in range`);
+    assert.notEqual(desk, ui);
+  }
+  // A one-port range has only one answer.
+  assert.equal(stablePort("/work/repo", "main", { lo: 5000, hi: 5000 }), 5000);
+  // Worked by hand from sha256("/work/repo:main") and sha256("/work/repo:main:ui"): the same hash
+  // that picks a port in the default range picks lo + hash % size inside the narrow one.
+  assert.equal(stablePort("/work/repo", "main"), 48878);
+  assert.equal(stableUiPort("/work/repo", "main"), 41459);
+  assert.equal(stablePort("/work/repo", "main", range), 41078);
+  assert.equal(stableUiPort("/work/repo", "main", range), 41059);
+});
+
+test("resolvePortRange parses lo-hi, ignores unset, and warns once on a malformed value", () => {
+  const warnings: string[] = [];
+  const warn = (m: string) => warnings.push(m);
+  assert.deepEqual(resolvePortRange("41000-41099", warn), { lo: 41000, hi: 41099 });
+  assert.deepEqual(resolvePortRange(" 7-7 ", warn), { lo: 7, hi: 7 });
+  assert.deepEqual(resolvePortRange("1-65535", warn), { lo: 1, hi: 65535 });
+  assert.equal(resolvePortRange(undefined, warn), undefined);
+  assert.equal(resolvePortRange("", warn), undefined);
+  assert.equal(warnings.length, 0);
+  for (const bad of ["abc", "41099-41000", "0-10", "41000", "41000-70000", "-5-10", "1.5-10"]) {
+    warnings.length = 0;
+    assert.equal(resolvePortRange(bad, warn), undefined, bad);
+    assert.equal(warnings.length, 1, `${bad} warns once`);
+    assert.match(warnings[0], /GALLEY_PORT_RANGE/);
+    assert.ok(warnings[0].includes(bad));
+  }
+});
+
+test("portRangeWalk visits every port once, from the preferred one, wrapping hi to lo", () => {
+  assert.deepEqual(portRangeWalk(52, { lo: 50, hi: 54 }), [52, 53, 54, 50, 51]);
+  assert.deepEqual(portRangeWalk(50, { lo: 50, hi: 52 }), [50, 51, 52]);
+  assert.deepEqual(portRangeWalk(9, { lo: 9, hi: 9 }), [9]);
 });
 
 test("sanitizeSession normalizes branch names and falls back", () => {

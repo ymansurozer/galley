@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   mkdir,
@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
+import net from "node:net";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { AGENT_HEADER, resolveBinding, startServer, swapIndexEntry } from "./server.js";
@@ -2287,6 +2288,136 @@ test("stable-port EADDRINUSE falls back to a different port instead of throwing"
     }
   } finally {
     occupied.close();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Hold `size` consecutive free loopback ports, starting at a random port above Galley's default
+// range, so a GALLEY_PORT_RANGE test never assumes a fixed port is free. Release one to free it.
+async function holdPortBlock(size: number) {
+  const close = (s: net.Server) => new Promise<void>((resolve) => s.close(() => resolve()));
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const lo = 52000 + Math.floor(Math.random() * 8000);
+    const held = new Map<number, net.Server>();
+    try {
+      for (let port = lo; port < lo + size; port++) {
+        const s = net.createServer();
+        await new Promise<void>((resolve, reject) => {
+          s.once("error", reject);
+          s.listen(port, "127.0.0.1", resolve);
+        });
+        held.set(port, s);
+      }
+      const release = async (...ports: number[]) => {
+        for (const port of ports) {
+          const s = held.get(port);
+          held.delete(port);
+          if (s) await close(s);
+        }
+      };
+      return { lo, hi: lo + size - 1, release, releaseAll: () => release(...held.keys()) };
+    } catch {
+      await Promise.all([...held.values()].map(close));
+    }
+  }
+  throw new Error("no free block of loopback ports");
+}
+
+test("with a GALLEY_PORT_RANGE, a held desk port falls back to the next free port inside it", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-portrange-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const block = await holdPortBlock(5);
+  try {
+    // Preferred lo+2 and hi stay held; lo+3 is the next free one.
+    await block.release(block.lo, block.lo + 1, block.lo + 3);
+    const handle = await startServer({
+      state: state(root),
+      open: false,
+      idleTimeoutMs: 0,
+      port: block.lo + 2,
+      portRange: { lo: block.lo, hi: block.hi },
+    });
+    try {
+      assert.equal(Number(new URL(handle.url).port), block.lo + 3);
+      assert.equal((await fetch(`${handle.url}api/state`)).status, 200);
+    } finally {
+      handle.server.close();
+    }
+  } finally {
+    await block.releaseAll();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("walking past more than 10 held GALLEY_PORT_RANGE ports leaks no listeners", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-portrange-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const block = await holdPortBlock(12);
+  const warnings: Error[] = [];
+  const onWarning = (w: Error) => warnings.push(w);
+  process.on("warning", onWarning);
+  try {
+    await block.release(block.hi);
+    const handle = await startServer({
+      state: state(root),
+      open: false,
+      idleTimeoutMs: 0,
+      port: block.lo,
+      portRange: { lo: block.lo, hi: block.hi },
+    });
+    try {
+      assert.equal(Number(new URL(handle.url).port), block.hi);
+      await new Promise((resolve) => setImmediate(resolve)); // warnings are emitted on next tick
+      assert.deepEqual(
+        warnings.filter((w) => w.name === "MaxListenersExceededWarning").map((w) => w.message),
+        [],
+      );
+    } finally {
+      handle.server.close();
+    }
+  } finally {
+    process.off("warning", onWarning);
+    await block.releaseAll();
+    process.env.HOME = oldHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("with every GALLEY_PORT_RANGE port held, the desk warns once naming the range and starts on a random port", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "galley-portrange-"));
+  const oldHome = process.env.HOME;
+  process.env.HOME = root;
+  const block = await holdPortBlock(2);
+  const errors = mock.method(console, "error", () => {});
+  try {
+    const handle = await startServer({
+      state: state(root),
+      open: false,
+      idleTimeoutMs: 0,
+      port: block.lo,
+      portRange: { lo: block.lo, hi: block.hi },
+    });
+    try {
+      const port = Number(new URL(handle.url).port);
+      assert.ok(port > 0 && (port < block.lo || port > block.hi), `random port ${port}`);
+      assert.equal((await fetch(`${handle.url}api/state`)).status, 200);
+      const lines = errors.mock.calls.map((c) => String(c.arguments[0]));
+      assert.deepEqual(
+        lines.filter((l) => l.includes(`${block.lo}-${block.hi}`)),
+        [
+          `GALLEY_PORT_RANGE: every port in ${block.lo}-${block.hi} is taken — falling back to a random port.`,
+        ],
+      );
+    } finally {
+      handle.server.close();
+    }
+  } finally {
+    errors.mock.restore();
+    await block.releaseAll();
     process.env.HOME = oldHome;
     await rm(root, { recursive: true, force: true });
   }

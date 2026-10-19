@@ -4,11 +4,12 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deskAlive } from "./cli.js";
-import { deskLockPath, loadLatestReview, persistReview, reviewDir } from "./state.js";
+import { deskLockPath, loadLatestReview, persistReview, reviewDir, stableUiPort } from "./state.js";
 import type { ReviewState } from "./types.js";
 
 // A desk lock can outlive its process (crash, SIGKILL) — deskAlive is the only thing standing
@@ -68,8 +69,9 @@ test("running cli.ts through a symlink (npm bin shape) still runs main()", async
 const CLI = fileURLToPath(new URL("./cli.ts", import.meta.url));
 
 // Hermetic: HOME isolates ~/.galley, no update check, HOME/bin's fake browser opener shadows the
-// real one (see tempRepo), and no inherited GALLEY_HOST (the desk must print its loopback URL).
-function cliEnv(home: string) {
+// real one (see tempRepo), no inherited GALLEY_HOST (the desk must print its loopback URL), and no
+// inherited GALLEY_PORT_RANGE (a box that exports one would move every desk's port).
+function cliEnv(home: string, extra: NodeJS.ProcessEnv = {}) {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
@@ -78,7 +80,8 @@ function cliEnv(home: string) {
   };
   delete env.GALLEY_HOST;
   delete env.GALLEY_ALLOWED_HOSTS;
-  return env;
+  delete env.GALLEY_PORT_RANGE;
+  return { ...env, ...extra };
 }
 
 // The OS command a desk opens its URL with (server.ts openUrl). Windows' `cmd /c start` can't be
@@ -125,10 +128,15 @@ const opened = (home: string) =>
     () => [],
   );
 
-// Launch a persistent desk and resolve with its loopback URL once it prints it.
-function startDesk(args: string[], home: string): Promise<{ child: ChildProcess; url: string }> {
+// Launch a persistent desk and resolve with its loopback URL (and its stderr so far) once it
+// prints it.
+function startDesk(
+  args: string[],
+  home: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<{ child: ChildProcess; url: string; stderr: string }> {
   const child = spawn(process.execPath, ["--import", "tsx", CLI, ...args], {
-    env: cliEnv(home),
+    env: cliEnv(home, env),
     stdio: ["ignore", "ignore", "pipe"],
   });
   return new Promise((resolve, reject) => {
@@ -142,7 +150,7 @@ function startDesk(args: string[], home: string): Promise<{ child: ChildProcess;
       const m = err.match(/http:\/\/127\.0\.0\.1:\d+\//);
       if (m) {
         clearTimeout(timer);
-        resolve({ child, url: m[0] });
+        resolve({ child, url: m[0], stderr: err });
       }
     });
     child.once("exit", () => {
@@ -212,6 +220,113 @@ test("galley ui with no live desk starts a UI-only desk on a clean tree; a secon
     const poll = await deskPoll(desk.url);
     assert.deepEqual(poll.ui, { target: "http://127.0.0.1:4000/app" });
     assert.equal(poll.uiProxy?.port, state.uiProxy.port);
+  } finally {
+    child?.kill();
+    await cleanup();
+  }
+});
+
+// A random 100-port GALLEY_PORT_RANGE below the OS's ephemeral ports, so a port the OS hands out
+// for --port 0 never falls inside it.
+const portRangeEnv = () => {
+  const lo = 20000 + Math.floor(Math.random() * 9900);
+  return { lo, hi: lo + 99, GALLEY_PORT_RANGE: `${lo}-${lo + 99}` };
+};
+const urlPort = (url: string) => Number(new URL(url).port);
+
+// A port the OS just handed out (ephemeral, so above any portRangeEnv range), then freed.
+async function freePort() {
+  const probe = http.createServer();
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const address = probe.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  await new Promise((resolve) => probe.close(resolve));
+  return port;
+}
+
+test("with GALLEY_PORT_RANGE set, the desk and its UI proxy come up inside the range", async () => {
+  const { repo, home, cleanup } = await tempRepo(true);
+  const { lo, hi, GALLEY_PORT_RANGE } = portRangeEnv();
+  let child: ChildProcess | undefined;
+  try {
+    const desk = await startDesk(["--ui", "localhost:5173", "--repo", repo], home, {
+      GALLEY_PORT_RANGE,
+    });
+    child = desk.child;
+    const port = urlPort(desk.url);
+    assert.ok(port >= lo && port <= hi, `desk port ${port} in ${GALLEY_PORT_RANGE}`);
+    const proxyPort = (await deskState(desk.url)).uiProxy?.port ?? 0;
+    assert.ok(
+      proxyPort >= lo && proxyPort <= hi,
+      `proxy port ${proxyPort} in ${GALLEY_PORT_RANGE}`,
+    );
+  } finally {
+    child?.kill();
+    await cleanup();
+  }
+});
+
+test("an explicit --port outside GALLEY_PORT_RANGE is honored exactly", async () => {
+  const { repo, home, cleanup } = await tempRepo(true);
+  const free = await freePort();
+  let child: ChildProcess | undefined;
+  try {
+    const desk = await startDesk(["--repo", repo, "--port", String(free)], home, {
+      GALLEY_PORT_RANGE: portRangeEnv().GALLEY_PORT_RANGE,
+    });
+    child = desk.child;
+    assert.equal(urlPort(desk.url), free);
+  } finally {
+    child?.kill();
+    await cleanup();
+  }
+});
+
+test("an explicit --port outside GALLEY_PORT_RANGE still keeps the UI proxy inside it", async () => {
+  const { repo, home, cleanup } = await tempRepo(true);
+  const free = await freePort();
+  // A range whose top port is the proxy's preferred one, held: the proxy must wrap to lo rather
+  // than step past hi. The hash doesn't depend on lo, so search over the range's size.
+  const lo = 20000 + Math.floor(Math.random() * 8000);
+  let hi = 0;
+  for (let size = 2; size < 1000 && !hi; size++)
+    if (stableUiPort(repo, "x", { lo, hi: lo + size - 1 }) === lo + size - 1) hi = lo + size - 1;
+  const holder = net.createServer();
+  const held = await new Promise<boolean>((resolve) => {
+    holder.once("error", () => resolve(false));
+    holder.listen(hi, "127.0.0.1", () => resolve(true));
+  });
+  assert.ok(hi && held, `held the proxy's preferred port ${hi}`);
+  let child: ChildProcess | undefined;
+  try {
+    const desk = await startDesk(
+      ["--ui", "localhost:5173", "--repo", repo, "--session", "x", "--port", String(free)],
+      home,
+      { GALLEY_PORT_RANGE: `${lo}-${hi}` },
+    );
+    child = desk.child;
+    assert.equal(urlPort(desk.url), free);
+    assert.equal((await deskState(desk.url)).uiProxy?.port, lo);
+  } finally {
+    child?.kill();
+    holder.close();
+    await cleanup();
+  }
+});
+
+test("a malformed GALLEY_PORT_RANGE warns once and the desk keeps its default port range", async () => {
+  const { repo, home, cleanup } = await tempRepo(true);
+  let child: ChildProcess | undefined;
+  try {
+    const desk = await startDesk(["--repo", repo], home, { GALLEY_PORT_RANGE: "41099-41000" });
+    child = desk.child;
+    const warnings = desk.stderr.split("\n").filter((l) => l.includes("GALLEY_PORT_RANGE"));
+    assert.equal(warnings.length, 1, desk.stderr);
+    assert.match(warnings[0], /"41099-41000"/);
+    const port = urlPort(desk.url);
+    // The default range — or, if its stable port happens to be held, a random fallback.
+    assert.ok(port > 0, desk.stderr);
+    if (!/is taken/.test(desk.stderr)) assert.ok(port >= 41000 && port <= 50999, `port ${port}`);
   } finally {
     child?.kill();
     await cleanup();

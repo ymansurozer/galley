@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import net from "node:net";
@@ -617,5 +617,125 @@ test("startUiProxy takes the next free port when its preferred one is held", asy
   } finally {
     proxy.close();
     holder.close();
+  }
+});
+
+// Hold `size` consecutive free loopback ports, starting at a random port above Galley's default
+// range, so a GALLEY_PORT_RANGE test never assumes a fixed port is free. Release one to free it.
+async function holdPortBlock(size: number) {
+  const close = (s: net.Server) => new Promise<void>((resolve) => s.close(() => resolve()));
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const lo = 52000 + Math.floor(Math.random() * 8000);
+    const held = new Map<number, net.Server>();
+    try {
+      for (let port = lo; port < lo + size; port++) {
+        const s = net.createServer();
+        await new Promise<void>((resolve, reject) => {
+          s.once("error", reject);
+          s.listen(port, "127.0.0.1", resolve);
+        });
+        held.set(port, s);
+      }
+      const release = async (...ports: number[]) => {
+        for (const port of ports) {
+          const s = held.get(port);
+          held.delete(port);
+          if (s) await close(s);
+        }
+      };
+      return { lo, hi: lo + size - 1, release, releaseAll: () => release(...held.keys()) };
+    } catch {
+      await Promise.all([...held.values()].map(close));
+    }
+  }
+  throw new Error("no free block of loopback ports");
+}
+
+test("with a GALLEY_PORT_RANGE, startUiProxy's next-free walk wraps from hi to lo, never past hi", async () => {
+  const block = await holdPortBlock(4);
+  // Preferred hi-1 and hi stay held; lo is free.
+  await block.release(block.lo, block.lo + 1);
+  try {
+    const proxy = await startUiProxy({
+      host: "127.0.0.1",
+      port: block.hi - 1,
+      portRange: { lo: block.lo, hi: block.hi },
+      allowedHosts: ["127.0.0.1"],
+      deskPort: DESK_PORT,
+      token: TOKEN,
+      target: () => undefined,
+      bridgeJs: async () => null,
+    });
+    try {
+      assert.equal(proxy.port, block.lo);
+    } finally {
+      proxy.close();
+    }
+  } finally {
+    await block.releaseAll();
+  }
+});
+
+test("with every GALLEY_PORT_RANGE port held, startUiProxy warns once naming the range and binds a random port", async () => {
+  const block = await holdPortBlock(2);
+  const errors = mock.method(console, "error", () => {});
+  try {
+    const proxy = await startUiProxy({
+      host: "127.0.0.1",
+      port: block.lo,
+      portRange: { lo: block.lo, hi: block.hi },
+      allowedHosts: ["127.0.0.1"],
+      deskPort: DESK_PORT,
+      token: TOKEN,
+      target: () => undefined,
+      bridgeJs: async () => null,
+    });
+    try {
+      assert.ok(proxy.port > 0 && (proxy.port < block.lo || proxy.port > block.hi));
+      assert.deepEqual(
+        errors.mock.calls.map((c) => String(c.arguments[0])),
+        [
+          `GALLEY_PORT_RANGE: every port in ${block.lo}-${block.hi} is taken — falling back to a random port for the app.`,
+        ],
+      );
+    } finally {
+      proxy.close();
+    }
+  } finally {
+    errors.mock.restore();
+    await block.releaseAll();
+  }
+});
+
+test("walking past more than 10 held GALLEY_PORT_RANGE ports leaks no listeners on the proxy", async () => {
+  const block = await holdPortBlock(12);
+  const warnings: Error[] = [];
+  const onWarning = (w: Error) => warnings.push(w);
+  process.on("warning", onWarning);
+  try {
+    await block.release(block.hi);
+    const proxy = await startUiProxy({
+      host: "127.0.0.1",
+      port: block.lo,
+      portRange: { lo: block.lo, hi: block.hi },
+      allowedHosts: ["127.0.0.1"],
+      deskPort: DESK_PORT,
+      token: TOKEN,
+      target: () => undefined,
+      bridgeJs: async () => null,
+    });
+    try {
+      assert.equal(proxy.port, block.hi);
+      await new Promise((resolve) => setImmediate(resolve)); // warnings are emitted on next tick
+      assert.deepEqual(
+        warnings.filter((w) => w.name === "MaxListenersExceededWarning").map((w) => w.message),
+        [],
+      );
+    } finally {
+      proxy.close();
+    }
+  } finally {
+    process.off("warning", onWarning);
+    await block.releaseAll();
   }
 });
