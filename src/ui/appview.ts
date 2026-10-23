@@ -82,6 +82,7 @@ let pendingUiRefresh = false;
 function loadApp(route: string) {
   const origin = proxyOrigin();
   if (!origin) return;
+  captures.abandon("The app page changed during the capture");
   if (!frame) {
     frame = document.createElement("iframe");
     frame.title = "App under review";
@@ -196,8 +197,15 @@ export function appForward() {
 // Shared by the manual refresh controls and the agent's explicit UI iteration signal.
 export function appRefresh() {
   S.app.stale = false;
-  if (S.uiProxy && S.app.connected) postToApp({ type: "reload", token: S.uiProxy.token });
-  else loadApp(S.app.route);
+  if (S.uiProxy && S.app.connected) {
+    // The departing document can still send picks and in-page navigation while reload is slow.
+    // Stop offering annotation until the new document's ready, before dispatching navigation.
+    postToApp({ type: "mode", token: S.uiProxy.token, mode: "interact" });
+    S.app.connected = false;
+    S.pendingPicks = 0;
+    captures.abandon("The app page refreshed during the capture");
+    postToApp({ type: "reload", token: S.uiProxy.token });
+  } else loadApp(S.app.route);
   // A manual refresh also fulfills any agent refresh that was waiting for a draft to close.
   pendingUiRefresh = false;
 }
@@ -205,7 +213,15 @@ export function appRefresh() {
 // Poll after adopting the target: an agent refresh must not discard desk-authored text, including
 // a pick set aside in the code view. Keep the intent until navigation actually runs.
 export function applyPendingUiRefresh() {
-  if (!pendingUiRefresh || S.composerOpen || hasUiDraft() || !S.uiProxy || !S.app.loaded) return;
+  if (
+    !pendingUiRefresh ||
+    S.composerOpen ||
+    hasUiDraft() ||
+    captures.isBusy() ||
+    !S.uiProxy ||
+    !S.app.loaded
+  )
+    return;
   appRefresh();
 }
 
@@ -237,7 +253,20 @@ export function captureApp(
     return Promise.reject(new Error("No bridge is listening on the app page"));
   const id = ++captureSeq;
   const reply = captures.wait(id);
-  postToApp({ type: "capture", token: S.uiProxy.token, id, ...target });
+  const token = S.uiProxy.token;
+  // Paint the closed composer and new card before rendering the screenshot. Enroll before those
+  // two frames: automatic refresh must protect even that interval.
+  // A manual navigation can cancel the request before dispatch; never send it to the next page.
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      if (!captures.has(id)) return;
+      try {
+        postToApp({ type: "capture", token, id, ...target });
+      } catch (err) {
+        captures.settle(id, err instanceof Error ? err : new Error(String(err)));
+      }
+    }),
+  );
   return reply;
 }
 
@@ -401,6 +430,9 @@ export function installAppView() {
       captures.settle(msg.id, "shot" in msg ? msg.shot : new Error(msg.error));
       return;
     }
+    // Only a new document's handshake restores trust after refresh, leave, or target change.
+    // An old document's queued nav or pick must not re-enable a composer that ready would erase.
+    if (!S.app.connected && msg.type !== "ready") return;
     // Picks and keys count only in the mode the desk put the app in, whatever the page claims.
     if (msg.type === "picked") {
       if (appModeNow() === "annotate") pickedInApp(msg.page, msg.target);
@@ -418,6 +450,7 @@ export function installAppView() {
       return;
     }
     const moved = msg.route !== S.app.route;
+    if (msg.type === "ready") captures.abandon("The app page changed during the capture");
     Object.assign(S.app, {
       connected: true,
       route: msg.route,

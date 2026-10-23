@@ -466,7 +466,8 @@ export type AppFrame = {
   route: string;
   title: string;
   // A bridge has handshaken on the current page. Off on the waiting page, non-HTML pages, and pages
-  // carrying a previous desk process's token; the controls then fall back to resetting the src.
+  // carrying a previous desk process's token, and from refresh dispatch until ready returns;
+  // the controls then fall back to resetting the src.
   connected: boolean;
   canGoBack: boolean | null;
   canGoForward: boolean | null;

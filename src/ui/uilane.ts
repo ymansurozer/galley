@@ -141,7 +141,7 @@ export function stepAnnotation(dir: 1 | -1) {
 // the new target and keeps the text.
 function openDraft(page: Omit<UiPage, "url">, target: UiTarget) {
   const ui = S.state.ui;
-  if (!ui) return;
+  if (!ui || !S.app.connected) return;
   const carried = S.annotationDraft ? S.composerBody : "";
   // A reply or edit elsewhere (or a code comment left open) gives way: one composer at a time.
   if (S.composerOpen && !S.annotationDraft) closeComposer();
@@ -333,9 +333,6 @@ function captureScreenshots(a: UiAnnotationRecord) {
   capturing.set(a.id, done);
 }
 async function storeScreenshots(a: UiAnnotationRecord) {
-  // Two frames first, so the closed composer and the new card are painted before the render,
-  // which can keep the page busy for seconds.
-  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const target = markTarget(a.target);
   const shot = await captureApp(
     target ? { target, mark: { number: a.number, question: a.intent === "question" } } : {},

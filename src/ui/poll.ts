@@ -41,11 +41,19 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
 // full ReviewState (file contents for the whole diff; >100 MB on a big monorepo PR)
 // is fetched from /api/state only when baseDiffHash moves: polling it every tick kept
 // the desk process pinned serializing it and the tab pinned re-parsing it.
+let pollSequence = 0;
+let adoptedPoll = 0;
 export async function pollState() {
+  const sequence = ++pollSequence;
+  // Polls overlap on slow connections. Once a newer poll has answered, every remaining
+  // response from an older poll (including its full-state fetch) belongs to a superseded view.
+  const superseded = () => sequence < adoptedPoll;
   let lite: PollPayload | undefined;
   try {
     const payload = await api<PollPayload & DeskStatus>("/api/poll");
     if (payload && Array.isArray(payload.comments)) {
+      if (superseded()) return;
+      adoptedPoll = sequence;
       lite = adoptDeskStatus(payload);
       // Activity/presence changes alone don't warrant a render — patch the
       // waiting indicators in place every tick.
@@ -71,7 +79,9 @@ export async function pollState() {
     // The diff moved — now (and only now) pull the full state.
     let server: ReviewState | undefined;
     try {
-      server = adoptDeskStatus(await api<ReviewState & DeskStatus>("/api/state"));
+      const payload = await api<ReviewState & DeskStatus>("/api/state");
+      if (superseded()) return;
+      server = adoptDeskStatus(payload);
     } catch {
       return;
     }
@@ -114,7 +124,9 @@ export async function pollState() {
     // same). A diff that moved meanwhile waits for the next tick's full adoption above.
     let server: ReviewState | undefined;
     try {
-      server = adoptDeskStatus(await api<ReviewState & DeskStatus>("/api/state"));
+      const payload = await api<ReviewState & DeskStatus>("/api/state");
+      if (superseded()) return;
+      server = adoptDeskStatus(payload);
     } catch {
       return;
     }
