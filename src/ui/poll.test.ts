@@ -4,13 +4,14 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { Window } from "happy-dom";
+import { mergeReviewerSave } from "../state.js";
 
 // Real poll/status/render modules, adapted from the independent starvation probe. HTTP
 // snapshots and response ordering are controlled; bundles never write generated output.
 const bundle = build({
   stdin: {
     contents:
-      'import {S} from "./store"; import {pollState,adoptDeskStatus} from "./poll"; import {renderMarkdown} from "./markdown"; window.h={S,pollState,adoptDeskStatus,renderMarkdown};',
+      'import {S,saver,persist,persistSoon} from "./store"; import {pollState,adoptDeskStatus} from "./poll"; import {deleteComment,turnComment} from "./comments"; import {acceptChange} from "./decisions"; import {submitUiComposer,placedInApp} from "./uilane"; import {renderMarkdown} from "./markdown"; window.h={S,saver,persist,persistSoon,pollState,adoptDeskStatus,deleteComment,turnComment,acceptChange,submitUiComposer,placedInApp,renderMarkdown};',
     resolveDir: fileURLToPath(new URL(".", import.meta.url)),
   },
   bundle: true,
@@ -55,11 +56,30 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
     branch: "branch",
     ui: { target: "http://localhost:3000/entry" },
     files: [],
-    changes: [{ id: "change", path: "a.ts", status: "pending" }],
+    mode: "pr",
+    changes: [
+      {
+        id: "change",
+        path: "a.ts",
+        status: "pending",
+        stableKey: "key",
+        contentHash: "content",
+        hunkIndex: 0,
+        side: "additions",
+        lineNumber: 1,
+        title: "Change",
+      },
+    ],
     comments: [],
     annotations: [],
     baseDiffHash: "base",
+    decisions: [],
+    decisionFiles: [],
+    reviewedFiles: [],
+    reviewedFileHashes: {},
+    signedOffBlocks: {},
   };
+  const priorDiff = JSON.parse(JSON.stringify(S.state));
   S.lastBaseDiffHash = "base";
   let server: any = {
     ...JSON.parse(JSON.stringify(S.state)),
@@ -70,7 +90,22 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
     queuedQuestions: 0,
   };
   h.adoptDeskStatus(server);
-  win.fetch = (async (url: string) => {
+  const saves: any[] = [];
+  win.fetch = (async (url: string, options: any) => {
+    if (url === "/api/save") {
+      const body = JSON.parse(options.body);
+      saves.push(body);
+      await mergeReviewerSave(
+        server,
+        body,
+        {
+          token: server.uiProxy.token,
+          reloadGeneration: server.reloadGeneration,
+        },
+        priorDiff,
+      );
+      return { ok: true, json: async () => ({ ok: true }) };
+    }
     const snapshot = structuredClone(server);
     return {
       ok: true,
@@ -83,11 +118,38 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
                 fail: () => reject(new Error("transfer failed")),
               }),
             )
-          : Promise.resolve(url === "/api/tree" ? { files: [] } : snapshot),
+          : Promise.resolve(
+              url === "/api/tree"
+                ? { files: [] }
+                : Object.fromEntries(
+                    [
+                      "baseDiffHash",
+                      "guide",
+                      "comments",
+                      "ui",
+                      "annotations",
+                      "project",
+                      "branch",
+                      "uiProxy",
+                      "reloadGeneration",
+                      "uiRefreshGeneration",
+                      "agentActivity",
+                      "agentListening",
+                      "agentRecentlyActive",
+                      "queuedQuestions",
+                      "queuedReviews",
+                    ]
+                      .filter((key) => key in snapshot)
+                      .map((key) => [key, snapshot[key]]),
+                  ),
+            ),
     };
   }) as any;
   return {
     S,
+    h,
+    win,
+    saves,
     pending,
     server: () => server,
     update: (patch: any) => (server = { ...server, ...patch }),
@@ -111,15 +173,192 @@ const updateFor = (branch: "diff" | "guide", label: string) =>
 const adopted = (f: Awaited<ReturnType<typeof fixture>>, branch: "diff" | "guide") =>
   branch === "diff" ? f.S.lastBaseDiffHash : f.S.state.guide?.title;
 
+const reviewerComment = {
+  id: "reviewer",
+  role: "user",
+  path: "a.ts",
+  side: "additions",
+  lineNumber: 1,
+  body: "Original objection",
+  intent: "question",
+  status: "open",
+  createdAt: "2026-10-23T12:00:00Z",
+  updatedAt: "2026-10-23T12:00:00Z",
+};
+const reviewerAnnotation = {
+  id: "pin",
+  number: 1,
+  intent: "question",
+  status: "open",
+  placement: "unvisited",
+  page: {
+    url: "http://localhost:3000/",
+    route: "/",
+    viewport: { width: 1000, height: 700, dpr: 1 },
+  },
+  target: { kind: "page" },
+  comments: [{ ...reviewerComment, id: "annotation-message" }],
+};
+
+for (const branch of ["diff", "guide"] as const) {
+  for (const newerLite of [true, false]) {
+    test(`${branch} rejects a completed reviewer deletion's old snapshot (${newerLite ? "with" : "without"} a newer lite tick)`, async (t) => {
+      const f = await fixture(t);
+      f.S.state.comments = [structuredClone(reviewerComment)];
+      f.update({ comments: [structuredClone(reviewerComment)], ...updateFor(branch, "updated") });
+      const owner = f.poll();
+      await until(() => f.pending.length === 1);
+      const originalState = f.S.state;
+      await f.h.deleteComment("reviewer");
+      await f.h.saver.settled();
+      assert.equal(
+        f.h.saver.isBusy(),
+        false,
+        "the save has fully completed before old data arrives",
+      );
+      assert.equal(f.S.state, originalState, "the mutation did not replace ReviewState");
+      assert.equal(f.server().comments.length, 0, "real backend save merging stored the deletion");
+      if (newerLite) await f.poll();
+      f.pending[0]!.release();
+      await owner;
+      assert.equal(
+        f.S.state.comments.length,
+        0,
+        "the old transfer cannot resurrect a deleted comment",
+      );
+      assert.notEqual(adopted(f, branch), "updated", "outdated work waits for a fresh snapshot");
+      f.h.persist();
+      await f.h.saver.settled();
+      assert.equal(f.server().comments.length, 0, "the next save cannot persist a resurrection");
+      const retry = f.poll();
+      await until(() => f.pending.length === 2);
+      f.pending[1]!.release();
+      await retry;
+      assert.equal(adopted(f, branch), "updated");
+      assert.equal(f.S.state.comments.length, 0);
+    });
+  }
+
+  test(`${branch} preserves saved in-place modifications and decisions across an old transfer`, async (t) => {
+    const f = await fixture(t);
+    f.S.state.comments = [structuredClone(reviewerComment)];
+    f.S.state.annotations = [structuredClone(reviewerAnnotation)];
+    f.update({
+      comments: [structuredClone(reviewerComment)],
+      annotations: [structuredClone(reviewerAnnotation)],
+      ...updateFor(branch, "updated"),
+    });
+    const owner = f.poll();
+    await until(() => f.pending.length === 1);
+    f.h.turnComment("reviewer"); // question -> change request: same record, no agent Ask
+    await f.h.acceptChange("change", "rejected");
+    f.S.composerOpen = true;
+    f.S.composerAnnotation = "pin";
+    f.S.editingCommentId = "annotation-message";
+    f.S.composerBody = "Revised annotation text";
+    f.h.submitUiComposer("action");
+    await f.h.saver.settled();
+    assert.equal(f.S.state.comments[0].intent, "action");
+    assert.equal(f.server().comments[0].intent, "action");
+    assert.equal(f.S.state.decisions[0].status, "rejected");
+    assert.equal(f.server().decisions[0].status, "rejected");
+    assert.equal(f.server().annotations[0].comments[0].body, "Revised annotation text");
+    await f.poll();
+    f.pending[0]!.release();
+    await owner;
+    assert.equal(f.S.state.comments[0].intent, "action");
+    assert.equal(f.S.state.decisions[0].status, "rejected");
+    assert.equal(f.S.state.annotations[0].comments[0].body, "Revised annotation text");
+    assert.notEqual(adopted(f, branch), "updated");
+    const retry = f.poll();
+    await until(() => f.pending.length === 2);
+    f.pending[1]!.release();
+    await retry;
+    assert.equal(adopted(f, branch), "updated");
+    assert.equal(f.S.state.comments[0].intent, "action");
+    assert.equal(f.S.state.decisions[0].status, "rejected");
+    assert.equal(f.S.state.annotations[0].comments[0].body, "Revised annotation text");
+  });
+
+  test(`${branch} invalidates old work when a real placement callback requests a deferred save`, async (t) => {
+    const f = await fixture(t);
+    for (const phase of ["waiting", "completed"] as const) {
+      const annotation = structuredClone(reviewerAnnotation);
+      annotation.page.route = f.S.app.route;
+      annotation.page.url = new URL(f.S.app.route, "http://localhost:3000").href;
+      f.S.state.annotations = [annotation];
+      f.update({ annotations: [structuredClone(annotation)], ...updateFor(branch, phase) });
+      const start = f.pending.length;
+      const owner = f.poll();
+      await until(() => f.pending.length === start + 1);
+      const generation = f.h.saver.generation();
+      const saved = f.saves.length;
+      const originalTimeout = f.win.setTimeout.bind(f.win);
+      let dispatch: (() => void) | undefined;
+      f.win.setTimeout = ((callback: () => void, ms: number, ...args: any[]) => {
+        if (ms === 1000) dispatch = callback;
+        return originalTimeout(callback, ms, ...args);
+      }) as any;
+      f.h.placedInApp([{ id: "pin", placement: "placed" }]);
+      f.win.setTimeout = originalTimeout;
+      assert.ok(dispatch, "the real placement callback requested persistSoon");
+      assert.ok(
+        f.h.saver.generation() > generation,
+        "deferred mutation is visible before dispatch",
+      );
+      assert.equal(f.h.saver.isBusy(), false);
+      assert.equal(f.saves.length, saved);
+      if (phase === "completed") {
+        dispatch!();
+        await f.h.saver.settled();
+      }
+      await f.poll();
+      f.pending[start]!.release();
+      await owner;
+      assert.notEqual(
+        adopted(f, branch),
+        phase,
+        "even an idle or unsent save invalidates the snapshot",
+      );
+      assert.equal(f.S.state.annotations[0].placement, "placed");
+      if (phase === "waiting") {
+        dispatch!();
+        await f.h.saver.settled();
+      }
+      assert.equal(f.server().annotations[0].placement, "placed");
+      const retry = f.poll();
+      await until(() => f.pending.length === start + 2);
+      f.pending[start + 1]!.release();
+      await retry;
+      assert.equal(adopted(f, branch), phase);
+      assert.equal(f.S.state.annotations[0].placement, "placed");
+    }
+  });
+}
+
 for (const branch of ["diff", "guide"] as const) {
   test(`${branch} adoption progresses through repeated identical-revision lite polls`, async (t) => {
     const f = await fixture(t);
-    f.update({ ...updateFor(branch, "updated"), reloadGeneration: 1 });
+    f.S.state.annotations = [structuredClone(reviewerAnnotation)];
+    f.update({
+      ...updateFor(branch, "updated"),
+      reloadGeneration: 1,
+      annotations: [structuredClone(reviewerAnnotation)],
+    });
     const owner = f.poll();
     await until(() => f.pending.length === 1);
+    const saveGeneration = f.h.saver.generation();
     const ticks: Promise<void>[] = [];
     for (let i = 1; i <= 5; i++) {
+      const annotations = structuredClone(f.server().annotations);
+      annotations[0].comments.push({
+        ...reviewerComment,
+        id: `agent-${i}`,
+        role: "agent",
+        body: `Reply ${i}`,
+      });
       f.update({
+        annotations,
         agentRecentlyActive: true,
         queuedQuestions: i,
         branch: `latest-${i}`,
@@ -157,6 +396,12 @@ for (const branch of ["diff", "guide"] as const) {
     assert.equal(f.S.queuedQuestions, 5);
     assert.equal(f.S.state.branch, "latest-5", "names come from the newest lite snapshot");
     assert.equal(f.S.state.comments[0].body, "Latest reply");
+    assert.equal(f.S.state.annotations[0].comments.length, 6);
+    assert.equal(
+      f.h.saver.generation(),
+      saveGeneration,
+      "agent-only reply polling is not reviewer save activity",
+    );
     assert.equal(f.S.reloadGeneration, 1);
     assert.equal("reloadGeneration" in f.S.state, false);
     assert.equal("agentRecentlyActive" in f.S.state, false);

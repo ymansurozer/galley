@@ -130,6 +130,7 @@ export async function pollState() {
     if (fullStateRequest?.revision === latestPoll!.revision) return;
     const request = { revision: latestPoll!.revision };
     const state = S.state;
+    const saveGeneration = saver.generation();
     fullStateRequest = request;
     try {
       const payload = await api<ReviewState & DeskStatus>("/api/state");
@@ -137,7 +138,10 @@ export async function pollState() {
         fullStateRequest !== request ||
         latestPoll!.revision !== request.revision ||
         stateRevision(payload) !== request.revision ||
-        S.state !== state
+        S.state !== state ||
+        // Reviewer saves mutate in place and can finish during the transfer. Being idle now
+        // cannot prove this snapshot includes them (including a save still waiting to dispatch).
+        saver.generation() !== saveGeneration
       )
         return;
       // Lite polls own transient status. A matching full snapshot can carry older liveness

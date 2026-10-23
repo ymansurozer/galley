@@ -209,3 +209,49 @@ test("createSaver: a reviewer's trigger saves at once and takes a waiting trigge
   mock.timers.tick(1000);
   assert.equal(calls.length, 1, "the waiting save went with it");
 });
+
+test("save generations retain completed, failed and coalesced activity after the saver is idle", async () => {
+  const { send, calls } = fakeSend<number>();
+  const saver = createSaver(() => 1, send);
+  const before = saver.generation();
+  saver.trigger();
+  const started = saver.generation();
+  assert.ok(started > before);
+  saver.trigger();
+  const coalesced = saver.generation();
+  assert.ok(coalesced > started, "a mutation queued behind a save also invalidates snapshots");
+  calls[0]!.resolve();
+  await flush();
+  calls[1]!.reject();
+  await saver.settled();
+  assert.equal(saver.isBusy(), false);
+  assert.ok(saver.generation() > before, "a drained or failed save cannot erase its history");
+  const idle = saver.generation();
+  await saver.settled();
+  assert.equal(saver.generation(), idle, "reads and idle waiting do not invent activity");
+});
+
+test("deferred save generations advance at mutation request time and when delayed work dispatches", async (t) => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  t.after(() => mock.timers.reset());
+  const { send, calls } = fakeSend<number>();
+  const saver = createSaver(() => 1, send);
+  const before = saver.generation();
+  saver.triggerSoon();
+  const scheduled = saver.generation();
+  assert.ok(scheduled > before, "a snapshot is invalid before any deferred wire work starts");
+  assert.equal(calls.length, 0);
+  assert.equal(saver.isBusy(), false, "scheduling still does not claim a save is in flight");
+  saver.triggerSoon();
+  const coalesced = saver.generation();
+  assert.ok(coalesced > scheduled);
+  mock.timers.tick(999);
+  assert.equal(saver.generation(), coalesced);
+  mock.timers.tick(1);
+  assert.equal(calls.length, 1);
+  assert.ok(saver.generation() > coalesced, "dispatch invalidates snapshots begun while deferred");
+  calls[0]!.resolve();
+  await saver.settled();
+  assert.equal(saver.isBusy(), false);
+  assert.ok(saver.generation() > before);
+});
