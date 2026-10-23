@@ -20,7 +20,7 @@ import {
 } from "./steps";
 import { treeOrder } from "./tree";
 import { renderMarkdown } from "./markdown";
-import { lineStats, walkthroughGroups, walkRows } from "./walkthrough";
+import { lineStats, lineTotals, walkthroughGroups, walkRows } from "./walkthrough";
 import type { WalkGroup, WalkRow } from "./walkthrough";
 import { keycapsHtml } from "./keycaps";
 import type { ChangeState, GuideFile } from "./types";
@@ -336,9 +336,10 @@ export function guideStale(): boolean {
 export function renderOverview() {
   const g = S.state.guide!;
   const title = g.title || S.state.target || "Review";
+  const totals = lineTotals(S.state.files);
   $("diff").innerHTML = `<div class="guide-overview"><div class="go-card">
     <h1>${esc(title)}</h1>
-    <div class="go-sub">${esc(S.state.mode)} · ${esc(S.state.session)} · ${S.state.files.length} files</div>
+    <div class="go-sub">${esc(S.state.mode)} · ${esc(S.state.session)} · ${S.state.files.length} files · <span class="add">+${totals.added}</span> <span class="del">−${totals.removed}</span></div>
     ${g.focused ? `<div class="go-focused"><svg class="ic"><use href="#gly-collapse-all"></use></svg> Focused review — mechanical churn skimmed</div>` : ""}
     ${guideStale() ? `<div class="go-stale"><svg class="ic"><use href="#gly-warn"></use></svg> This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
     <div class="go-overview md">${renderMarkdown(g.overview)}</div>

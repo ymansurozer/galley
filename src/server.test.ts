@@ -1787,17 +1787,33 @@ test("idle timeout shuts the desk down when nothing is connected", async () => {
   );
 });
 
-test("an in-flight await-send long-poll pins the desk past the idle timeout", async () => {
+test("an in-flight await-send long-poll pins the desk past the idle timeout", async (t) => {
   const reasons: string[] = [];
+  // Freeze idle time until the real HTTP request is enrolled; startup/transport scheduling is
+  // not an idle-lifecycle assertion. Keep HTTP and the long-poll timeout on real timers.
+  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 0 });
   await withServer(
     async (handle) => {
-      // Holds the connection open well past idleTimeoutMs; activeRequests > 0 must
-      // block the idle exit for as long as an agent is parked on await.
+      let requestClosed!: () => void;
+      const closed = new Promise<void>((resolve) => (requestClosed = resolve));
+      const enrolled = new Promise<void>((resolve) => {
+        handle.server.once("request", (req, res) => {
+          assert.match(req.url ?? "", /^\/api\/await-send/);
+          res.once("close", requestClosed);
+          resolve();
+        });
+      });
       const poll = awaitEvent(handle.url, "?timeout=1");
-      await sleep(200);
+      await enrolled;
+      assert.equal((await getState(handle.url)).agentListening, true);
+      t.mock.timers.tick(200);
       assert.deepEqual(reasons, [], "no idle shutdown while a long-poll is held");
       const res = await poll;
       assert.equal(res.status, 204); // bounded hold expired with no event
+      await closed;
+      // The same checker must still exit once the request no longer pins the desk.
+      t.mock.timers.tick(50);
+      assert.deepEqual(reasons, ["idle"]);
     },
     { idleTimeoutMs: 50, onShutdown: (reason) => reasons.push(reason) },
   );
@@ -2427,6 +2443,7 @@ type PollWithUi = {
   ui?: { target: string };
   uiProxy: { port: number; token: string } | null;
   reloadGeneration: number;
+  uiRefreshGeneration: number;
 };
 const getPoll = (url: string) =>
   fetch(`${url}api/poll`).then((r) => r.json() as Promise<PollWithUi>);
@@ -2642,14 +2659,23 @@ test("every /api/reload bumps reloadGeneration, even when the diff doesn't move"
   const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
   try {
     assert.equal((await getPoll(handle.url)).reloadGeneration, 0);
+    assert.equal((await getPoll(handle.url)).uiRefreshGeneration, 0);
     const hashBefore = (await getPoll(handle.url)) as unknown as { baseDiffHash: string };
     await post(handle.url, "api/reload", {});
     const once = (await getPoll(handle.url)) as PollWithUi & { baseDiffHash: string };
     assert.equal(once.reloadGeneration, 1);
+    assert.equal(once.uiRefreshGeneration, 0);
     assert.equal(once.baseDiffHash, hashBefore.baseDiffHash, "the diff didn't move");
     await writeFile(path.join(root, "a.ts"), "two\n");
     await post(handle.url, "api/reload", {});
     assert.equal((await getPoll(handle.url)).reloadGeneration, 2);
+    // The signal also works before any app is attached, without persisting proxy/status fields.
+    assert.equal((await post(handle.url, "api/reload", { refreshUi: true })).status, 200);
+    const flagged = await getPoll(handle.url);
+    assert.equal(flagged.uiProxy, null);
+    assert.equal(flagged.uiRefreshGeneration, 1);
+    assert.equal((await post(handle.url, "api/reload", { refreshUi: false })).status, 200);
+    assert.equal((await getPoll(handle.url)).uiRefreshGeneration, 1);
   } finally {
     handle.server.close();
     process.env.HOME = oldHome;
