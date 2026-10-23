@@ -41,6 +41,7 @@
 
 /* The Files list's own header: its label and the collapse-all / expand-all control. */
 .tree-title {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -211,12 +212,25 @@
   margin-left: auto;
 }
 
-/* The sidebar reads as three parts: the switch, the nav block (the Overview and the change
-   requests), and the list. The switch keeps 8px under it, the nav block 10px, on either tab. The
-   change requests row always shows, even with none open. */
+/* Match the lists' native gutter even when they don't overflow. Hidden overflow reserves the
+   same classic scrollbar space without drawing a scrollbar; overlay scrollbars reserve none. */
+.side-nav,
+.tree-title {
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
+
+/* The fixed navigation ends at a quiet rule, with room on both sides before either list. */
 .side-nav {
   flex: 0 0 auto;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+}
+
+.app:not(.view-ui) .side-nav::after {
+  content: "";
+  display: block;
+  margin-top: 12px;
+  border-bottom: 1px solid var(--sep);
 }
 
 /* Open change requests, code and app: a row that folds the list under it, its count, and `]`,
