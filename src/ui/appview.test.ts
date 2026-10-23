@@ -119,7 +119,7 @@ test("automatic refresh waits for active and set-aside drafts, then drains on a 
   const bundle = await build({
     stdin: {
       contents:
-        'import {S} from "./store"; import {adoptDeskStatus,pollState} from "./poll"; import {setView,installAppView} from "./appview"; import {pickedInApp,setUiComposerAside,resumeUiComposer} from "./uilane"; import {closeComposer} from "./composer"; import {renderMarkdown} from "./markdown"; window.harness={S,adoptDeskStatus,pollState,setView,installAppView,pickedInApp,setUiComposerAside,resumeUiComposer,closeComposer,renderMarkdown};',
+        'import {S} from "./store"; import {adoptDeskStatus,pollState} from "./poll"; import {setView,installAppView,appRefresh} from "./appview"; import {pickedInApp,setUiComposerAside,resumeUiComposer} from "./uilane"; import {closeComposer} from "./composer"; import {renderMarkdown} from "./markdown"; window.harness={S,adoptDeskStatus,pollState,setView,installAppView,appRefresh,pickedInApp,setUiComposerAside,resumeUiComposer,closeComposer,renderMarkdown};',
       resolveDir: fileURLToPath(new URL(".", import.meta.url)),
     },
     bundle: true,
@@ -266,6 +266,22 @@ test("automatic refresh waits for active and set-aside drafts, then drains on a 
     payload = { ...payload, ui: { target: "http://localhost:3000/replacement" } };
     await h.pollState();
     assert.equal(reloads(), 2, "a changed target clears pending refresh before it can drain");
+
+    ready();
+    openDraft("Manual refresh while an agent refresh waits");
+    payload = { ...payload, reloadGeneration: 2, uiRefreshGeneration: 2 };
+    await h.pollState();
+    assert.equal(reloads(), 2, "the draft holds the next explicit signal");
+    h.appRefresh();
+    assert.equal(reloads(), 3, "manual Refresh app fulfills the pending request");
+    ready();
+    await h.pollState();
+    assert.equal(reloads(), 3, "unchanged polling must not refresh again after manual refresh");
+    openDraft("New text after manual refresh");
+    await h.pollState();
+    h.closeComposer();
+    await h.pollState();
+    assert.equal(reloads(), 3, "closing a later draft does not replay the fulfilled request");
   } finally {
     await win.happyDOM.waitUntilComplete();
     await win.happyDOM.close();

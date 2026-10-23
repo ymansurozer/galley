@@ -198,6 +198,8 @@ export function appRefresh() {
   S.app.stale = false;
   if (S.uiProxy && S.app.connected) postToApp({ type: "reload", token: S.uiProxy.token });
   else loadApp(S.app.route);
+  // A manual refresh also fulfills any agent refresh that was waiting for a draft to close.
+  pendingUiRefresh = false;
 }
 
 // Poll after adopting the target: an agent refresh must not discard desk-authored text, including
@@ -205,7 +207,6 @@ export function appRefresh() {
 export function applyPendingUiRefresh() {
   if (!pendingUiRefresh || S.composerOpen || hasUiDraft() || !S.uiProxy || !S.app.loaded) return;
   appRefresh();
-  pendingUiRefresh = false;
 }
 
 export function appGo(input: string) {
