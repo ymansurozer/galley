@@ -575,6 +575,9 @@ export type UiAnnotationRecord = {
   // (uishots.ts), never in the state. Server-owned: set by the upload that completes the pair,
   // carried by id through every reviewer save, and never taken from the tab.
   screenshots?: true;
+  // The reviewer's choice and a known capture failure. Missing is legacy/unknown; requested
+  // alone does not prove a capture is still running after a reload. Stored images take precedence.
+  screenshotCapture?: "omitted" | "requested" | "failed";
 };
 // An annotation as the agent receives it in ReviewResult.uiAnnotations.
 export type UiAnnotation = {
@@ -586,7 +589,7 @@ export type UiAnnotation = {
   page: UiPage;
   target: UiTarget<UiSentElement>;
   // Absolute paths to the PNGs, with the annotation's mark drawn on. `exact` is false: the bridge
-  // re-renders the DOM rather than reading the screen's pixels. Absent when capture failed, or when
+  // re-renders the DOM rather than reading the screen's pixels. Absent when capture was omitted or failed, or when
   // either file is no longer on disk at Send.
   screenshots?: { crop: string; viewport: string; exact: boolean };
   thread: Array<{ role: "user" | "agent"; body: string; at: string }>;

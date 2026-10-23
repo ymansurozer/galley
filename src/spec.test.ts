@@ -116,7 +116,8 @@ const ANCHORS = [
   "best-effort",
   "trust the body and the target over the image",
   "the annotation's mark",
-  "Absent when the capture failed",
+  "Screenshots are opt-in for each new annotation",
+  "Absent when omitted, capture failed",
   // the four target kinds (issue 08), their fields, and how their screenshots are framed
   '{kind:"element", elements:[element…]}',
   "1–16 elements they clicked",

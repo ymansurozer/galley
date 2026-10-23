@@ -451,7 +451,12 @@ export interface Store {
 // A picked target awaiting its first message: the page and target the annotation will record,
 // and where the target sits now in the app's viewport (the floating composer stays beside it).
 // A page target has no anchor: the composer sits at the stage's top right.
-export type AnnotationDraft = { page: UiPage; target: UiTarget; anchor: Rect | null };
+export type AnnotationDraft = {
+  page: UiPage;
+  target: UiTarget;
+  anchor: Rect | null;
+  attachScreenshot: boolean;
+};
 
 export type Viewport = "desktop" | "tablet" | "mobile" | "fit";
 

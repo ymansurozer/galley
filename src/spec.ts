@@ -160,7 +160,8 @@ The \`result\` field of a review event:
     differ. If something in them looks off (a missing or misplaced element, odd styling, a
     layout that doesn't match the code), don't treat it as the bug the human reported:
     trust the body and the target over the image, and check the real page yourself when it
-    matters. Absent when the capture failed; when present, both files exist.
+    matters. Screenshots are opt-in for each new annotation. Absent when omitted, capture failed
+    or was interrupted, or the files are no longer stored; when present, both files exist.
   - page: {url (on the dev server), route (path+query), title?, viewport: {width, height, dpr}}
   - target — what the human pointed at, by kind:
     - {kind:"element", elements:[element…]} — 1–16 elements they clicked (several when they
@@ -215,7 +216,7 @@ new Send). Live questions arrive only via await, so a file-poller sees Sends but
 ## How to act on a review — one path per item, don't mix
 - rejected → revert that change; the reviewer doesn't want it.
 - codeChangeRequests (a comment) → make the edit at path:lineNumber.
-- uiAnnotations → look at each one's screenshots first, then find the code that renders the target
+- uiAnnotations → when screenshots are present, look at them first; then find the code that renders the target
   and make the change there: start at the element's source when it has one; otherwise route → the
   page's component, and selector, text, name, attrs and landmark/heading narrow it to the element.
   A text target's quote is greppable copy; a page target starts at the route's page component.
