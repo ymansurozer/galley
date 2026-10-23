@@ -213,12 +213,19 @@ test("a question's steps are timed on the tab's clock, never the desk's", () => 
 });
 
 test("a question waiting on the agent: thinking with its steps, or queued in the top bar's words", () => {
-  const idle = { awaitingAgent: false, queuedReviews: 0, queuedQuestions: 0, activity: null };
+  const idle = {
+    awaitingAgent: false,
+    queuedReviews: 0,
+    queuedQuestions: 0,
+    activity: null,
+    agentListening: false,
+    agentRecentlyActive: false,
+  };
   const trail = [entry("Reviewing the diff", 1, 2), entry("Reading quota.ts", 11, 12)];
-  // Delivered, and the agent hasn't said what it's doing yet.
+  // No live activity line: wait neutrally rather than claiming indefinite thinking.
   assert.deepEqual(pendingAnswer(idle, [], t(10)), {
     queued: false,
-    label: "Thinking…",
+    label: "Waiting for agent…",
     steps: [],
   });
   assert.deepEqual(pendingAnswer({ ...idle, activity: "Reading quota.ts" }, trail, t(10)), {
@@ -226,10 +233,10 @@ test("a question waiting on the agent: thinking with its steps, or queued in the
     label: "Thinking…",
     steps: [{ body: "Reading quota.ts", live: true }],
   });
-  // The agent went quiet (its line went stale): still thinking, its steps kept, none live.
+  // The agent went quiet (its line went stale): waiting, its steps kept, none live.
   assert.deepEqual(pendingAnswer(idle, trail, t(10)), {
     queued: false,
-    label: "Thinking…",
+    label: "Waiting for agent…",
     steps: [{ body: "Reading quota.ts", live: false }],
   });
   // Nothing picked the question up: no steps, whatever the trail holds.
@@ -270,7 +277,40 @@ test("a question waiting on the agent: thinking with its steps, or queued in the
     pendingAnswer({ ...idle, queuedQuestions: 1 }, trail, t(10), true),
     notDelivered,
   );
-  assert.equal(pendingAnswer(idle, trail, t(10), false).label, "Thinking…");
+  assert.equal(pendingAnswer(idle, trail, t(10), false).label, "Waiting for agent…");
+});
+
+test("pending answers share the header's active precedence in either lane and preserve failed delivery", () => {
+  const queued = {
+    awaitingAgent: false,
+    queuedReviews: 0,
+    queuedQuestions: 1,
+    activity: null,
+    agentListening: false,
+    agentRecentlyActive: false,
+  };
+  for (const evidence of [
+    { activity: "Reading both asks" },
+    { agentListening: true },
+    { agentRecentlyActive: true },
+  ]) {
+    const signals = { ...queued, ...evidence };
+    const header = agentPresence({ ...signals, unansweredAsks: 2 });
+    assert.equal(header.kind, "answering");
+    for (const askTime of [t(10), t(20)]) {
+      const pending = pendingAnswer(signals, [], askTime);
+      assert.equal(pending.queued, false);
+      assert.equal(pending.label, signals.activity ? "Thinking…" : header.line);
+      assert.equal(
+        pendingAnswer(signals, [], askTime, true).label,
+        "Not delivered — goes with the next Send",
+      );
+    }
+    const sent = { ...signals, awaitingAgent: true, queuedReviews: 1 };
+    assert.equal(pendingAnswer(sent, [], t(10)).queued, false);
+    assert.equal(agentPresence({ ...sent, unansweredAsks: 2 }).kind, "working");
+  }
+  assert.equal(pendingAnswer(queued, [], t(20)).label, "No agent attached — question queued");
 });
 
 test("the held chip shows for a change request until the review is sent", () => {

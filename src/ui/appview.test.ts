@@ -54,9 +54,15 @@ test("status adoption refreshes only a signaled app, retaining route and desk st
       uiRefreshGeneration: number,
       uiProxy: typeof proxy | null = proxy,
     ) => ({ reloadGeneration, uiRefreshGeneration, uiProxy });
-    assert.deepEqual(Object.keys(adoptDeskStatus({ ...status(7, 4), baseDiffHash: "hash" })), [
-      "baseDiffHash",
-    ]);
+    assert.deepEqual(
+      Object.keys(
+        adoptDeskStatus({ ...status(7, 4), agentRecentlyActive: true, baseDiffHash: "hash" }),
+      ),
+      ["baseDiffHash"],
+    );
+    assert.equal(S.agentRecentlyActive, true);
+    adoptDeskStatus(status(7, 4));
+    assert.equal(S.agentRecentlyActive, false, "absent transient status resets on adoption");
     setView("ui");
     const frame = win.document.querySelector("#appFrame iframe")! as any;
     assert.equal(frame.src, "http://localhost:41001/entry?sign-in=x");

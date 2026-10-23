@@ -265,6 +265,7 @@ export interface Store {
   // answer says so instead of "Thinking…" until a Send carries them. Tab memory only.
   undeliveredAsks: Set<string>;
   agentListening: boolean;
+  agentRecentlyActive: boolean;
   queuedQuestions: number;
   queuedReviews: number;
   // Derived by one effect in main.ts: the agent's presence, whether every in-flow file's sign-off
