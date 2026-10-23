@@ -63,6 +63,9 @@ const upcomingNumber = () => nextNumber(annotationsOf(), S.state.lastAnnotationN
 const threadDrafts = new Map<string, { editing: string | null; body: string }>();
 let pickDraft: { draft: AnnotationDraft; body: string } | null = null;
 
+// A lane switch closes the composer but keeps its pick and text for the reviewer to resume.
+export const hasUiDraft = () => S.annotationDraft !== null || pickDraft !== null;
+
 export function setUiComposerAside() {
   if (!S.composerOpen || !composerInUi()) return;
   const body = S.composerBody;

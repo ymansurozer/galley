@@ -12,6 +12,7 @@ import { dispatchKey } from "./keys";
 import { restoreComposerFocus } from "./composer";
 import {
   annotationsUnvisited,
+  hasUiDraft,
   appModeNow,
   appPageChanged,
   movedInApp,
@@ -74,6 +75,7 @@ let frame: HTMLIFrameElement | null = null;
 // Whether the UI view has shown the page the desk last loaded into the frame. One loaded in the
 // code view (warmed, or a new target) has been seen by no one until the first switch.
 let shown = false;
+let pendingUiRefresh = false;
 
 // Point the iframe at a route (the first load, a new target, or a fallback when no bridge is
 // listening). The bridge on the new page re-handshakes and takes over the route from there.
@@ -198,6 +200,14 @@ export function appRefresh() {
   else loadApp(S.app.route);
 }
 
+// Poll after adopting the target: an agent refresh must not discard desk-authored text, including
+// a pick set aside in the code view. Keep the intent until navigation actually runs.
+export function applyPendingUiRefresh() {
+  if (!pendingUiRefresh || S.composerOpen || hasUiDraft() || !S.uiProxy || !S.app.loaded) return;
+  appRefresh();
+  pendingUiRefresh = false;
+}
+
 export function appGo(input: string) {
   const origins = [proxyOrigin(), S.state.ui && new URL(S.state.ui.target).origin];
   const route = routeFromInput(
@@ -311,13 +321,19 @@ export function adoptUiStatus(
   // First adoption and a new desk process establish a baseline, never replay old requests.
   const refresh =
     reloaded && S.uiRefreshGeneration !== null && refreshGeneration > S.uiRefreshGeneration;
+  if (
+    prev?.token !== proxy?.token ||
+    generation < S.reloadGeneration ||
+    refreshGeneration < (S.uiRefreshGeneration ?? 0)
+  )
+    pendingUiRefresh = false;
+  if (refresh) pendingUiRefresh = true;
   S.uiProxy = proxy;
   S.reloadGeneration = generation;
   S.uiRefreshGeneration = refreshGeneration;
   if (reloaded) {
-    if (refresh && proxy && S.app.loaded) appRefresh();
-    else if (S.app.loaded && shown) S.app.stale = true;
-    else if (S.app.loaded) {
+    if (S.app.loaded && shown) S.app.stale = true;
+    else if (S.app.loaded && !pendingUiRefresh) {
       S.app.loaded = false;
       warmApp();
     }
@@ -346,6 +362,7 @@ export function adoptUiStatus(
 export function adoptUiTarget(ui: ReviewState["ui"]) {
   const before = S.state.ui?.target;
   if (ui?.target === before) return;
+  pendingUiRefresh = false;
   S.state.ui = ui;
   syncView();
   if (!ui) {

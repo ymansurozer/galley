@@ -10,7 +10,7 @@ test("status adoption refreshes only a signaled app, retaining route and desk st
   const bundle = await build({
     stdin: {
       contents:
-        'import {S} from "./store"; import {adoptDeskStatus} from "./poll"; import {setView,appRefresh} from "./appview"; import {renderMarkdown} from "./markdown"; window.harness={S,adoptDeskStatus,setView,appRefresh,renderMarkdown};',
+        'import {S} from "./store"; import {adoptDeskStatus} from "./poll"; import {setView,appRefresh,applyPendingUiRefresh} from "./appview"; import {renderMarkdown} from "./markdown"; window.harness={S,adoptDeskStatus,setView,appRefresh,applyPendingUiRefresh,renderMarkdown};',
       resolveDir: fileURLToPath(new URL(".", import.meta.url)),
     },
     bundle: true,
@@ -31,7 +31,12 @@ test("status adoption refreshes only a signaled app, retaining route and desk st
     win.document.body.innerHTML =
       '<div id="appFrame"></div><div id="appStage"></div><div id="pinCard"></div><div id="uiComposer"></div>';
     win.eval(bundle.outputFiles[0]!.text);
-    const { S, adoptDeskStatus, setView, appRefresh } = (win as any).harness;
+    const { S, setView, appRefresh, applyPendingUiRefresh } = (win as any).harness;
+    const adoptDeskStatus = (payload: any) => {
+      const result = (win as any).harness.adoptDeskStatus(payload);
+      applyPendingUiRefresh();
+      return result;
+    };
     const readyBy = Date.now() + 10_000;
     while (!(win as any).harness.renderMarkdown("**ready**").includes("<strong>")) {
       assert.ok(Date.now() < readyBy, "markdown renderer becomes ready");
@@ -102,6 +107,165 @@ test("status adoption refreshes only a signaled app, retaining route and desk st
     adoptDeskStatus(status(20, 12, { port: 41001, token: "restarted" }));
     assert.equal(frame.src, beforeRestart, "first status adoption never replays an old signal");
     assert.equal(win.location.href, "http://localhost:41000/", "desk tab never navigates");
+  } finally {
+    await win.happyDOM.waitUntilComplete();
+    await win.happyDOM.close();
+  }
+});
+
+// The bridge's returning document is the destructive boundary: use its real message handler,
+// composer input tracking, lane-switch draft storage, and polling together.
+test("automatic refresh waits for active and set-aside drafts, then drains on a normal poll", async () => {
+  const bundle = await build({
+    stdin: {
+      contents:
+        'import {S} from "./store"; import {adoptDeskStatus,pollState} from "./poll"; import {setView,installAppView} from "./appview"; import {pickedInApp,setUiComposerAside,resumeUiComposer} from "./uilane"; import {closeComposer} from "./composer"; import {renderMarkdown} from "./markdown"; window.harness={S,adoptDeskStatus,pollState,setView,installAppView,pickedInApp,setUiComposerAside,resumeUiComposer,closeComposer,renderMarkdown};',
+      resolveDir: fileURLToPath(new URL(".", import.meta.url)),
+    },
+    bundle: true,
+    write: false,
+    format: "iife",
+    platform: "browser",
+    logLevel: "silent",
+  });
+  const win = new Window({
+    url: "http://localhost:41000/",
+    settings: { disableIframePageLoading: true },
+  });
+  try {
+    win.document.body.innerHTML =
+      '<div id="appFrame"></div><div id="appStage"></div><div id="pinCard"></div><div id="uiComposer"></div>';
+    win.eval(bundle.outputFiles[0]!.text);
+    const h = (win as any).harness;
+    const { S } = h;
+    const readyBy = Date.now() + 10_000;
+    while (!h.renderMarkdown("**ready**").includes("<strong>")) {
+      assert.ok(Date.now() < readyBy);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const ui = { target: "http://localhost:3000/entry" };
+    S.state = { ui, files: [], changes: [], comments: [], annotations: [], baseDiffHash: "base" };
+    S.lastBaseDiffHash = "base";
+    let payload = {
+      ui,
+      comments: [],
+      annotations: [],
+      baseDiffHash: "base",
+      uiProxy: { port: 41001, token: "first" },
+      reloadGeneration: 0,
+      uiRefreshGeneration: 0,
+    };
+    win.fetch = (async () => ({ json: async () => payload })) as any;
+    h.adoptDeskStatus(payload);
+    h.setView("ui");
+    h.installAppView();
+    const frame = win.document.querySelector("iframe")! as any;
+    const messages: any[] = [];
+    Object.defineProperty(frame, "contentWindow", {
+      value: { postMessage: (m: any) => messages.push(m) },
+    });
+    const reloads = () => messages.filter((m) => m.type === "reload").length;
+    const ready = () =>
+      win.dispatchEvent(
+        new win.MessageEvent("message", {
+          origin: "http://localhost:41001",
+          source: frame.contentWindow,
+          data: {
+            type: "ready",
+            token: payload.uiProxy.token,
+            route: "/current?query=kept",
+            title: "App",
+          },
+        }),
+      );
+    ready();
+    const openDraft = (body: string) => {
+      h.pickedInApp(
+        { route: S.app.route, viewport: { width: 1000, height: 700, dpr: 1 } },
+        {
+          kind: "element",
+          elements: [
+            { selector: "#action", tag: "button", rect: { x: 10, y: 10, width: 100, height: 20 } },
+          ],
+        },
+      );
+      const input = win.document.querySelector<HTMLTextAreaElement>("#uiComposer textarea")!;
+      input.value = body;
+      input.dispatchEvent(new win.Event("input"));
+    };
+    openDraft("Second annotation — keep my words");
+    payload = { ...payload, reloadGeneration: 1, uiRefreshGeneration: 1 };
+    await h.pollState();
+    if (reloads()) ready();
+    assert.equal(S.composerOpen, true, "returning bridge must not discard an active composer");
+    assert.ok(S.annotationDraft, "draft target stays available");
+    assert.equal(S.composerBody, "Second annotation — keep my words");
+    assert.equal(reloads(), 0, "typing defers the automatic refresh");
+    await h.pollState();
+    payload = { ...payload, reloadGeneration: 2 };
+    await h.pollState();
+    assert.equal(
+      reloads(),
+      0,
+      "duplicate polls and a later ordinary reload keep the pending intent",
+    );
+    h.setUiComposerAside();
+    S.view = "code";
+    await h.pollState();
+    if (reloads()) ready();
+    S.view = "ui";
+    h.resumeUiComposer();
+    assert.equal(S.composerOpen, true, "lane switch can resume the saved pick draft");
+    assert.equal(S.composerBody, "Second annotation — keep my words");
+    assert.ok(S.annotationDraft);
+    await h.pollState();
+    assert.equal(reloads(), 0);
+    h.closeComposer();
+    await h.pollState();
+    assert.equal(reloads(), 1, "normal polling automatically drains after the draft closes");
+    ready();
+    await h.pollState();
+    assert.equal(reloads(), 1, "a delivered request is not replayed");
+    assert.equal(S.app.route, "/current?query=kept");
+
+    openDraft("A set-aside draft when the next signal arrives");
+    h.setUiComposerAside();
+    S.view = "code";
+    payload = { ...payload, reloadGeneration: 3, uiRefreshGeneration: 2 };
+    await h.pollState();
+    if (reloads() > 1) ready();
+    S.view = "ui";
+    h.resumeUiComposer();
+    assert.equal(S.composerBody, "A set-aside draft when the next signal arrives");
+    assert.ok(S.annotationDraft, "a hidden draft also prevents destructive refresh");
+    payload = { ...payload, reloadGeneration: 4, uiRefreshGeneration: 3 };
+    await h.pollState();
+    h.closeComposer();
+    await h.pollState();
+    assert.equal(reloads(), 2, "multiple pending signals coalesce into one refresh");
+    ready();
+
+    openDraft("Survive process replacement");
+    payload = { ...payload, reloadGeneration: 5, uiRefreshGeneration: 4 };
+    await h.pollState();
+    payload = {
+      ...payload,
+      uiProxy: { port: 41001, token: "restart" },
+      reloadGeneration: 0,
+      uiRefreshGeneration: 0,
+    };
+    await h.pollState();
+    h.closeComposer();
+    await h.pollState();
+    assert.equal(reloads(), 2, "a restarted process clears stale pending intent");
+    ready();
+    openDraft("Survive target replacement");
+    payload = { ...payload, reloadGeneration: 1, uiRefreshGeneration: 1 };
+    await h.pollState();
+    h.closeComposer();
+    payload = { ...payload, ui: { target: "http://localhost:3000/replacement" } };
+    await h.pollState();
+    assert.equal(reloads(), 2, "a changed target clears pending refresh before it can drain");
   } finally {
     await win.happyDOM.waitUntilComplete();
     await win.happyDOM.close();

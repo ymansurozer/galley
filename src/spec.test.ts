@@ -238,6 +238,7 @@ test("SPEC describes the scoped refresh flag, status, and retry contract", () =>
     "never persisted",
     "current route/query",
     "annotation thread and selection",
+    "set-aside annotation draft; polling applies it afterward",
     "without replaying older refreshes",
     "retry with Refresh app",
   ])

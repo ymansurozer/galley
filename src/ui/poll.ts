@@ -3,7 +3,7 @@ import { render } from "./render";
 import { currentPartTitle, reseatStep } from "./guide";
 import { refreshBaseTitle, updateProgress } from "./progress";
 import { updateAwaitingDom } from "./annotations";
-import { adoptUiStatus, adoptUiTarget, syncView } from "./appview";
+import { adoptUiStatus, adoptUiTarget, applyPendingUiRefresh, syncView } from "./appview";
 import { renderUiLane } from "./uilane";
 import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
 import { recordActivity } from "./thread-derive";
@@ -55,6 +55,7 @@ export async function pollState() {
   if (!lite || !Array.isArray(lite.comments)) return;
   // `galley ui <url>` on the live desk: no diff change, so it rides the lite poll.
   adoptUiTarget(lite.ui);
+  applyPendingUiRefresh();
   if (lite.baseDiffHash !== S.lastBaseDiffHash) {
     // The reload branch replaces S.state wholesale and re-renders, which would clobber local
     // decisions/comments not yet persisted and rebuild the diff DOM out from under an open

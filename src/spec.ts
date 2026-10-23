@@ -84,7 +84,9 @@ done
   skims alike; anything you left untouched carries over. --guide swaps the guide (one desk only —
   see Between rounds). --refresh-ui also refreshes only the app iframe at its current route/query
   after a successful reload, preserving the desk's annotation thread and selection; targets are
-  re-found normally. Ordinary reload keeps the manual "App updated — refresh" prompt. The flag is
+  re-found normally. Automatic refresh waits for the reviewer to finish or dismiss an open composer
+  or a set-aside annotation draft; polling applies it afterward without another command or click.
+  Ordinary reload keeps the manual "App updated — refresh" prompt. The flag is
   reload-only and takes no value. POST /api/reload accepts optional refreshUi: boolean (malformed
   values → 422); /api/state and /api/poll expose process-local uiRefreshGeneration, incremented only
   after a successful refreshUi: true reload, never persisted. A tab adopts its initial/restarted
