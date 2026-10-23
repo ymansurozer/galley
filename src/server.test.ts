@@ -1787,17 +1787,33 @@ test("idle timeout shuts the desk down when nothing is connected", async () => {
   );
 });
 
-test("an in-flight await-send long-poll pins the desk past the idle timeout", async () => {
+test("an in-flight await-send long-poll pins the desk past the idle timeout", async (t) => {
   const reasons: string[] = [];
+  // Freeze idle time until the real HTTP request is enrolled; startup/transport scheduling is
+  // not an idle-lifecycle assertion. Keep HTTP and the long-poll timeout on real timers.
+  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 0 });
   await withServer(
     async (handle) => {
-      // Holds the connection open well past idleTimeoutMs; activeRequests > 0 must
-      // block the idle exit for as long as an agent is parked on await.
+      let requestClosed!: () => void;
+      const closed = new Promise<void>((resolve) => (requestClosed = resolve));
+      const enrolled = new Promise<void>((resolve) => {
+        handle.server.once("request", (req, res) => {
+          assert.match(req.url ?? "", /^\/api\/await-send/);
+          res.once("close", requestClosed);
+          resolve();
+        });
+      });
       const poll = awaitEvent(handle.url, "?timeout=1");
-      await sleep(200);
+      await enrolled;
+      assert.equal((await getState(handle.url)).agentListening, true);
+      t.mock.timers.tick(200);
       assert.deepEqual(reasons, [], "no idle shutdown while a long-poll is held");
       const res = await poll;
       assert.equal(res.status, 204); // bounded hold expired with no event
+      await closed;
+      // The same checker must still exit once the request no longer pins the desk.
+      t.mock.timers.tick(50);
+      assert.deepEqual(reasons, ["idle"]);
     },
     { idleTimeoutMs: 50, onShutdown: (reason) => reasons.push(reason) },
   );
