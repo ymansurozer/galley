@@ -194,6 +194,9 @@ function readAnnotation(v: unknown, app: string): UiAnnotationRecord | null {
     page,
     target,
     comments,
+    ...((v.screenshotCapture === "omitted" ||
+      v.screenshotCapture === "requested" ||
+      v.screenshotCapture === "failed") && { screenshotCapture: v.screenshotCapture }),
   };
 }
 

@@ -50,6 +50,19 @@ export function buildComposer(): HTMLElement {
   ta.value = S.composerBody;
   trackInput(ta);
   card.appendChild(ta);
+  const draft = S.annotationDraft;
+  if (draft) {
+    const label = document.createElement("label");
+    label.className = "uc-capture";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = draft.attachScreenshot;
+    checkbox.addEventListener("change", () => {
+      draft.attachScreenshot = checkbox.checked;
+    });
+    label.append(checkbox, document.createTextNode("Attach screenshot"));
+    card.append(label);
+  }
   const row = document.createElement("div");
   row.className = "crow";
   row.innerHTML = `<span class="spacer"></span><button class="cbtn ask tint">Ask ${keycapsHtml("⌘⇧↵")}</button><button class="cbtn req tint">Request change ${keycapsHtml("⌘↵")}</button>`;
