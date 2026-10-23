@@ -167,10 +167,16 @@ type DeskState = {
   ui?: { target: string };
   uiProxy: { port: number } | null;
 };
+// Synchronous CLI calls pause this process while the child keeps serving. Close fixture reads so
+// the next assertion cannot reuse a pooled socket that expired during that pause.
 const deskState = (url: string) =>
-  fetch(`${url}api/state`).then((r) => r.json() as Promise<DeskState>);
+  fetch(`${url}api/state`, { headers: { connection: "close" } }).then(
+    (r) => r.json() as Promise<DeskState>,
+  );
 const deskPoll = (url: string) =>
-  fetch(`${url}api/poll`).then((r) => r.json() as Promise<DeskState>);
+  fetch(`${url}api/poll`, { headers: { connection: "close" } }).then(
+    (r) => r.json() as Promise<DeskState>,
+  );
 
 test("reload --refresh-ui signals only successful explicit reloads through state and poll", async () => {
   const { repo, home, cleanup } = await tempRepo(false);
