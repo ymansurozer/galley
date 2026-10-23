@@ -161,14 +161,107 @@ function startDesk(
 }
 
 type DeskState = {
+  uiRefreshGeneration: number;
+  reloadGeneration: number;
   files: unknown[];
   ui?: { target: string };
   uiProxy: { port: number } | null;
 };
+// Synchronous CLI calls pause this process while the child keeps serving. Close fixture reads so
+// the next assertion cannot reuse a pooled socket that expired during that pause.
 const deskState = (url: string) =>
-  fetch(`${url}api/state`).then((r) => r.json() as Promise<DeskState>);
+  fetch(`${url}api/state`, { headers: { connection: "close" } }).then(
+    (r) => r.json() as Promise<DeskState>,
+  );
 const deskPoll = (url: string) =>
-  fetch(`${url}api/poll`).then((r) => r.json() as Promise<DeskState>);
+  fetch(`${url}api/poll`, { headers: { connection: "close" } }).then(
+    (r) => r.json() as Promise<DeskState>,
+  );
+
+test("reload --refresh-ui signals only successful explicit reloads through state and poll", async () => {
+  const { repo, home, cleanup } = await tempRepo(false);
+  let child: ChildProcess | undefined;
+  try {
+    const desk = await startDesk(
+      [
+        "ui",
+        "http://localhost:3000/entry",
+        "--repo",
+        repo,
+        "--session",
+        "ui-refresh",
+        "--port",
+        "0",
+      ],
+      home,
+    );
+    child = desk.child;
+    const run = (...args: string[]) => runCli(["reload", "--repo", repo, ...args], home);
+    assert.equal((await deskPoll(desk.url)).uiRefreshGeneration, 0);
+    assert.equal(run().status, 0);
+    assert.equal((await deskState(desk.url)).uiRefreshGeneration, 0);
+    assert.equal(run("--refresh-ui").status, 0);
+    assert.equal((await deskPoll(desk.url)).uiRefreshGeneration, 1);
+    await writeFile(path.join(repo, "a.txt"), "changed\n");
+    assert.equal(run("--refresh-ui").status, 0);
+    assert.equal((await deskState(desk.url)).uiRefreshGeneration, 2);
+    assert.equal(run().status, 0);
+    assert.equal((await deskPoll(desk.url)).uiRefreshGeneration, 2);
+    const failed = await fetch(`${desk.url}api/reload`, {
+      method: "POST",
+      body: JSON.stringify({ refreshUi: true, guide: {} }),
+    });
+    assert.equal(failed.status, 422);
+    const malformed = await fetch(`${desk.url}api/reload`, {
+      method: "POST",
+      body: JSON.stringify({ refreshUi: "true" }),
+    });
+    assert.equal(malformed.status, 422);
+    const status = await deskPoll(desk.url);
+    assert.equal(status.uiRefreshGeneration, 2);
+    assert.equal(status.reloadGeneration, 4);
+    const oldHome = process.env.HOME;
+    try {
+      process.env.HOME = home;
+      const saved = await loadLatestReview(repo, "ui-refresh");
+      assert.ok(saved && !("uiRefreshGeneration" in saved));
+    } finally {
+      process.env.HOME = oldHome;
+    }
+    const stopped = new Promise<void>((resolve) => child!.once("exit", () => resolve()));
+    child.kill();
+    await stopped;
+    const restarted = await startDesk(
+      ["--repo", repo, "--session", "ui-refresh", "--port", "0"],
+      home,
+    );
+    child = restarted.child;
+    assert.equal((await deskPoll(restarted.url)).uiRefreshGeneration, 0);
+  } finally {
+    child?.kill();
+    await cleanup();
+  }
+});
+
+test("--refresh-ui is a bare reload-only flag and rejects values or other commands", async () => {
+  const { repo, home, cleanup } = await tempRepo(true);
+  try {
+    for (const args of [
+      ["reload", "--refresh-ui", "true"],
+      ["reload", "--refresh-ui=false"],
+      ["reload", "--refresh-ui", "--refresh-ui=false"],
+      ["status", "--refresh-ui"],
+      ["--refresh-ui"],
+    ]) {
+      const res = runCli([...args, "--repo", repo], home);
+      assert.equal(res.status, 1);
+      assert.match(res.stderr, /--refresh-ui.*reload.*no value/);
+    }
+    assert.match(runCli(["--help"], home).stdout, /reload.*--refresh-ui/);
+  } finally {
+    await cleanup();
+  }
+});
 
 test("a non-loopback or https UI target exits non-zero with a clear message, starting nothing", async () => {
   const { repo, home, cleanup } = await tempRepo(true);

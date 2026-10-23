@@ -534,6 +534,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       },
     ));
   let reloadGeneration = 0;
+  let uiRefreshGeneration = 0;
   // The diff before the latest reload or restart that moved it, for saves from a tab still on it.
   // Held in memory only: a tab's verdicts carry from one diff back at most, while its comments,
   // anchored by their lines' text, merge from any older diff (mergeReviewerSave).
@@ -550,6 +551,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     queuedReviews: eventQueue.filter((e) => e.kind === "review").length,
     uiProxy: uiProxy ? { port: uiProxy.port, token: uiToken } : null,
     reloadGeneration,
+    uiRefreshGeneration,
   });
   // The desk as a tab that has adopted its latest status stamps its saves (types.ts, SaveStamp).
   const saveStamp = (): SaveStamp => ({ token: uiProxy ? uiToken : null, reloadGeneration });
@@ -996,12 +998,23 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // round-trip — the multi-round path: regenerate the guide, reload, same tab.
         return await serialize(async () => {
           let newGuide: unknown;
+          let refreshUi: unknown;
           try {
             const raw = await readBody(req);
-            newGuide = raw ? (JSON.parse(raw) as { guide?: unknown }).guide : undefined;
+            const body = raw ? (JSON.parse(raw) as { guide?: unknown; refreshUi?: unknown }) : {};
+            newGuide = body?.guide;
+            refreshUi = body?.refreshUi;
           } catch {
             newGuide = undefined; // tolerate empty/non-JSON bodies (legacy callers)
           }
+          if (refreshUi !== undefined && typeof refreshUi !== "boolean")
+            return fail(
+              res,
+              422,
+              "INVALID_REFRESH_UI",
+              "refreshUi must be a boolean.",
+              "Use `galley reload --refresh-ui` for immediate UI iteration.",
+            );
           let validatedGuide;
           if (newGuide !== undefined) {
             const result = validateGuide(newGuide);
@@ -1037,6 +1050,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             ]);
             await persistReview(state);
             reloadGeneration++;
+            if (refreshUi) uiRefreshGeneration++;
             return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });
           }
           // Guide-declared moves (movedFrom) must merge into `base` BEFORE reconciliation, so a
@@ -1095,6 +1109,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           await syncGitState(state);
           await persistReview(state);
           reloadGeneration++;
+          if (refreshUi) uiRefreshGeneration++;
           return json(res, 200, { ok: true, empty: false, baseDiffHash: state.baseDiffHash });
         });
       }

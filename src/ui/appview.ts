@@ -12,6 +12,7 @@ import { dispatchKey } from "./keys";
 import { restoreComposerFocus } from "./composer";
 import {
   annotationsUnvisited,
+  hasUiDraft,
   appModeNow,
   appPageChanged,
   movedInApp,
@@ -74,6 +75,7 @@ let frame: HTMLIFrameElement | null = null;
 // Whether the UI view has shown the page the desk last loaded into the frame. One loaded in the
 // code view (warmed, or a new target) has been seen by no one until the first switch.
 let shown = false;
+let pendingUiRefresh = false;
 
 // Point the iframe at a route (the first load, a new target, or a fallback when no bridge is
 // listening). The bridge on the new page re-handshakes and takes over the route from there.
@@ -191,11 +193,20 @@ export function appForward() {
   if (S.uiProxy && S.app.connected) postToApp({ type: "forward", token: S.uiProxy.token });
 }
 
-// Also how the reviewer takes the "App updated" pill: the app reloads only when they ask.
+// Shared by the manual refresh controls and the agent's explicit UI iteration signal.
 export function appRefresh() {
   S.app.stale = false;
   if (S.uiProxy && S.app.connected) postToApp({ type: "reload", token: S.uiProxy.token });
   else loadApp(S.app.route);
+  // A manual refresh also fulfills any agent refresh that was waiting for a draft to close.
+  pendingUiRefresh = false;
+}
+
+// Poll after adopting the target: an agent refresh must not discard desk-authored text, including
+// a pick set aside in the code view. Keep the intent until navigation actually runs.
+export function applyPendingUiRefresh() {
+  if (!pendingUiRefresh || S.composerOpen || hasUiDraft() || !S.uiProxy || !S.app.loaded) return;
+  appRefresh();
 }
 
 export function appGo(input: string) {
@@ -294,20 +305,36 @@ export function fromAppViewport(r: Rect): Rect | null {
 // token means a new desk process: its reload counter starts over, so adopt it as the baseline, and
 // the loaded page's bridge (still carrying the old token) is no longer trusted until the page
 // reloads. Within one process, a generation that went up means `galley reload` ran, which raises the
-// refresh pill on a page the reviewer has seen, so their place on it isn't lost under them. A page
-// the UI view hasn't shown yet has no place to keep: it reloads as it warmed, in the background.
+// refresh pill on a page the reviewer has seen, unless a flagged reload explicitly asks for app
+// refresh. A page the UI view hasn't shown yet has no place to keep: it reloads as it warmed,
+// in the background.
 // Either way, the desk has marked every annotation unvisited, and so does the tab.
-export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): boolean {
+export function adoptUiStatus(
+  proxy: UiProxyInfo | null,
+  generation: number,
+  refreshGeneration: number,
+): boolean {
   const prev = S.uiProxy;
   const reloaded = reloadRan(
     { token: prev?.token, generation: S.reloadGeneration },
     { token: proxy?.token, generation },
   );
+  // First adoption and a new desk process establish a baseline, never replay old requests.
+  const refresh =
+    reloaded && S.uiRefreshGeneration !== null && refreshGeneration > S.uiRefreshGeneration;
+  if (
+    prev?.token !== proxy?.token ||
+    generation < S.reloadGeneration ||
+    refreshGeneration < (S.uiRefreshGeneration ?? 0)
+  )
+    pendingUiRefresh = false;
+  if (refresh) pendingUiRefresh = true;
   S.uiProxy = proxy;
   S.reloadGeneration = generation;
+  S.uiRefreshGeneration = refreshGeneration;
   if (reloaded) {
     if (S.app.loaded && shown) S.app.stale = true;
-    else if (S.app.loaded) {
+    else if (S.app.loaded && !pendingUiRefresh) {
       S.app.loaded = false;
       warmApp();
     }
@@ -336,6 +363,7 @@ export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): bo
 export function adoptUiTarget(ui: ReviewState["ui"]) {
   const before = S.state.ui?.target;
   if (ui?.target === before) return;
+  pendingUiRefresh = false;
   S.state.ui = ui;
   syncView();
   if (!ui) {

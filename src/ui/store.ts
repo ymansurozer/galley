@@ -61,6 +61,7 @@ export const S: Store = Alpine.reactive<Store>({
   ready: false,
   uiProxy: null,
   reloadGeneration: 0,
+  uiRefreshGeneration: null,
   app: {
     loaded: false,
     route: "/",
