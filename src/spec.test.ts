@@ -25,7 +25,7 @@ const ANCHORS = [
   "one short line per step",
   '"kind":"question"',
   '"kind":"review"',
-  // a question is READ-ONLY: answer it, don't edit code in response (guards issue 04)
+  // Code questions stay read-only; UI handling depends on intent.
   "answering is READ-ONLY",
   "NEVER edit tracked",
   // replies live in the desk only: no echo into the agent's own chat/harness output
@@ -86,7 +86,7 @@ const ANCHORS = [
   "move code from one part to another",
   "places blocks by content",
   "for a part, its path, title and span",
-  // the running app: --ui / galley ui, loopback-only, UI-only desks, never auto-reloaded
+  // The running app: loopback target and explicit refresh signal.
   "--ui <url>",
   "galley ui <url>",
   "loopback http:// URL",
@@ -172,7 +172,7 @@ test("SPEC's question loop uses the space-safe read idiom, not word-splitting (i
 
 test("SPEC states the deduped invariants exactly once (issue 04)", () => {
   const count = (re: RegExp) => (SPEC.match(re) ?? []).length;
-  // The READ-ONLY question rule has ONE full statement (Events); the loop comment is a pointer.
+  // Lane + intent has ONE full statement; other sections point to it.
   assert.equal(count(/answering is READ-ONLY/g), 1, "READ-ONLY rule should be stated once");
   // The no-echo reply rule is one bullet under the comment commands, not repeated per lane.
   assert.equal(count(/harness output/g), 1, "no-echo reply rule should be stated once");
@@ -196,4 +196,50 @@ test("SPEC has no dangling references to the old skill/command", () => {
     !SPEC.includes("SKILL.md"),
     "SPEC must be self-contained — no 'see the skill' pointers",
   );
+});
+
+test("SPEC consistently scopes Ask authority by lane and intent", () => {
+  const handling = SPEC.split("### Question handling — lane + intent")[1]!.split(
+    "## ReviewResult",
+  )[0]!;
+  for (const rule of [
+    "Code Ask: answering is READ-ONLY even when imperative",
+    "Informational UI Ask",
+    "without editing code",
+    "UI Ask clearly requesting a change",
+    "implement that scoped",
+    "immediately without waiting for Send",
+    "galley reload --refresh-ui",
+    "Explicit unsent UI change requests",
+    "authorize no immediate edit",
+  ]) {
+    assert.ok(handling.includes(rule), rule);
+  }
+  assert.equal(SPEC.split("### Question handling — lane + intent").length, 2);
+  assert.match(SPEC, /folded questions retain the authority of their original Ask/);
+  assert.match(
+    SPEC,
+    /except for the scoped immediate\n  UI iteration authorized by Question handling/,
+  );
+  for (const stale of [
+    "app is never\nreloaded under them",
+    "READ-ONLY as a live question",
+    "unless the\n  question's own text asks",
+  ])
+    assert.ok(!SPEC.includes(stale));
+});
+
+test("SPEC describes the scoped refresh flag, status, and retry contract", () => {
+  for (const rule of [
+    "[--refresh-ui]",
+    "reload-only and takes no value",
+    "refreshUi: boolean",
+    "uiRefreshGeneration",
+    "never persisted",
+    "current route/query",
+    "annotation thread and selection",
+    "without replaying older refreshes",
+    "retry with Refresh app",
+  ])
+    assert.ok(SPEC.includes(rule), rule);
 });

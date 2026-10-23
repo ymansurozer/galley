@@ -334,6 +334,8 @@ export type DeskStatus = {
   // the agent changed something, even when the diff didn't move (UI-only desks, server-only
   // edits). Process-local: a restarted desk starts again from 0 under a new uiProxy token.
   reloadGeneration: number;
+  // Explicit app-refresh requests from successful flagged reloads; process-local, never saved.
+  uiRefreshGeneration: number;
 };
 
 export type UiProxyInfo = { port: number; token: string };
@@ -642,12 +644,12 @@ export type ReviewResult = {
   // agent that missed the live await still owes an answer. Every open question message
   // (intent "question", no later agent reply in its thread), code comments and UI annotation
   // threads alike, same shape as an await question. Answer each via `galley comment`;
-  // answering stays read-only — edits come only from the round's requested changes.
+  // handle with the same lane + intent rule as live questions (`galley spec`).
   openQuestions: QuestionPayload[];
   artifacts: { resultJson: string; sessionDir: string };
 };
 
-// A question the reviewer asked (intent "question") that the agent should answer now: on a line
+// A question the reviewer asked (intent "question") that the agent should handle now: on a line
 // of the diff (lane "code"), or in a UI annotation's thread (lane "ui").
 export type QuestionPayload = CodeQuestion | UiQuestion;
 export type CodeQuestion = {

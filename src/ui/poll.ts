@@ -20,6 +20,7 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
     queuedReviews,
     uiProxy,
     reloadGeneration,
+    uiRefreshGeneration,
     ...server
   } = payload;
   S.agentActivity = agentActivity?.body ?? null;
@@ -29,7 +30,8 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
   S.queuedReviews = queuedReviews ?? 0;
   // `galley reload` is the agent back from a Send, even when the diff didn't move (a UI-only desk
   // has none), so Send is open again.
-  if (adoptUiStatus(uiProxy ?? null, reloadGeneration ?? 0)) S.awaitingAgent = false;
+  if (adoptUiStatus(uiProxy ?? null, reloadGeneration ?? 0, uiRefreshGeneration ?? 0))
+    S.awaitingAgent = false;
   return server as T;
 }
 

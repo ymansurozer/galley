@@ -266,7 +266,7 @@
   margin-right: 2px;
 }
 
-/* After `galley reload`: the app is never reloaded under the reviewer — this asks. */
+/* Ordinary `galley reload` offers manual app refresh; --refresh-ui bypasses the prompt. */
 .pill-refresh {
   flex: 0 0 auto;
   display: inline-flex;

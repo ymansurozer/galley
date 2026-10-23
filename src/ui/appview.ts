@@ -191,7 +191,7 @@ export function appForward() {
   if (S.uiProxy && S.app.connected) postToApp({ type: "forward", token: S.uiProxy.token });
 }
 
-// Also how the reviewer takes the "App updated" pill: the app reloads only when they ask.
+// Shared by the manual refresh controls and the agent's explicit UI iteration signal.
 export function appRefresh() {
   S.app.stale = false;
   if (S.uiProxy && S.app.connected) postToApp({ type: "reload", token: S.uiProxy.token });
@@ -294,19 +294,29 @@ export function fromAppViewport(r: Rect): Rect | null {
 // token means a new desk process: its reload counter starts over, so adopt it as the baseline, and
 // the loaded page's bridge (still carrying the old token) is no longer trusted until the page
 // reloads. Within one process, a generation that went up means `galley reload` ran, which raises the
-// refresh pill on a page the reviewer has seen, so their place on it isn't lost under them. A page
-// the UI view hasn't shown yet has no place to keep: it reloads as it warmed, in the background.
+// refresh pill on a page the reviewer has seen, unless a flagged reload explicitly asks for app
+// refresh. A page the UI view hasn't shown yet has no place to keep: it reloads as it warmed,
+// in the background.
 // Either way, the desk has marked every annotation unvisited, and so does the tab.
-export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): boolean {
+export function adoptUiStatus(
+  proxy: UiProxyInfo | null,
+  generation: number,
+  refreshGeneration: number,
+): boolean {
   const prev = S.uiProxy;
   const reloaded = reloadRan(
     { token: prev?.token, generation: S.reloadGeneration },
     { token: proxy?.token, generation },
   );
+  // First adoption and a new desk process establish a baseline, never replay old requests.
+  const refresh =
+    reloaded && S.uiRefreshGeneration !== null && refreshGeneration > S.uiRefreshGeneration;
   S.uiProxy = proxy;
   S.reloadGeneration = generation;
+  S.uiRefreshGeneration = refreshGeneration;
   if (reloaded) {
-    if (S.app.loaded && shown) S.app.stale = true;
+    if (refresh && proxy && S.app.loaded) appRefresh();
+    else if (S.app.loaded && shown) S.app.stale = true;
     else if (S.app.loaded) {
       S.app.loaded = false;
       warmApp();

@@ -343,6 +343,7 @@ export interface Store {
   // agent fields above. reloadGeneration is the last one the tab adopted (see adoptUiStatus).
   uiProxy: UiProxyInfo | null;
   reloadGeneration: number;
+  uiRefreshGeneration: number | null;
   // The app in the UI view, as the iframe was last pointed or the bridge last reported.
   app: AppFrame;
   viewport: Viewport;

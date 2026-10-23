@@ -2427,6 +2427,7 @@ type PollWithUi = {
   ui?: { target: string };
   uiProxy: { port: number; token: string } | null;
   reloadGeneration: number;
+  uiRefreshGeneration: number;
 };
 const getPoll = (url: string) =>
   fetch(`${url}api/poll`).then((r) => r.json() as Promise<PollWithUi>);
@@ -2642,14 +2643,23 @@ test("every /api/reload bumps reloadGeneration, even when the diff doesn't move"
   const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
   try {
     assert.equal((await getPoll(handle.url)).reloadGeneration, 0);
+    assert.equal((await getPoll(handle.url)).uiRefreshGeneration, 0);
     const hashBefore = (await getPoll(handle.url)) as unknown as { baseDiffHash: string };
     await post(handle.url, "api/reload", {});
     const once = (await getPoll(handle.url)) as PollWithUi & { baseDiffHash: string };
     assert.equal(once.reloadGeneration, 1);
+    assert.equal(once.uiRefreshGeneration, 0);
     assert.equal(once.baseDiffHash, hashBefore.baseDiffHash, "the diff didn't move");
     await writeFile(path.join(root, "a.ts"), "two\n");
     await post(handle.url, "api/reload", {});
     assert.equal((await getPoll(handle.url)).reloadGeneration, 2);
+    // The signal also works before any app is attached, without persisting proxy/status fields.
+    assert.equal((await post(handle.url, "api/reload", { refreshUi: true })).status, 200);
+    const flagged = await getPoll(handle.url);
+    assert.equal(flagged.uiProxy, null);
+    assert.equal(flagged.uiRefreshGeneration, 1);
+    assert.equal((await post(handle.url, "api/reload", { refreshUi: false })).status, 200);
+    assert.equal((await getPoll(handle.url)).uiRefreshGeneration, 1);
   } finally {
     handle.server.close();
     process.env.HOME = oldHome;
