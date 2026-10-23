@@ -14,6 +14,8 @@ const idle: PresenceSignals = {
   queuedReviews: 0,
   queuedQuestions: 0,
   activity: null,
+  agentListening: false,
+  agentRecentlyActive: false,
   unansweredAsks: 0,
 };
 const presence = (over: Partial<PresenceSignals>) => agentPresence({ ...idle, ...over });
@@ -73,6 +75,31 @@ test("agentPresence: a sent review speaks before an unanswered ask", () => {
     kind: "working",
     line: "Editing",
   });
+});
+
+test("agentPresence: live and recent evidence outranks queued work, then expires to queued", () => {
+  for (const evidence of [
+    { activity: "Reading" },
+    { agentListening: true },
+    { agentRecentlyActive: true },
+  ]) {
+    const waiting = { unansweredAsks: 2, queuedQuestions: 1, ...evidence };
+    assert.equal(presence(waiting).kind, "answering");
+    assert.equal(presence({ ...waiting, awaitingAgent: true, queuedReviews: 1 }).kind, "working");
+    assert.equal(
+      presence(evidence).kind,
+      "hidden",
+      "idle evidence does not create a sticky indicator",
+    );
+  }
+  assert.equal(
+    presence({ unansweredAsks: 1, queuedQuestions: 1, agentRecentlyActive: true }).line,
+    "Waiting for agent…",
+  );
+  assert.equal(
+    presence({ unansweredAsks: 1, queuedQuestions: 1, agentRecentlyActive: false }).kind,
+    "notAttached",
+  );
 });
 
 let seq = 0;

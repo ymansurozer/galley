@@ -10,6 +10,12 @@
   display: none !important;
 }
 
+/* With both code lists hidden, the navigation needs neither their gutter nor their boundary. */
+.app.view-ui .side-nav {
+  overflow: visible;
+  scrollbar-gutter: auto;
+}
+
 /* The Overview row links to the code view's page: it doesn't light while the app shows, and o is a
    code-view key. */
 .app.view-ui .overview-row.active {
@@ -266,7 +272,7 @@
   margin-right: 2px;
 }
 
-/* After `galley reload`: the app is never reloaded under the reviewer — this asks. */
+/* Ordinary `galley reload` offers manual app refresh; --refresh-ui bypasses the prompt. */
 .pill-refresh {
   flex: 0 0 auto;
   display: inline-flex;

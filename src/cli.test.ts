@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deskAlive } from "./cli.js";
+import { startServer } from "./server.js";
 import { deskLockPath, loadLatestReview, persistReview, reviewDir, stableUiPort } from "./state.js";
 import type { ReviewState } from "./types.js";
 
@@ -161,14 +162,107 @@ function startDesk(
 }
 
 type DeskState = {
+  uiRefreshGeneration: number;
+  reloadGeneration: number;
   files: unknown[];
   ui?: { target: string };
   uiProxy: { port: number } | null;
 };
+// Synchronous CLI calls pause this process while the child keeps serving. Close fixture reads so
+// the next assertion cannot reuse a pooled socket that expired during that pause.
 const deskState = (url: string) =>
-  fetch(`${url}api/state`).then((r) => r.json() as Promise<DeskState>);
+  fetch(`${url}api/state`, { headers: { connection: "close" } }).then(
+    (r) => r.json() as Promise<DeskState>,
+  );
 const deskPoll = (url: string) =>
-  fetch(`${url}api/poll`).then((r) => r.json() as Promise<DeskState>);
+  fetch(`${url}api/poll`, { headers: { connection: "close" } }).then(
+    (r) => r.json() as Promise<DeskState>,
+  );
+
+test("reload --refresh-ui signals only successful explicit reloads through state and poll", async () => {
+  const { repo, home, cleanup } = await tempRepo(false);
+  let child: ChildProcess | undefined;
+  try {
+    const desk = await startDesk(
+      [
+        "ui",
+        "http://localhost:3000/entry",
+        "--repo",
+        repo,
+        "--session",
+        "ui-refresh",
+        "--port",
+        "0",
+      ],
+      home,
+    );
+    child = desk.child;
+    const run = (...args: string[]) => runCli(["reload", "--repo", repo, ...args], home);
+    assert.equal((await deskPoll(desk.url)).uiRefreshGeneration, 0);
+    assert.equal(run().status, 0);
+    assert.equal((await deskState(desk.url)).uiRefreshGeneration, 0);
+    assert.equal(run("--refresh-ui").status, 0);
+    assert.equal((await deskPoll(desk.url)).uiRefreshGeneration, 1);
+    await writeFile(path.join(repo, "a.txt"), "changed\n");
+    assert.equal(run("--refresh-ui").status, 0);
+    assert.equal((await deskState(desk.url)).uiRefreshGeneration, 2);
+    assert.equal(run().status, 0);
+    assert.equal((await deskPoll(desk.url)).uiRefreshGeneration, 2);
+    const failed = await fetch(`${desk.url}api/reload`, {
+      method: "POST",
+      body: JSON.stringify({ refreshUi: true, guide: {} }),
+    });
+    assert.equal(failed.status, 422);
+    const malformed = await fetch(`${desk.url}api/reload`, {
+      method: "POST",
+      body: JSON.stringify({ refreshUi: "true" }),
+    });
+    assert.equal(malformed.status, 422);
+    const status = await deskPoll(desk.url);
+    assert.equal(status.uiRefreshGeneration, 2);
+    assert.equal(status.reloadGeneration, 4);
+    const oldHome = process.env.HOME;
+    try {
+      process.env.HOME = home;
+      const saved = await loadLatestReview(repo, "ui-refresh");
+      assert.ok(saved && !("uiRefreshGeneration" in saved));
+    } finally {
+      process.env.HOME = oldHome;
+    }
+    const stopped = new Promise<void>((resolve) => child!.once("exit", () => resolve()));
+    child.kill();
+    await stopped;
+    const restarted = await startDesk(
+      ["--repo", repo, "--session", "ui-refresh", "--port", "0"],
+      home,
+    );
+    child = restarted.child;
+    assert.equal((await deskPoll(restarted.url)).uiRefreshGeneration, 0);
+  } finally {
+    child?.kill();
+    await cleanup();
+  }
+});
+
+test("--refresh-ui is a bare reload-only flag and rejects values or other commands", async () => {
+  const { repo, home, cleanup } = await tempRepo(true);
+  try {
+    for (const args of [
+      ["reload", "--refresh-ui", "true"],
+      ["reload", "--refresh-ui=false"],
+      ["reload", "--refresh-ui", "--refresh-ui=false"],
+      ["status", "--refresh-ui"],
+      ["--refresh-ui"],
+    ]) {
+      const res = runCli([...args, "--repo", repo], home);
+      assert.equal(res.status, 1);
+      assert.match(res.stderr, /--refresh-ui.*reload.*no value/);
+    }
+    assert.match(runCli(["--help"], home).stdout, /reload.*--refresh-ui/);
+  } finally {
+    await cleanup();
+  }
+});
 
 test("a non-loopback or https UI target exits non-zero with a clear message, starting nothing", async () => {
   const { repo, home, cleanup } = await tempRepo(true);
@@ -530,6 +624,43 @@ async function savedQuestion(repo: string, home: string) {
     process.env.HOME = oldHome;
   }
 }
+
+test("CLI status, replies in both lanes, and reload renew bounded recent presence", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-23T12:00:00Z") });
+  const { repo, home, cleanup } = await tempRepo(false);
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  let desk: Awaited<ReturnType<typeof startServer>> | undefined;
+  try {
+    const { lock } = await savedQuestion(repo, home);
+    const review = await loadLatestReview(repo, "s");
+    desk = await startServer({ state: review!, statusTtlMs: 1000, idleTimeoutMs: 0 });
+    await writeFile(lock, JSON.stringify({ pid: process.pid, url: desk.url, session: "s" }));
+    const recent = async () =>
+      (
+        (await fetch(`${desk!.url}api/poll`).then((r) => r.json())) as {
+          agentRecentlyActive: boolean;
+        }
+      ).agentRecentlyActive;
+    assert.equal(await recent(), false);
+    for (const command of [
+      ["status", "--body", "Reading"],
+      ["comment", "--path", "a.txt", "--line", "1", "--body", "Code answer"],
+      ["comment", "--ui", "q1", "--body", "App answer"],
+      ["reload"],
+    ]) {
+      const result = await runCliAsync([...command, "--repo", repo, "--session", "s"], home);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(await recent(), true, command.join(" "));
+      t.mock.timers.tick(1000);
+      assert.equal(await recent(), false, "the server's existing TTL seam bounds presence");
+    }
+  } finally {
+    desk?.server.close();
+    process.env.HOME = oldHome;
+    await cleanup();
+  }
+});
 
 test("comment --ui fails, writing nothing, when the live desk takes the request but doesn't answer it", async () => {
   const { repo, home, cleanup } = await tempRepo(false);

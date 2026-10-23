@@ -297,6 +297,8 @@ function readCaptured(d: Record<string, unknown>, token: string): BridgeMessage 
 export function captureWaits(timeoutMs: number) {
   const pending = new Map<number, (reply: BridgeShot | Error) => void>();
   return {
+    has: (id: number) => pending.has(id),
+    isBusy: () => pending.size > 0,
     wait(id: number) {
       return new Promise<BridgeShot>((resolve, reject) => {
         const settle = (reply: BridgeShot | Error) => {

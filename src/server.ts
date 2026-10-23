@@ -78,11 +78,11 @@ const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = "Run `galley spec` for the full agent contract.";
 
-// Sent (as "1") by the CLI on /api/await-send, the one GET that changes something: whoever parks
-// on it takes the agent's next event. A page can't send it. An <img> or <script> sets no headers,
+// Sent (as "1") by the CLI on agent actions and /api/await-send, the one GET that changes something: whoever parks
+// on it takes the agent's next event. An unrelated page can't send it. An <img> or <script> sets no headers,
 // and a fetch from another origin that adds one needs a CORS preflight the desk never grants. This
 // holds where fetch metadata doesn't reach: browsers send it only to secure contexts, and a
-// plain-http `GALLEY_HOST` desk (the devbox) isn't one.
+// plain-http `GALLEY_HOST` desk (the devbox) isn't one. It marks CLI provenance, not authentication.
 export const AGENT_HEADER = "x-galley-agent";
 
 export type ServerOptions = {
@@ -110,7 +110,7 @@ export type ServerOptions = {
   // Test seam: lets server.test.ts assert the resolved editor invocation without
   // actually launching anything.
   runEditorCommand?: (command: string, args: string[]) => Promise<void>;
-  // Test seam: TTL for the ephemeral agent-activity line (default 90s).
+  // Test seam: TTL for ephemeral agent activity and recent presence (default 90s).
   statusTtlMs?: number;
   // Auto-exit after this long with no HTTP activity (default 2h; 0 disables). An open
   // tab polls /api/state and a waiting agent holds /api/await-send, so "idle" really
@@ -504,6 +504,15 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // show as live activity forever.
   const statusTtlMs = options.statusTtlMs ?? 90_000;
   let agentActivity: AgentActivity | null = null;
+  // Delivery or a marked CLI action proves recent activity, independently of a status line.
+  // A reply clears that line but renews this bounded lease. Never persisted or timer-driven.
+  let agentActiveUntil = 0;
+  const markAgentActive = () => {
+    agentActiveUntil = Date.now() + statusTtlMs;
+  };
+  const markAgentRequest = (req: http.IncomingMessage) => {
+    if (req.headers[AGENT_HEADER] === "1") markAgentActive();
+  };
   const liveActivity = () => {
     if (agentActivity && Date.now() - Date.parse(agentActivity.at) > statusTtlMs)
       agentActivity = null;
@@ -534,6 +543,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       },
     ));
   let reloadGeneration = 0;
+  let uiRefreshGeneration = 0;
   // The diff before the latest reload or restart that moved it, for saves from a tab still on it.
   // Held in memory only: a tab's verdicts carry from one diff back at most, while its comments,
   // anchored by their lines' text, merge from any older diff (mergeReviewerSave).
@@ -546,10 +556,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   const deskStatus = (): DeskStatus => ({
     agentActivity: liveActivity(),
     agentListening: eventWaiters.length > 0,
+    agentRecentlyActive: Date.now() < agentActiveUntil,
     queuedQuestions: eventQueue.filter((e) => e.kind === "question").length,
     queuedReviews: eventQueue.filter((e) => e.kind === "review").length,
     uiProxy: uiProxy ? { port: uiProxy.port, token: uiToken } : null,
     reloadGeneration,
+    uiRefreshGeneration,
   });
   // The desk as a tab that has adopted its latest status stamps its saves (types.ts, SaveStamp).
   const saveStamp = (): SaveStamp => ({ token: uiProxy ? uiToken : null, reloadGeneration });
@@ -953,15 +965,20 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               eventQueue.splice(i, 1);
             }
           }
+          markAgentActive();
           return json(res, 200, { kind: "question", question: batched[0], questions: batched });
         }
         const queued = eventQueue.shift();
-        if (queued) return json(res, 200, queued);
+        if (queued) {
+          markAgentActive();
+          return json(res, 200, queued);
+        }
         let settled = false;
         const waiter = (ev: AwaitEvent) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
+          markAgentActive();
           json(res, 200, ev);
         };
         const drop = () => {
@@ -996,12 +1013,23 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // round-trip — the multi-round path: regenerate the guide, reload, same tab.
         return await serialize(async () => {
           let newGuide: unknown;
+          let refreshUi: unknown;
           try {
             const raw = await readBody(req);
-            newGuide = raw ? (JSON.parse(raw) as { guide?: unknown }).guide : undefined;
+            const body = raw ? (JSON.parse(raw) as { guide?: unknown; refreshUi?: unknown }) : {};
+            newGuide = body?.guide;
+            refreshUi = body?.refreshUi;
           } catch {
             newGuide = undefined; // tolerate empty/non-JSON bodies (legacy callers)
           }
+          if (refreshUi !== undefined && typeof refreshUi !== "boolean")
+            return fail(
+              res,
+              422,
+              "INVALID_REFRESH_UI",
+              "refreshUi must be a boolean.",
+              "Use `galley reload --refresh-ui` for immediate UI iteration.",
+            );
           let validatedGuide;
           if (newGuide !== undefined) {
             const result = validateGuide(newGuide);
@@ -1015,6 +1043,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               );
             validatedGuide = result.guide;
           }
+          markAgentRequest(req);
           if (state.changes.length) stampSource = { files: state.files, changes: state.changes };
           const base = await buildReviewState(state.root, {
             mode: state.mode,
@@ -1037,6 +1066,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             ]);
             await persistReview(state);
             reloadGeneration++;
+            if (refreshUi) uiRefreshGeneration++;
             return json(res, 200, { ok: true, empty: true, baseDiffHash: state.baseDiffHash });
           }
           // Guide-declared moves (movedFrom) must merge into `base` BEFORE reconciliation, so a
@@ -1095,6 +1125,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           await syncGitState(state);
           await persistReview(state);
           reloadGeneration++;
+          if (refreshUi) uiRefreshGeneration++;
           return json(res, 200, { ok: true, empty: false, baseDiffHash: state.baseDiffHash });
         });
       }
@@ -1280,7 +1311,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           state.comments.push(comment);
           // The reply the reviewer was waiting on has landed — the "what I'm doing
           // now" line is obsolete the moment a real agent message exists.
-          if (comment.role === "agent") agentActivity = null;
+          if (comment.role === "agent") {
+            agentActivity = null;
+            markAgentRequest(req);
+          }
           await persistReview(state);
           return json(res, 200, { ok: true, commentId: comment.id });
         });
@@ -1315,6 +1349,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             );
           // As with a code reply: the answer has landed, so the "doing X now" line is obsolete.
           agentActivity = null;
+          markAgentRequest(req);
           await persistReview(state);
           return json(res, 200, { ok: true, commentId: reply.id });
         });
@@ -1333,6 +1368,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             'Send { body: "what you are doing" } as JSON.',
           );
         agentActivity = { body: text, at: nowIso() };
+        markAgentRequest(req);
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/reset") {

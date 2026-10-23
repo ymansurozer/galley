@@ -327,14 +327,33 @@ try {
     "✓ reload --guide with skim → accepted, file + block stamped, oversized file skimmed",
   );
 
+  const refreshBefore = (await getJson("/api/poll")).uiRefreshGeneration;
+  assert.equal(refreshBefore, 0, "ordinary reloads never request app refresh");
+  assert.ok(JSON.parse(cli("reload", "--refresh-ui", "--repo", tmp, "--session", ID)).ok);
+  assert.equal((await getJson("/api/state")).uiRefreshGeneration, 1);
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID)).ok);
+  assert.equal((await getJson("/api/poll")).uiRefreshGeneration, 1);
+  const malformedRefresh = await post("/api/reload", { refreshUi: "true" });
+  assert.equal(malformedRefresh.status, 422);
+  assert.equal((await getJson("/api/poll")).uiRefreshGeneration, 1);
+  console.log(
+    "✓ reload --refresh-ui → explicit transient refresh signal; ordinary/malformed reload isolated",
+  );
+
   // A skim span that resolves to no change block is rejected (diff-aware validation).
   const badReload = await post("/api/reload", {
+    refreshUi: true,
     guide: {
       overview: "x",
       files: [{ path: "a.txt", orientation: "s", skimBlocks: [{ lines: 99 }] }],
     },
   });
   assert.equal(badReload.status, 422, "unresolvable skim span rejected");
+  assert.equal(
+    (await getJson("/api/poll")).uiRefreshGeneration,
+    1,
+    "failed flagged reload does not request refresh",
+  );
   const badBody = await badReload.json();
   assert.ok(badBody.error?.includes("a.txt"), "rejection names the offending file");
   console.log("✓ reload with an unresolvable skim span → 422 naming the entry");

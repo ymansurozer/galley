@@ -16,9 +16,17 @@ import net from "node:net";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { AGENT_HEADER, resolveBinding, startServer, swapIndexEntry } from "./server.js";
-import { buildReviewState, hash, reviewDir, writeGlobalSettings } from "./state.js";
+import {
+  buildReviewState,
+  hash,
+  loadLatestReview,
+  reviewDir,
+  writeGlobalSettings,
+} from "./state.js";
 import type { ReviewComment, ReviewResult, ReviewState } from "./types.js";
 import { isGuideBaseStale } from "./ui/guide-derive.js";
+import { agentPresence, unansweredAsks } from "./ui/topbar-derive.js";
+import { pendingAnswer } from "./ui/thread-derive.js";
 import { SHOT_CAP } from "./uishots.js";
 
 function state(root: string): ReviewState {
@@ -173,6 +181,7 @@ test("open-editor runs the editor command from global settings", async () => {
 type StatePayload = ReviewState & {
   agentActivity: { body: string; at: string } | null;
   agentListening: boolean;
+  agentRecentlyActive: boolean;
   queuedQuestions: number;
   queuedReviews: number;
 };
@@ -190,6 +199,199 @@ const post = (url: string, pathname: string, body: unknown) =>
 // The long-poll as `galley await` makes it, with the header only the CLI sends.
 const awaitEvent = (url: string, query = "") =>
   fetch(`${url}api/await-send${query}`, { headers: { [AGENT_HEADER]: "1" } });
+
+const agentPost = (url: string, pathname: string, body: unknown) =>
+  fetch(`${url}${pathname}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
+    body: JSON.stringify(body),
+  });
+
+test("recent presence follows mixed-lane consecutive asks, including after the first reply clears activity", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-23T12:00:00Z") });
+  for (const withStatus of [false, true]) {
+    await withServer(
+      async (handle, _root, st) => {
+        st.ui = { target: "http://localhost:3000/" };
+        const code = { ...requested, intent: "question", body: "Why code?" };
+        const app = uiQuestion();
+        app.comments[0]!.createdAt = code.createdAt;
+        app.comments[0]!.updatedAt = code.createdAt;
+        await post(handle.url, "api/save", { comments: [code], annotations: [app] });
+        const signals = async () => {
+          const status = await getState(handle.url);
+          const input = {
+            awaitingAgent: false,
+            queuedReviews: status.queuedReviews,
+            queuedQuestions: status.queuedQuestions,
+            agentListening: status.agentListening,
+            agentRecentlyActive: status.agentRecentlyActive,
+            activity: status.agentActivity?.body ?? null,
+          };
+          return {
+            status,
+            input,
+            header: agentPresence({
+              ...input,
+              unansweredAsks: unansweredAsks(status.comments, status.annotations ?? []),
+            }),
+          };
+        };
+        assert.equal((await signals()).status.agentRecentlyActive, false);
+        // Enroll the long-poll before asking; transport scheduling is not a presence assertion.
+        const enrolled = new Promise<void>((resolve) =>
+          handle.server.once("request", () => resolve()),
+        );
+        const first = awaitEvent(handle.url).then((r) => r.json());
+        await enrolled;
+        assert.equal((await signals()).status.agentListening, true);
+        assert.equal(
+          (await signals()).status.agentRecentlyActive,
+          false,
+          "parking alone is instantaneous listening",
+        );
+        assert.equal((await post(handle.url, "api/ask", { id: code.id })).status, 200);
+        const delivered = (await first) as {
+          kind: string;
+          questions: { lane: string; body: string }[];
+        };
+        assert.equal(delivered.kind, "question");
+        assert.deepEqual(
+          delivered.questions.map((q) => [q.lane, q.body]),
+          [["code", "Why code?"]],
+        );
+        assert.equal((await signals()).status.agentRecentlyActive, true);
+        if (withStatus) await agentPost(handle.url, "api/status", { body: "Reading both threads" });
+        t.mock.timers.tick(60_000);
+        await post(handle.url, "api/ask", { annotationId: "q1", messageId: "q1-m1" });
+        let current = await signals();
+        assert.equal(current.status.queuedQuestions, 1);
+        assert.notEqual(current.header.kind, "notAttached");
+        assert.equal(
+          pendingAnswer(current.input, [], code.createdAt).queued,
+          false,
+          "both lanes share active presence",
+        );
+        assert.equal(
+          (
+            await agentPost(handle.url, "api/comment", {
+              path: "a.ts",
+              lineNumber: 1,
+              body: "Code answer",
+            })
+          ).status,
+          200,
+        );
+        current = await signals();
+        assert.equal(current.status.agentActivity, null, "first reply clears activity");
+        assert.equal(current.status.agentRecentlyActive, true);
+        assert.equal(unansweredAsks(current.status.comments, current.status.annotations ?? []), 1);
+        assert.equal(current.header.line, "Waiting for agent…");
+        assert.equal(pendingAnswer(current.input, [], code.createdAt).label, current.header.line);
+        t.mock.timers.tick(60_000);
+        assert.equal(
+          (await signals()).status.agentRecentlyActive,
+          true,
+          "reply renewed the 90s window",
+        );
+        t.mock.timers.tick(30_000);
+        current = await signals();
+        assert.equal(current.status.agentRecentlyActive, false, "expiry is checked on read");
+        assert.equal(current.header.line, "No agent attached — question queued");
+        assert.equal(pendingAnswer(current.input, [], code.createdAt).label, current.header.line);
+        const second = (await awaitEvent(handle.url).then((r) => r.json())) as {
+          questions: { lane: string; body: string }[];
+        };
+        assert.deepEqual(
+          second.questions.map((q) => [q.lane, q.body]),
+          [["ui", "Why is this a draft?"]],
+        );
+        assert.equal(
+          (await signals()).status.agentRecentlyActive,
+          true,
+          "queue drain renews presence without a status line",
+        );
+        await agentPost(handle.url, "api/ui-comment", { annotationId: "q1", body: "App answer" });
+        assert.equal(unansweredAsks(st.comments, st.annotations ?? []), 0);
+        assert.deepEqual(
+          st.comments.filter((c) => c.role === "agent").map((c) => c.body),
+          ["Code answer"],
+        );
+        assert.deepEqual(
+          st.annotations![0]!.comments.filter((c) => c.role === "agent").map((c) => c.body),
+          ["App answer"],
+        );
+        assert.equal((await signals()).status.queuedQuestions, 0);
+        assert.equal((await signals()).header.kind, "hidden");
+        const saved = await loadLatestReview(st.root, st.session);
+        assert.ok(saved && !("agentRecentlyActive" in saved));
+        const restarted = await startServer({ state: saved!, idleTimeoutMs: 0 });
+        try {
+          assert.equal(
+            (await getState(restarted.url)).agentRecentlyActive,
+            false,
+            "restart drops the lease",
+          );
+        } finally {
+          restarted.server.close();
+        }
+        t.mock.timers.tick(90_000);
+        assert.equal((await signals()).status.agentRecentlyActive, false);
+      },
+      { idleTimeoutMs: 0 },
+    );
+  }
+});
+
+test("recent presence renews only on agent evidence, never reviewer polls, saves, asks, or reloads", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-23T12:00:00Z") });
+  await withServer(
+    async (handle, root, st) => {
+      st.ui = { target: "http://localhost:3000/" };
+      execFileSync("git", ["init", "-q"], { cwd: root });
+      const recent = async () => (await getState(handle.url)).agentRecentlyActive;
+      assert.equal(await recent(), false);
+      await post(handle.url, "api/ask", { path: "a.ts", body: "Unattended" });
+      assert.equal(await recent(), false, "no agent ever attached: queue immediately");
+      for (const [route, body] of [
+        ["api/status", { body: "Reading" }],
+        ["api/comment", { path: "a.ts", body: "Answer" }],
+        ["api/ui-comment", { annotationId: "q1", body: "App answer" }],
+        ["api/reload", {}],
+      ] as const) {
+        await post(handle.url, "api/save", { annotations: [uiQuestion()] });
+        assert.equal((await post(handle.url, route, body)).status, 200);
+        assert.equal(
+          await recent(),
+          false,
+          "unmarked requests cannot establish recent CLI presence",
+        );
+        assert.equal((await agentPost(handle.url, route, body)).status, 200);
+        assert.equal(await recent(), true, route);
+        t.mock.timers.tick(60_000);
+        await post(handle.url, "api/save", { annotations: [uiQuestion()] });
+        await post(handle.url, "api/ask", { annotationId: "q1", messageId: "q1-m1" });
+        await post(handle.url, "api/comment", {
+          path: "a.ts",
+          body: "Reviewer note",
+          role: "user",
+        });
+        await post(handle.url, "api/reload", {});
+        await fetch(`${handle.url}api/poll`);
+        t.mock.timers.tick(30_000);
+        assert.equal(await recent(), false, "reviewer traffic never extends the lease");
+      }
+      await post(handle.url, "api/send", {});
+      assert.equal(await recent(), false);
+      const event = (await awaitEvent(handle.url).then((r) => r.json())) as { kind: string };
+      assert.equal(event.kind, "review");
+      assert.equal(await recent(), true, "queued review delivery is agent evidence too");
+      t.mock.timers.tick(90_000);
+      assert.equal(await recent(), false);
+    },
+    { idleTimeoutMs: 0 },
+  );
+});
 
 test("status posts ephemeral agent activity into the state payload", async () => {
   await withServer(async (handle) => {
@@ -221,14 +423,16 @@ test("an agent comment clears the activity line", async () => {
   });
 });
 
-test("activity goes stale past the TTL (checked on read, no timers)", async () => {
+test("activity goes stale past the TTL (checked on read, no timers)", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-23T12:00:00Z") });
   await withServer(
     async (handle) => {
       await post(handle.url, "api/status", { body: "Reading…" });
-      const st = await getState(handle.url);
-      assert.equal(st.agentActivity, null);
+      assert.equal((await getState(handle.url)).agentActivity?.body, "Reading…");
+      t.mock.timers.tick(90_001);
+      assert.equal((await getState(handle.url)).agentActivity, null);
     },
-    { statusTtlMs: 0 },
+    { idleTimeoutMs: 0 },
   );
 });
 
@@ -989,9 +1193,11 @@ test("save strips transient desk-status keys so they never persist on state", as
       ...payload,
       agentActivity: { body: "leak", at: "t" },
       queuedQuestions: 9,
+      agentRecentlyActive: true,
     });
     assert.equal("agentActivity" in st, false);
     assert.equal("agentListening" in st, false);
+    assert.equal("agentRecentlyActive" in st, false);
     assert.equal("queuedQuestions" in st, false);
     assert.equal("queuedReviews" in st, false);
   });
@@ -1787,17 +1993,33 @@ test("idle timeout shuts the desk down when nothing is connected", async () => {
   );
 });
 
-test("an in-flight await-send long-poll pins the desk past the idle timeout", async () => {
+test("an in-flight await-send long-poll pins the desk past the idle timeout", async (t) => {
   const reasons: string[] = [];
+  // Freeze idle time until the real HTTP request is enrolled; startup/transport scheduling is
+  // not an idle-lifecycle assertion. Keep HTTP and the long-poll timeout on real timers.
+  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 0 });
   await withServer(
     async (handle) => {
-      // Holds the connection open well past idleTimeoutMs; activeRequests > 0 must
-      // block the idle exit for as long as an agent is parked on await.
+      let requestClosed!: () => void;
+      const closed = new Promise<void>((resolve) => (requestClosed = resolve));
+      const enrolled = new Promise<void>((resolve) => {
+        handle.server.once("request", (req, res) => {
+          assert.match(req.url ?? "", /^\/api\/await-send/);
+          res.once("close", requestClosed);
+          resolve();
+        });
+      });
       const poll = awaitEvent(handle.url, "?timeout=1");
-      await sleep(200);
+      await enrolled;
+      assert.equal((await getState(handle.url)).agentListening, true);
+      t.mock.timers.tick(200);
       assert.deepEqual(reasons, [], "no idle shutdown while a long-poll is held");
       const res = await poll;
       assert.equal(res.status, 204); // bounded hold expired with no event
+      await closed;
+      // The same checker must still exit once the request no longer pins the desk.
+      t.mock.timers.tick(50);
+      assert.deepEqual(reasons, ["idle"]);
     },
     { idleTimeoutMs: 50, onShutdown: (reason) => reasons.push(reason) },
   );
@@ -2427,6 +2649,7 @@ type PollWithUi = {
   ui?: { target: string };
   uiProxy: { port: number; token: string } | null;
   reloadGeneration: number;
+  uiRefreshGeneration: number;
 };
 const getPoll = (url: string) =>
   fetch(`${url}api/poll`).then((r) => r.json() as Promise<PollWithUi>);
@@ -2642,14 +2865,23 @@ test("every /api/reload bumps reloadGeneration, even when the diff doesn't move"
   const handle = await startServer({ state: st!, open: false, idleTimeoutMs: 0 });
   try {
     assert.equal((await getPoll(handle.url)).reloadGeneration, 0);
+    assert.equal((await getPoll(handle.url)).uiRefreshGeneration, 0);
     const hashBefore = (await getPoll(handle.url)) as unknown as { baseDiffHash: string };
     await post(handle.url, "api/reload", {});
     const once = (await getPoll(handle.url)) as PollWithUi & { baseDiffHash: string };
     assert.equal(once.reloadGeneration, 1);
+    assert.equal(once.uiRefreshGeneration, 0);
     assert.equal(once.baseDiffHash, hashBefore.baseDiffHash, "the diff didn't move");
     await writeFile(path.join(root, "a.ts"), "two\n");
     await post(handle.url, "api/reload", {});
     assert.equal((await getPoll(handle.url)).reloadGeneration, 2);
+    // The signal also works before any app is attached, without persisting proxy/status fields.
+    assert.equal((await post(handle.url, "api/reload", { refreshUi: true })).status, 200);
+    const flagged = await getPoll(handle.url);
+    assert.equal(flagged.uiProxy, null);
+    assert.equal(flagged.uiRefreshGeneration, 1);
+    assert.equal((await post(handle.url, "api/reload", { refreshUi: false })).status, 200);
+    assert.equal((await getPoll(handle.url)).uiRefreshGeneration, 1);
   } finally {
     handle.server.close();
     process.env.HOME = oldHome;

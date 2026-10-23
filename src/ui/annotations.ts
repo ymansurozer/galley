@@ -157,6 +157,8 @@ const pendingParts = (askTime: string, msgId: string) =>
       awaitingAgent: S.awaitingAgent,
       queuedReviews: S.queuedReviews,
       queuedQuestions: S.queuedQuestions,
+      agentListening: S.agentListening,
+      agentRecentlyActive: S.agentRecentlyActive,
       activity: S.agentActivity,
     },
     S.agentTrail,

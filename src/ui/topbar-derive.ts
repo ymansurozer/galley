@@ -7,12 +7,15 @@ import { answered, waitingCount } from "./uilane-derive";
 // The desk-liveness signals the presence reads. awaitingAgent: the review was sent and the agent
 // hasn't replied or reloaded. queuedReviews / queuedQuestions: events no `galley await` picked up.
 // activity: the agent's latest `galley status` line, null once stale. unansweredAsks: the
-// reviewer's questions still waiting on the agent, code and app.
+// reviewer's questions still waiting on the agent, code and app. Listening is instantaneous;
+// recent activity bridges delivery/reply gaps without asserting permanent attachment.
 export type PresenceSignals = {
   awaitingAgent: boolean;
   queuedReviews: number;
   queuedQuestions: number;
   activity: string | null;
+  agentListening: boolean;
+  agentRecentlyActive: boolean;
   unansweredAsks: number;
 };
 
@@ -25,13 +28,18 @@ export type Presence = {
 // line), then an unanswered ask (the line its thread shows). Idle, or just replied, it says nothing:
 // a reply lands in its thread.
 export function agentPresence(s: PresenceSignals): Presence {
+  const active = s.activity || s.agentListening || s.agentRecentlyActive;
+  if (s.awaitingAgent && active)
+    return { kind: "working", line: s.activity || "Waiting for agent…" };
+  if (s.unansweredAsks > 0 && active)
+    return {
+      kind: "answering",
+      line: s.activity ? `Working · ${s.activity}` : "Waiting for agent…",
+    };
   if (s.awaitingAgent && s.queuedReviews > 0)
     return { kind: "notAttached", line: "No agent attached — review queued" };
-  if (s.awaitingAgent && s.activity) return { kind: "working", line: s.activity };
   if (s.unansweredAsks > 0 && s.queuedQuestions > 0)
     return { kind: "notAttached", line: "No agent attached — question queued" };
-  if (s.unansweredAsks > 0 && s.activity)
-    return { kind: "answering", line: `Working · ${s.activity}` };
   return { kind: "hidden", line: "" };
 }
 

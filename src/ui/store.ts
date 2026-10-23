@@ -24,6 +24,7 @@ export const S: Store = Alpine.reactive<Store>({
   agentTrail: [],
   undeliveredAsks: new Set(),
   agentListening: false,
+  agentRecentlyActive: false,
   queuedQuestions: 0,
   queuedReviews: 0,
   presence: { kind: "hidden", line: "" },
@@ -61,6 +62,7 @@ export const S: Store = Alpine.reactive<Store>({
   ready: false,
   uiProxy: null,
   reloadGeneration: 0,
+  uiRefreshGeneration: null,
   app: {
     loaded: false,
     route: "/",

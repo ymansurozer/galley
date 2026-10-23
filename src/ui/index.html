@@ -209,10 +209,10 @@
               :disabled="!$store.g.app.connected" @click="$store.g.annotatePage()"><svg class="ic"><use href="#gly-page-note"></use></svg></button>
             <div class="mode seg" role="group" aria-label="Mode" data-tip="Interact / Annotate" data-tip-keys="⌥A" data-tip-align="end">
               <button :class="{active: $store.g.appMode==='interact'}" @click="$store.g.setAppMode('interact')"><svg class="ic"><use href="#gly-pointer"></use></svg><span>Interact</span></button><button
-                class="ann" :class="{active: $store.g.appMode==='annotate'}" @click="$store.g.setAppMode('annotate')"><svg class="ic"><use href="#gly-annotate"></use></svg><span>Annotate</span><kbd x-keys>⌥A</kbd></button>
+                class="ann" :class="{active: $store.g.appMode==='annotate' && $store.g.app.connected}" :disabled="!$store.g.app.connected" @click="$store.g.setAppMode('annotate')"><svg class="ic"><use href="#gly-annotate"></use></svg><span x-text="$store.g.app.connected ? 'Annotate' : 'Waiting for app…'">Annotate</span><kbd x-keys>⌥A</kbd></button>
             </div>
           </div>
-          <div class="stage" id="appStage" :class="[$store.g.viewport==='fit' ? '' : 'preset ' + $store.g.viewport, $store.g.appMode==='annotate' ? 'annotate' : '']">
+          <div class="stage" id="appStage" :class="[$store.g.viewport==='fit' ? '' : 'preset ' + $store.g.viewport, $store.g.appMode==='annotate' && $store.g.app.connected ? 'annotate' : '']">
             <div class="frame" id="appFrame" x-ignore></div>
             <!-- This page's annotations whose target couldn't be found on it: pins in a tray, each opening
                  its card. -->
@@ -222,7 +222,7 @@
                   :data-id="m.id" :title="'#' + m.number + ' · not found on this page'"
                   @click="$store.g.selectAnnotation(m.selected ? null : m.id)"><svg class="ic"><use :href="m.question ? '#gly-message' : '#gly-flag'"></use></svg><span x-text="m.number"></span></button></template></div>
             <div class="stage-note" x-show="!$store.g.uiProxy">Starting the app proxy…</div>
-            <div class="mode-hint" x-cloak x-show="$store.g.appMode==='annotate'"><b>Annotate</b><span
+            <div class="mode-hint" x-cloak x-show="$store.g.appMode==='annotate' && $store.g.app.connected"><b>Annotate</b><span
                 class="tip"><kbd x-keys>Click</kbd>element</span><span
                 class="tip t-add"><kbd x-keys>⇧ Click</kbd>select several</span><span
                 class="tip t-region"><kbd x-keys>Drag</kbd>region</span><span

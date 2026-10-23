@@ -33,9 +33,12 @@ export type Saver = {
   trigger: () => void;
   // Request a save that can wait (what the app page reports, not what the reviewer did): one
   // trigger a second later however many arrive meanwhile, or none if a trigger() saves first, since
-  // its snapshot carries them. Not busy while it waits, so a page reporting in a loop can neither
-  // flood the desk with full saves nor hold off the poll's diff adoption.
+  // its snapshot carries them. Not busy while it waits, so full reads can start meanwhile;
+  // their generation check rejects snapshots that predate newer deferred save activity.
   triggerSoon: () => void;
+  // Monotonic local save activity, including deferred/coalesced requests and their dispatch.
+  // A full snapshot begun before this changes is unsafe even after the save has drained.
+  generation: () => number;
   // In-flight OR a trailing save pending — a save is "busy" until the wire is quiet again.
   // The poll's reload branch checks this so it never adopts server state over local
   // mutations that haven't been persisted yet (see poll.ts).
@@ -49,6 +52,7 @@ const SOON_MS = 1000;
 
 export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promise<unknown>): Saver {
   let inFlight = false;
+  let generation = 0;
   let pending = false;
   let soon: ReturnType<typeof setTimeout> | undefined;
   let waiters: Array<() => void> = [];
@@ -74,6 +78,7 @@ export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promis
   };
 
   const trigger = () => {
+    generation++;
     clearTimeout(soon);
     soon = undefined;
     if (inFlight) pending = true;
@@ -83,8 +88,10 @@ export function createSaver<T>(getPayload: () => T, send: (payload: T) => Promis
   return {
     trigger,
     triggerSoon() {
+      generation++;
       soon ??= setTimeout(trigger, SOON_MS);
     },
+    generation: () => generation,
     isBusy() {
       return inFlight || pending;
     },

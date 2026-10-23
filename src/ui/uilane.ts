@@ -21,6 +21,7 @@ import {
   pageMarks,
   placeComposer,
   sendSummary,
+  selectionAfterStatusChange,
   sourcePlace,
   stepFrom,
   stepOrder,
@@ -62,6 +63,9 @@ const upcomingNumber = () => nextNumber(annotationsOf(), S.state.lastAnnotationN
 // Esc discards, as it does in the code lane.
 const threadDrafts = new Map<string, { editing: string | null; body: string }>();
 let pickDraft: { draft: AnnotationDraft; body: string } | null = null;
+
+// A lane switch closes the composer but keeps its pick and text for the reviewer to resume.
+export const hasUiDraft = () => S.annotationDraft !== null || pickDraft !== null;
 
 export function setUiComposerAside() {
   if (!S.composerOpen || !composerInUi()) return;
@@ -137,7 +141,7 @@ export function stepAnnotation(dir: 1 | -1) {
 // the new target and keeps the text.
 function openDraft(page: Omit<UiPage, "url">, target: UiTarget) {
   const ui = S.state.ui;
-  if (!ui) return;
+  if (!ui || !S.app.connected) return;
   const carried = S.annotationDraft ? S.composerBody : "";
   // A reply or edit elsewhere (or a code comment left open) gives way: one composer at a time.
   if (S.composerOpen && !S.annotationDraft) closeComposer();
@@ -146,6 +150,7 @@ function openDraft(page: Omit<UiPage, "url">, target: UiTarget) {
     page: { url: new URL(page.route, ui.target).href, ...page },
     target,
     anchor: draftAnchor(target),
+    attachScreenshot: S.annotationDraft?.attachScreenshot ?? false,
   };
   openComposer(null, carried);
 }
@@ -285,14 +290,19 @@ export function syncBridge() {
   }
 }
 
-// Screenshots of new annotations still being captured or uploaded (by annotation id, each until it
-// has stored both or failed), and why a capture failed. Both are this tab's alone: after a reload,
-// an annotation without stored screenshots reads as failed.
+// Active captures and failure details belong to this tab. Persisted intent alone cannot prove
+// that a capture is still running after a reload, or that an interrupted capture failed.
 const capturing = new Map<string, Promise<void>>();
 const captureErrors = new Map<string, string>();
 
 const shotStatus = (a: UiAnnotationRecord): ShotStatus =>
-  capturing.has(a.id) ? "capturing" : a.screenshots ? "stored" : "failed";
+  a.screenshots
+    ? "stored"
+    : capturing.has(a.id)
+      ? "capturing"
+      : a.screenshotCapture === "failed"
+        ? "failed"
+        : "absent";
 
 // Whether Send has screenshots to wait for, and the wait: until each is stored or has failed, or
 // `ms` has passed.
@@ -307,8 +317,14 @@ export const screenshotsSettled = (ms: number) => settledWithin(capturing.values
 // else "capture failed", and the annotation stands either way: it's sent without screenshots.
 function captureScreenshots(a: UiAnnotationRecord) {
   const done = storeScreenshots(a)
-    .catch((err: unknown) => {
+    .catch(async (err: unknown) => {
       captureErrors.set(a.id, err instanceof Error ? err.message : String(err));
+      const current = find(a.id);
+      if (current && !current.screenshots) {
+        current.screenshotCapture = "failed";
+        persist();
+        await saver.settled();
+      }
     })
     .finally(() => {
       capturing.delete(a.id);
@@ -317,9 +333,6 @@ function captureScreenshots(a: UiAnnotationRecord) {
   capturing.set(a.id, done);
 }
 async function storeScreenshots(a: UiAnnotationRecord) {
-  // Two frames first, so the closed composer and the new card are painted before the render,
-  // which can keep the page busy for seconds.
-  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const target = markTarget(a.target);
   const shot = await captureApp(
     target ? { target, mark: { number: a.number, question: a.intent === "question" } } : {},
@@ -416,6 +429,7 @@ export function submitUiComposer(intent: "action" | "question") {
       page: draft.page,
       target: draft.target,
       comments: [message],
+      screenshotCapture: draft.attachScreenshot ? "requested" : "omitted",
     };
     list.push(created);
     S.state.lastAnnotationNumber = created.number;
@@ -427,7 +441,7 @@ export function submitUiComposer(intent: "action" | "question") {
     if (intent === "question") asked = { annotation: a.id, message: message.id };
   }
   // Started before the composer closes, so the card it renders already reads "capturing…".
-  if (created) captureScreenshots(created);
+  if (created?.screenshotCapture === "requested") captureScreenshots(created);
   closeComposer();
   persist();
   if (asked) void askAgent(asked.annotation, asked.message);
@@ -441,6 +455,7 @@ function threadControls(a: UiAnnotationRecord): ThreadControls {
     setStatus: (status) => {
       if (S.composerAnnotation === a.id) closeComposer();
       a.status = status;
+      S.selectedAnnotation = selectionAfterStatusChange(S.selectedAnnotation, a.id, status);
       renderUiLane();
       persist();
     },

@@ -55,9 +55,8 @@ export function composerHead(
 export const quoteLine = (doc: Document, quote: string) =>
   node(doc, "div", "uc-quote", `“${quote}”`);
 
-// Where an annotation's screenshots stand: being captured and uploaded, stored, or not stored
-// (its capture failed, in this tab or in one since closed or reloaded).
-export type ShotStatus = "capturing" | "stored" | "failed";
+// Only a live capture reads as capturing; absent also covers interrupted and legacy captures.
+export type ShotStatus = "capturing" | "stored" | "failed" | "absent";
 
 // The screenshot part of a pin card's line of detail: a quiet "capturing…", then a link that
 // enlarges the stored pair, or a quiet failure note whose tooltip says why when the tab knows. The
@@ -75,6 +74,7 @@ export function shotLink(
     return link;
   }
   if (status === "capturing") return node(doc, "span", "ann-shot", "capturing…");
+  if (status === "absent") return node(doc, "span", "ann-shot", "No screenshot");
   const note = node(doc, "span", "ann-shot", "capture failed");
   note.title = reason
     ? `No screenshot: ${reason}`

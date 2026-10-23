@@ -158,7 +158,7 @@ async function runComment(args: Record<string, string | boolean>) {
     try {
       const res = await fetch(`${lock.url}api/comment`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
         body: JSON.stringify(payload),
       });
       if (res.ok) {
@@ -194,7 +194,7 @@ async function runUiComment(root: string, session: string, id: string | boolean,
   if (lock && (await deskAlive(lock.url))) {
     const res = await fetch(`${lock.url}api/ui-comment`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
       body: JSON.stringify({ annotationId: id, body }),
     }).catch(() => null);
     const json = ((await res?.json().catch(() => null)) ?? {}) as {
@@ -245,7 +245,7 @@ async function runStatus(args: Record<string, string | boolean>) {
     try {
       const res = await fetch(`${lock.url}api/status`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
         body: JSON.stringify({ body }),
       });
       if (res.ok) {
@@ -348,8 +348,11 @@ async function runReload(args: Record<string, string | boolean>) {
   }
   const res = await fetch(`${lock.url}api/reload`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(guide ? { guide } : {}),
+    headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
+    body: JSON.stringify({
+      ...(guide && { guide }),
+      ...(args["refresh-ui"] && { refreshUi: true }),
+    }),
   }).catch(() => null);
   if (!res || !res.ok) {
     // A desk that answered with an error (a new guide that doesn't fit the diff) says why —
@@ -569,7 +572,7 @@ async function runDesk(
     const res = uiSet
       ? await fetch(`${liveLock.url}api/reload`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
           body: JSON.stringify(guide ? { guide } : {}),
         }).catch(() => null)
       : null;
@@ -773,8 +776,9 @@ Usage:
   galley comment --ui <id> --body "..."   Post an agent reply into a UI annotation's thread
   galley status --body "..."        Post an ephemeral "what I'm doing" line into the desk
   galley await [--timeout <s>]      Block for the next desk event (question | review)
-  galley reload [--guide <file>]    Re-diff the working tree into the open desk
+  galley reload [--guide <file>] [--refresh-ui]   Re-diff the working tree into the open desk
                                     (--guide swaps the attached review guide too)
+                                    (--refresh-ui also refreshes the app at its current route/query)
   galley stop [--session <id>|--all]  Stop this repo's live desk(s); idempotent
   galley spec                       Print the full agent contract (modes, loop, ReviewResult, guide schema)
 
@@ -815,6 +819,20 @@ async function main() {
   const rest = sub ? argv.slice(1) : argv;
   const positional = rest[0] && !rest[0].startsWith("--") ? rest[0] : undefined;
   const args = parseArgs(rest);
+  if (argv.some((arg) => arg === "--refresh-ui" || arg.startsWith("--refresh-ui="))) {
+    if (
+      sub !== "reload" ||
+      argv.some((arg) => arg.startsWith("--refresh-ui=")) ||
+      rest.some(
+        (arg, index) =>
+          arg === "--refresh-ui" && rest[index + 1] && !rest[index + 1]!.startsWith("--"),
+      )
+    ) {
+      console.error("--refresh-ui is supported only by reload and takes no value.");
+      process.exitCode = 1;
+      return;
+    }
+  }
   if (sub === "comment") return runComment(args);
   if (sub === "status") return runStatus(args);
   if (sub === "await") return runAwait(args);

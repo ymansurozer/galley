@@ -322,6 +322,8 @@ export type DeskStatus = {
   agentActivity: AgentActivity | null;
   // An await long-poll is parked right now — something is listening for events.
   agentListening: boolean;
+  // Agent event delivery or marked CLI activity within 90s; process-local, reset on restart.
+  agentRecentlyActive: boolean;
   // Events emitted with no waiter parked sit in the queue undelivered; a non-zero
   // count means "asked/sent, but nothing picked it up yet".
   queuedQuestions: number;
@@ -334,6 +336,8 @@ export type DeskStatus = {
   // the agent changed something, even when the diff didn't move (UI-only desks, server-only
   // edits). Process-local: a restarted desk starts again from 0 under a new uiProxy token.
   reloadGeneration: number;
+  // Explicit app-refresh requests from successful flagged reloads; process-local, never saved.
+  uiRefreshGeneration: number;
 };
 
 export type UiProxyInfo = { port: number; token: string };
@@ -571,6 +575,9 @@ export type UiAnnotationRecord = {
   // (uishots.ts), never in the state. Server-owned: set by the upload that completes the pair,
   // carried by id through every reviewer save, and never taken from the tab.
   screenshots?: true;
+  // The reviewer's choice and a known capture failure. Missing is legacy/unknown; requested
+  // alone does not prove a capture is still running after a reload. Stored images take precedence.
+  screenshotCapture?: "omitted" | "requested" | "failed";
 };
 // An annotation as the agent receives it in ReviewResult.uiAnnotations.
 export type UiAnnotation = {
@@ -582,7 +589,7 @@ export type UiAnnotation = {
   page: UiPage;
   target: UiTarget<UiSentElement>;
   // Absolute paths to the PNGs, with the annotation's mark drawn on. `exact` is false: the bridge
-  // re-renders the DOM rather than reading the screen's pixels. Absent when capture failed, or when
+  // re-renders the DOM rather than reading the screen's pixels. Absent when capture was omitted or failed, or when
   // either file is no longer on disk at Send.
   screenshots?: { crop: string; viewport: string; exact: boolean };
   thread: Array<{ role: "user" | "agent"; body: string; at: string }>;
@@ -642,12 +649,12 @@ export type ReviewResult = {
   // agent that missed the live await still owes an answer. Every open question message
   // (intent "question", no later agent reply in its thread), code comments and UI annotation
   // threads alike, same shape as an await question. Answer each via `galley comment`;
-  // answering stays read-only — edits come only from the round's requested changes.
+  // handle with the same lane + intent rule as live questions (`galley spec`).
   openQuestions: QuestionPayload[];
   artifacts: { resultJson: string; sessionDir: string };
 };
 
-// A question the reviewer asked (intent "question") that the agent should answer now: on a line
+// A question the reviewer asked (intent "question") that the agent should handle now: on a line
 // of the diff (lane "code"), or in a UI annotation's thread (lane "ui").
 export type QuestionPayload = CodeQuestion | UiQuestion;
 export type CodeQuestion = {

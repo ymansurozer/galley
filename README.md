@@ -69,7 +69,7 @@ Comment on any line. Questions get answered live, so you never wait. Change requ
 
 <img src="assets/app.png" alt="The app view in Galley: an invoice page with a change request pinned to its Overdue badge and the agent's reply" width="100%" />
 
-Your agent hands over its dev server and the desk gets an **App** tab. Annotate any element, region or text; your agent gets a screenshot of each.
+Your agent hands over its dev server and the desk gets an **App** tab. Annotate any element, region or text; check **Attach screenshot** to include a screenshot with a new annotation.
 
 ### Keyboard-first
 

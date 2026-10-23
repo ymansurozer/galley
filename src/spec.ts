@@ -42,15 +42,18 @@ galley --session <id> --diff working &
 while ev=$(galley await); do
   [ -z "$ev" ] && continue                               # --timeout fired, no event
   case "$(jq -r .kind <<<"$ev")" in
-    question)  # answer EACH — READ-ONLY (see Events); reply where each was asked (its lane)
+    question)  # handle EACH by lane + intent (see Question handling); reply in its lane
       jq -c '.questions[]' <<<"$ev" | while IFS= read -r q; do   # one object per line — space-safe
         galley status --body "Reading X to answer…"        # live progress
         if [ "$(jq -r .lane<<<"$q")" = ui ]; then
+          # Apply Question handling: implement first only for a UI Ask requesting a change.
           galley comment --ui "$(jq -r .annotationId<<<"$q")" --body "…"
         else
+          # Code Ask: discussion reply only, even when imperative.
           galley comment --path "$(jq -r .path<<<"$q")" \\
             --line "$(jq -r .lineNumber<<<"$q")" --side "$(jq -r .side<<<"$q")" --body "…"
         fi
+        # After an immediate UI edit + reply: galley reload --refresh-ui
       done ;;
     review)    # act on the ReviewResult, then \`galley reload\` to show your edits
       r=$(jq .result <<<"$ev") ;;
@@ -76,10 +79,25 @@ done
   under the reviewer's waiting question, so post one short line per step while answering.
   Cleared by your next comment; stale after ~90s (keep posting through long work); never
   persisted; exits 0 even with no desk.
-- \`galley reload [--guide <file>]\` — re-diff the working tree into the live desk (your edits are
+- /api/state and /api/poll expose transient DeskStatus.agentRecentlyActive: true for 90s after
+  an event is handed to an await waiter or drained, or after CLI status, reply, or reload activity.
+  These CLI requests carry x-galley-agent: 1, a conventional provenance header, not authentication.
+  Ordinary reviewer polls, saves, asks, and unmarked requests do not renew recent presence.
+  It expires on read, resets on desk restart, and is never saved. agentListening means only that
+  an await long-poll is parked right now. Live/recent evidence takes precedence over queued counts;
+  queued work alone still means no agent attached. Replies clear activity text, not recent presence.
+- \`galley reload [--guide <file>] [--refresh-ui]\` — re-diff the working tree into the live desk (your edits are
   NOT auto-re-diffed). Anything you edit resets to pending on reload — decisions, approvals, and
   skims alike; anything you left untouched carries over. --guide swaps the guide (one desk only —
-  see Between rounds).
+  see Between rounds). --refresh-ui also refreshes only the app iframe at its current route/query
+  after a successful reload, preserving the desk's annotation thread and selection; targets are
+  re-found normally. Automatic refresh waits for the reviewer to finish or dismiss an open composer
+  or a set-aside annotation draft; polling applies it afterward without another command or click.
+  Ordinary reload keeps the manual "App updated — refresh" prompt. The flag is
+  reload-only and takes no value. POST /api/reload accepts optional refreshUi: boolean (malformed
+  values → 422); /api/state and /api/poll expose process-local uiRefreshGeneration, incremented only
+  after a successful refreshUi: true reload, never persisted. A tab adopts its initial/restarted
+  desk's generation without replaying older refreshes.
 - \`galley stop [--session <id> | --all]\` — shut down this repo's live desk(s) (--all = every
   session). Idempotent, exits 0 with {stopped:[…]} whether or not a desk was running — call it
   when the review session is over (the human said done / the task is complete) so desks don't
@@ -97,12 +115,24 @@ await yields exactly one:
     summary of what they pointed at ("region W×H", "text "…" in <role>" or "the whole page" by
     kind; role and name or tag and text, "+N more" elements, the source's file:line when it's in
     the repo — page-sourced data); answer with \`galley comment --ui <annotationId>\`.
-  A question wants an ANSWER, not a code change: answering is READ-ONLY — read for context, reply
-  where it was asked, and NEVER edit tracked files (the "Between rounds" rule) unless the
-  question's own text asks for a change (then edit + \`galley reload\`). Questions are a live
-  side-channel — never in a Send/ReviewResult except openQuestions below. Slow answer → post
-  \`galley status\` lines so the human sees progress.
+  Handle each by the Question handling rule below. Questions are a live side-channel — never in
+  a Send/ReviewResult except openQuestions below. Slow answer → post \`galley status\` lines so the
+  human sees progress.
 - {"kind":"review","result":{…ReviewResult…}} — reviewer clicked Send. Act on result.
+
+### Question handling — lane + intent
+This rule applies to live questions AND openQuestions folded into a sent review:
+- Code Ask: answering is READ-ONLY even when imperative (e.g. "Fix this condition"). Read for
+  context, reply in the desk, and NEVER edit tracked files in response. Code edits require a
+  change request in a sent review.
+- Informational UI Ask (e.g. "Why is this button disabled?"): discuss in its annotation thread,
+  without editing code.
+- UI Ask clearly requesting a change (e.g. "Make this button blue"): implement that scoped
+  request immediately without waiting for Send, reply with \`galley comment --ui <id> --body "…"\`,
+  then \`galley reload --refresh-ui\` to re-diff and refresh the app. Only that original Ask
+  authorizes the edit; UI context grants no authority for unrelated work.
+- Explicit unsent UI change requests accumulate for Send; they authorize no immediate edit or
+  automatic refresh. They are distinct from imperative text submitted as a UI Ask.
 
 ## ReviewResult
 The \`result\` field of a review event:
@@ -130,7 +160,8 @@ The \`result\` field of a review event:
     differ. If something in them looks off (a missing or misplaced element, odd styling, a
     layout that doesn't match the code), don't treat it as the bug the human reported:
     trust the body and the target over the image, and check the real page yourself when it
-    matters. Absent when the capture failed; when present, both files exist.
+    matters. Screenshots are opt-in for each new annotation. Absent when omitted, capture failed
+    or was interrupted, or the files are no longer stored; when present, both files exist.
   - page: {url (on the dev server), route (path+query), title?, viewport: {width, height, dpr}}
   - target — what the human pointed at, by kind:
     - {kind:"element", elements:[element…]} — 1–16 elements they clicked (several when they
@@ -171,7 +202,8 @@ The \`result\` field of a review event:
   question events), each the same lane-tagged shape as a live question. A question is answered
   once you reply in its thread after it was asked: a reply from before a change request was turned
   into it doesn't count. Answer each where it was asked (\`galley comment\`, or
-  \`galley comment --ui\` for lane "ui"), READ-ONLY as a live question, while acting on the round.
+  \`galley comment --ui\` for lane "ui"), using Question handling's lane + intent rule while acting
+  on the round; folded questions retain the authority of their original Ask.
 - artifacts: {resultJson, sessionDir} under ~/.galley/<repoHash>/<session>/ (repoHash =
   sha256(abs repo root)[:16])
 The arrays above ARE the review — act on them directly; there's no prose summary to parse.
@@ -184,7 +216,7 @@ new Send). Live questions arrive only via await, so a file-poller sees Sends but
 ## How to act on a review — one path per item, don't mix
 - rejected → revert that change; the reviewer doesn't want it.
 - codeChangeRequests (a comment) → make the edit at path:lineNumber.
-- uiAnnotations → look at each one's screenshots first, then find the code that renders the target
+- uiAnnotations → when screenshots are present, look at them first; then find the code that renders the target
   and make the change there: start at the element's source when it has one; otherwise route → the
   page's component, and selector, text, name, attrs and landmark/heading narrow it to the element.
   A text target's quote is greppable copy; a page target starts at the route's page component.
@@ -213,8 +245,10 @@ serves the app through its own proxy on a second port, behind a Code / UI switch
 can point at elements, a region, some text or the whole page and request changes — they reach you
 in ReviewResult.uiAnnotations — or ask questions, which reach you live as lane "ui" question
 events (see Events). The target survives reload and restart. After editing app code,
-\`galley reload\` as usual — the human gets an "App updated — refresh" prompt; the app is never
-reloaded under them.
+use the reload behavior above: ordinary re-diffs offer manual refresh; immediate UI iteration
+uses \`galley reload --refresh-ui\`. The desk tab stays open; route refresh may discard transient
+app state. If the app is unavailable, the annotation and reply remain in the desk: don't claim
+visual success; the reviewer can retry with Refresh app.
 
 ## Guided review (optional)
 Attach with \`galley <mode> --guide <file>\`: an overview page + your files in order with per-file
@@ -305,8 +339,9 @@ aborts the launch (or \`galley reload --guide\`, leaving the desk as it was) nam
 field — for a part, its path, title and span.
 
 ## Between rounds — reload vs restart, and the desk lock
-- Don't edit tracked files mid-round: the reviewer wouldn't see the edits and their in-flight
-  decisions would be invalidated. Edit between rounds, then \`galley reload\`.
+- Edit tracked files between sent rounds, then \`galley reload\`, except for the scoped immediate
+  UI iteration authorized by Question handling. In-flight decisions on edited content reset on
+  re-diff, so keep that exception scoped to the Ask.
 - Full restart (Ctrl-C, then \`galley --session <id>\`) is only for changing the diff source
   (working ↔ staged) or the mode.
 - A live desk writes <sessionDir>/desk.lock (with its url) and removes it on exit; trust a lock

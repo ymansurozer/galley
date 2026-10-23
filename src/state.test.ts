@@ -2748,6 +2748,91 @@ test("mergeReviewerSave keeps the server's screenshot mark by id and never takes
   );
 });
 
+test("capture choices and known failures survive stale saves and a desk restart", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "galley-capture-"));
+  try {
+    const live = state({ root, ui: UI });
+    const records = ["omitted", "requested", "failed", undefined].map((capture, i) => ({
+      ...annotation({ id: `a${i + 1}`, number: i + 1 }),
+      ...(capture && { screenshotCapture: capture }),
+    }));
+    await mergeReviewerSave(live, { annotations: records });
+    assert.deepEqual(
+      live.annotations!.map((a) => a.screenshotCapture),
+      ["omitted", "requested", "failed", undefined],
+    );
+    // Only an outstanding request can become a known failure. Old tabs cannot erase
+    // that outcome, turn an opt-out into a request, or invent history for legacy pins.
+    await mergeReviewerSave(live, {
+      annotations: records.map((a) => ({ ...a, screenshotCapture: "failed" })),
+    });
+    await mergeReviewerSave(live, {
+      annotations: records.map((a) => ({ ...a, screenshotCapture: "requested" })),
+    });
+    await mergeReviewerSave(live, {
+      annotations: records.map(({ screenshotCapture: _capture, ...a }) => a),
+    });
+    assert.deepEqual(
+      live.annotations!.map((a) => a.screenshotCapture),
+      ["omitted", "failed", "failed", undefined],
+    );
+    await persistReview(live);
+    const restarted = await loadLatestReview(root, live.session);
+    assert.deepEqual(restarted!.annotations, live.annotations);
+    const reloaded = await mergeReviewState(
+      state({ root, ui: UI, baseDiffHash: "after-reload" }),
+      restarted!,
+    );
+    assert.deepEqual(
+      reloaded.annotations!.map((a) => a.screenshotCapture),
+      ["omitted", "failed", "failed", undefined],
+    );
+    // Reload does not manufacture an outcome for a capture interrupted mid-flight.
+    await mergeReviewerSave(live, {
+      annotations: [
+        ...live.annotations!,
+        { ...annotation({ id: "a5" }), screenshotCapture: "requested" },
+      ],
+    });
+    await persistReview(live);
+    const interrupted = await loadLatestReview(root, live.session);
+    assert.equal(interrupted!.annotations!.at(-1)!.screenshotCapture, "requested");
+    assert.equal(interrupted!.annotations!.at(-1)!.screenshots, undefined);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("capture metadata is validated and cannot overwrite server-owned screenshot success", async () => {
+  const live = state({
+    ui: UI,
+    annotations: [
+      annotation({ id: "stored", screenshots: true }),
+      annotation({ id: "completed", screenshots: true, screenshotCapture: "requested" }),
+    ],
+  });
+  await mergeReviewerSave(live, {
+    annotations: [
+      { ...annotation({ id: "stored" }), screenshotCapture: "failed", screenshots: false },
+      {
+        ...annotation({ id: "invalid" }),
+        screenshotCapture: { requested: true },
+        screenshots: true,
+      },
+      { ...annotation({ id: "completed" }), screenshotCapture: "failed" },
+    ],
+  });
+  assert.equal(live.annotations![0]!.screenshots, true);
+  assert.equal(live.annotations![0]!.screenshotCapture, undefined);
+  assert.equal(live.annotations![1]!.screenshots, undefined);
+  assert.equal(live.annotations![1]!.screenshotCapture, undefined);
+  assert.equal(
+    live.annotations![2]!.screenshots,
+    true,
+    "a late failure cannot erase a stored pair",
+  );
+});
+
 test("buildReviewResult without a UI lane sends no uiTarget and an empty uiAnnotations", () => {
   const r = buildReviewResult(state({}), { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(r.uiAnnotations, []);

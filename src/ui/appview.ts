@@ -12,6 +12,7 @@ import { dispatchKey } from "./keys";
 import { restoreComposerFocus } from "./composer";
 import {
   annotationsUnvisited,
+  hasUiDraft,
   appModeNow,
   appPageChanged,
   movedInApp,
@@ -74,12 +75,14 @@ let frame: HTMLIFrameElement | null = null;
 // Whether the UI view has shown the page the desk last loaded into the frame. One loaded in the
 // code view (warmed, or a new target) has been seen by no one until the first switch.
 let shown = false;
+let pendingUiRefresh = false;
 
 // Point the iframe at a route (the first load, a new target, or a fallback when no bridge is
 // listening). The bridge on the new page re-handshakes and takes over the route from there.
 function loadApp(route: string) {
   const origin = proxyOrigin();
   if (!origin) return;
+  captures.abandon("The app page changed during the capture");
   if (!frame) {
     frame = document.createElement("iframe");
     frame.title = "App under review";
@@ -191,11 +194,35 @@ export function appForward() {
   if (S.uiProxy && S.app.connected) postToApp({ type: "forward", token: S.uiProxy.token });
 }
 
-// Also how the reviewer takes the "App updated" pill: the app reloads only when they ask.
+// Shared by the manual refresh controls and the agent's explicit UI iteration signal.
 export function appRefresh() {
   S.app.stale = false;
-  if (S.uiProxy && S.app.connected) postToApp({ type: "reload", token: S.uiProxy.token });
-  else loadApp(S.app.route);
+  if (S.uiProxy && S.app.connected) {
+    // The departing document can still send picks and in-page navigation while reload is slow.
+    // Stop offering annotation until the new document's ready, before dispatching navigation.
+    postToApp({ type: "mode", token: S.uiProxy.token, mode: "interact" });
+    S.app.connected = false;
+    S.pendingPicks = 0;
+    captures.abandon("The app page refreshed during the capture");
+    postToApp({ type: "reload", token: S.uiProxy.token });
+  } else loadApp(S.app.route);
+  // A manual refresh also fulfills any agent refresh that was waiting for a draft to close.
+  pendingUiRefresh = false;
+}
+
+// Poll after adopting the target: an agent refresh must not discard desk-authored text, including
+// a pick set aside in the code view. Keep the intent until navigation actually runs.
+export function applyPendingUiRefresh() {
+  if (
+    !pendingUiRefresh ||
+    S.composerOpen ||
+    hasUiDraft() ||
+    captures.isBusy() ||
+    !S.uiProxy ||
+    !S.app.loaded
+  )
+    return;
+  appRefresh();
 }
 
 export function appGo(input: string) {
@@ -226,7 +253,20 @@ export function captureApp(
     return Promise.reject(new Error("No bridge is listening on the app page"));
   const id = ++captureSeq;
   const reply = captures.wait(id);
-  postToApp({ type: "capture", token: S.uiProxy.token, id, ...target });
+  const token = S.uiProxy.token;
+  // Paint the closed composer and new card before rendering the screenshot. Enroll before those
+  // two frames: automatic refresh must protect even that interval.
+  // A manual navigation can cancel the request before dispatch; never send it to the next page.
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      if (!captures.has(id)) return;
+      try {
+        postToApp({ type: "capture", token, id, ...target });
+      } catch (err) {
+        captures.settle(id, err instanceof Error ? err : new Error(String(err)));
+      }
+    }),
+  );
   return reply;
 }
 
@@ -294,20 +334,36 @@ export function fromAppViewport(r: Rect): Rect | null {
 // token means a new desk process: its reload counter starts over, so adopt it as the baseline, and
 // the loaded page's bridge (still carrying the old token) is no longer trusted until the page
 // reloads. Within one process, a generation that went up means `galley reload` ran, which raises the
-// refresh pill on a page the reviewer has seen, so their place on it isn't lost under them. A page
-// the UI view hasn't shown yet has no place to keep: it reloads as it warmed, in the background.
+// refresh pill on a page the reviewer has seen, unless a flagged reload explicitly asks for app
+// refresh. A page the UI view hasn't shown yet has no place to keep: it reloads as it warmed,
+// in the background.
 // Either way, the desk has marked every annotation unvisited, and so does the tab.
-export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): boolean {
+export function adoptUiStatus(
+  proxy: UiProxyInfo | null,
+  generation: number,
+  refreshGeneration: number,
+): boolean {
   const prev = S.uiProxy;
   const reloaded = reloadRan(
     { token: prev?.token, generation: S.reloadGeneration },
     { token: proxy?.token, generation },
   );
+  // First adoption and a new desk process establish a baseline, never replay old requests.
+  const refresh =
+    reloaded && S.uiRefreshGeneration !== null && refreshGeneration > S.uiRefreshGeneration;
+  if (
+    prev?.token !== proxy?.token ||
+    generation < S.reloadGeneration ||
+    refreshGeneration < (S.uiRefreshGeneration ?? 0)
+  )
+    pendingUiRefresh = false;
+  if (refresh) pendingUiRefresh = true;
   S.uiProxy = proxy;
   S.reloadGeneration = generation;
+  S.uiRefreshGeneration = refreshGeneration;
   if (reloaded) {
     if (S.app.loaded && shown) S.app.stale = true;
-    else if (S.app.loaded) {
+    else if (S.app.loaded && !pendingUiRefresh) {
       S.app.loaded = false;
       warmApp();
     }
@@ -336,6 +392,7 @@ export function adoptUiStatus(proxy: UiProxyInfo | null, generation: number): bo
 export function adoptUiTarget(ui: ReviewState["ui"]) {
   const before = S.state.ui?.target;
   if (ui?.target === before) return;
+  pendingUiRefresh = false;
   S.state.ui = ui;
   syncView();
   if (!ui) {
@@ -373,6 +430,9 @@ export function installAppView() {
       captures.settle(msg.id, "shot" in msg ? msg.shot : new Error(msg.error));
       return;
     }
+    // Only a new document's handshake restores trust after refresh, leave, or target change.
+    // An old document's queued nav or pick must not re-enable a composer that ready would erase.
+    if (!S.app.connected && msg.type !== "ready") return;
     // Picks and keys count only in the mode the desk put the app in, whatever the page claims.
     if (msg.type === "picked") {
       if (appModeNow() === "annotate") pickedInApp(msg.page, msg.target);
@@ -390,6 +450,7 @@ export function installAppView() {
       return;
     }
     const moved = msg.route !== S.app.route;
+    if (msg.type === "ready") captures.abandon("The app page changed during the capture");
     Object.assign(S.app, {
       connected: true,
       route: msg.route,

@@ -265,6 +265,7 @@ export interface Store {
   // answer says so instead of "Thinking…" until a Send carries them. Tab memory only.
   undeliveredAsks: Set<string>;
   agentListening: boolean;
+  agentRecentlyActive: boolean;
   queuedQuestions: number;
   queuedReviews: number;
   // Derived by one effect in main.ts: the agent's presence, whether every in-flow file's sign-off
@@ -343,6 +344,7 @@ export interface Store {
   // agent fields above. reloadGeneration is the last one the tab adopted (see adoptUiStatus).
   uiProxy: UiProxyInfo | null;
   reloadGeneration: number;
+  uiRefreshGeneration: number | null;
   // The app in the UI view, as the iframe was last pointed or the bridge last reported.
   app: AppFrame;
   viewport: Viewport;
@@ -449,7 +451,12 @@ export interface Store {
 // A picked target awaiting its first message: the page and target the annotation will record,
 // and where the target sits now in the app's viewport (the floating composer stays beside it).
 // A page target has no anchor: the composer sits at the stage's top right.
-export type AnnotationDraft = { page: UiPage; target: UiTarget; anchor: Rect | null };
+export type AnnotationDraft = {
+  page: UiPage;
+  target: UiTarget;
+  anchor: Rect | null;
+  attachScreenshot: boolean;
+};
 
 export type Viewport = "desktop" | "tablet" | "mobile" | "fit";
 
@@ -459,7 +466,8 @@ export type AppFrame = {
   route: string;
   title: string;
   // A bridge has handshaken on the current page. Off on the waiting page, non-HTML pages, and pages
-  // carrying a previous desk process's token; the controls then fall back to resetting the src.
+  // carrying a previous desk process's token, and from refresh dispatch until ready returns;
+  // the controls then fall back to resetting the src.
   connected: boolean;
   canGoBack: boolean | null;
   canGoForward: boolean | null;
