@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.8.2
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.8.1...v0.8.2)
+
+### 🚀 Enhancements
+
+- Streamline review iteration ([#132](https://github.com/ymansurozer/galley/pull/132))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.8.1
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.8.0...v0.8.1)
