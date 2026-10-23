@@ -21,6 +21,7 @@ import {
   pageMarks,
   placeComposer,
   sendSummary,
+  selectionAfterStatusChange,
   sourcePlace,
   stepFrom,
   stepOrder,
@@ -444,6 +445,7 @@ function threadControls(a: UiAnnotationRecord): ThreadControls {
     setStatus: (status) => {
       if (S.composerAnnotation === a.id) closeComposer();
       a.status = status;
+      S.selectedAnnotation = selectionAfterStatusChange(S.selectedAnnotation, a.id, status);
       renderUiLane();
       persist();
     },

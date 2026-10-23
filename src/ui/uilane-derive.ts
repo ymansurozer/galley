@@ -251,6 +251,12 @@ export function stepFrom(order: readonly string[], current: string | null, dir: 
   return order[(((from + dir) % n) + n) % n]!;
 }
 
+export const selectionAfterStatusChange = (
+  selected: string | null,
+  changed: string,
+  status: "open" | "resolved",
+) => (status === "resolved" && selected === changed ? null : selected);
+
 // The classes an element had, read off the start of its outline (`<button class="btn primary" …>`).
 // The outline caps each attribute's value, so a class list cut short loses its last, partial class.
 export function outlineClasses(outline: string | undefined): string[] {
