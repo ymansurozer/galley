@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ChangeState, DiffHunk, GuideFile } from "../types.js";
 import type { FileReviewState } from "./types.js";
-import { lineStats, walkthroughGroups, walkRows } from "./walkthrough.js";
+import { lineStats, lineTotals, walkthroughGroups, walkRows } from "./walkthrough.js";
 
 // Hand-built fixtures (only the fields the helpers read are meaningful). A hunk is spelled
 // as a kind string — "aadc" = add, add, delete, context.
@@ -47,6 +47,26 @@ test("lineStats reads the builder's +/− stamps for a hunk-less file (full-file
   ]);
   assert.deepEqual(stats.get("new.ts"), { added: 3, removed: 0 });
   assert.deepEqual(stats.get("empty.ts"), { added: 0, removed: 0 });
+});
+
+test("lineTotals combines the full diff's counts, including hunkless files and metadata", () => {
+  assert.deepEqual(
+    lineTotals([
+      file("modified.ts", "aacd", "ad"),
+      { path: "new.ts", hunks: [], added: 7, removed: 0 },
+      file("deleted.ts", "dddd"),
+      { ...file("stamped.ts", "a"), added: 5, removed: 2 },
+      { path: "image.png", hunks: [], added: 0, removed: 0 },
+      { path: "renamed.ts", oldPath: "old.ts", newPath: "renamed.ts", hunks: [] },
+    ]),
+    { added: 15, removed: 8 },
+  );
+});
+
+test("lineTotals starts from zero for an empty or replaced diff", () => {
+  assert.deepEqual(lineTotals([file("before.ts", "aaad")]), { added: 3, removed: 1 });
+  assert.deepEqual(lineTotals([file("after.ts", "add")]), { added: 1, removed: 2 });
+  assert.deepEqual(lineTotals([]), { added: 0, removed: 0 });
 });
 
 test("walkthroughGroups starts a new section each time the category changes (run-length)", () => {

@@ -27,6 +27,14 @@
   font-size: var(--text-sm);
 }
 
+.guide-overview .go-sub .add {
+  color: var(--green-ink);
+}
+
+.guide-overview .go-sub .del {
+  color: var(--red-ink);
+}
+
 /* Focused review: a quiet pill telling the reviewer churn was deliberately skimmed. */
 .guide-overview .go-focused {
   display: inline-flex;
