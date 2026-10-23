@@ -12,7 +12,7 @@ import type { DeskStatus, PollPayload, ReviewState } from "./types";
 // Pull the transient DeskStatus fields off a server payload into the store and
 // return the rest. They must never enter S.state: persist() posts S.state back
 // to /api/save, and the persisted review must not carry desk liveness.
-export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
+function splitDeskStatus<T>(payload: T & Partial<DeskStatus>) {
   const {
     agentActivity,
     agentListening,
@@ -24,6 +24,35 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
     uiRefreshGeneration,
     ...server
   } = payload;
+  return {
+    server: server as T,
+    status: {
+      agentActivity,
+      agentListening,
+      agentRecentlyActive,
+      queuedQuestions,
+      queuedReviews,
+      uiProxy,
+      reloadGeneration,
+      uiRefreshGeneration,
+    },
+  };
+}
+
+export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
+  const {
+    server,
+    status: {
+      agentActivity,
+      agentListening,
+      agentRecentlyActive,
+      queuedQuestions,
+      queuedReviews,
+      uiProxy,
+      reloadGeneration,
+      uiRefreshGeneration,
+    },
+  } = splitDeskStatus(payload);
   S.agentActivity = agentActivity?.body ?? null;
   S.agentTrail = recordActivity(S.agentTrail, agentActivity ?? null, new Date().toISOString());
   S.agentListening = agentListening ?? false;
@@ -34,8 +63,24 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
   // has none), so Send is open again.
   if (adoptUiStatus(uiProxy ?? null, reloadGeneration ?? 0, uiRefreshGeneration ?? 0))
     S.awaitingAgent = false;
-  return server as T;
+  return server;
 }
+
+// Only changes that can invalidate full-state work belong here. Presence, names and replies
+// keep arriving on lite polls while a large snapshot transfers; they must not starve adoption.
+function stateRevision(payload: PollPayload & Partial<DeskStatus>): string {
+  return JSON.stringify([
+    payload.uiProxy ?? null,
+    payload.ui ?? null,
+    payload.reloadGeneration ?? 0,
+    payload.uiRefreshGeneration ?? 0,
+    payload.baseDiffHash,
+    payload.guide ?? null,
+  ]);
+}
+
+let latestPoll: { revision: string; lite: PollPayload } | undefined;
+let fullStateRequest: { revision: string } | undefined;
 
 // The 1.5s tick hits /api/poll — a slice of hash + guide + comments + names + liveness. The
 // full ReviewState (file contents for the whole diff; >100 MB on a big monorepo PR)
@@ -45,8 +90,8 @@ let pollSequence = 0;
 let adoptedPoll = 0;
 export async function pollState() {
   const sequence = ++pollSequence;
-  // Polls overlap on slow connections. Once a newer poll has answered, every remaining
-  // response from an older poll (including its full-state fetch) belongs to a superseded view.
+  // Transient status follows response sequence. Full-state work follows content revision:
+  // another lite tick for the same revision neither cancels it nor starts a duplicate fetch.
   const superseded = () => sequence < adoptedPoll;
   let lite: PollPayload | undefined;
   try {
@@ -55,6 +100,9 @@ export async function pollState() {
       if (superseded()) return;
       adoptedPoll = sequence;
       lite = adoptDeskStatus(payload);
+      const revision = stateRevision(payload);
+      if (revision !== latestPoll?.revision) fullStateRequest = undefined;
+      latestPoll = { revision, lite };
       // Activity/presence changes alone don't warrant a render — patch the
       // waiting indicators in place every tick.
       updateAwaitingDom();
@@ -66,7 +114,10 @@ export async function pollState() {
   // `galley ui <url>` on the live desk: no diff change, so it rides the lite poll.
   adoptUiTarget(lite.ui);
   applyPendingUiRefresh();
-  if (lite.baseDiffHash !== S.lastBaseDiffHash) {
+  const diffChanged = lite.baseDiffHash !== S.lastBaseDiffHash;
+  const guideChanged = JSON.stringify(lite.guide ?? null) !== JSON.stringify(S.state.guide ?? null);
+  let server: ReviewState | undefined;
+  if (diffChanged || guideChanged) {
     // The reload branch replaces S.state wholesale and re-renders, which would clobber local
     // decisions/comments not yet persisted and rebuild the diff DOM out from under an open
     // composer (losing in-progress typing). Defer while a save is busy OR a composer is open —
@@ -75,17 +126,40 @@ export async function pollState() {
     // already existed (fire-and-forget persist could lose the same way). Scoping the composer
     // guard here (not at the top) keeps liveness/presence and the additive agent-reply comment
     // merge running every tick while a reply box is open, so the desk never looks dead.
-    if (saver.isBusy() || S.composerOpen) return;
-    // The diff moved — now (and only now) pull the full state.
-    let server: ReviewState | undefined;
+    if (diffChanged && (saver.isBusy() || S.composerOpen)) return;
+    if (fullStateRequest?.revision === latestPoll!.revision) return;
+    const request = { revision: latestPoll!.revision };
+    const state = S.state;
+    fullStateRequest = request;
     try {
       const payload = await api<ReviewState & DeskStatus>("/api/state");
-      if (superseded()) return;
-      server = adoptDeskStatus(payload);
+      if (
+        fullStateRequest !== request ||
+        latestPoll!.revision !== request.revision ||
+        stateRevision(payload) !== request.revision ||
+        S.state !== state
+      )
+        return;
+      // Lite polls own transient status. A matching full snapshot can carry older liveness
+      // and replies, so strip its status and finish against the latest matching lite poll.
+      server = splitDeskStatus(payload).server;
+      lite = latestPoll!.lite;
     } catch {
       return;
+    } finally {
+      if (fullStateRequest === request) fullStateRequest = undefined;
     }
+  }
+  if (diffChanged) {
     if (!server || !Array.isArray(server.comments)) return;
+    if (saver.isBusy() || S.composerOpen) return;
+    // Newer matching lite polls can bring names and agent replies during the transfer.
+    // Carry them into the adopted snapshot without taking its older transient status.
+    server.project = lite.project;
+    server.branch = lite.branch;
+    const ids = new Set(server.comments.map((c) => c.id));
+    server.comments.push(...lite.comments.filter((c) => !ids.has(c.id)));
+    mergeAgentReplies(server.annotations ?? [], lite.annotations ?? []);
     S.lastBaseDiffHash = server.baseDiffHash;
     // Keep the reviewer on the same file across a reload. File order/membership can change (the
     // agent added, removed, or reordered files), so re-find the current path in the new list
@@ -118,18 +192,10 @@ export async function pollState() {
   }
   // A reload can swap the guide without changing the diff (agent regenerated it) —
   // adopt it even when baseDiffHash is unchanged. Guides are small; the compare is cheap.
-  if (JSON.stringify(lite.guide ?? null) !== JSON.stringify(S.state.guide ?? null)) {
+  if (guideChanged) {
     // The new guide restamped which blocks its parts and skims claim, server-side; those stamps
     // ride the changes, so take them off the full state (fetched only on a swap — the diff is the
     // same). A diff that moved meanwhile waits for the next tick's full adoption above.
-    let server: ReviewState | undefined;
-    try {
-      const payload = await api<ReviewState & DeskStatus>("/api/state");
-      if (superseded()) return;
-      server = adoptDeskStatus(payload);
-    } catch {
-      return;
-    }
     if (!server?.changes || server.baseDiffHash !== S.lastBaseDiffHash) return;
     const title = currentPartTitle();
     const stamped = new Map(server.changes.map((c) => [c.id, c]));
