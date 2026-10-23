@@ -16,6 +16,7 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
   const {
     agentActivity,
     agentListening,
+    agentRecentlyActive,
     queuedQuestions,
     queuedReviews,
     uiProxy,
@@ -26,6 +27,7 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
   S.agentActivity = agentActivity?.body ?? null;
   S.agentTrail = recordActivity(S.agentTrail, agentActivity ?? null, new Date().toISOString());
   S.agentListening = agentListening ?? false;
+  S.agentRecentlyActive = agentRecentlyActive ?? false;
   S.queuedQuestions = queuedQuestions ?? 0;
   S.queuedReviews = queuedReviews ?? 0;
   // `galley reload` is the agent back from a Send, even when the diff didn't move (a UI-only desk

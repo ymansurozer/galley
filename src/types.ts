@@ -322,6 +322,8 @@ export type DeskStatus = {
   agentActivity: AgentActivity | null;
   // An await long-poll is parked right now — something is listening for events.
   agentListening: boolean;
+  // Agent event delivery or marked CLI activity within 90s; process-local, reset on restart.
+  agentRecentlyActive: boolean;
   // Events emitted with no waiter parked sit in the queue undelivered; a non-zero
   // count means "asked/sent, but nothing picked it up yet".
   queuedQuestions: number;

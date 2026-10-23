@@ -79,6 +79,13 @@ done
   under the reviewer's waiting question, so post one short line per step while answering.
   Cleared by your next comment; stale after ~90s (keep posting through long work); never
   persisted; exits 0 even with no desk.
+- /api/state and /api/poll expose transient DeskStatus.agentRecentlyActive: true for 90s after
+  an event is handed to an await waiter or drained, or after CLI status, reply, or reload activity.
+  These CLI requests carry x-galley-agent: 1, a conventional provenance header, not authentication.
+  Ordinary reviewer polls, saves, asks, and unmarked requests do not renew recent presence.
+  It expires on read, resets on desk restart, and is never saved. agentListening means only that
+  an await long-poll is parked right now. Live/recent evidence takes precedence over queued counts;
+  queued work alone still means no agent attached. Replies clear activity text, not recent presence.
 - \`galley reload [--guide <file>] [--refresh-ui]\` — re-diff the working tree into the live desk (your edits are
   NOT auto-re-diffed). Anything you edit resets to pending on reload — decisions, approvals, and
   skims alike; anything you left untouched carries over. --guide swaps the guide (one desk only —

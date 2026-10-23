@@ -158,7 +158,7 @@ async function runComment(args: Record<string, string | boolean>) {
     try {
       const res = await fetch(`${lock.url}api/comment`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
         body: JSON.stringify(payload),
       });
       if (res.ok) {
@@ -194,7 +194,7 @@ async function runUiComment(root: string, session: string, id: string | boolean,
   if (lock && (await deskAlive(lock.url))) {
     const res = await fetch(`${lock.url}api/ui-comment`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
       body: JSON.stringify({ annotationId: id, body }),
     }).catch(() => null);
     const json = ((await res?.json().catch(() => null)) ?? {}) as {
@@ -245,7 +245,7 @@ async function runStatus(args: Record<string, string | boolean>) {
     try {
       const res = await fetch(`${lock.url}api/status`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
         body: JSON.stringify({ body }),
       });
       if (res.ok) {
@@ -348,7 +348,7 @@ async function runReload(args: Record<string, string | boolean>) {
   }
   const res = await fetch(`${lock.url}api/reload`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
     body: JSON.stringify({
       ...(guide && { guide }),
       ...(args["refresh-ui"] && { refreshUi: true }),
@@ -572,7 +572,7 @@ async function runDesk(
     const res = uiSet
       ? await fetch(`${liveLock.url}api/reload`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
           body: JSON.stringify(guide ? { guide } : {}),
         }).catch(() => null)
       : null;

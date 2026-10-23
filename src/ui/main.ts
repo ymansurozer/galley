@@ -404,6 +404,8 @@ Alpine.effect(() => {
     awaitingAgent: S.awaitingAgent,
     queuedReviews: S.queuedReviews,
     queuedQuestions: S.queuedQuestions,
+    agentListening: S.agentListening,
+    agentRecentlyActive: S.agentRecentlyActive,
     activity: S.agentActivity,
     unansweredAsks: unansweredAsks(S.state?.comments ?? [], S.state?.annotations ?? []),
   });

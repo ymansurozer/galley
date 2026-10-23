@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deskAlive } from "./cli.js";
+import { startServer } from "./server.js";
 import { deskLockPath, loadLatestReview, persistReview, reviewDir, stableUiPort } from "./state.js";
 import type { ReviewState } from "./types.js";
 
@@ -623,6 +624,43 @@ async function savedQuestion(repo: string, home: string) {
     process.env.HOME = oldHome;
   }
 }
+
+test("CLI status, replies in both lanes, and reload renew bounded recent presence", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-23T12:00:00Z") });
+  const { repo, home, cleanup } = await tempRepo(false);
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  let desk: Awaited<ReturnType<typeof startServer>> | undefined;
+  try {
+    const { lock } = await savedQuestion(repo, home);
+    const review = await loadLatestReview(repo, "s");
+    desk = await startServer({ state: review!, statusTtlMs: 1000, idleTimeoutMs: 0 });
+    await writeFile(lock, JSON.stringify({ pid: process.pid, url: desk.url, session: "s" }));
+    const recent = async () =>
+      (
+        (await fetch(`${desk!.url}api/poll`).then((r) => r.json())) as {
+          agentRecentlyActive: boolean;
+        }
+      ).agentRecentlyActive;
+    assert.equal(await recent(), false);
+    for (const command of [
+      ["status", "--body", "Reading"],
+      ["comment", "--path", "a.txt", "--line", "1", "--body", "Code answer"],
+      ["comment", "--ui", "q1", "--body", "App answer"],
+      ["reload"],
+    ]) {
+      const result = await runCliAsync([...command, "--repo", repo, "--session", "s"], home);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(await recent(), true, command.join(" "));
+      t.mock.timers.tick(1000);
+      assert.equal(await recent(), false, "the server's existing TTL seam bounds presence");
+    }
+  } finally {
+    desk?.server.close();
+    process.env.HOME = oldHome;
+    await cleanup();
+  }
+});
 
 test("comment --ui fails, writing nothing, when the live desk takes the request but doesn't answer it", async () => {
   const { repo, home, cleanup } = await tempRepo(false);

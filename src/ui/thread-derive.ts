@@ -75,7 +75,7 @@ export function trailSteps(
 // What stands in for the agent's answer under a waiting question: the top bar's presence rule
 // (topbar-derive) read from the same signals, this question counted as unanswered, so the two
 // never disagree. Amber with the top bar's words when nothing picked the review or the question
-// up; else "Thinking…" over the steps the agent posted since it was asked. Desk-global by design:
+// up; else wait neutrally, or show "Thinking…" over live activity steps. Desk-global by design:
 // one desk, one agent, so two waiting questions share the steps after the later ask. A question
 // whose ask never reached the desk (`undelivered`) has no agent on it whatever the presence says:
 // it says so, amber, and goes with the next Send.
@@ -94,7 +94,11 @@ export function pendingAnswer(
   const presence = agentPresence({ ...s, unansweredAsks: 1 });
   return presence.kind === "notAttached"
     ? { queued: true, label: presence.line, steps: [] as TrailStep[] }
-    : { queued: false, label: "Thinking…", steps: trailSteps(trail, askTime, s.activity) };
+    : {
+        queued: false,
+        label: s.activity ? "Thinking…" : "Waiting for agent…",
+        steps: trailSteps(trail, askTime, s.activity),
+      };
 }
 
 // "Held for Send" chips a change request's header until the review is sent. While the agent has
