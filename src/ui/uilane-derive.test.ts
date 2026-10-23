@@ -19,6 +19,7 @@ import {
   requestsChange,
   sendSummary,
   sourcePlace,
+  selectionAfterStatusChange,
   stepFrom,
   stepOrder,
   targetLabel,
@@ -96,6 +97,13 @@ test("⇧↓/⇧↑ step through every annotation by number, across pages and re
   assert.equal(stepFrom(order, "d", 1), "a");
   assert.equal(stepFrom(order, "a", -1), "d");
   assert.equal(stepFrom([], null, 1), null);
+});
+
+test("resolving closes only the selected annotation, while reopening preserves selection", () => {
+  assert.equal(selectionAfterStatusChange("selected", "selected", "resolved"), null);
+  assert.equal(selectionAfterStatusChange("selected", "other", "resolved"), "selected");
+  assert.equal(selectionAfterStatusChange("selected", "selected", "open"), "selected");
+  assert.equal(selectionAfterStatusChange(null, "selected", "resolved"), null);
 });
 
 test("the page gets pins for all its annotations, the resolved ones dimmed", () => {
