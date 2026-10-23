@@ -1119,6 +1119,12 @@ export async function mergeReviewerSave(
       // Whether an annotation's screenshots are stored is the server's to say (the upload that
       // completes the pair sets it), so it carries over by id, whatever the tab sent.
       if (prev.screenshots) a.screenshots = true;
+      // Intent belongs to creation; only a requested capture can record a later failure.
+      // A stale tab cannot erase that failure or invent capture history for a legacy annotation.
+      if (prev.screenshotCapture !== "requested" || a.screenshotCapture !== "failed") {
+        if (prev.screenshotCapture) a.screenshotCapture = prev.screenshotCapture;
+        else delete a.screenshotCapture;
+      }
       // A save from before the latest reload carries placements that reload reset.
       if (beforeReload) a.placement = prev.placement;
       // An agent reply (`galley comment --ui`) lands here between the tab's polls, so a save from a

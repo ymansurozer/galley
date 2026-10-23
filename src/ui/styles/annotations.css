@@ -120,6 +120,29 @@ button.ann-shot:hover {
   max-width: none;
 }
 
+.uc-capture {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin-top: 8px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.uc-capture input {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0;
+  margin: 0;
+}
+
+.uc-capture input:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
 .uc-head {
   display: flex;
   align-items: center;
