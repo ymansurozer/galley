@@ -40,6 +40,16 @@ export function lineStats(files: FileLike[]): Map<string, LineStat> {
   return m;
 }
 
+// Diff totals count each file once, independent of guide parts, skims, and review progress.
+export function lineTotals(files: FileLike[]): LineStat {
+  const total = { added: 0, removed: 0 };
+  for (const stat of lineStats(files).values()) {
+    total.added += stat.added;
+    total.removed += stat.removed;
+  }
+  return total;
+}
+
 // One change block's +added/−removed, read off its stableKey. The key is
 // `side:line:deletions:additions` — built the same way server-side (git.ts
 // changeStableKeyFromBlock) and in the tab (decisions-derive.ts changeStableKey) — so a part's
