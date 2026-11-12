@@ -1,5 +1,5 @@
 import Alpine from "alpinejs";
-import type { DiffHolder, SaveStamp, Store } from "./types";
+import type { DiffHolder, SaveAnswer, SaveStamp, Store } from "./types";
 import { loadSettings } from "./settings";
 import { createSaver, reviewerSlice } from "./save";
 
@@ -49,6 +49,9 @@ export const S: Store = Alpine.reactive<Store>({
   sendNotSent: "",
   sendNote: "",
   sendFinishing: false,
+  sending: false,
+  sendFailed: false,
+  reach: null,
   overviewOpen: false,
   sidebarTab: "tree",
   requestsOpen: false,
@@ -110,16 +113,23 @@ export function hide(e: Element) {
 }
 let toastTimer: ReturnType<typeof setTimeout>;
 let toastRun: (() => void) | null = null;
-// An action toast ("Reset review · Undo") stays up long enough to reach its button. The next toast
-// replaces it, action and all, so an action never outlives the moment it answers. A toast that
-// names a shortcut passes it as keys, drawn as keycaps after the text.
-export function toast(t: string, action?: { label: string; run: () => void }, keys = "") {
+// An action toast ("Reset review · Undo") stays up long enough to reach its button, as does a
+// message too long to read in the default time (`ms`). The next toast replaces it, action and all,
+// so an action never outlives the moment it answers. A toast that names a shortcut passes it as
+// keys, drawn as keycaps after the text.
+const LONG_TOAST_MS = 6000;
+export function toast(
+  t: string,
+  action?: { label: string; run: () => void },
+  keys = "",
+  ms = action ? LONG_TOAST_MS : 2800,
+) {
   S.toastMsg = t;
   S.toastKeys = keys;
   S.toastAction = action?.label ?? "";
   toastRun = action?.run ?? null;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(clearToast, action ? 6000 : 2800);
+  toastTimer = setTimeout(clearToast, ms);
 }
 function clearToast() {
   S.toastMsg = S.toastAction = S.toastKeys = "";
@@ -155,11 +165,70 @@ export const saveStamp = (): SaveStamp => ({
   reloadGeneration: S.reloadGeneration,
   baseDiffHash: S.state.baseDiffHash,
 });
+// The last time the desk answered this tab at all (a poll, a save, an error answer included): what
+// tells an unreachable desk from one that answers but can't save (reach-derive.ts).
+let lastAnswerAt = Date.now();
+export const noteAnswer = () => {
+  lastAnswerAt = Date.now();
+};
+export const lastAnswer = () => lastAnswerAt;
+// The desk kept its own verdicts over a save or Send made on a diff it can no longer place them on
+// (types.ts, SaveAnswer). The tab takes the desk's review on the next poll, as it would anyway; the
+// notice says so, and that adoption leaves it up rather than replacing it with "Diff updated".
+const UNPLACED_MS = 10_000;
+let unplacedUntil = 0;
+export const unplacedShowing = () => Date.now() < unplacedUntil;
+export function noteUnplaced(answer: Partial<SaveAnswer> | null) {
+  if (!answer?.unplaced) return;
+  unplacedUntil = Date.now() + UNPLACED_MS;
+  toast(
+    "Decisions and sign-offs made on an older diff couldn't be carried over. Comments were saved; the desk's review is shown.",
+    undefined,
+    "",
+    UNPLACED_MS,
+  );
+}
+// Post the reviewer's work (a save or a Send) to the desk: its answer, or null when none came.
+// A request can hang with no error (a network gone under a sleeping laptop) until the browser
+// gives it up, minutes later; the saver would sit in flight and send nothing again meanwhile. So
+// an attempt that hasn't answered within ATTEMPT_MS is given up as unanswered. A late duplicate of
+// a save is harmless: each carries the whole reviewer slice, and the last wins.
+const ATTEMPT_MS = 25_000;
+export async function postToDesk(
+  path: "/api/save" | "/api/send",
+  payload: unknown,
+): Promise<{ ok: boolean; answer: Partial<SaveAnswer> | null } | null> {
+  const abort = new AbortController();
+  const limit = setTimeout(() => abort.abort(), ATTEMPT_MS);
+  try {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: abort.signal,
+    });
+    noteAnswer();
+    const answer = (await res.json().catch(() => null)) as Partial<SaveAnswer> | null;
+    return { ok: res.ok, answer };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(limit);
+  }
+}
+// A save has landed only on a 2xx answer whose body says ok; anything else, no answer included,
+// leaves it unsaved and the saver retries (save.ts).
+async function postSave(payload: unknown): Promise<boolean> {
+  const reply = await postToDesk("/api/save", payload);
+  if (!reply?.ok || reply.answer?.ok !== true) return false;
+  noteUnplaced(reply.answer);
+  return true;
+}
 // Post only the reviewer-owned slice (see reviewerSlice in save.ts) — never the whole
 // (multi-MB) ReviewState. Saves coalesce so rapid approvals don't saturate connections.
 export const saver = createSaver(
   () => ({ ...reviewerSlice(S.state), seen: saveStamp() }),
-  (payload) => api("/api/save", { method: "POST", body: JSON.stringify(payload) }),
+  postSave,
 );
 // Instant auto-save: there is no manual Save button, so every state mutation
 // (decision, comment, stage/unstage, approval) MUST call persist() to write the

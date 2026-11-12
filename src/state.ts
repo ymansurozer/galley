@@ -1048,13 +1048,16 @@ async function mergeStaleComments(desk: ReviewComment[], sent: ReviewComment[], 
 // `desk`: the live desk's own stamp (types.ts, SaveStamp), to tell a save the tab made before the
 // latest `galley reload` or restart. Without one, every save counts as current. `priorDiff`: the
 // diff the desk held before that reload or restart, the one a tab that hasn't caught up is on.
+// Answers `unplaced` when the save's verdicts could not be placed and differ from the desk's own,
+// which it kept: the reviewer made them and they were not carried over (types.ts, SaveAnswer).
 export async function mergeReviewerSave(
   state: ReviewState,
   body: unknown,
   desk?: SaveStamp,
   priorDiff?: Pick<ReviewState, "baseDiffHash" | "changes" | "files" | "stagedChangeKeys">,
-) {
-  if (!body || typeof body !== "object") return;
+): Promise<{ unplaced: boolean }> {
+  let unplaced = false;
+  if (!body || typeof body !== "object") return { unplaced };
   const incoming = body as Record<string, unknown>;
   const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
   const stale = typeof seen?.baseDiffHash === "string" && seen.baseDiffHash !== state.baseDiffHash;
@@ -1099,7 +1102,12 @@ export async function mergeReviewerSave(
           prior,
         );
       signOffCoveredFiles(state);
-    } else Object.assign(state, deskVerdicts);
+    } else {
+      unplaced = Object.entries(deskVerdicts).some(
+        ([key, own]) => key in incoming && canonical(incoming[key]) !== canonical(own),
+      );
+      Object.assign(state, deskVerdicts);
+    }
   }
   // An agent reply (`galley comment`) lands between the tab's polls, so a save from a tab that
   // hasn't seen it yet lacks it. The tab can't delete an agent message, so every one the save
@@ -1144,6 +1152,16 @@ export async function mergeReviewerSave(
     ...(state.annotations ?? []).map((a) => a.number),
   );
   if (last) state.lastAnnotationNumber = last;
+  return { unplaced };
+}
+
+// JSON with object keys sorted, so the same records compare equal whatever order a tab wrote them.
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
 }
 
 // Write via a same-directory temp file + rename so a desk killed mid-write never leaves a truncated

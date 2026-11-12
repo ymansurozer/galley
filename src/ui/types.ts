@@ -20,6 +20,7 @@ import type {
   Rect,
   ReviewFile,
   ReviewerSave,
+  SaveAnswer,
   SaveStamp,
   ThreadMessage,
   UiAnnotationRecord,
@@ -38,6 +39,7 @@ import type { Step } from "./steps";
 import type { WalkRow } from "./walkthrough";
 import type { Presence } from "./topbar-derive";
 import type { TrailEntry } from "./thread-derive";
+import type { Reach } from "./reach-derive";
 import type { DeskPin } from "./uilane-derive";
 import type { OpenRequest, RequestRow } from "./requests-derive";
 
@@ -304,6 +306,13 @@ export interface Store {
   sendNote: string;
   // Send was confirmed and waits on new annotations' screenshots (capped): the dialog says so.
   sendFinishing: boolean;
+  // Send was confirmed and its request is out; the dialog closes once the desk took it.
+  sending: boolean;
+  // The last confirmed Send did not reach the desk, or the desk answered with an error: the dialog
+  // stays open with the note and says the review was not sent.
+  sendFailed: boolean;
+  // The banner under the top bar while the desk can't take the tab's changes (reach.ts).
+  reach: Reach;
   // Guided review: when true (and a guide is attached) the center shows the Overview page
   // instead of the diff. Selecting any file (tree or Start) drops back to the diff.
   overviewOpen: boolean;
@@ -410,7 +419,7 @@ export interface Store {
   ask?: () => void;
   requestChange?: () => void;
   reset?: () => Promise<void>;
-  send?: (overallNote?: string) => Promise<void>;
+  send?: (overallNote?: string) => Promise<boolean>;
   // Keyboard navigation (keys.ts): file stepping in either mode, confirm-dialog answers, and the
   // grouped binding list the help overlay renders.
   nextFile?: () => void;
@@ -427,6 +436,9 @@ export interface Store {
   confirmSend?: () => void;
   sendConfirm?: () => Promise<void>;
   sendCancel?: () => void;
+  // The banner's words, and the command that starts this desk again (reach-derive.ts).
+  reachMessage?: () => { title: string; detail: string };
+  restartCommand?: () => string;
   helpGroups?: () => { group: string; items: { combo: string; desc: string }[] }[];
   // The UI lane (appview.ts): the Code/UI switch, and the chrome bar's controls over the iframe.
   hasUi?: () => boolean;
@@ -496,6 +508,7 @@ export type {
   PollPayload,
   Rect,
   ReviewerSave,
+  SaveAnswer,
   SaveStamp,
   ThreadMessage,
   UiAnnotationRecord,

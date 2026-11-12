@@ -33,17 +33,21 @@ export async function deleteComment(id: string) {
 }
 
 // Hand a question to the agent now, once the save carrying it has landed: the desk builds the
-// question event from its stored copy of the comment. A turn made while the save drained supersedes
-// this ask: one back to a change request withdraws it, and one into a question again asks for itself.
+// question event from its stored copy of the comment. A save that didn't land leaves the desk
+// nothing to ask from, so the question waits for the next Send, as one the desk couldn't deliver.
+// A turn made while the save drained supersedes this ask: one back to a change request withdraws
+// it, and one into a question again asks for itself.
 export async function askComment(id: string) {
   const asked = askStamp(S.state.comments.find((c) => c.id === id));
-  await saver.settled();
+  const saved = await saver.settled();
   if (askStamp(S.state.comments.find((c) => c.id === id)) !== asked) return;
-  const res = await fetch("/api/ask", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id }),
-  }).catch(() => null);
+  const res = saved
+    ? await fetch("/api/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
+      }).catch(() => null)
+    : null;
   if (res?.ok) S.undeliveredAsks.delete(id);
   else {
     S.undeliveredAsks.add(id);

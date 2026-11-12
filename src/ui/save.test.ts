@@ -71,17 +71,28 @@ test("reviewerSlice carries only reviewer-owned fields — no rawDiff, no file c
   assert.equal(body.includes("diff --git"), false);
 });
 
-// Drain the microtask queue (the send chain is send().catch().finally(), so settling
-// takes several ticks) — a real timer flushes everything queued before it.
-const flush = () => new Promise((r) => setTimeout(r, 0));
+// Drain the microtask queue (settling a send takes several ticks): a macrotask flushes everything
+// queued before it. setImmediate, since the backoff tests mock setTimeout.
+const flush = () => new Promise((r) => setImmediate(r));
 
 // A controllable fake send: each call parks a deferred so the test drives when the save
-// "completes", and records the payload it was handed at send time.
+// "completes", and records the payload it was handed at send time. resolve() is a save the desk
+// took; answer(false) is the desk answering with an error; reject() is no answer at all.
 function fakeSend<T>() {
-  const calls: { payload: T; resolve: () => void; reject: () => void }[] = [];
+  const calls: {
+    payload: T;
+    resolve: () => void;
+    answer: (landed: boolean) => void;
+    reject: () => void;
+  }[] = [];
   const send = (payload: T) =>
-    new Promise<void>((resolve, reject) => {
-      calls.push({ payload, resolve: () => resolve(), reject: () => reject(new Error("x")) });
+    new Promise<boolean>((resolve, reject) => {
+      calls.push({
+        payload,
+        resolve: () => resolve(true),
+        answer: (landed) => resolve(landed),
+        reject: () => reject(new Error("x")),
+      });
     });
   return { send, calls };
 }
@@ -144,6 +155,119 @@ test("createSaver: a rejected in-flight save still drains the trailing save", as
   assert.equal(saver.isBusy(), false);
 });
 
+test("createSaver: a failed save stays unsaved and retries on a 1, 2, 4, then 5 second backoff", async (t) => {
+  mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  t.after(() => mock.timers.reset());
+  const { send, calls } = fakeSend<number>();
+  let payload = 1;
+  const saver = createSaver(() => payload, send);
+  saver.trigger();
+  calls[0]!.reject();
+  await flush();
+  assert.equal(saver.unsaved(), true);
+  assert.equal(saver.isBusy(), true, "the poll's guards hold the tab's review");
+  for (const [n, wait] of [
+    [1, 1000],
+    [2, 2000],
+    [3, 4000],
+    [4, 5000],
+    [5, 5000],
+  ] as const) {
+    mock.timers.tick(wait - 1);
+    assert.equal(calls.length, n, `no retry before ${wait} ms`);
+    payload = n + 1;
+    mock.timers.tick(1);
+    assert.equal(calls.length, n + 1, `retry ${n} after ${wait} ms`);
+    assert.equal(calls[n]!.payload, n + 1, "a retry snapshots the latest state");
+    calls[n]!.reject();
+    await flush();
+  }
+  mock.timers.tick(5000);
+  calls[6]!.resolve();
+  await flush();
+  assert.equal(saver.unsaved(), false);
+  assert.equal(saver.isBusy(), false);
+  mock.timers.tick(60_000);
+  assert.equal(calls.length, 7, "a landed save stops the retries");
+});
+
+test("createSaver: an error answer from the desk counts as not saved", async (t) => {
+  mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  t.after(() => mock.timers.reset());
+  const { send, calls } = fakeSend<number>();
+  const saver = createSaver(() => 1, send);
+  saver.trigger();
+  calls[0]!.answer(false);
+  await flush();
+  assert.equal(saver.unsaved(), true);
+  mock.timers.tick(1000);
+  assert.equal(calls.length, 2, "retried as a failure");
+});
+
+test("createSaver: failingSince marks the first failure of a streak until a save lands", async (t) => {
+  mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10_000 });
+  t.after(() => mock.timers.reset());
+  const { send, calls } = fakeSend<number>();
+  const saver = createSaver(() => 1, send);
+  assert.equal(saver.failingSince(), null);
+  saver.trigger();
+  calls[0]!.reject();
+  await flush();
+  assert.equal(saver.failingSince(), 10_000);
+  mock.timers.tick(1000);
+  calls[1]!.reject();
+  await flush();
+  assert.equal(saver.failingSince(), 10_000, "a later failure keeps the streak's start");
+  mock.timers.tick(2000);
+  calls[2]!.resolve();
+  await flush();
+  assert.equal(saver.failingSince(), null);
+});
+
+test("createSaver: a reviewer change while unsaved saves at once; a successful poll retries at once", async (t) => {
+  mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  t.after(() => mock.timers.reset());
+  const { send, calls } = fakeSend<number>();
+  const saver = createSaver(() => 1, send);
+  saver.trigger();
+  calls[0]!.reject();
+  await flush();
+  saver.trigger();
+  assert.equal(calls.length, 2, "the change did not wait for the backoff");
+  calls[1]!.reject();
+  await flush();
+  saver.retryNow();
+  assert.equal(calls.length, 3, "retryNow skips the backoff");
+  saver.retryNow();
+  assert.equal(calls.length, 3, "never a second save in flight");
+  calls[2]!.resolve();
+  await flush();
+  saver.retryNow();
+  assert.equal(calls.length, 3, "nothing to retry once saved");
+  mock.timers.tick(10_000);
+  assert.equal(calls.length, 3, "the cancelled backoff never fires");
+});
+
+test("createSaver: settled reports whether the save landed and never waits through an outage", async (t) => {
+  mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  t.after(() => mock.timers.reset());
+  const { send, calls } = fakeSend<number>();
+  const saver = createSaver(() => 1, send);
+  assert.equal(await saver.settled(), true, "nothing out: landed");
+  saver.trigger();
+  saver.trigger();
+  const outcome = saver.settled();
+  calls[0]!.resolve();
+  await flush();
+  calls[1]!.reject();
+  assert.equal(await outcome, false, "the trailing save failed");
+  assert.equal(await saver.settled(), false, "unsaved while the backoff waits: at once");
+  mock.timers.tick(1000);
+  const retried = saver.settled();
+  calls[2]!.resolve();
+  assert.equal(await retried, true);
+});
+
 test("createSaver: a trigger after quiescence starts a fresh send", async () => {
   const { send, calls } = fakeSend<number>();
   const saver = createSaver(() => 1, send);
@@ -170,7 +294,7 @@ test("createSaver: settled resolves once the in-flight and trailing saves are do
   await flush();
   assert.equal(settled, false, "the trailing save is still out");
 
-  calls[1]!.reject(); // a failed save still settles: the wire is quiet
+  calls[1]!.reject(); // a failed save still settles, as not landed
   await flush();
   assert.equal(settled, true);
 });
@@ -224,8 +348,13 @@ test("save generations retain completed, failed and coalesced activity after the
   await flush();
   calls[1]!.reject();
   await saver.settled();
+  const failed = saver.generation();
+  saver.retryNow(); // the failed save lands on its retry
+  calls[2]!.resolve();
+  await saver.settled();
   assert.equal(saver.isBusy(), false);
-  assert.ok(saver.generation() > before, "a drained or failed save cannot erase its history");
+  assert.ok(failed > before, "a drained or failed save cannot erase its history");
+  assert.equal(saver.generation(), failed, "a retry is not new reviewer activity");
   const idle = saver.generation();
   await saver.settled();
   assert.equal(saver.generation(), idle, "reads and idle waiting do not invent activity");

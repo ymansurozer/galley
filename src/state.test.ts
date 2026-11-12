@@ -790,26 +790,37 @@ test("a save from a tab still on the pre-reload diff lands on the reloaded block
     );
     assert.deepEqual(decided(live), [["app.ts:additions:10:1:1", "accepted", 10]]);
     // Before the tab adopts the reloaded diff, the reviewer rejects the l11 block on the old one.
-    await mergeReviewerSave(
+    const carried = await mergeReviewerSave(
       live,
       { decisions: [accepted, rejected], seen: seen(oldDiff) },
       undefined,
       prior,
     );
+    assert.equal(carried.unplaced, false, "a save from the diff before is carried, not lost");
     assert.deepEqual(decided(live), [
       ["app.ts:additions:10:1:1", "accepted", 10],
       ["app.ts:additions:13:1:1", "rejected", 13],
     ]);
     assert.equal(statusOf(live, "app.ts:additions:10:1:1"), "accepted");
     assert.equal(statusOf(live, "app.ts:additions:13:1:1"), "rejected");
-    // A save from further back than the desk remembers can't be placed: the desk keeps its own.
-    await mergeReviewerSave(
+    // A save from further back than the desk remembers can't be placed: the desk keeps its own,
+    // and says so.
+    const far = await mergeReviewerSave(
       live,
       { decisions: [], seen: seen("two diffs back") },
       undefined,
       prior,
     );
     assert.equal(decided(live).length, 2);
+    assert.equal(far.unplaced, true);
+    // One whose verdicts are the desk's own lost nothing.
+    const echo = await mergeReviewerSave(
+      live,
+      { decisions: structuredClone(live.decisions), seen: seen("two diffs back") },
+      undefined,
+      prior,
+    );
+    assert.equal(echo.unplaced, false);
     // Once the tab has adopted the reloaded diff, its save is taken as sent.
     const current = live.decisions!.filter((d) => d.status === "accepted");
     await mergeReviewerSave(live, { decisions: current, seen: seen(live.baseDiffHash) });

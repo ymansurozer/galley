@@ -161,7 +161,11 @@ test("automatic refresh waits for active and set-aside drafts, then drains on a 
       reloadGeneration: 0,
       uiRefreshGeneration: 0,
     };
-    win.fetch = (async () => ({ json: async () => payload })) as any;
+    // A save lands only on an answer that says ok (save.ts); every other route reads the poll.
+    win.fetch = (async (url: string) => ({
+      ok: true,
+      json: async () => (url === "/api/save" ? { ok: true } : payload),
+    })) as any;
     h.adoptDeskStatus(payload);
     h.setView("ui");
     h.installAppView();

@@ -69,7 +69,12 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   win.fetch = (async (url: string, options: any) => {
     requests.push({ url, body: url === "/api/save" ? JSON.parse(options.body) : options?.body });
     await onRequest(url);
-    return { ok: true, status: 200, json: async () => payload };
+    // A save lands only on an answer that says ok (save.ts); every other route reads the poll.
+    return {
+      ok: true,
+      status: 200,
+      json: async () => (url === "/api/save" ? { ok: true } : payload),
+    };
   }) as any;
   h.adoptDeskStatus(payload);
   h.setView("ui");

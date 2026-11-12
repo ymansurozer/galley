@@ -1,4 +1,5 @@
-import { S, D, api, toast, saver } from "./store";
+import { S, D, api, noteAnswer, toast, saver, unplacedShowing } from "./store";
+import { refreshReach } from "./reach";
 import { render } from "./render";
 import { currentPartTitle, reseatStep } from "./guide";
 import { refreshBaseTitle, updateProgress } from "./progress";
@@ -89,6 +90,13 @@ let fullStateRequest: { revision: string } | undefined;
 let pollSequence = 0;
 let adoptedPoll = 0;
 export async function pollState() {
+  try {
+    await pollOnce();
+  } finally {
+    refreshReach();
+  }
+}
+async function pollOnce() {
   const sequence = ++pollSequence;
   // Transient status follows response sequence. Full-state work follows content revision:
   // another lite tick for the same revision neither cancels it nor starts a duplicate fetch.
@@ -97,6 +105,9 @@ export async function pollState() {
   try {
     const payload = await api<PollPayload & DeskStatus>("/api/poll");
     if (payload && Array.isArray(payload.comments)) {
+      // The desk is back: a save it hasn't taken goes now, not when its backoff runs out.
+      noteAnswer();
+      saver.retryNow();
       if (superseded()) return;
       adoptedPoll = sequence;
       lite = adoptDeskStatus(payload);
@@ -120,12 +131,13 @@ export async function pollState() {
   if (diffChanged || guideChanged) {
     // The reload branch replaces S.state wholesale and re-renders, which would clobber local
     // decisions/comments not yet persisted and rebuild the diff DOM out from under an open
-    // composer (losing in-progress typing). Defer while a save is busy OR a composer is open —
-    // S.lastBaseDiffHash stays put, and the next tick re-detects the changed hash and adopts
-    // once the save has drained and the composer has closed. This only narrows a race that
-    // already existed (fire-and-forget persist could lose the same way). Scoping the composer
-    // guard here (not at the top) keeps liveness/presence and the additive agent-reply comment
-    // merge running every tick while a reply box is open, so the desk never looks dead.
+    // composer (losing in-progress typing). Defer while a save is busy (in flight, queued, or
+    // failed and not yet landed) OR a composer is open — S.lastBaseDiffHash stays put, and the
+    // next tick re-detects the changed hash and adopts once the save has landed and the composer
+    // has closed. The desk carries the landed save onto its new diff (mergeReviewerSave).
+    // Scoping the composer guard here (not at the top) keeps liveness/presence and the additive
+    // agent-reply comment merge running every tick while a reply box is open, so the desk never
+    // looks dead.
     if (diffChanged && (saver.isBusy() || S.composerOpen)) return;
     if (fullStateRequest?.revision === latestPoll!.revision) return;
     const request = { revision: latestPoll!.revision };
@@ -191,7 +203,8 @@ export async function pollState() {
       })
       .catch(() => {});
     render();
-    toast("Diff updated");
+    // A save the desk couldn't place is why the tab took this review, and its notice says so.
+    if (!unplacedShowing()) toast("Diff updated");
     return;
   }
   // A reload can swap the guide without changing the diff (agent regenerated it) —
