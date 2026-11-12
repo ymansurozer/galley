@@ -186,11 +186,14 @@
 }
 
 /* The orientation clamped to what fits; its markdown flattens to one line of text. */
-/* Just the start: about half the bar, so the line stays a reminder, not a second reading. */
+/* Just the start: about half the bar, so the line stays a reminder, not a second reading. Never
+   taller than the line either: whatever its markdown holds, nothing draws over the file bar above
+   or the code below. */
 .gm-orient {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 50%;
+  max-height: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--ink);
@@ -202,9 +205,60 @@
   line-height: normal;
 }
 
-.gm-orient.md > * {
+/* Every block, at any depth, runs on as inline text: a list item or a table cell left a block
+   would start a row of its own. Inline marks (bold, italic, code, links) keep their own styling. */
+.gm-orient.md
+  :is(
+    p,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    blockquote,
+    ul,
+    ol,
+    li,
+    pre,
+    table,
+    thead,
+    tbody,
+    tr,
+    th,
+    td,
+    section
+  ) {
   display: inline;
   margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: inherit;
+}
+
+/* A fence reads as plain text in the line's own ink. Shiki's theme colours (inline styles) stay
+   with the full note: they are the code theme's, which need not match the appearance, so its
+   text without its background can be unreadable on the bar. */
+.gm-orient.md pre,
+.gm-orient.md pre * {
+  background: none !important;
+  color: inherit !important;
+}
+
+/* Markers, checkboxes, rules and images have no place in one line of text. A line break reads as
+   the space markdown-it writes after it. */
+.gm-orient.md :is(input, hr, br, img) {
+  display: none;
+}
+
+/* Sibling items read "one · two · three", a nested list's first item included (its parent's text
+   precedes it). A block after a block gets the plain space between their tags. */
+.gm-orient.md li + li::before,
+.gm-orient.md li > :is(ul, ol) > li:first-child::before {
+  content: "· ";
+  color: var(--ink-3);
 }
 
 .gm-orient.skim {

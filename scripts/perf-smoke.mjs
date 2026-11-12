@@ -27,6 +27,18 @@ let BASE;
 const FILE_COUNT = 1000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The desk's environment, hermetic to the caller's shell as in smoke.mjs: a devbox exports
+// GALLEY_HOST (and GALLEY_ALLOWED_HOSTS) so real desks bind beyond loopback, but waitForDeskUrl
+// reads the loopback URL, so an inherited GALLEY_HOST would time every run out. GALLEY_PORT_RANGE
+// would move the desk's port. No update-check network call at desk start either.
+function deskEnv() {
+  const env = { ...process.env, GALLEY_NO_UPDATE_CHECK: "1" };
+  delete env.GALLEY_HOST;
+  delete env.GALLEY_ALLOWED_HOSTS;
+  delete env.GALLEY_PORT_RANGE;
+  return env;
+}
+
 // The desk prints `Galley <session>: http://127.0.0.1:<port>/` to stderr once it's listening.
 // Read that line (accumulating chunks — it can arrive split) and return the origin without the
 // trailing slash, so BASE + "/api/..." is well-formed.
@@ -137,7 +149,7 @@ try {
   desk = spawn("node", [CLI, "--repo", tmp, "--session", ID, "--port", "0", "--no-open"], {
     // stderr piped so we can read the bound URL; stdout ignored.
     stdio: ["ignore", "ignore", "pipe"],
-    env: { ...process.env, GALLEY_NO_UPDATE_CHECK: "1" },
+    env: deskEnv(),
   });
   BASE = await waitForDeskUrl(desk);
   let up = false;
