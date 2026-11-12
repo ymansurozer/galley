@@ -188,18 +188,40 @@ export function noteUnplaced(answer: Partial<SaveAnswer> | null) {
     UNPLACED_MS,
   );
 }
+// Post the reviewer's work (a save or a Send) to the desk: its answer, or null when none came.
+// A request can hang with no error (a network gone under a sleeping laptop) until the browser
+// gives it up, minutes later; the saver would sit in flight and send nothing again meanwhile. So
+// an attempt that hasn't answered within ATTEMPT_MS is given up as unanswered. A late duplicate of
+// a save is harmless: each carries the whole reviewer slice, and the last wins.
+const ATTEMPT_MS = 30_000;
+export async function postToDesk(
+  path: "/api/save" | "/api/send",
+  payload: unknown,
+): Promise<{ ok: boolean; answer: Partial<SaveAnswer> | null } | null> {
+  const abort = new AbortController();
+  const limit = setTimeout(() => abort.abort(), ATTEMPT_MS);
+  try {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: abort.signal,
+    });
+    noteAnswer();
+    const answer = (await res.json().catch(() => null)) as Partial<SaveAnswer> | null;
+    return { ok: res.ok, answer };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(limit);
+  }
+}
 // A save has landed only on a 2xx answer whose body says ok; anything else, no answer included,
 // leaves it unsaved and the saver retries (save.ts).
 async function postSave(payload: unknown): Promise<boolean> {
-  const res = await fetch("/api/save", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  noteAnswer();
-  const answer = (await res.json().catch(() => null)) as Partial<SaveAnswer> | null;
-  if (!res.ok || answer?.ok !== true) return false;
-  noteUnplaced(answer);
+  const reply = await postToDesk("/api/save", payload);
+  if (!reply?.ok || reply.answer?.ok !== true) return false;
+  noteUnplaced(reply.answer);
   return true;
 }
 // Post only the reviewer-owned slice (see reviewerSlice in save.ts) — never the whole

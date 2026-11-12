@@ -11,7 +11,7 @@ import { mergeReviewerSave } from "../state.js";
 const bundle = build({
   stdin: {
     contents:
-      'import {S,saver,persist,persistSoon} from "./store"; import {pollState,adoptDeskStatus} from "./poll"; import {deleteComment,turnComment} from "./comments"; import {acceptChange} from "./decisions"; import {submitUiComposer,placedInApp} from "./uilane"; import {renderMarkdown} from "./markdown"; import {askComment} from "./comments"; import {approveFile} from "./decisions"; import {installCloseWarning,deskReachMessage,deskRestartCommand} from "./reach"; import {send,sendConfirm} from "./send"; window.h={S,saver,persist,persistSoon,pollState,adoptDeskStatus,deleteComment,turnComment,acceptChange,submitUiComposer,placedInApp,renderMarkdown,askComment,approveFile,installCloseWarning,deskReachMessage,deskRestartCommand,send,sendConfirm};',
+      'import {S,saver,persist,persistSoon} from "./store"; import {pollState,adoptDeskStatus} from "./poll"; import {deleteComment,turnComment} from "./comments"; import {acceptChange} from "./decisions"; import {submitUiComposer,placedInApp} from "./uilane"; import {renderMarkdown} from "./markdown"; import {askComment} from "./comments"; import {approveFile} from "./decisions"; import {installCloseWarning,deskReachMessage,deskRestartCommand} from "./reach"; import {send,sendCancel,sendConfirm} from "./send"; window.h={S,saver,persist,persistSoon,pollState,adoptDeskStatus,deleteComment,turnComment,acceptChange,submitUiComposer,placedInApp,renderMarkdown,askComment,approveFile,installCloseWarning,deskReachMessage,deskRestartCommand,send,sendCancel,sendConfirm};',
     resolveDir: fileURLToPath(new URL(".", import.meta.url)),
   },
   bundle: true,
@@ -38,14 +38,21 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
     settings: { disableIframePageLoading: true },
   });
   const pending: Array<{ snapshot: any; release: (payload?: any) => void; fail: () => void }> = [];
-  // The desk's two failures: it doesn't answer at all, or it answers saves and Sends with an error.
-  const desk = { down: false, failing: false };
+  // The desk's failures: it doesn't answer at all, it answers saves and Sends with an error, or a
+  // save's request hangs with no answer until the tab gives it up. `holdSend` parks the next Send
+  // until the test releases it.
+  const desk = {
+    down: false,
+    failing: false,
+    hang: false,
+    holdSend: undefined as undefined | Promise<void>,
+  };
   let h: any;
   const polls: Promise<void>[] = [];
   t.after(async () => {
     // A save the desk never took keeps retrying, and the window waits on its timers: bring the
     // desk back and let it land.
-    Object.assign(desk, { down: false, failing: false });
+    Object.assign(desk, { down: false, failing: false, hang: false });
     h.saver.retryNow();
     await h.saver.settled();
     for (const request of pending) request.release();
@@ -104,6 +111,15 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
     if (desk.down) throw new TypeError("Failed to fetch");
     if (desk.failing && (url === "/api/save" || url === "/api/send"))
       return { ok: false, status: 500, json: async () => ({ ok: false, code: "INTERNAL" }) };
+    if (url === "/api/save" && desk.hang)
+      return new Promise((_resolve, reject) =>
+        options.signal?.addEventListener("abort", () => reject(new Error("aborted"))),
+      );
+    if (url === "/api/send" && desk.holdSend) {
+      const hold = desk.holdSend;
+      desk.holdSend = undefined;
+      await hold;
+    }
     if (url === "/api/save" || url === "/api/send") {
       const body = JSON.parse(options.body);
       saves.push(body);
@@ -608,6 +624,7 @@ test("a desk that answers saves with an error can't save, and the tab keeps retr
     "not unreachable: it answers",
   );
   assert.deepEqual(f.server().reviewedFiles, []);
+  await f.h.saver.settled(); // the retry that poll started, still answered with an error
   f.desk.failing = false;
   await f.poll();
   assert.equal(await f.h.saver.settled(), true);
@@ -727,4 +744,51 @@ test("an Ask whose save has not landed is marked undelivered and returns", async
   f.desk.down = false;
   await f.poll();
   assert.equal(await f.h.saver.settled(), true);
+});
+
+test("a save the desk never answers is given up after its time limit, then retried until it lands", async (t) => {
+  const f = await outageFixture(t);
+  // Catch the attempt's time limit, so the test can run it out without waiting.
+  const originalTimeout = f.win.setTimeout.bind(f.win);
+  let expire: (() => void) | undefined;
+  f.win.setTimeout = ((callback: () => void, ms: number, ...args: any[]) => {
+    if (ms === 30_000) expire = callback;
+    return originalTimeout(callback, ms, ...args);
+  }) as any;
+  t.after(() => (f.win.setTimeout = originalTimeout));
+  f.desk.hang = true;
+  await f.h.approveFile("a.ts", { advance: false });
+  const outcome = f.h.saver.settled();
+  await f.poll();
+  assert.ok(expire, "the attempt has a time limit");
+  f.desk.hang = false;
+  expire!();
+  assert.equal(await outcome, false, "a hung attempt counts as failed");
+  await f.poll();
+  assert.equal(await f.h.saver.settled(), true, "the desk's answer retries it");
+  assert.deepEqual(plain(f.server().reviewedFiles), ["a.ts"]);
+});
+
+test("a Send that lands after its dialog was cancelled leaves a newer dialog and its note alone", async (t) => {
+  const f = await outageFixture(t);
+  f.S.send = f.h.send;
+  f.S.sendOpen = true;
+  f.S.sendNote = "First note";
+  let release!: () => void;
+  f.desk.holdSend = new Promise<void>((resolve) => (release = resolve));
+  const first = f.h.sendConfirm();
+  f.h.sendCancel();
+  // The reviewer opens Send again and starts a new note while the first request is out.
+  f.S.sendOpen = true;
+  f.S.sendNote = "Second note";
+  release();
+  await first;
+  assert.equal(f.S.sendOpen, true, "the newer dialog stays open");
+  assert.equal(f.S.sendNote, "Second note");
+  assert.equal(f.S.sendFailed, false);
+  assert.match(f.S.toastMsg, /sent/i, "the reviewer learns the first review went");
+  assert.equal(f.saves.at(-1).overallNote, "First note");
+  await f.h.sendConfirm();
+  assert.equal(f.S.sendOpen, false);
+  assert.equal(f.saves.at(-1).overallNote, "Second note");
 });
