@@ -537,6 +537,64 @@ body.file-mode .nav-toggle {
   overflow: hidden;
 }
 
+/* ── The desk can't take the tab's changes (reach.ts) ──
+   A band in the centre column's flow, under the top bar and spanning what the bar spans, over
+   both views: it pushes the review down and never covers it. It stays until the desk answers
+   again, so it is quiet: the change-request hue's wash and ink, not an alarm. The restart command
+   selects whole on one click, since an insecure origin has no clipboard API for a copy button. */
+.reach {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 4px;
+  padding: 7px 14px;
+  background: var(--orange-wash);
+  border-bottom: 1px solid var(--sep);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.reach > .ic {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-right: -8px;
+  color: var(--orange);
+}
+
+.reach p {
+  margin: 0;
+  min-width: 0;
+}
+
+.reach b {
+  font-weight: 600;
+  color: var(--orange-ink);
+}
+
+/* The cure sits at the band's end, and wraps under the message on a narrow window. */
+.reach .reach-cure {
+  margin-left: auto;
+  color: var(--ink-2);
+}
+
+.reach .reach-cure code {
+  margin-left: 4px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--field);
+  box-shadow: inset 0 0 0 1px var(--sep-strong);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+  user-select: all;
+  -webkit-user-select: all;
+}
+
 [x-cloak] {
   display: none !important;
 }

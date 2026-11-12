@@ -126,6 +126,17 @@
   font-size: var(--text-sm);
 }
 
+/* Send didn't reach the desk: the sheet stays open with the note, and says so above it. */
+.modal.send .send-failed {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--orange-wash);
+  color: var(--orange-ink);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
 .modal.send textarea {
   display: block;
   min-height: 72px;

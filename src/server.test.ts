@@ -1263,6 +1263,61 @@ test("save from a stale full-state tab ignores server-owned fields in the body",
   });
 });
 
+test("a save or Send the desk can't place says so, keeps the desk's verdicts and lands its comments", async () => {
+  await withServer(async (handle, _root, st) => {
+    st.reviewedFiles = ["a.ts"];
+    const comment = (id: string) => ({
+      id,
+      role: "user",
+      path: "a.ts",
+      side: "additions",
+      lineNumber: 1,
+      body: id,
+      status: "open",
+      createdAt: "t",
+      updatedAt: "t",
+    });
+    // A tab two diffs back: the desk remembers no diff it was made on.
+    const old = { token: null, reloadGeneration: 0, baseDiffHash: "two diffs back" };
+    const saved = await post(handle.url, "api/save", {
+      reviewedFiles: [],
+      comments: [comment("held")],
+      seen: old,
+    }).then((r) => r.json());
+    assert.equal(saved.ok, true);
+    assert.equal(saved.unplaced, true);
+    assert.deepEqual(st.reviewedFiles, ["a.ts"], "the desk keeps its own sign-off");
+    assert.deepEqual(
+      st.comments.map((c) => c.id),
+      ["held"],
+      "the save's comments still land",
+    );
+    // The same verdicts the desk holds are nothing lost.
+    const same = await post(handle.url, "api/save", {
+      reviewedFiles: ["a.ts"],
+      comments: [comment("held")],
+      seen: old,
+    }).then((r) => r.json());
+    assert.equal(same.unplaced, undefined);
+    // A save on the desk's own diff is taken as sent.
+    const current = await post(handle.url, "api/save", {
+      reviewedFiles: [],
+      seen: { ...old, baseDiffHash: st.baseDiffHash },
+    }).then((r) => r.json());
+    assert.equal(current.unplaced, undefined);
+    assert.deepEqual(st.reviewedFiles, []);
+    const sent = await post(handle.url, "api/send", {
+      reviewedFiles: ["a.ts"],
+      comments: [comment("held"), comment("with the send")],
+      seen: old,
+    }).then((r) => r.json());
+    assert.equal(sent.sent, true);
+    assert.equal(sent.unplaced, true);
+    assert.deepEqual(st.reviewedFiles, []);
+    assert.equal(st.comments.length, 2);
+  });
+});
+
 test("/api/stage: paths[] stages a move pair as a rename; legacy {path} still works (issue 02)", async () => {
   await withServer(async (handle, root, st) => {
     const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();

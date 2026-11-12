@@ -312,6 +312,18 @@ export type IndexEntry = { mode: string; oid: string } | null;
 // leaves it out, as does a tab from before it existed.
 export type SaveStamp = { token: string | null; reloadGeneration: number; baseDiffHash?: string };
 
+// The desk's answer to a save (/api/save); Send's (/api/send) carries `sent` and `resultJson` in
+// place of `file`. A save has landed only on a 2xx answer whose `ok` is true. `unplaced`: the save
+// was made on a diff older than the one before the desk's current one, so the desk could not place
+// its decisions and sign-offs and kept its own (mergeReviewerSave); its comments still landed.
+export type SaveAnswer = {
+  ok: true;
+  file?: string;
+  sent?: true;
+  resultJson?: string;
+  unplaced?: true;
+};
+
 // Transient desk-liveness fields injected into the /api/state response alongside
 // ReviewState. Deliberately NOT on ReviewState: anything on state is persisted by
 // persistReview and echoed back by the UI via /api/save, while these only describe

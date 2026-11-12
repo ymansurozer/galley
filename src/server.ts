@@ -61,6 +61,7 @@ import type {
   PollPayload,
   QuestionPayload,
   ReviewState,
+  SaveAnswer,
   SaveStamp,
   ThreadMessage,
 } from "./types.js";
@@ -833,11 +834,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return await serialize(async () => {
           const body: unknown = JSON.parse(await readBody(req));
           const asked = askedQuestions();
-          await mergeReviewerSave(state, body, saveStamp(), priorDiff);
+          const { unplaced } = await mergeReviewerSave(state, body, saveStamp(), priorDiff);
           withdrawQuestions(asked);
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
-          return json(res, 200, { ok: true, file });
+          const answer: SaveAnswer = { ok: true, file };
+          if (unplaced) answer.unplaced = true;
+          return json(res, 200, answer);
         });
       }
       if (req.method === "POST" && url.pathname === "/api/send") {
@@ -849,7 +852,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
           // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
           // full ReviewState keeps working because everything else in the body is ignored.
-          await mergeReviewerSave(state, body, saveStamp(), priorDiff);
+          const { unplaced } = await mergeReviewerSave(state, body, saveStamp(), priorDiff);
           await syncGitState(state);
           const file = await persistReview(state);
           const sessionDir = path.dirname(file);
@@ -865,7 +868,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               if (eventQueue[i].kind === "question") eventQueue.splice(i, 1);
             emitEvent({ kind: "review", result: payload });
           });
-          return json(res, 200, { ok: true, sent: true, resultJson });
+          const answer: SaveAnswer = { ok: true, sent: true, resultJson };
+          if (unplaced) answer.unplaced = true;
+          return json(res, 200, answer);
         });
       }
       if (req.method === "POST" && url.pathname === "/api/ask") {

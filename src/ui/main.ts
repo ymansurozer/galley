@@ -21,6 +21,7 @@ import { resetFolds } from "./fold";
 import { render, deferRender } from "./render";
 import { cur, prefetchContents } from "./contents";
 import { send, sendCancel, sendConfirm } from "./send";
+import { deskReachMessage, deskRestartCommand, installReach } from "./reach";
 import { adoptDeskStatus, pollState } from "./poll";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
 import { applyAppearance, DEFAULT_SETTINGS } from "./settings";
@@ -413,6 +414,7 @@ const openSendModal = (msg: string, lanes: Store["sendLanes"], notSent = "") => 
   S.sendNotSent = notSent;
   S.sendLanes = lanes;
   S.sendNote = "";
+  S.sendFailed = false;
   S.sendOpen = true;
   setTimeout(() => $("sendNote")?.focus(), 0); // after Alpine shows it (mirrors the composer)
 };
@@ -443,6 +445,9 @@ S.promptFinish = () => {
 S.confirmSend = () => openReceipt("You're about to send your review", "Send to the agent?");
 S.sendConfirm = sendConfirm;
 S.sendCancel = sendCancel;
+// The banner while the desk can't take the tab's changes (reach.ts).
+S.reachMessage = deskReachMessage;
+S.restartCommand = deskRestartCommand;
 // Walkthrough sidebar tab: categories + files in guide order (plus the "Other" trailer).
 S.walkthroughRows = walkthroughRows;
 S.isMarkdownFile = () => {
@@ -603,6 +608,7 @@ if (hasGuide()) {
 installAppView();
 installUiLane();
 installCaptureDebug();
+installReach();
 syncView(); // a UI-only desk opens straight on the app
 void render().finally(firstRenderDone);
 // Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,

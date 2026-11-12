@@ -171,6 +171,15 @@
       <div class="tree-backdrop" :class="{open: $store.g.treeDrawerOpen}" @click="$store.g.treeDrawerOpen=false"></div>
       <div class="resizer" data-resize="left"></div>
       <section class="center">
+        <!-- While the desk can't take this tab's changes (reach.ts): what happened, what it means for
+             the reviewer's work, and, when the desk isn't answering at all, the command that starts
+             it again. A band in the flow, over both views; it never covers the review. -->
+        <div class="reach" role="status" x-cloak x-show="$store.g.reach">
+          <svg class="ic"><use href="#gly-circle-alert"></use></svg>
+          <p><b x-text="$store.g.reachMessage?.().title"></b> <span x-text="$store.g.reachMessage?.().detail"></span></p>
+          <p class="reach-cure" x-show="$store.g.reach?.kind === 'unreachable'">Start it again: <code
+              x-text="$store.g.restartCommand?.()"></code></p>
+        </div>
         <div class="diff-area">
           <div id="diff" x-ignore></div>
           <div class="ovr" id="ovr" x-ignore></div>
@@ -388,11 +397,13 @@
             <div class="lane"><b>UI</b><div><span x-text="$store.g.sendLanes?.ui"></span><div class="sub"
                   x-show="$store.g.sendLanes?.uiNotSent" x-text="$store.g.sendLanes?.uiNotSent"></div></div></div>
           </div>
+          <div class="send-failed" id="sendFailed" role="alert" x-show="$store.g.sendFailed">The review was not sent: the desk
+            didn't take it. Your note is still here.</div>
           <textarea id="sendNote" x-model="$store.g.sendNote"
             placeholder="Overall note (optional) — an overall remark, or what to do after applying"></textarea>
           <div class="modal-actions"><button class="btn" @click="$store.g.sendCancel()">Cancel <kbd x-keys>Esc</kbd></button><button
-              class="btn primary" :disabled="$store.g.sendFinishing" @click="$store.g.sendConfirm()"><span
-                x-text="$store.g.sendFinishing ? 'Finishing screenshots…' : 'Send'">Send</span> <kbd x-keys>⌘↵</kbd></button></div>
+              class="btn primary" :disabled="$store.g.sendFinishing || $store.g.sending" @click="$store.g.sendConfirm()"><span
+                x-text="$store.g.sendFinishing ? 'Finishing screenshots…' : $store.g.sending ? 'Sending…' : 'Send'">Send</span> <kbd x-keys>⌘↵</kbd></button></div>
         </div>
       </div>
       <!-- An annotation's screenshot, enlarged from its row's context line (uilane.ts): the crop or

@@ -11,7 +11,7 @@ import { mergeReviewerSave } from "../state.js";
 const bundle = build({
   stdin: {
     contents:
-      'import {S,saver,persist,persistSoon} from "./store"; import {pollState,adoptDeskStatus} from "./poll"; import {deleteComment,turnComment} from "./comments"; import {acceptChange} from "./decisions"; import {submitUiComposer,placedInApp} from "./uilane"; import {renderMarkdown} from "./markdown"; window.h={S,saver,persist,persistSoon,pollState,adoptDeskStatus,deleteComment,turnComment,acceptChange,submitUiComposer,placedInApp,renderMarkdown};',
+      'import {S,saver,persist,persistSoon} from "./store"; import {pollState,adoptDeskStatus} from "./poll"; import {deleteComment,turnComment} from "./comments"; import {acceptChange} from "./decisions"; import {submitUiComposer,placedInApp} from "./uilane"; import {renderMarkdown} from "./markdown"; import {askComment} from "./comments"; import {approveFile} from "./decisions"; import {installCloseWarning,deskReachMessage,deskRestartCommand} from "./reach"; import {send,sendConfirm} from "./send"; window.h={S,saver,persist,persistSoon,pollState,adoptDeskStatus,deleteComment,turnComment,acceptChange,submitUiComposer,placedInApp,renderMarkdown,askComment,approveFile,installCloseWarning,deskReachMessage,deskRestartCommand,send,sendConfirm};',
     resolveDir: fileURLToPath(new URL(".", import.meta.url)),
   },
   bundle: true,
@@ -38,8 +38,16 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
     settings: { disableIframePageLoading: true },
   });
   const pending: Array<{ snapshot: any; release: (payload?: any) => void; fail: () => void }> = [];
+  // The desk's two failures: it doesn't answer at all, or it answers saves and Sends with an error.
+  const desk = { down: false, failing: false };
+  let h: any;
   const polls: Promise<void>[] = [];
   t.after(async () => {
+    // A save the desk never took keeps retrying, and the window waits on its timers: bring the
+    // desk back and let it land.
+    Object.assign(desk, { down: false, failing: false });
+    h.saver.retryNow();
+    await h.saver.settled();
     for (const request of pending) request.release();
     await Promise.all(polls);
     await win.happyDOM.waitUntilComplete();
@@ -47,7 +55,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   });
   win.document.body.innerHTML = ids.map((id) => `<div id="${id}"></div>`).join("");
   win.eval((await bundle).outputFiles[0]!.text);
-  const h = (win as any).h;
+  h = (win as any).h;
   await until(() => h.renderMarkdown("**ready**").includes("<strong>"));
   const { S } = h;
   S.state = {
@@ -91,11 +99,15 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   };
   h.adoptDeskStatus(server);
   const saves: any[] = [];
+  const asks: any[] = [];
   win.fetch = (async (url: string, options: any) => {
-    if (url === "/api/save") {
+    if (desk.down) throw new TypeError("Failed to fetch");
+    if (desk.failing && (url === "/api/save" || url === "/api/send"))
+      return { ok: false, status: 500, json: async () => ({ ok: false, code: "INTERNAL" }) };
+    if (url === "/api/save" || url === "/api/send") {
       const body = JSON.parse(options.body);
       saves.push(body);
-      await mergeReviewerSave(
+      const { unplaced } = await mergeReviewerSave(
         server,
         body,
         {
@@ -104,6 +116,17 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
         },
         priorDiff,
       );
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          ...(url === "/api/send" && { sent: true }),
+          ...(unplaced && { unplaced }),
+        }),
+      };
+    }
+    if (url === "/api/ask") {
+      asks.push(JSON.parse(options.body));
       return { ok: true, json: async () => ({ ok: true }) };
     }
     const snapshot = structuredClone(server);
@@ -145,12 +168,18 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
             ),
     };
   }) as any;
+  // The tab's clock (the window has its own Date), moved by hand for the three-second rule.
+  let clock = Date.now();
+  win.Date.now = () => clock;
   return {
     S,
     h,
     win,
     saves,
+    asks,
+    desk,
     pending,
+    advance: (ms: number) => (clock += ms),
     server: () => server,
     update: (patch: any) => (server = { ...server, ...patch }),
     poll: () => {
@@ -506,3 +535,196 @@ for (const branch of ["diff", "guide"] as const) {
     }
   });
 }
+
+// The desk unreachable: what the tab keeps, what it shows, and how it recovers.
+const reviewFile = {
+  path: "a.ts",
+  hunks: [],
+  contentHash: "H",
+  changeKind: "modified",
+  added: 1,
+  removed: 0,
+};
+// The window's objects come from its own realm: compare them as plain data.
+const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
+async function outageFixture(t: Parameters<typeof fixture>[0]) {
+  const f = await fixture(t);
+  Object.assign(f.S.state, { session: "review", target: "feature" });
+  f.S.state.files = [structuredClone(reviewFile)];
+  f.update({ files: [structuredClone(reviewFile)], session: "review", target: "feature" });
+  f.h.installCloseWarning();
+  return f;
+}
+
+test("an approval made while the desk is down is kept, shown as unsaved, and saved once it answers", async (t) => {
+  const f = await outageFixture(t);
+  f.desk.down = true;
+  await f.poll();
+  await f.h.approveFile("a.ts", { advance: false });
+  assert.equal(await f.h.saver.settled(), false, "the save did not land");
+  assert.deepEqual(plain(f.S.state.reviewedFiles), ["a.ts"], "the tab keeps the approval");
+  assert.deepEqual(f.server().reviewedFiles, []);
+  assert.equal(f.S.reach, null, "a desk silent for under three seconds shows nothing");
+  f.advance(3000);
+  await f.poll();
+  assert.deepEqual(plain(f.S.reach), { kind: "unreachable", unsaved: true });
+  assert.match(f.h.deskReachMessage().detail, /unsaved changes/);
+  assert.equal(f.h.deskRestartCommand(), "galley pr feature --session review");
+  f.desk.down = false;
+  await f.poll();
+  assert.ok(f.S.reach, "the banner stays until the held save has landed");
+  assert.equal(await f.h.saver.settled(), true);
+  assert.deepEqual(f.server().reviewedFiles, ["a.ts"], "saved with no action from the reviewer");
+  await f.poll();
+  assert.equal(f.S.reach, null);
+});
+
+test("a failed save whose retry lands within three seconds shows no banner", async (t) => {
+  const f = await outageFixture(t);
+  f.desk.down = true;
+  await f.h.approveFile("a.ts", { advance: false });
+  assert.equal(await f.h.saver.settled(), false);
+  f.advance(2000);
+  f.desk.down = false;
+  await f.poll();
+  assert.equal(await f.h.saver.settled(), true);
+  await f.poll();
+  assert.equal(f.S.reach, null);
+  assert.deepEqual(f.server().reviewedFiles, ["a.ts"]);
+});
+
+test("a desk that answers saves with an error can't save, and the tab keeps retrying", async (t) => {
+  const f = await outageFixture(t);
+  f.desk.failing = true;
+  await f.h.approveFile("a.ts", { advance: false });
+  assert.equal(await f.h.saver.settled(), false, "an error answer is not saved");
+  f.advance(3000);
+  await f.poll();
+  await f.h.saver.settled();
+  await f.poll();
+  assert.deepEqual(
+    plain(f.S.reach),
+    { kind: "unsaved", unsaved: true },
+    "not unreachable: it answers",
+  );
+  assert.deepEqual(f.server().reviewedFiles, []);
+  f.desk.failing = false;
+  await f.poll();
+  assert.equal(await f.h.saver.settled(), true);
+  await f.poll();
+  assert.equal(f.S.reach, null);
+  assert.deepEqual(f.server().reviewedFiles, ["a.ts"]);
+});
+
+test("held changes wait out a desk restart with a changed diff, then ride onto it", async (t) => {
+  const f = await outageFixture(t);
+  f.desk.down = true;
+  await f.h.approveFile("a.ts", { advance: false });
+  assert.equal(await f.h.saver.settled(), false);
+  // The desk comes back on a new diff with a new file; it remembers the one the tab is on.
+  const added = { ...reviewFile, path: "b.ts", contentHash: "B" };
+  f.update({
+    baseDiffHash: "next",
+    files: [structuredClone(reviewFile), added],
+    uiProxy: { port: 41001, token: "restart" },
+  });
+  f.desk.down = false;
+  await f.poll();
+  assert.equal(f.pending.length, 0, "the changed diff waits for the held save");
+  assert.equal(f.S.lastBaseDiffHash, "base");
+  assert.equal(await f.h.saver.settled(), true);
+  assert.deepEqual(f.server().reviewedFiles, ["a.ts"], "the desk carried the approval");
+  const adopt = f.poll();
+  await until(() => f.pending.length === 1);
+  f.pending[0]!.release();
+  await adopt;
+  assert.equal(f.S.lastBaseDiffHash, "next");
+  assert.deepEqual(
+    f.S.state.files.map((file: { path: string }) => file.path),
+    ["a.ts", "b.ts"],
+  );
+  assert.deepEqual(
+    plain(f.S.state.reviewedFiles),
+    ["a.ts"],
+    "the approval is there on the new diff",
+  );
+});
+
+test("a save the desk can't place says so, lands its comments, and the tab takes the desk's review", async (t) => {
+  const f = await outageFixture(t);
+  // The tab is on a diff older than the one before the desk's.
+  f.S.state.baseDiffHash = f.S.lastBaseDiffHash = "ancient";
+  f.S.state.comments = [structuredClone(reviewerComment)];
+  await f.h.approveFile("a.ts", { advance: false });
+  assert.equal(await f.h.saver.settled(), true);
+  assert.match(f.S.toastMsg, /couldn't be carried over/);
+  assert.deepEqual(f.server().reviewedFiles, [], "the desk kept its own verdicts");
+  assert.deepEqual(
+    f.server().comments.map((c: { id: string }) => c.id),
+    ["reviewer"],
+  );
+  const adopt = f.poll();
+  await until(() => f.pending.length === 1);
+  f.pending[0]!.release();
+  await adopt;
+  assert.equal(f.S.lastBaseDiffHash, "base");
+  assert.deepEqual(plain(f.S.state.reviewedFiles), []);
+  assert.match(f.S.toastMsg, /couldn't be carried over/, "the notice stays long enough to read");
+  assert.deepEqual(
+    f.S.state.comments.map((c: { id: string }) => c.id),
+    ["reviewer"],
+  );
+});
+
+test("closing a tab asks first only while it holds unsaved changes", async (t) => {
+  const f = await outageFixture(t);
+  const closing = () => {
+    const event = new f.win.Event("beforeunload", { cancelable: true });
+    f.win.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  assert.equal(closing(), false);
+  f.desk.down = true;
+  await f.h.approveFile("a.ts", { advance: false });
+  await f.h.saver.settled();
+  assert.equal(closing(), true);
+  f.desk.down = false;
+  await f.poll();
+  await f.h.saver.settled();
+  assert.equal(closing(), false);
+});
+
+for (const failure of ["down", "failing"] as const) {
+  test(`a Send the desk doesn't take (${failure}) keeps its dialog open with the note`, async (t) => {
+    const f = await outageFixture(t);
+    f.S.send = f.h.send;
+    f.S.sendOpen = true;
+    f.S.sendNote = "Ship it after the rename";
+    f.desk[failure] = true;
+    await f.h.sendConfirm();
+    assert.equal(f.S.sendOpen, true);
+    assert.equal(f.S.sendNote, "Ship it after the rename");
+    assert.equal(f.S.sendFailed, true);
+    assert.equal(f.S.awaitingAgent, false);
+    f.desk[failure] = false;
+    await f.h.sendConfirm();
+    assert.equal(f.S.sendOpen, false);
+    assert.equal(f.S.sendFailed, false);
+    assert.equal(f.S.awaitingAgent, true);
+    assert.equal(f.saves.at(-1).overallNote, "Ship it after the rename");
+  });
+}
+
+test("an Ask whose save has not landed is marked undelivered and returns", async (t) => {
+  const f = await outageFixture(t);
+  f.desk.down = true;
+  f.S.state.comments = [structuredClone(reviewerComment)];
+  f.h.persist();
+  await f.h.askComment("reviewer");
+  assert.equal(f.S.undeliveredAsks.has("reviewer"), true);
+  assert.match(f.S.toastMsg, /goes with the next Send/);
+  assert.equal(f.asks.length, 0, "nothing asked of a desk that has no copy of the question");
+  f.desk.down = false;
+  await f.poll();
+  assert.equal(await f.h.saver.settled(), true);
+});
