@@ -238,10 +238,13 @@
   white-space: inherit;
 }
 
-/* A fence reads as inline code; Shiki's theme background (an inline style) stays with the full
-   note. */
-.gm-orient.md pre {
+/* A fence reads as plain text in the line's own ink. Shiki's theme colours (inline styles) stay
+   with the full note: they are the code theme's, which need not match the appearance, so its
+   text without its background can be unreadable on the bar. */
+.gm-orient.md pre,
+.gm-orient.md pre * {
   background: none !important;
+  color: inherit !important;
 }
 
 /* Markers, checkboxes, rules and images have no place in one line of text. A line break reads as
