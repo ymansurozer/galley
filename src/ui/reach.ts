@@ -25,7 +25,8 @@ export function refreshReach() {
   if (next?.kind !== S.reach?.kind || next?.unsaved !== S.reach?.unsaved) S.reach = next;
 }
 
-export const deskRestartCommand = () => restartCommand(S.state);
+// Alpine evaluates the banner's bindings before the first state is in, while it is hidden.
+export const deskRestartCommand = () => (S.state ? restartCommand(S.state) : "");
 export const deskReachMessage = () => (S.reach ? reachMessage(S.reach) : { title: "", detail: "" });
 
 export function installReach() {
