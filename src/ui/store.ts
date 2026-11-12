@@ -193,7 +193,7 @@ export function noteUnplaced(answer: Partial<SaveAnswer> | null) {
 // gives it up, minutes later; the saver would sit in flight and send nothing again meanwhile. So
 // an attempt that hasn't answered within ATTEMPT_MS is given up as unanswered. A late duplicate of
 // a save is harmless: each carries the whole reviewer slice, and the last wins.
-const ATTEMPT_MS = 30_000;
+const ATTEMPT_MS = 25_000;
 export async function postToDesk(
   path: "/api/save" | "/api/send",
   payload: unknown,

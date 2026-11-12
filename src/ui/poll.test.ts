@@ -752,7 +752,7 @@ test("a save the desk never answers is given up after its time limit, then retri
   const originalTimeout = f.win.setTimeout.bind(f.win);
   let expire: (() => void) | undefined;
   f.win.setTimeout = ((callback: () => void, ms: number, ...args: any[]) => {
-    if (ms === 30_000) expire = callback;
+    if (ms === 25_000) expire = callback;
     return originalTimeout(callback, ms, ...args);
   }) as any;
   t.after(() => (f.win.setTimeout = originalTimeout));
