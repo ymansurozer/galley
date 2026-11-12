@@ -665,7 +665,20 @@ try {
     decisionFiles: ["huge-approved.txt", "huge-rejected.txt"],
     overallNote: NOTE,
   });
+  assert.equal((await getJson("/api/state")).queuedReviews, 1);
+  assert.ok(JSON.parse(cli("stop", "--repo", tmp, "--session", ID)).ok);
+  for (let i = 0; i < 50 && desk.exitCode === null; i++) await sleep(100);
+  assert.notEqual(desk.exitCode, null, "desk stopped before collecting the review");
+  desk = spawn("node", deskArgs, { stdio: ["ignore", "ignore", "pipe"], env: ENV });
+  BASE = await waitForDeskUrl(desk);
+  assert.equal((await getJson("/api/state")).queuedReviews, 1, "restart restores queued status");
   const ev2 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  assert.equal(
+    cli("await", "--repo", tmp, "--session", ID, "--timeout", "0.05"),
+    "",
+    "the next await times out instead of redelivering the review",
+  );
+  console.log("✓ queued Send survives CLI stop/start and is delivered once");
   assert.equal(ev2.kind, "review");
   assert.equal(ev2.result.mode, "repo");
   for (const k of ["codeChangeRequests", "uiAnnotations", "accepted", "rejected", "stagedFiles"])

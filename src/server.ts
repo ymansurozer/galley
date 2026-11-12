@@ -460,7 +460,44 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // tagged event stream — a "question" (reviewer clicked Ask, wants an answer now) or a
   // "review" (Send). Events hand to a parked waiter, else queue (FIFO) until one arms.
   const eventWaiters: Array<(ev: AwaitEvent) => void> = [];
-  const eventQueue: AwaitEvent[] = [];
+  type ReviewEvent = Extract<AwaitEvent, { kind: "review" }>;
+  // Separate from ReviewState: a result belongs to the agent, never to the polling tabs.
+  // The non-.json suffix also keeps loadLatestReview from treating this as a saved review.
+  const pendingFile = path.join(
+    await reviewDir(state.root, state.session),
+    "undelivered-reviews.queue",
+  );
+  let undelivered: ReviewEvent[] = [];
+  try {
+    const saved = JSON.parse(await fs.readFile(pendingFile, "utf8"));
+    if (
+      !Array.isArray(saved.reviews) ||
+      saved.reviews.some(
+        (ev: ReviewEvent) =>
+          !ev || ev.kind !== "review" || !ev.result || typeof ev.result !== "object",
+      )
+    )
+      throw new Error("invalid undelivered reviews");
+    undelivered = saved.reviews;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+      console.error(
+        `Galley: could not read undelivered reviews: ${String(error).replace(/[\r\n]+/g, " ")}`,
+      );
+  }
+  const eventQueue: AwaitEvent[] = [...undelivered];
+  const writeUndelivered = (reviews: ReviewEvent[]) =>
+    writeFileAtomic(pendingFile, JSON.stringify({ reviews }) + "\n");
+  // Hand over first, then retire the durable copy. A crash in between may replay a review,
+  // but cannot silently lose it. Share the Send serializer so retirements cannot undo appends.
+  const delivered = (ev: AwaitEvent) => {
+    if (ev.kind !== "review") return;
+    void serialize(async () => {
+      const remaining = undelivered.filter((review) => review !== ev);
+      await writeUndelivered(remaining);
+      undelivered = remaining;
+    }).catch((error) => console.error(`Galley: could not retire delivered review: ${error}`));
+  };
   const emitEvent = (ev: AwaitEvent) => {
     const waiter = eventWaiters.shift();
     if (waiter) waiter(ev);
@@ -857,13 +894,17 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           const resultJson = path.join(sessionDir, `${state.id}-result.json`);
           const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
           await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
+          const event: ReviewEvent = { kind: "review", result: payload };
+          const pending = [...undelivered, event];
+          await writeUndelivered(pending);
+          undelivered = pending;
           res.on("finish", () => {
             // Drop any still-queued questions: the review supersedes them (their unanswered ones
             // ride out in result.openQuestions), so stale question events never dribble in after
             // the round lands. This is also the invariant the await-send batch drain relies on.
             for (let i = eventQueue.length - 1; i >= 0; i--)
               if (eventQueue[i].kind === "question") eventQueue.splice(i, 1);
-            emitEvent({ kind: "review", result: payload });
+            emitEvent(event);
           });
           return json(res, 200, { ok: true, sent: true, resultJson });
         });
@@ -971,7 +1012,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         const queued = eventQueue.shift();
         if (queued) {
           markAgentActive();
-          return json(res, 200, queued);
+          json(res, 200, queued);
+          delivered(queued);
+          return;
         }
         let settled = false;
         const waiter = (ev: AwaitEvent) => {
@@ -980,6 +1023,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           clearTimeout(timer);
           markAgentActive();
           json(res, 200, ev);
+          delivered(ev);
         };
         const drop = () => {
           const i = eventWaiters.indexOf(waiter);

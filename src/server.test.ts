@@ -2965,3 +2965,132 @@ test("/api/reload after only an untracked add moves the poll's baseDiffHash and 
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("sent reviews survive stop in order, outside tab state, and drain once", async () => {
+  await withServer(
+    async (first, root, st) => {
+      for (const overallNote of ["first review", "second review"]) {
+        assert.equal((await post(first.url, "api/send", { overallNote })).status, 200);
+      }
+      const dir = await reviewDir(root, st.session);
+      const pending = JSON.parse(
+        await readFile(path.join(dir, "undelivered-reviews.queue"), "utf8"),
+      );
+      assert.deepEqual(
+        pending.reviews.map((e: { result: ReviewResult }) => e.result.overallNote),
+        ["first review", "second review"],
+      );
+      assert.equal((await getState(first.url)).queuedReviews, 2);
+      const saved = await loadLatestReview(root, st.session);
+      assert.equal(saved?.root, root);
+      for (const value of [saved, await getState(first.url)]) {
+        assert.ok(
+          !JSON.stringify(value).includes("first review"),
+          "results never enter review state",
+        );
+      }
+      await post(first.url, "api/reset", {});
+      assert.equal((await getState(first.url)).queuedReviews, 2, "reset preserves sent reviews");
+      await post(first.url, "api/ask", {
+        path: "a.ts",
+        body: "live only",
+        lineNumber: 1,
+        side: "new",
+      });
+      assert.equal((await getState(first.url)).queuedQuestions, 1);
+      await agentPost(first.url, "api/shutdown", {});
+      await new Promise<void>((resolve) => first.server.close(() => resolve()));
+      const second = await startServer({ state: st, open: false });
+      try {
+        assert.equal((await getState(second.url)).queuedReviews, 2);
+        assert.equal(
+          (await getState(second.url)).queuedQuestions,
+          0,
+          "live questions are not restored",
+        );
+        for (const note of ["first review", "second review"]) {
+          const event = await (await awaitEvent(second.url)).json();
+          assert.equal(event.kind, "review");
+          assert.equal(event.result.overallNote, note);
+        }
+        assert.equal((await awaitEvent(second.url, "?timeout=0.02")).status, 204);
+        assert.deepEqual(
+          JSON.parse(await readFile(path.join(dir, "undelivered-reviews.queue"), "utf8")).reviews,
+          [],
+        );
+      } finally {
+        await new Promise<void>((resolve) => second.server.close(() => resolve()));
+      }
+      const third = await startServer({ state: st, open: false });
+      try {
+        assert.equal((await getState(third.url)).queuedReviews, 0);
+        assert.equal((await awaitEvent(third.url, "?timeout=0.02")).status, 204);
+      } finally {
+        third.server.close();
+      }
+    },
+    { onShutdown: () => {} },
+  );
+});
+
+test("a parked agent receives a review that is retired before the next start", async () => {
+  await withServer(async (first, root, st) => {
+    const waiting = awaitEvent(first.url);
+    for (let i = 0; i < 100 && !(await getState(first.url)).agentListening; i++) await sleep(5);
+    assert.equal((await getState(first.url)).agentListening, true);
+    assert.equal(
+      (await post(first.url, "api/send", { overallNote: "delivered live" })).status,
+      200,
+    );
+    const event = await (await waiting).json();
+    assert.equal(event.result.overallNote, "delivered live");
+    await post(first.url, "api/save", {}); // wait for serialized delivery retirement
+    const dir = await reviewDir(root, st.session);
+    assert.deepEqual(
+      JSON.parse(await readFile(path.join(dir, "undelivered-reviews.queue"), "utf8")).reviews,
+      [],
+    );
+    await new Promise<void>((resolve) => first.server.close(() => resolve()));
+    const next = await startServer({ state: st, open: false });
+    try {
+      assert.equal((await awaitEvent(next.url, "?timeout=0.02")).status, 204);
+    } finally {
+      next.server.close();
+    }
+  });
+});
+
+test("an unreadable review queue logs once and starts empty; it cannot be loaded as review state", async (t) => {
+  await withServer(async (first, root, st) => {
+    await new Promise<void>((resolve) => first.server.close(() => resolve()));
+    const file = path.join(await reviewDir(root, st.session), "undelivered-reviews.queue");
+    await writeFile(file, JSON.stringify({ reviews: [{ kind: "review", result: { root } }] }));
+    assert.equal(await loadLatestReview(root, st.session), null);
+    for (const contents of ["broken json", JSON.stringify({ reviews: [null] })]) {
+      await writeFile(file, contents);
+      const stderr = t.mock.method(console, "error", () => {});
+      const next = await startServer({ state: st, open: false });
+      try {
+        assert.equal((await getState(next.url)).queuedReviews, 0);
+        assert.equal(stderr.mock.calls.length, 1);
+        assert.match(
+          String(stderr.mock.calls[0]!.arguments[0]),
+          /could not read undelivered reviews/,
+        );
+      } finally {
+        await new Promise<void>((resolve) => next.server.close(() => resolve()));
+        stderr.mock.restore();
+      }
+    }
+  });
+});
+
+test("Send fails when its durable review queue cannot be written", async () => {
+  await withServer(async (handle, root, st) => {
+    const dir = await reviewDir(root, st.session);
+    await mkdir(path.join(dir, "undelivered-reviews.queue"));
+    assert.equal((await post(handle.url, "api/send", { overallNote: "not sent" })).status, 500);
+    assert.equal((await getState(handle.url)).queuedReviews, 0);
+    assert.equal((await awaitEvent(handle.url, "?timeout=0.02")).status, 204);
+  });
+});
