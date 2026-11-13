@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
+import MarkdownIt from "markdown-it";
+import createDOMPurify from "dompurify";
+import { sourceLine } from "./markdown-source";
 import {
   renderTopicPage,
   renderTopicsNav,
@@ -269,4 +272,36 @@ test("coverage evidence shares the topic page with sign-off controls and the bod
   assert.ok(bar.innerHTML.indexOf("topic-share") < bar.innerHTML.indexOf("fb-actions"));
   assert.equal(page.querySelector(".topic-page")?.lastElementChild?.className, "topic-points");
   assert.match(page.querySelector(".topic-body")?.textContent ?? "", /b/);
+});
+
+test("a topic whose diagram cannot be drawn is still settled, and its redraw keeps the source shown", async () => {
+  // No diagrams bundle is served under test, so the page's own load fails, as an invalid
+  // diagram's drawing does: the source is shown in its place.
+  const window = new Window();
+  const page = window.document.createElement("div") as unknown as HTMLElement;
+  const renderer = new MarkdownIt({ html: false }).use(sourceLine);
+  const purify = createDOMPurify(window as never);
+  const md = (s: string) => purify.sanitize(`<div>${renderer.render(s)}</div>`);
+  const first = topicPlaces(STAGES)[0]!;
+  const body = "Why.\n\n```mermaid\nflowchart LR\nA --> --> B\n```\n";
+  const place = { ...first, topic: { ...first.topic, body } };
+  const shown = async () => {
+    const until = Date.now() + 2000;
+    while (!page.querySelector(".topic-diagram-notice") && Date.now() < until)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+  };
+  renderTopicPage(page, place, md, { settled: false, changed: false });
+  await shown();
+  assert.match(
+    page.querySelector(".topic-diagram-notice")?.textContent ?? "",
+    /could not be drawn/,
+  );
+  assert.ok(page.querySelector('.file-bar [data-act="settle"]'), "it can still be settled");
+  renderTopicPage(page, place, md, { settled: true, changed: false });
+  await shown();
+  assert.equal(page.querySelector(".file-bar .fb-state")?.textContent, "Settled");
+  assert.equal(
+    page.querySelector(".topic-diagram pre code")?.textContent,
+    "flowchart LR\nA --> --> B\n",
+  );
 });
