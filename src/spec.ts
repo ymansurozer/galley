@@ -119,6 +119,10 @@ await yields exactly one:
   a Send/ReviewResult except openQuestions below. Slow answer → post \`galley status\` lines so the
   human sees progress.
 - {"kind":"review","result":{…ReviewResult…}} — reviewer clicked Send. Act on result.
+  A sent review survives a desk stop and is delivered once after the restart, in Send order,
+  to the next waiting agent. Reviews already handed to an agent are not replayed.
+  If the desk crashes between handing over a review and recording delivery, it may replay it.
+  Live question events are not kept across stops; unanswered questions still ride in the next Send.
 
 ### Question handling — lane + intent
 This rule applies to live questions AND openQuestions folded into a sent review:

@@ -1004,12 +1004,12 @@ function reviewFileName(state: ReviewState) {
   return `${state.createdAt.replace(/[:.]/g, "-")}-${state.id}.json`;
 }
 
-// Merge the reviewer-owned slice posted to /api/save onto the live state. Only these
-// fields are mutated from the browser; everything else (rawDiff, files, changes, guide,
-// desk metadata) stays server-authoritative. We pick each key from whatever body arrives
-// and replace wholesale (snapshot semantics, latest wins) — a key absent from the body is
-// left untouched. Picking (rather than Object.assign) is what lets a stale open tab keep
-// working: it may POST the whole old ReviewState, and we simply ignore everything but these.
+// The reviewer-owned fields a full copy (mergeReviewerCopy) replaces. Only these fields are
+// mutated from the browser; everything else (rawDiff, files, changes, guide, desk metadata) stays
+// server-authoritative. Each key is picked from whatever body arrives and replaced wholesale — a
+// key absent from the body is left untouched. Picking (rather than Object.assign) is what lets a
+// stale open tab keep working: it may POST the whole old ReviewState, and we simply ignore
+// everything but these.
 const REVIEWER_SAVE_KEYS = [
   "decisions",
   "comments",
@@ -1045,17 +1045,115 @@ async function mergeStaleComments(desk: ReviewComment[], sent: ReviewComment[], 
   });
 }
 
+// Merge a reviewer save (/api/save, /api/send) onto the live state, raise the save number, and say
+// what the answer carries (types.ts, SaveAnswer). A body with `changes` carries what one tab
+// changed since the copy the desk confirmed with number `base` (applyReviewerChanges), and two tabs'
+// saves both land; any other body is a full copy from a tab opened before that (mergeReviewerCopy).
 // `desk`: the live desk's own stamp (types.ts, SaveStamp), to tell a save the tab made before the
 // latest `galley reload` or restart. Without one, every save counts as current. `priorDiff`: the
 // diff the desk held before that reload or restart, the one a tab that hasn't caught up is on.
+// `unplaced`: the save's verdicts could not be placed and differ from the desk's own, which it kept:
+// the reviewer made them and they were not carried over. `merged`: the desk's reviewer-owned fields,
+// for a tab whose copy was behind (other saves landed since `base`) and is on the current diff.
 export async function mergeReviewerSave(
   state: ReviewState,
   body: unknown,
   desk?: SaveStamp,
-  priorDiff?: Pick<ReviewState, "baseDiffHash" | "changes" | "files" | "stagedChangeKeys">,
-) {
-  if (!body || typeof body !== "object") return;
+  priorDiff?: PriorDiff,
+): Promise<{ unplaced: boolean; saveNumber: number; merged?: ReviewerSave }> {
+  const latest = state.saveNumber ?? 0;
+  if (!body || typeof body !== "object") return { unplaced: false, saveNumber: latest };
   const incoming = body as Record<string, unknown>;
+  const changes = carriesChanges(incoming);
+  const unplaced = changes
+    ? await applyReviewerChanges(state, incoming, desk, priorDiff)
+    : await mergeReviewerCopy(state, incoming, desk, priorDiff);
+  state.saveNumber = latest + 1;
+  const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
+  const behind = changes && incoming.base !== latest && seen?.baseDiffHash === state.baseDiffHash;
+  return {
+    unplaced,
+    saveNumber: state.saveNumber,
+    ...(behind && { merged: structuredClone(reviewerFields(state)) }),
+  };
+}
+
+// A comment posted to the desk directly (/api/comment). The reviewer's raises the save number as a
+// save does, so idle tabs read it with the review (ReviewRead); the agent's rides the poll, which
+// adds the agent's comments only.
+export function addPostedComment(state: ReviewState, comment: ReviewComment) {
+  state.comments.push(comment);
+  if (comment.role === "user") state.saveNumber = (state.saveNumber ?? 0) + 1;
+}
+
+// A save body that carries changes (types.ts, ReviewerDelta), not a full copy. A tab from before
+// 0.6.2 posts its whole ReviewState, whose `changes` is the diff's block list, so only an object
+// counts.
+export const carriesChanges = (body: object) => {
+  const changes = (body as { changes?: unknown }).changes;
+  return !!changes && typeof changes === "object" && !Array.isArray(changes);
+};
+
+type PriorDiff = Pick<ReviewState, "baseDiffHash" | "changes" | "files" | "stagedChangeKeys">;
+
+// The reviewer-owned fields as the desk holds them, every one present: what a merged answer carries.
+export const reviewerFields = (state: ReviewState): ReviewerSave => ({
+  decisions: state.decisions ?? [],
+  comments: state.comments,
+  reviewedFiles: state.reviewedFiles,
+  reviewedFileHashes: state.reviewedFileHashes ?? {},
+  signedOffBlocks: state.signedOffBlocks ?? {},
+  decisionFiles: state.decisionFiles ?? [],
+  annotations: state.annotations ?? [],
+  lastAnnotationNumber: state.lastAnnotationNumber ?? 0,
+});
+
+// Whether a save was made before the desk's latest reload or restart, which reset every
+// annotation's placement: its placements are older than the desk's.
+const madeBeforeReload = (seen: Partial<SaveStamp> | null | undefined, desk?: SaveStamp) =>
+  !!desk && (seen?.token !== desk.token || seen?.reloadGeneration !== desk.reloadGeneration);
+
+// What the desk owns on an annotation a save sends whole (`a`), kept from its own copy (`prev`).
+function keepDeskOwned(a: UiAnnotationRecord, prev: UiAnnotationRecord, beforeReload: boolean) {
+  // Whether an annotation's screenshots are stored is the server's to say (the upload that
+  // completes the pair sets it), so it carries over by id, whatever the tab sent.
+  if (prev.screenshots) a.screenshots = true;
+  else delete a.screenshots;
+  // Intent belongs to creation; only a requested capture can record a later failure.
+  // A stale tab cannot erase that failure or invent capture history for a legacy annotation.
+  if (prev.screenshotCapture !== "requested" || a.screenshotCapture !== "failed") {
+    if (prev.screenshotCapture) a.screenshotCapture = prev.screenshotCapture;
+    else delete a.screenshotCapture;
+  }
+  // A save from before the latest reload carries placements that reload reset.
+  if (beforeReload) a.placement = prev.placement;
+  // An agent reply (`galley comment --ui`) lands here between the tab's polls, so a save from a
+  // tab that hasn't seen it yet lacks it. The tab can't delete an agent message, so every one
+  // the save lacks is kept, at the end of its thread.
+  const have = new Set(a.comments.map((m) => m.id));
+  a.comments.push(...prev.comments.filter((m) => m.role === "agent" && !have.has(m.id)));
+}
+
+// The number mark only goes up: past the stored mark, a stale tab's lower one, and every number
+// in use, so a deleted annotation's number is never handed out again.
+function raiseAnnotationMark(state: ReviewState, sent: unknown) {
+  const last = Math.max(
+    state.lastAnnotationNumber ?? 0,
+    Number.isSafeInteger(sent) ? (sent as number) : 0,
+    ...(state.annotations ?? []).map((a) => a.number),
+  );
+  if (last) state.lastAnnotationNumber = last;
+}
+
+// A full copy of the reviewer-owned fields, as tabs from before saves carried changes post it.
+// Answers whether the save's verdicts were unplaced.
+async function mergeReviewerCopy(
+  state: ReviewState,
+  incoming: Record<string, unknown>,
+  desk?: SaveStamp,
+  priorDiff?: PriorDiff,
+): Promise<boolean> {
+  let unplaced = false;
   const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
   const stale = typeof seen?.baseDiffHash === "string" && seen.baseDiffHash !== state.baseDiffHash;
   // Comments anchor by their line's text, not by block, so a save's from any older diff merge
@@ -1076,8 +1174,7 @@ export async function mergeReviewerSave(
     const value = key === "comments" ? comments : incoming[key];
     if (value !== undefined) (state as Record<string, unknown>)[key] = value;
   }
-  const beforeReload =
-    !!desk && (seen?.token !== desk.token || seen?.reloadGeneration !== desk.reloadGeneration);
+  const beforeReload = madeBeforeReload(seen, desk);
   // The tab adopts a reloaded diff only once no save is draining and no composer is open (poll.ts),
   // so a save can carry decisions keyed to the blocks of an older diff. Its reload count can't tell:
   // the tab takes that from every poll, the diff only when it adopts it. Decisions made on the diff
@@ -1099,7 +1196,12 @@ export async function mergeReviewerSave(
           prior,
         );
       signOffCoveredFiles(state);
-    } else Object.assign(state, deskVerdicts);
+    } else {
+      unplaced = Object.entries(deskVerdicts).some(
+        ([key, own]) => key in incoming && canonical(incoming[key]) !== canonical(own),
+      );
+      Object.assign(state, deskVerdicts);
+    }
   }
   // An agent reply (`galley comment`) lands between the tab's polls, so a save from a tab that
   // hasn't seen it yet lacks it. The tab can't delete an agent message, so every one the save
@@ -1115,35 +1217,268 @@ export async function mergeReviewerSave(
     const stored = new Map(state.annotations?.map((a) => [a.id, a]));
     for (const a of annotations) {
       const prev = stored.get(a.id);
-      if (!prev) continue;
-      // Whether an annotation's screenshots are stored is the server's to say (the upload that
-      // completes the pair sets it), so it carries over by id, whatever the tab sent.
-      if (prev.screenshots) a.screenshots = true;
-      // Intent belongs to creation; only a requested capture can record a later failure.
-      // A stale tab cannot erase that failure or invent capture history for a legacy annotation.
-      if (prev.screenshotCapture !== "requested" || a.screenshotCapture !== "failed") {
-        if (prev.screenshotCapture) a.screenshotCapture = prev.screenshotCapture;
-        else delete a.screenshotCapture;
-      }
-      // A save from before the latest reload carries placements that reload reset.
-      if (beforeReload) a.placement = prev.placement;
-      // An agent reply (`galley comment --ui`) lands here between the tab's polls, so a save from a
-      // tab that hasn't seen it yet lacks it. The tab can't delete an agent message, so every one
-      // the save lacks is kept, at the end of its thread.
-      const have = new Set(a.comments.map((m) => m.id));
-      a.comments.push(...prev.comments.filter((m) => m.role === "agent" && !have.has(m.id)));
+      if (prev) keepDeskOwned(a, prev, beforeReload);
     }
     state.annotations = annotations;
   }
-  // The number mark only goes up: past the stored mark, a stale tab's lower one, and every number
-  // in use, so a deleted annotation's number is never handed out again.
-  const sent = incoming.lastAnnotationNumber;
-  const last = Math.max(
-    state.lastAnnotationNumber ?? 0,
-    Number.isSafeInteger(sent) ? (sent as number) : 0,
-    ...(state.annotations ?? []).map((a) => a.number),
+  raiseAnnotationMark(state, incoming.lastAnnotationNumber);
+  return unplaced;
+}
+
+// The changes a save carries (types.ts, ReviewerChanges), read off the body. Records of the wrong
+// shape are dropped; annotations are validated and capped as a full copy's are (uiannotations.ts).
+type Keyed<T> = { changed: T[]; removed: string[] };
+const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
+const isString = (v: unknown): v is string => typeof v === "string";
+function readKeyed<T>(value: unknown, read: (records: unknown[]) => T[]): Keyed<T> | undefined {
+  if (!isObject(value)) return undefined;
+  return {
+    changed: Array.isArray(value.changed) ? read(value.changed) : [],
+    removed: Array.isArray(value.removed) ? value.removed.filter(isString) : [],
+  };
+}
+type FileSignOff = { path: string; hash?: string };
+type BlockSignOff = { key: string; hash: string };
+type Verdicts = {
+  decisions?: Keyed<Decision>;
+  fileSignOffs?: Keyed<FileSignOff>;
+  signedOffBlocks?: Keyed<BlockSignOff>;
+  decisionFiles?: Keyed<string>;
+};
+function readChanges(value: unknown, app: string | undefined) {
+  const c = isObject(value) ? value : {};
+  const verdicts: Verdicts = {
+    decisions: readKeyed(c.decisions, (rs) =>
+      rs.filter(
+        (r): r is Decision =>
+          isObject(r) &&
+          isString(r.key) &&
+          isString(r.path) &&
+          (r.status === "accepted" || r.status === "rejected"),
+      ),
+    ),
+    fileSignOffs: readKeyed(c.fileSignOffs, (rs) =>
+      rs.flatMap((r) =>
+        isObject(r) && isString(r.path)
+          ? [isString(r.hash) ? { path: r.path, hash: r.hash } : { path: r.path }]
+          : [],
+      ),
+    ),
+    signedOffBlocks: readKeyed(c.signedOffBlocks, (rs) =>
+      rs.flatMap((r) =>
+        isObject(r) && isString(r.key) && isString(r.hash) ? [{ key: r.key, hash: r.hash }] : [],
+      ),
+    ),
+    decisionFiles: readKeyed(c.decisionFiles, (rs) => rs.filter(isString)),
+  };
+  const placements = new Set<unknown>(["placed", "unplaced", "unvisited"]);
+  return {
+    verdicts,
+    comments: readKeyed(c.comments, (rs) =>
+      rs.filter((r): r is ReviewComment => isObject(r) && isString(r.id) && isString(r.path)),
+    ),
+    annotations: readKeyed(c.annotations, (rs) => readUiAnnotations(rs, app) ?? []),
+    reports: (Array.isArray(c.annotationReports) ? c.annotationReports : []).flatMap((r) =>
+      isObject(r) && isString(r.id)
+        ? [
+            {
+              id: r.id,
+              placement: placements.has(r.placement)
+                ? (r.placement as UiAnnotationRecord["placement"])
+                : undefined,
+              failed: r.screenshotCapture === "failed",
+            },
+          ]
+        : [],
+    ),
+    lastAnnotationNumber: c.lastAnnotationNumber,
+  };
+}
+
+// A changed record takes the place of the one with its key, or joins the end; a removed key goes,
+// and one the list doesn't hold is ignored. The same changes applied twice leave what once does.
+function applyKeyed<T>(list: readonly T[], changes: Keyed<T>, key: (record: T) => string): T[] {
+  const gone = new Set(changes.removed);
+  const changed = new Map(changes.changed.map((r) => [key(r), r]));
+  const out = list.filter((r) => !gone.has(key(r))).map((r) => changed.get(key(r)) ?? r);
+  const have = new Set(out.map(key));
+  for (const r of changed.values()) if (!have.has(key(r))) out.push(r);
+  return out;
+}
+
+// The verdict fields as keyed records, and back: a file sign-off is reviewedFiles and its
+// reviewedFileHashes entry as one record, a block sign-off one signedOffBlocks entry.
+type VerdictFields = Pick<
+  ReviewState,
+  "decisions" | "reviewedFiles" | "reviewedFileHashes" | "signedOffBlocks" | "decisionFiles"
+>;
+const fileSignOffsOf = (s: VerdictFields): FileSignOff[] =>
+  s.reviewedFiles.map((p) => {
+    const hash = s.reviewedFileHashes?.[p];
+    return hash === undefined ? { path: p } : { path: p, hash };
+  });
+const blockSignOffsOf = (s: VerdictFields): BlockSignOff[] =>
+  Object.entries(s.signedOffBlocks ?? {}).map(([key, hash]) => ({ key, hash }));
+function applyVerdicts(s: VerdictFields, v: Verdicts) {
+  if (v.decisions) s.decisions = applyKeyed(s.decisions ?? [], v.decisions, (d) => d.key);
+  if (v.fileSignOffs) {
+    const signed = applyKeyed(fileSignOffsOf(s), v.fileSignOffs, (f) => f.path);
+    const hashes = { ...s.reviewedFileHashes };
+    for (const p of v.fileSignOffs.removed) delete hashes[p];
+    for (const f of v.fileSignOffs.changed)
+      if (f.hash === undefined) delete hashes[f.path];
+      else hashes[f.path] = f.hash;
+    s.reviewedFiles = signed.map((f) => f.path);
+    s.reviewedFileHashes = hashes;
+  }
+  if (v.signedOffBlocks)
+    s.signedOffBlocks = Object.fromEntries(
+      applyKeyed(blockSignOffsOf(s), v.signedOffBlocks, (b) => b.key).map((b) => [b.key, b.hash]),
+    );
+  if (v.decisionFiles)
+    s.decisionFiles = applyKeyed(s.decisionFiles ?? [], v.decisionFiles, (p) => p);
+}
+const verdictsKey = (s: VerdictFields) =>
+  canonical([s.decisions ?? [], fileSignOffsOf(s), blockSignOffsOf(s), s.decisionFiles ?? []]);
+
+// Verdict changes made on the diff before the desk's current one (`prior`), carried onto it as a
+// reload carries the desk's own (carryDecisions, carrySignOffs): only the changed records. A
+// removed key goes where its block went, found by content as a record is (recordBlocks), under a
+// renamed file's new path. One whose block has no home on the current diff is dropped: whatever
+// sits under its key now (a block rewritten in place, decided since) is not what was withdrawn, as
+// carryDecisions drops a changed record on the same collision.
+function carryVerdicts(state: ReviewState, v: Verdicts, prior: PriorDiff): Verdicts {
+  const renames = renamesIn(state.files);
+  const movedPath = (p: string) => renames.get(p) ?? p;
+  const blocksBefore = priorBlocks(prior, renames);
+  const movedKeys = (keys: string[]) => {
+    const migrated = keys.map((key) => {
+      for (const [oldP, newP] of renames)
+        if (key.startsWith(`${oldP}:`)) return `${newP}:${key.slice(oldP.length + 1)}`;
+      return key;
+    });
+    const homes = recordBlocks(
+      state,
+      migrated.map((key) => ({ key, hash: blocksBefore.get(key)?.hash })),
+      blocksBefore,
+    );
+    return migrated.flatMap((key) => homes.get(key) ?? []);
+  };
+  // carryDecisions restamps the blocks it is given; the desk's own are restamped from the merged
+  // decisions once they're applied.
+  const blocks = { files: state.files, changes: state.changes.map((c) => ({ ...c })) };
+  return {
+    decisions: v.decisions && {
+      changed: carryDecisions(blocks, v.decisions.changed, prior),
+      removed: movedKeys(v.decisions.removed),
+    },
+    signedOffBlocks: v.signedOffBlocks && {
+      changed: Object.entries(
+        carrySignOffs(
+          state,
+          Object.fromEntries(v.signedOffBlocks.changed.map((b) => [b.key, b.hash])),
+          prior,
+        ),
+      ).map(([key, hash]) => ({ key, hash })),
+      removed: movedKeys(v.signedOffBlocks.removed),
+    },
+    fileSignOffs: v.fileSignOffs && {
+      changed: v.fileSignOffs.changed.map((f) => ({ ...f, path: movedPath(f.path) })),
+      removed: v.fileSignOffs.removed.map(movedPath),
+    },
+    decisionFiles: v.decisionFiles && {
+      changed: v.decisionFiles.changed.map(movedPath),
+      removed: v.decisionFiles.removed.map(movedPath),
+    },
+  };
+}
+
+// What one tab changed since its confirmed copy, applied onto the desk's current review: a changed
+// record replaces the desk's with its key (the later save wins), a removed key goes, and every
+// record the tab didn't touch, another tab's work included, stays as the desk has it. Everything a
+// full copy's merge protects holds here too (mergeReviewerCopy): the agent's messages are never
+// removed, an annotation's screenshots, capture state and pre-reload placement stay the desk's,
+// comments from an older diff are re-anchored, and verdicts from the diff before the current one
+// are carried by content, while those from anything older are dropped (answering whether any
+// dropped one differed from the desk's own). Records are applied whole and keyed, so the same
+// save applied twice (a retry of one whose answer was lost) leaves what applying it once does.
+async function applyReviewerChanges(
+  state: ReviewState,
+  incoming: Record<string, unknown>,
+  desk?: SaveStamp,
+  priorDiff?: PriorDiff,
+): Promise<boolean> {
+  let unplaced = false;
+  const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
+  const stale = typeof seen?.baseDiffHash === "string" && seen.baseDiffHash !== state.baseDiffHash;
+  const beforeReload = madeBeforeReload(seen, desk);
+  const c = readChanges(incoming.changes, state.ui?.target);
+  if (c.comments) {
+    const changed = stale
+      ? await mergeStaleComments(state.comments, c.comments.changed, state)
+      : c.comments.changed;
+    const agent = new Set(state.comments.filter((m) => m.role === "agent").map((m) => m.id));
+    state.comments = applyKeyed(
+      state.comments,
+      { changed, removed: c.comments.removed.filter((id) => !agent.has(id)) },
+      (m) => m.id,
+    );
+  }
+  if (!stale) applyVerdicts(state, c.verdicts);
+  else if (seen?.baseDiffHash === priorDiff?.baseDiffHash && priorDiff) {
+    applyVerdicts(state, carryVerdicts(state, c.verdicts, priorDiff));
+    signOffCoveredFiles(state);
+  } else {
+    const would: VerdictFields = structuredClone({
+      decisions: state.decisions,
+      reviewedFiles: state.reviewedFiles,
+      reviewedFileHashes: state.reviewedFileHashes,
+      signedOffBlocks: state.signedOffBlocks,
+      decisionFiles: state.decisionFiles,
+    });
+    applyVerdicts(would, c.verdicts);
+    unplaced = verdictsKey(would) !== verdictsKey(state);
+  }
+  if (c.verdicts.decisions) stampDecisions(state);
+  if (c.annotations) {
+    const stored = new Map(state.annotations?.map((a) => [a.id, a]));
+    for (const a of c.annotations.changed) {
+      const prev = stored.get(a.id);
+      if (prev) keepDeskOwned(a, prev, beforeReload);
+    }
+    state.annotations = applyKeyed(state.annotations ?? [], c.annotations, (a) => a.id);
+  }
+  // What the page reported by itself changes only those fields of the desk's own record.
+  for (const report of c.reports) {
+    const a = state.annotations?.find((x) => x.id === report.id);
+    if (!a) continue;
+    if (report.placement && !beforeReload) a.placement = report.placement;
+    if (report.failed && a.screenshotCapture === "requested" && !a.screenshots)
+      a.screenshotCapture = "failed";
+  }
+  raiseAnnotationMark(state, c.lastAnnotationNumber);
+  return unplaced;
+}
+
+// Each block's status and reviewed hash from its decision record, the source of truth: pending
+// where it has none.
+function stampDecisions(state: ReviewState) {
+  const byKey = new Map((state.decisions ?? []).map((d) => [d.key, d]));
+  for (const c of state.changes) {
+    const d = byKey.get(`${c.path}:${c.stableKey}`);
+    c.status = d?.status ?? "pending";
+    if (d?.reviewedHash) c.reviewedHash = d.reviewedHash;
+    else delete c.reviewedHash;
+  }
+}
+
+// JSON with object keys sorted, so the same records compare equal whatever order a tab wrote them.
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
   );
-  if (last) state.lastAnnotationNumber = last;
 }
 
 // Write via a same-directory temp file + rename so a desk killed mid-write never leaves a truncated
@@ -1725,6 +2060,7 @@ export async function mergeReviewState(
     ...base,
     id: saved.id,
     createdAt: saved.createdAt,
+    saveNumber: saved.saveNumber,
     comments: await carryComments(saved.comments, base),
     reviewedFiles,
     reviewedFileHashes,

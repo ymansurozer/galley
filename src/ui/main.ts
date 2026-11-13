@@ -5,11 +5,12 @@ import {
   D,
   $,
   api,
+  confirmDesk,
+  onDeskMerge,
   openEditorAt,
   persist,
   persistPrefs,
   runToastAction,
-  saveStamp,
   toast,
 } from "./store";
 import { loadDiffLib } from "./difflib";
@@ -23,7 +24,7 @@ import {
   flowIndex,
 } from "./changes";
 import { agentPresence, deskSubtitle, deskTitle, unansweredAsks } from "./topbar-derive";
-import { toggleSignOff } from "./decisions";
+import { resetWholeReview, toggleSignOff } from "./decisions";
 import { installBlockers } from "./blockers";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
@@ -31,8 +32,9 @@ import { toggleSkimGroup } from "./skim";
 import { resetFolds } from "./fold";
 import { render, deferRender } from "./render";
 import { cur, prefetchContents } from "./contents";
+import { send, sendCancel, sendConfirm } from "./send";
+import { deskReachMessage, deskRestartCommand, installReach } from "./reach";
 import { adoptDeskStatus, pollState } from "./poll";
-import { reviewerSlice } from "./save";
 import { defaultFileView, isMarkdownPath } from "./mdfile";
 import { applyAppearance, DEFAULT_SETTINGS } from "./settings";
 import { setMarkdownTheme } from "./markdown";
@@ -77,8 +79,6 @@ import {
   closeShot,
   installUiLane,
   pagePins,
-  screenshotsInFlight,
-  screenshotsSettled,
   selectAnnotation,
   setAppMode,
   shotSrc,
@@ -88,7 +88,6 @@ import {
   unplacedPins,
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
-import { updateAwaitingDom } from "./annotations";
 import { openRequest, requestRows } from "./requests";
 import { uuid } from "./uuid";
 import type { Step } from "./steps";
@@ -427,6 +426,7 @@ const openSendModal = (msg: string, lanes: Store["sendLanes"], notSent = "") => 
   S.sendNotSent = notSent;
   S.sendLanes = lanes;
   S.sendNote = "";
+  S.sendFailed = false;
   S.sendOpen = true;
   setTimeout(() => $("sendNote")?.focus(), 0); // after Alpine shows it (mirrors the composer)
 };
@@ -455,31 +455,11 @@ S.promptFinish = () => {
 // glance at what's about to go before the one-way handoff. (The button used to call send()
 // directly with no confirm at all, which made accidental sends too easy.)
 S.confirmSend = () => openReceipt("You're about to send your review", "Send to the agent?");
-// Confirm the Send modal: the typed note (trimmed; empty → omitted) rides along as the one-time
-// overall instruction. Cancel leaves the review untouched. New annotations' screenshots still being
-// captured or uploaded go too if they land within SHOTS_WAIT_MS, while the dialog says so; past
-// it, those annotations go without them, as when a capture fails.
-const SHOTS_WAIT_MS = 15_000;
-let sendWait = 0;
-S.sendConfirm = async () => {
-  if (S.sendFinishing) return;
-  const note = S.sendNote.trim();
-  if (screenshotsInFlight()) {
-    const wait = ++sendWait;
-    S.sendFinishing = true;
-    await screenshotsSettled(SHOTS_WAIT_MS);
-    // Cancelled while it waited, and maybe confirmed again since.
-    if (wait !== sendWait || !S.sendFinishing) return;
-    S.sendFinishing = false;
-  }
-  S.sendOpen = false;
-  S.send?.(note);
-};
-S.sendCancel = () => {
-  S.sendOpen = false;
-  S.sendNote = "";
-  S.sendFinishing = false;
-};
+S.sendConfirm = sendConfirm;
+S.sendCancel = sendCancel;
+// The banner while the desk can't take the tab's changes (reach.ts).
+S.reachMessage = deskReachMessage;
+S.restartCommand = deskRestartCommand;
 // Walkthrough sidebar tab: categories + files in guide order (plus the "Other" trailer).
 S.walkthroughRows = walkthroughRows;
 S.isMarkdownFile = () => {
@@ -561,31 +541,8 @@ const submitComment = (intent: "question" | "action") => {
 S.saveComment = () => submitComment("action"); // editing Save + the `c` shortcut default
 S.ask = () => submitComment("question");
 S.requestChange = () => submitComment("action");
-S.reset = async () => {
-  const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" });
-  if (r.state) {
-    S.state = r.state;
-    D.fileDiff = D.rawFileDiff = null;
-    render();
-  }
-};
-S.send = async (overallNote = "") => {
-  // Post only the reviewer-owned slice — never the whole (multi-MB) ReviewState. Big desks
-  // used to cross the server's body cap on Send and 500 ("Could not send review") while the
-  // slice-only auto-saves kept succeeding; the server merges this slice and builds the
-  // result from its own authoritative state. overallNote is a one-time instruction for the
-  // whole review; the server reads it off the body and never persists it (see /api/send).
-  const r = await api<{ sent?: boolean }>("/api/send", {
-    method: "POST",
-    body: JSON.stringify({ ...reviewerSlice(S.state), seen: saveStamp(), overallNote }),
-  });
-  if (r && r.sent) {
-    S.awaitingAgent = true;
-    S.undeliveredAsks.clear(); // the questions went with the review
-    // The change requests went with it: their held bands go now, not on the next poll.
-    updateAwaitingDom();
-  } else toast("Could not send review");
-};
+S.reset = resetWholeReview;
+S.send = send;
 
 // The UI lane: the Code / UI switch and the chrome bar over the proxied app (appview.ts).
 S.hasUi = hasUi;
@@ -635,6 +592,9 @@ if (prefs?.diffStyle === "split" || prefs?.diffStyle === "unified") S.diffStyle 
 applyAppearance(S.settings); // font + size before first paint
 setMarkdownTheme(S.settings.theme);
 S.state = adoptDeskStatus(state);
+confirmDesk(S.state);
+// A save's answer that brought another tab's work replaced the reviewer-owned fields (store.ts).
+onDeskMerge(() => void render());
 S.projectFiles = tree.files || [];
 S.lastBaseDiffHash = S.state.baseDiffHash;
 refreshBaseTitle();
@@ -656,6 +616,7 @@ if (hasGuide()) {
 installAppView();
 installUiLane();
 installCaptureDebug();
+installReach();
 syncView(); // a UI-only desk opens straight on the app
 void render().finally(firstRenderDone);
 // Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,

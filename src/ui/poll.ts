@@ -1,4 +1,21 @@
-import { S, D, api, toast, saver } from "./store";
+import {
+  S,
+  D,
+  agentRecords,
+  api,
+  confirmDesk,
+  confirmedMoved,
+  confirmedNumber,
+  noteAnswer,
+  postsOut,
+  toast,
+  saver,
+  takeDeskReview,
+  takenFromDesk,
+  unplacedShowing,
+} from "./store";
+import { copyOf } from "./review-delta-derive";
+import { refreshReach } from "./reach";
 import { render } from "./render";
 import { currentPartTitle, reseatStep } from "./guide";
 import { refreshBaseTitle, updateProgress } from "./progress";
@@ -7,7 +24,7 @@ import { adoptUiStatus, adoptUiTarget, applyPendingUiRefresh, syncView } from ".
 import { renderUiLane } from "./uilane";
 import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
 import { recordActivity } from "./thread-derive";
-import type { DeskStatus, PollPayload, ReviewState } from "./types";
+import type { DeskStatus, PollPayload, ReviewRead, ReviewState } from "./types";
 
 // Pull the transient DeskStatus fields off a server payload into the store and
 // return the rest. They must never enter S.state: persist() posts S.state back
@@ -68,7 +85,9 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
 
 // Only changes that can invalidate full-state work belong here. Presence, names and replies
 // keep arriving on lite polls while a large snapshot transfers; they must not starve adoption.
-function stateRevision(payload: PollPayload & Partial<DeskStatus>): string {
+function stateRevision(
+  payload: Pick<PollPayload, "ui" | "baseDiffHash" | "guide"> & Partial<DeskStatus>,
+): string {
   return JSON.stringify([
     payload.uiProxy ?? null,
     payload.ui ?? null,
@@ -89,14 +108,25 @@ let fullStateRequest: { revision: string } | undefined;
 let pollSequence = 0;
 let adoptedPoll = 0;
 export async function pollState() {
+  try {
+    await pollOnce();
+  } finally {
+    refreshReach();
+  }
+}
+async function pollOnce() {
   const sequence = ++pollSequence;
   // Transient status follows response sequence. Full-state work follows content revision:
   // another lite tick for the same revision neither cancels it nor starts a duplicate fetch.
   const superseded = () => sequence < adoptedPoll;
+  const moves = confirmedMoved();
   let lite: PollPayload | undefined;
   try {
     const payload = await api<PollPayload & DeskStatus>("/api/poll");
     if (payload && Array.isArray(payload.comments)) {
+      // The desk is back: a save it hasn't taken goes now, not when its backoff runs out.
+      noteAnswer();
+      saver.retryNow();
       if (superseded()) return;
       adoptedPoll = sequence;
       lite = adoptDeskStatus(payload);
@@ -120,12 +150,13 @@ export async function pollState() {
   if (diffChanged || guideChanged) {
     // The reload branch replaces S.state wholesale and re-renders, which would clobber local
     // decisions/comments not yet persisted and rebuild the diff DOM out from under an open
-    // composer (losing in-progress typing). Defer while a save is busy OR a composer is open —
-    // S.lastBaseDiffHash stays put, and the next tick re-detects the changed hash and adopts
-    // once the save has drained and the composer has closed. This only narrows a race that
-    // already existed (fire-and-forget persist could lose the same way). Scoping the composer
-    // guard here (not at the top) keeps liveness/presence and the additive agent-reply comment
-    // merge running every tick while a reply box is open, so the desk never looks dead.
+    // composer (losing in-progress typing). Defer while a save is busy (in flight, queued, or
+    // failed and not yet landed) OR a composer is open — S.lastBaseDiffHash stays put, and the
+    // next tick re-detects the changed hash and adopts once the save has landed and the composer
+    // has closed. The desk carries the landed save onto its new diff (mergeReviewerSave).
+    // Scoping the composer guard here (not at the top) keeps liveness/presence and the additive
+    // agent-reply comment merge running every tick while a reply box is open, so the desk never
+    // looks dead.
     if (diffChanged && (saver.isBusy() || S.composerOpen)) return;
     if (fullStateRequest?.revision === latestPoll!.revision) return;
     const request = { revision: latestPoll!.revision };
@@ -164,6 +195,9 @@ export async function pollState() {
     const ids = new Set(server.comments.map((c) => c.id));
     server.comments.push(...lite.comments.filter((c) => !ids.has(c.id)));
     mergeAgentReplies(server.annotations ?? [], lite.annotations ?? []);
+    // The desk's review is the tab's confirmed copy from here: the tab's own placements, kept
+    // over it below, are reports of the tab's (keepPlacements).
+    confirmDesk(server);
     S.lastBaseDiffHash = server.baseDiffHash;
     // Keep the reviewer on the same file across a reload. File order/membership can change (the
     // agent added, removed, or reordered files), so re-find the current path in the new list
@@ -191,7 +225,8 @@ export async function pollState() {
       })
       .catch(() => {});
     render();
-    toast("Diff updated");
+    // A save the desk couldn't place is why the tab took this review, and its notice says so.
+    if (!unplacedShowing()) toast("Diff updated");
     return;
   }
   // A reload can swap the guide without changing the diff (agent regenerated it) —
@@ -220,14 +255,60 @@ export async function pollState() {
     refreshBaseTitle();
     updateProgress();
   }
+  // A poll sent before the confirmed copy last moved, and numbered below it, read the desk before
+  // the review the tab now holds: an agent record it carries may be one a reset since removed. Its
+  // records are left; the next poll brings the ones still there. One sent after the copy moved is
+  // the desk as it is now, whatever its number: a desk whose number went back still delivers.
+  const behind = confirmedMoved() !== moves && (lite.saveNumber ?? 0) < confirmedNumber();
+  // Only the agent's: another tab's comments come with its save (pullReview), which waits on what
+  // this tab holds and on an open composer.
   const localIds = new Set(S.state.comments.map((c) => c.id));
-  const incoming = lite.comments.filter((c) => !localIds.has(c.id));
+  const incoming = behind
+    ? []
+    : lite.comments.filter((c) => c.role === "agent" && !localIds.has(c.id));
   S.state.comments.push(...incoming);
   // The agent's replies in UI annotation threads (`galley comment --ui`) join the same way; a save
   // from this tab before they arrive keeps them on the server (mergeReviewerSave).
-  const uiReplies = mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
+  const uiReplies = !behind && mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
+  // Both came from the desk, not the reviewer: no save sends them back as the tab's changes.
+  if (incoming.length || uiReplies)
+    takenFromDesk((review) => {
+      const have = new Set(review.comments.map((c) => c.id));
+      review.comments.push(...copyOf(incoming.filter((c) => !have.has(c.id))));
+      mergeAgentReplies(review.annotations ?? [], copyOf(lite.annotations ?? []));
+    });
   if (uiReplies || incoming.some((c) => c.role === "agent")) S.awaitingAgent = false;
   // render() redraws the UI lane too.
   if (incoming.length) render();
   else if (uiReplies) renderUiLane();
+  await pullReview(lite.saveNumber);
+}
+
+// Another tab's save landed: the desk's save number is past the tab's confirmed copy. A tab that
+// holds nothing unsaved reads the desk's reviewer-owned fields (/api/review, never the full state:
+// it carries every file's contents) and takes them in place, quietly, as the agent's replies come
+// in; the open file, part, cursor and scroll stay. A tab with unsaved work doesn't: its own save's
+// answer brings the merged review. An open composer holds it off too, so typing is never lost.
+// Anything that stops it leaves the number ahead, and the next poll tries again.
+let reviewRead = false;
+const mayTakeReview = () =>
+  !saver.isBusy() && !postsOut() && !S.composerOpen && S.lastBaseDiffHash === S.state.baseDiffHash;
+async function pullReview(saveNumber: number | undefined) {
+  if (saveNumber === undefined || saveNumber <= confirmedNumber()) return;
+  if (reviewRead || !mayTakeReview()) return;
+  const state = S.state;
+  const saveGeneration = saver.generation();
+  const held = agentRecords();
+  reviewRead = true;
+  try {
+    const read = await api<ReviewRead>("/api/review");
+    // The reviewer changed something, opened a composer, or the tab took a new diff meanwhile.
+    if (S.state !== state || saver.generation() !== saveGeneration || !mayTakeReview()) return;
+    if (!read?.review || typeof read.saveNumber !== "number") return;
+    if (takeDeskReview(read, held)) render();
+  } catch {
+    return;
+  } finally {
+    reviewRead = false;
+  }
 }

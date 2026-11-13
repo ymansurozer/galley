@@ -380,21 +380,24 @@ test("an explicit --port outside GALLEY_PORT_RANGE still keeps the UI proxy insi
   const { repo, home, cleanup } = await tempRepo(true);
   const free = await freePort();
   // A range whose top port is the proxy's preferred one, held: the proxy must wrap to lo rather
-  // than step past hi. The hash doesn't depend on lo, so search over the range's size.
+  // than step past hi. The preferred port is a hash of repo and session, so search over the
+  // session's name: one in four lands on top of a four-port range. (Searching over the range's
+  // size found none for about one temp repo in ten, whenever hash + 1 had no factor under 1000.)
   const lo = 20000 + Math.floor(Math.random() * 8000);
-  let hi = 0;
-  for (let size = 2; size < 1000 && !hi; size++)
-    if (stableUiPort(repo, "x", { lo, hi: lo + size - 1 }) === lo + size - 1) hi = lo + size - 1;
+  const hi = lo + 3;
+  let session = "";
+  for (let i = 0; i < 400 && !session; i++)
+    if (stableUiPort(repo, `s${i}`, { lo, hi }) === hi) session = `s${i}`;
   const holder = net.createServer();
-  const held = await new Promise<boolean>((resolve) => {
-    holder.once("error", () => resolve(false));
-    holder.listen(hi, "127.0.0.1", () => resolve(true));
-  });
-  assert.ok(hi && held, `held the proxy's preferred port ${hi}`);
   let child: ChildProcess | undefined;
   try {
+    const held = await new Promise<boolean>((resolve) => {
+      holder.once("error", () => resolve(false));
+      holder.listen(hi, "127.0.0.1", () => resolve(true));
+    });
+    assert.ok(session && held, `held the proxy's preferred port ${hi}`);
     const desk = await startDesk(
-      ["--ui", "localhost:5173", "--repo", repo, "--session", "x", "--port", String(free)],
+      ["--ui", "localhost:5173", "--repo", repo, "--session", session, "--port", String(free)],
       home,
       { GALLEY_PORT_RANGE: `${lo}-${hi}` },
     );

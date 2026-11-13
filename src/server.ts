@@ -27,11 +27,13 @@ import { createSerializer } from "./mutex.js";
 import { parseUiTarget, startUiProxy, tryListen } from "./proxy.js";
 import type { UiProxy } from "./proxy.js";
 import {
+  addPostedComment,
   anchorTextFor,
   buildReviewResult,
   buildReviewState,
   hash,
   inPortRange,
+  carriesChanges,
   mergeReviewerSave,
   mergeReviewState,
   parsedDiffOf,
@@ -45,6 +47,7 @@ import {
   resolveMovedFrom,
   resolveGuide,
   reviewDir,
+  reviewerFields,
   syncGitState,
   uiQuestionPayload,
   unvisitedAnnotations,
@@ -60,7 +63,9 @@ import type {
   IndexEntry,
   PollPayload,
   QuestionPayload,
+  ReviewRead,
   ReviewState,
+  SaveAnswer,
   SaveStamp,
   ThreadMessage,
 } from "./types.js";
@@ -159,6 +164,23 @@ function json(res: http.ServerResponse, status: number, body: unknown) {
 
 function fail(res: http.ServerResponse, status: number, code: string, error: string, fix: string) {
   json(res, status, { error, code, fix, docs: DOCS });
+}
+
+// A save or Send that carries changes names the save number they're relative to (types.ts,
+// ReviewerDelta): without it the desk can't tell what the tab's copy had, so the body is refused
+// rather than read as an old tab's full copy, which it isn't.
+function saveNumbered(body: unknown) {
+  if (!body || typeof body !== "object" || !carriesChanges(body)) return true;
+  return Number.isSafeInteger((body as { base?: unknown }).base);
+}
+function failUnnumbered(res: http.ServerResponse) {
+  fail(
+    res,
+    400,
+    "INVALID_SAVE",
+    "A save that carries changes must name the save number they are relative to (base).",
+    "Reload the review tab.",
+  );
 }
 
 // Wrap a bare IPv6 literal in brackets for use as a URL/authority host; leave names and IPv4
@@ -460,7 +482,44 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // tagged event stream — a "question" (reviewer clicked Ask, wants an answer now) or a
   // "review" (Send). Events hand to a parked waiter, else queue (FIFO) until one arms.
   const eventWaiters: Array<(ev: AwaitEvent) => void> = [];
-  const eventQueue: AwaitEvent[] = [];
+  type ReviewEvent = Extract<AwaitEvent, { kind: "review" }>;
+  // Separate from ReviewState: a result belongs to the agent, never to the polling tabs.
+  // The non-.json suffix also keeps loadLatestReview from treating this as a saved review.
+  const pendingFile = path.join(
+    await reviewDir(state.root, state.session),
+    "undelivered-reviews.queue",
+  );
+  let undelivered: ReviewEvent[] = [];
+  try {
+    const saved = JSON.parse(await fs.readFile(pendingFile, "utf8"));
+    if (
+      !Array.isArray(saved.reviews) ||
+      saved.reviews.some(
+        (ev: ReviewEvent) =>
+          !ev || ev.kind !== "review" || !ev.result || typeof ev.result !== "object",
+      )
+    )
+      throw new Error("invalid undelivered reviews");
+    undelivered = saved.reviews;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+      console.error(
+        `Galley: could not read undelivered reviews: ${String(error).replace(/[\r\n]+/g, " ")}`,
+      );
+  }
+  const eventQueue: AwaitEvent[] = [...undelivered];
+  const writeUndelivered = (reviews: ReviewEvent[]) =>
+    writeFileAtomic(pendingFile, JSON.stringify({ reviews }) + "\n");
+  // Hand over first, then retire the durable copy. A crash in between may replay a review,
+  // but cannot silently lose it. Share the Send serializer so retirements cannot undo appends.
+  const delivered = (ev: AwaitEvent) => {
+    if (ev.kind !== "review") return;
+    void serialize(async () => {
+      const remaining = undelivered.filter((review) => review !== ev);
+      await writeUndelivered(remaining);
+      undelivered = remaining;
+    }).catch((error) => console.error(`Galley: could not retire delivered review: ${error}`));
+  };
   const emitEvent = (ev: AwaitEvent) => {
     const waiter = eventWaiters.shift();
     if (waiter) waiter(ev);
@@ -590,7 +649,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       () => {
         if (activeRequests === 0 && Date.now() - lastActivity >= idleMs) {
           clearInterval(idleTimer); // one-shot: never re-fire while shutdown runs
-          shutdown("idle");
+          stop("idle");
         }
       },
       Math.min(60_000, Math.max(idleMs / 4, 10)),
@@ -613,6 +672,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // caller still sees the rejection and the outer handler turns it into a 500. (createSerializer
   // is unit-tested in mutex.test.ts; the ordering/non-poisoning guarantees live there.)
   const serialize = createSerializer();
+  // An orderly stop (`galley stop`, the idle timer) first lets every write queued before it land:
+  // a delivered review's retirement above all, or a restart hands the agent a review it already
+  // has. Only a kill skips it, and a crash's replay is what the contract allows (spec.ts).
+  const stop = (reason: "idle" | "stop") =>
+    void serialize(async () => {}).then(() => shutdown(reason));
 
   // Screenshots belong to their annotation: once a save or Send has dropped it, its files go too.
   const pruneScreenshots = (sessionDir: string) =>
@@ -673,7 +737,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // carries the contents of every file in the diff (>100 MB on a big monorepo PR),
         // and re-serializing it every tick pegged both the desk process and the tab.
         // Ship only what pollState diffs — hash, guide, comments, the names the title shows,
-        // liveness; the tab fetches /api/state exactly once per baseDiffHash change.
+        // liveness, the save number; the tab fetches /api/state exactly once per baseDiffHash
+        // change, and /api/review when another tab's save moved the number.
         const poll: PollPayload = {
           baseDiffHash: state.baseDiffHash,
           guide: state.guide,
@@ -682,8 +747,20 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           annotations: state.annotations,
           project: state.project,
           branch: state.branch,
+          saveNumber: state.saveNumber ?? 0,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
+      }
+      if (req.method === "GET" && url.pathname === "/api/review") {
+        // What an idle tab takes when another tab saved (types.ts, ReviewRead): the reviewer-owned
+        // fields only, git-free like the poll. A save applies its changes and raises the number with
+        // no I/O between, so a read here never sees one without the other.
+        const read: ReviewRead = {
+          saveNumber: state.saveNumber ?? 0,
+          baseDiffHash: state.baseDiffHash,
+          review: reviewerFields(state),
+        };
+        return json(res, 200, read);
       }
       if (req.method === "GET" && url.pathname === "/api/state") {
         await syncGitState(state);
@@ -692,7 +769,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (req.method === "POST" && url.pathname === "/api/shutdown") {
         // `galley stop`: exit after the response flushes so the caller gets its ack.
         // The process exit handler removes the desk lock.
-        res.on("finish", () => shutdown("stop"));
+        res.on("finish", () => stop("stop"));
         return json(res, 200, { ok: true, stopping: true });
       }
       // Display preferences, stored globally in ~/.galley/settings.json — the desk's
@@ -827,17 +904,27 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/save") {
-        // Merge only the reviewer-owned slice; the diff, file contents, changes, and desk
-        // metadata stay authoritative here. Pick from whatever body arrives so a stale open
-        // tab still posting the old full-state body keeps working (extra fields ignored).
+        // Merge only the reviewer's changes (or an old tab's full copy of the reviewer-owned
+        // slice); the diff, file contents, changes, and desk metadata stay authoritative here.
+        // A stale open tab still posting the old full-state body keeps working (extra fields
+        // ignored).
         return await serialize(async () => {
           const body: unknown = JSON.parse(await readBody(req));
+          if (!saveNumbered(body)) return failUnnumbered(res);
           const asked = askedQuestions();
-          await mergeReviewerSave(state, body, saveStamp(), priorDiff);
+          const { unplaced, saveNumber, merged } = await mergeReviewerSave(
+            state,
+            body,
+            saveStamp(),
+            priorDiff,
+          );
           withdrawQuestions(asked);
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
-          return json(res, 200, { ok: true, file });
+          const answer: SaveAnswer = { ok: true, file, saveNumber };
+          if (unplaced) answer.unplaced = true;
+          if (merged) answer.merged = merged;
+          return json(res, 200, answer);
         });
       }
       if (req.method === "POST" && url.pathname === "/api/send") {
@@ -846,10 +933,16 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           // overallNote is an ephemeral, per-Send instruction threaded straight into the result —
           // mergeReviewerSave never copies it onto `state`, so it is never persisted.
           const overallNote = typeof body.overallNote === "string" ? body.overallNote.trim() : "";
-          // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
-          // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
-          // full ReviewState keeps working because everything else in the body is ignored.
-          await mergeReviewerSave(state, body, saveStamp(), priorDiff);
+          // Merge only the reviewer's work (same contract as /api/save): the UI posts its changes
+          // with the note (types.ts, SendBody), and a stale open tab still posting the old full
+          // ReviewState keeps working because everything else in the body is ignored.
+          if (!saveNumbered(body)) return failUnnumbered(res);
+          const { unplaced, saveNumber, merged } = await mergeReviewerSave(
+            state,
+            body,
+            saveStamp(),
+            priorDiff,
+          );
           await syncGitState(state);
           const file = await persistReview(state);
           const sessionDir = path.dirname(file);
@@ -857,15 +950,31 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           const resultJson = path.join(sessionDir, `${state.id}-result.json`);
           const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
           await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
-          res.on("finish", () => {
+          const event: ReviewEvent = { kind: "review", result: payload };
+          const pending = [...undelivered, event];
+          await writeUndelivered(pending);
+          undelivered = pending;
+          // The review goes to the agent once the tab's answer is over, written or not: a tab
+          // that closed, dropped or gave up before it never sees "finish", only "close", and
+          // "close" has already passed when the tab left while the desk was still working.
+          let handed = false;
+          const handOver = () => {
+            if (handed) return;
+            handed = true;
             // Drop any still-queued questions: the review supersedes them (their unanswered ones
             // ride out in result.openQuestions), so stale question events never dribble in after
             // the round lands. This is also the invariant the await-send batch drain relies on.
             for (let i = eventQueue.length - 1; i >= 0; i--)
               if (eventQueue[i].kind === "question") eventQueue.splice(i, 1);
-            emitEvent({ kind: "review", result: payload });
-          });
-          return json(res, 200, { ok: true, sent: true, resultJson });
+            emitEvent(event);
+          };
+          res.once("close", handOver);
+          const answer: SaveAnswer = { ok: true, sent: true, resultJson, saveNumber };
+          if (unplaced) answer.unplaced = true;
+          if (merged) answer.merged = merged;
+          json(res, 200, answer);
+          if (res.closed) handOver();
+          return;
         });
       }
       if (req.method === "POST" && url.pathname === "/api/ask") {
@@ -971,7 +1080,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         const queued = eventQueue.shift();
         if (queued) {
           markAgentActive();
-          return json(res, 200, queued);
+          json(res, 200, queued);
+          delivered(queued);
+          return;
         }
         let settled = false;
         const waiter = (ev: AwaitEvent) => {
@@ -980,6 +1091,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           clearTimeout(timer);
           markAgentActive();
           json(res, 200, ev);
+          delivered(ev);
         };
         const drop = () => {
           const i = eventWaiters.indexOf(waiter);
@@ -1308,7 +1420,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             role: body.role === "user" ? ("user" as const) : ("agent" as const),
             anchorText: anchorTextFor(contents, side, lineNumber),
           };
-          state.comments.push(comment);
+          addPostedComment(state, comment);
           // The reply the reviewer was waiting on has landed — the "what I'm doing
           // now" line is obsolete the moment a real agent message exists.
           if (comment.role === "agent") {
@@ -1394,6 +1506,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           state.stagedChangeKeys = [];
           state.decisionFiles = [];
           state.decisions = [];
+          state.saveNumber = (state.saveNumber ?? 0) + 1;
           state.changes = state.changes.map((change) => ({
             ...change,
             status: "pending",

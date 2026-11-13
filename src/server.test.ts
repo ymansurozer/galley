@@ -1,5 +1,6 @@
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
+import { promises as fs, readFileSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -1263,6 +1264,61 @@ test("save from a stale full-state tab ignores server-owned fields in the body",
   });
 });
 
+test("a save or Send the desk can't place says so, keeps the desk's verdicts and lands its comments", async () => {
+  await withServer(async (handle, _root, st) => {
+    st.reviewedFiles = ["a.ts"];
+    const comment = (id: string) => ({
+      id,
+      role: "user",
+      path: "a.ts",
+      side: "additions",
+      lineNumber: 1,
+      body: id,
+      status: "open",
+      createdAt: "t",
+      updatedAt: "t",
+    });
+    // A tab two diffs back: the desk remembers no diff it was made on.
+    const old = { token: null, reloadGeneration: 0, baseDiffHash: "two diffs back" };
+    const saved = await post(handle.url, "api/save", {
+      reviewedFiles: [],
+      comments: [comment("held")],
+      seen: old,
+    }).then((r) => r.json());
+    assert.equal(saved.ok, true);
+    assert.equal(saved.unplaced, true);
+    assert.deepEqual(st.reviewedFiles, ["a.ts"], "the desk keeps its own sign-off");
+    assert.deepEqual(
+      st.comments.map((c) => c.id),
+      ["held"],
+      "the save's comments still land",
+    );
+    // The same verdicts the desk holds are nothing lost.
+    const same = await post(handle.url, "api/save", {
+      reviewedFiles: ["a.ts"],
+      comments: [comment("held")],
+      seen: old,
+    }).then((r) => r.json());
+    assert.equal(same.unplaced, undefined);
+    // A save on the desk's own diff is taken as sent.
+    const current = await post(handle.url, "api/save", {
+      reviewedFiles: [],
+      seen: { ...old, baseDiffHash: st.baseDiffHash },
+    }).then((r) => r.json());
+    assert.equal(current.unplaced, undefined);
+    assert.deepEqual(st.reviewedFiles, []);
+    const sent = await post(handle.url, "api/send", {
+      reviewedFiles: ["a.ts"],
+      comments: [comment("held"), comment("with the send")],
+      seen: old,
+    }).then((r) => r.json());
+    assert.equal(sent.sent, true);
+    assert.equal(sent.unplaced, true);
+    assert.deepEqual(st.reviewedFiles, []);
+    assert.equal(st.comments.length, 2);
+  });
+});
+
 test("/api/stage: paths[] stages a move pair as a rename; legacy {path} still works (issue 02)", async () => {
   await withServer(async (handle, root, st) => {
     const g = (args: string[]) => execFileSync("git", args, { cwd: root }).toString();
@@ -1982,6 +2038,45 @@ test("POST /api/shutdown acks then triggers shutdown with reason stop", async ()
   );
 });
 
+test("a stop waits until a review the agent received is off the undelivered file", async (t) => {
+  // Slow disk: hold the write that retires the delivered review until the stop has been asked.
+  const rename = fs.rename;
+  let hold: Promise<void> | undefined;
+  let release!: () => void;
+  let retiring!: () => void;
+  const retirement = new Promise<void>((resolve) => (retiring = resolve));
+  t.mock.method(fs, "rename", async (from: string, to: string) => {
+    if (hold && to.endsWith("undelivered-reviews.queue")) {
+      retiring();
+      await hold;
+    }
+    return rename(from, to);
+  });
+  let queuedAtStop: number | undefined;
+  let file = "";
+  await withServer(
+    async (handle, root, st) => {
+      file = path.join(await reviewDir(root, st.session), "undelivered-reviews.queue");
+      assert.equal((await post(handle.url, "api/send", { overallNote: "received" })).status, 200);
+      hold = new Promise<void>((resolve) => (release = resolve));
+      const event = await (await awaitEvent(handle.url)).json();
+      assert.equal(event.result.overallNote, "received");
+      await retirement;
+      assert.equal((await post(handle.url, "api/shutdown", {})).status, 200);
+      await sleep(20);
+      release();
+      for (let i = 0; i < 100 && queuedAtStop === undefined; i++) await sleep(5);
+      assert.equal(queuedAtStop, 0, "the received review was retired before the desk stopped");
+    },
+    {
+      idleTimeoutMs: 0,
+      onShutdown: () => {
+        queuedAtStop = JSON.parse(readFileSync(file, "utf8")).reviews.length;
+      },
+    },
+  );
+});
+
 test("idle timeout shuts the desk down when nothing is connected", async () => {
   const reasons: string[] = [];
   await withServer(
@@ -2019,6 +2114,8 @@ test("an in-flight await-send long-poll pins the desk past the idle timeout", as
       await closed;
       // The same checker must still exit once the request no longer pins the desk.
       t.mock.timers.tick(50);
+      // An orderly stop lets queued writes land first, so it runs a turn later.
+      await new Promise((resolve) => setImmediate(resolve));
       assert.deepEqual(reasons, ["idle"]);
     },
     { idleTimeoutMs: 50, onShutdown: (reason) => reasons.push(reason) },
@@ -2964,4 +3061,298 @@ test("/api/reload after only an untracked add moves the poll's baseDiffHash and 
     await rm(root, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });
   }
+});
+
+test("sent reviews survive stop in order, outside tab state, and drain once", async () => {
+  await withServer(
+    async (first, root, st) => {
+      for (const overallNote of ["first review", "second review"]) {
+        assert.equal((await post(first.url, "api/send", { overallNote })).status, 200);
+      }
+      const dir = await reviewDir(root, st.session);
+      const pending = JSON.parse(
+        await readFile(path.join(dir, "undelivered-reviews.queue"), "utf8"),
+      );
+      assert.deepEqual(
+        pending.reviews.map((e: { result: ReviewResult }) => e.result.overallNote),
+        ["first review", "second review"],
+      );
+      assert.equal((await getState(first.url)).queuedReviews, 2);
+      const saved = await loadLatestReview(root, st.session);
+      assert.equal(saved?.root, root);
+      for (const value of [saved, await getState(first.url)]) {
+        assert.ok(
+          !JSON.stringify(value).includes("first review"),
+          "results never enter review state",
+        );
+      }
+      await post(first.url, "api/reset", {});
+      assert.equal((await getState(first.url)).queuedReviews, 2, "reset preserves sent reviews");
+      await post(first.url, "api/ask", {
+        path: "a.ts",
+        body: "live only",
+        lineNumber: 1,
+        side: "new",
+      });
+      assert.equal((await getState(first.url)).queuedQuestions, 1);
+      await agentPost(first.url, "api/shutdown", {});
+      await new Promise<void>((resolve) => first.server.close(() => resolve()));
+      const second = await startServer({ state: st, open: false });
+      try {
+        assert.equal((await getState(second.url)).queuedReviews, 2);
+        assert.equal(
+          (await getState(second.url)).queuedQuestions,
+          0,
+          "live questions are not restored",
+        );
+        for (const note of ["first review", "second review"]) {
+          const event = await (await awaitEvent(second.url)).json();
+          assert.equal(event.kind, "review");
+          assert.equal(event.result.overallNote, note);
+        }
+        assert.equal((await awaitEvent(second.url, "?timeout=0.02")).status, 204);
+        assert.deepEqual(
+          JSON.parse(await readFile(path.join(dir, "undelivered-reviews.queue"), "utf8")).reviews,
+          [],
+        );
+      } finally {
+        await new Promise<void>((resolve) => second.server.close(() => resolve()));
+      }
+      const third = await startServer({ state: st, open: false });
+      try {
+        assert.equal((await getState(third.url)).queuedReviews, 0);
+        assert.equal((await awaitEvent(third.url, "?timeout=0.02")).status, 204);
+      } finally {
+        third.server.close();
+      }
+    },
+    { onShutdown: () => {} },
+  );
+});
+
+test("a parked agent receives a review that is retired before the next start", async () => {
+  await withServer(async (first, root, st) => {
+    const waiting = awaitEvent(first.url);
+    for (let i = 0; i < 100 && !(await getState(first.url)).agentListening; i++) await sleep(5);
+    assert.equal((await getState(first.url)).agentListening, true);
+    assert.equal(
+      (await post(first.url, "api/send", { overallNote: "delivered live" })).status,
+      200,
+    );
+    const event = await (await waiting).json();
+    assert.equal(event.result.overallNote, "delivered live");
+    await post(first.url, "api/save", {}); // wait for serialized delivery retirement
+    const dir = await reviewDir(root, st.session);
+    assert.deepEqual(
+      JSON.parse(await readFile(path.join(dir, "undelivered-reviews.queue"), "utf8")).reviews,
+      [],
+    );
+    await new Promise<void>((resolve) => first.server.close(() => resolve()));
+    const next = await startServer({ state: st, open: false });
+    try {
+      assert.equal((await awaitEvent(next.url, "?timeout=0.02")).status, 204);
+    } finally {
+      next.server.close();
+    }
+  });
+});
+
+test("a Send whose tab is gone before its answer still reaches the waiting agent, once", async () => {
+  await withServer(async (handle, root, st) => {
+    const waiting = awaitEvent(handle.url, "?timeout=2");
+    for (let i = 0; i < 100 && !(await getState(handle.url)).agentListening; i++) await sleep(5);
+    // The tab's connection drops once the desk has read the Send, before the desk answers it.
+    handle.server.once("request", (req) => req.once("end", () => req.socket.destroy()));
+    await post(handle.url, "api/send", { overallNote: "tab closed" }).catch(() => {});
+    const event = await waiting;
+    assert.equal(event.status, 200, "the waiting agent got the review");
+    assert.equal(
+      ((await event.json()) as { result: ReviewResult }).result.overallNote,
+      "tab closed",
+    );
+    assert.equal((await getState(handle.url)).queuedReviews, 0, "handed over, not queued");
+    assert.equal((await awaitEvent(handle.url, "?timeout=0.05")).status, 204, "delivered once");
+    await post(handle.url, "api/save", {}); // wait for serialized delivery retirement
+    const dir = await reviewDir(root, st.session);
+    assert.deepEqual(
+      JSON.parse(await readFile(path.join(dir, "undelivered-reviews.queue"), "utf8")).reviews,
+      [],
+    );
+  });
+});
+
+test("an unreadable review queue logs once and starts empty; it cannot be loaded as review state", async (t) => {
+  await withServer(async (first, root, st) => {
+    await new Promise<void>((resolve) => first.server.close(() => resolve()));
+    const file = path.join(await reviewDir(root, st.session), "undelivered-reviews.queue");
+    await writeFile(file, JSON.stringify({ reviews: [{ kind: "review", result: { root } }] }));
+    assert.equal(await loadLatestReview(root, st.session), null);
+    for (const contents of ["broken json", JSON.stringify({ reviews: [null] })]) {
+      await writeFile(file, contents);
+      const stderr = t.mock.method(console, "error", () => {});
+      const next = await startServer({ state: st, open: false });
+      try {
+        assert.equal((await getState(next.url)).queuedReviews, 0);
+        assert.equal(stderr.mock.calls.length, 1);
+        assert.match(
+          String(stderr.mock.calls[0]!.arguments[0]),
+          /could not read undelivered reviews/,
+        );
+      } finally {
+        await new Promise<void>((resolve) => next.server.close(() => resolve()));
+        stderr.mock.restore();
+      }
+    }
+  });
+});
+
+test("Send fails when its durable review queue cannot be written", async () => {
+  await withServer(async (handle, root, st) => {
+    const dir = await reviewDir(root, st.session);
+    await mkdir(path.join(dir, "undelivered-reviews.queue"));
+    assert.equal((await post(handle.url, "api/send", { overallNote: "not sent" })).status, 500);
+    assert.equal((await getState(handle.url)).queuedReviews, 0);
+    assert.equal((await awaitEvent(handle.url, "?timeout=0.02")).status, 204);
+  });
+});
+
+test("a save's answer carries the new save number, and the merged review when the tab was behind", async () => {
+  await withServer(async (handle, _root, st) => {
+    const seen = { token: null, reloadGeneration: 0, baseDiffHash: st.baseDiffHash };
+    const signOff = (path: string) => ({
+      fileSignOffs: { changed: [{ path, hash: "H" }], removed: [] },
+    });
+    // Tab A, on the desk's latest copy (0), signs off a.ts.
+    const a = await post(handle.url, "api/save", { base: 0, changes: signOff("a.ts"), seen });
+    const first = await a.json();
+    assert.equal(first.saveNumber, 1);
+    assert.equal(first.merged, undefined, "nothing landed since A's copy");
+    // Tab B, still on copy 0, signs off b.ts: both land, and B gets the merged review back.
+    const second = await post(handle.url, "api/save", {
+      base: 0,
+      changes: signOff("b.ts"),
+      seen,
+    }).then((r) => r.json());
+    assert.equal(second.saveNumber, 2);
+    assert.deepEqual(second.merged.reviewedFiles, ["a.ts", "b.ts"]);
+    assert.deepEqual(st.reviewedFiles, ["a.ts", "b.ts"]);
+    assert.equal((await getState(handle.url)).saveNumber, 2, "the state the tab reads carries it");
+    // A Send uses the same contract, with its note.
+    const sent = await post(handle.url, "api/send", {
+      base: 1,
+      changes: { fileSignOffs: { changed: [], removed: ["a.ts"] } },
+      seen,
+      overallNote: "Thanks",
+    }).then((r) => r.json());
+    assert.equal(sent.sent, true);
+    assert.equal(sent.saveNumber, 3);
+    assert.deepEqual(sent.merged.reviewedFiles, ["b.ts"]);
+    // An old tab's full copy still lands, and counts.
+    const copy = await post(handle.url, "api/save", { reviewedFiles: ["c.ts"] }).then((r) =>
+      r.json(),
+    );
+    assert.equal(copy.saveNumber, 4);
+    assert.deepEqual(st.reviewedFiles, ["c.ts"]);
+    // A reset is applied too (PR mode: this root has no index for it to restore).
+    st.mode = "pr";
+    const reset = await post(handle.url, "api/reset", {}).then((r) => r.json());
+    assert.equal(reset.state.saveNumber, 5);
+  });
+});
+
+test("a save with changes but no save number is refused, and the desk is untouched", async () => {
+  await withServer(async (handle, _root, st) => {
+    const res = await post(handle.url, "api/save", {
+      changes: { fileSignOffs: { changed: [{ path: "a.ts" }], removed: [] } },
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).code, "INVALID_SAVE");
+    assert.deepEqual(st.reviewedFiles, []);
+    assert.equal(st.saveNumber, undefined);
+  });
+});
+
+test("the save number continues from the stored one after the desk restarts", async () => {
+  await withServer(async (first, root, st) => {
+    const seen = { token: null, reloadGeneration: 0, baseDiffHash: st.baseDiffHash };
+    for (const base of [0, 1])
+      await post(first.url, "api/save", {
+        base,
+        changes: { comments: { changed: [], removed: [] } },
+        seen,
+      });
+    await new Promise<void>((resolve) => first.server.close(() => resolve()));
+    const saved = await loadLatestReview(root, st.session);
+    const second = await startServer({ state: saved!, open: false });
+    try {
+      const answer = await post(second.url, "api/save", {
+        base: 2,
+        changes: { fileSignOffs: { changed: [{ path: "a.ts", hash: "H" }], removed: [] } },
+        seen,
+      }).then((r) => r.json());
+      assert.equal(answer.saveNumber, 3);
+    } finally {
+      second.server.close();
+    }
+  });
+});
+
+test("the poll carries the save number, and /api/review the reviewer-owned fields it belongs to", async () => {
+  await withServer(async (handle, _root, st) => {
+    st.rawDiff = "HEAVY DIFF THAT MUST NOT RIDE THE READ";
+    const seen = { token: null, reloadGeneration: 0, baseDiffHash: st.baseDiffHash };
+    const poll = () => fetch(`${handle.url}api/poll`).then((r) => r.json());
+    assert.equal((await poll()).saveNumber, 0, "a review never saved is at 0");
+    await post(handle.url, "api/save", {
+      base: 0,
+      changes: { fileSignOffs: { changed: [{ path: "a.ts", hash: "H" }], removed: [] } },
+      seen,
+    });
+    await post(handle.url, "api/comment", { path: "a.ts", lineNumber: 1, body: "a reply" });
+    assert.equal((await poll()).saveNumber, 1);
+    const read = (await fetch(`${handle.url}api/review`).then((r) => r.json())) as Record<
+      string,
+      any
+    >;
+    assert.deepEqual(Object.keys(read).sort(), ["baseDiffHash", "review", "saveNumber"]);
+    assert.equal(read.saveNumber, 1);
+    assert.equal(read.baseDiffHash, st.baseDiffHash);
+    assert.deepEqual(Object.keys(read.review).sort(), [
+      "annotations",
+      "comments",
+      "decisionFiles",
+      "decisions",
+      "lastAnnotationNumber",
+      "reviewedFileHashes",
+      "reviewedFiles",
+      "signedOffBlocks",
+    ]);
+    assert.deepEqual(read.review.reviewedFiles, ["a.ts"]);
+    assert.deepEqual(read.review.reviewedFileHashes, { "a.ts": "H" });
+    assert.equal(read.review.comments.length, 1, "the agent's reply is the desk's too");
+    const wire = JSON.stringify(read);
+    assert.ok(!wire.includes("HEAVY DIFF"), "the raw diff stays off the read");
+    assert.ok(!wire.includes("newContents") && !wire.includes("hunks"), "no file contents");
+  });
+});
+
+test("a reviewer comment through /api/comment raises the save number; an agent's leaves it", async () => {
+  await withServer(async (handle) => {
+    const poll = async () =>
+      ((await fetch(`${handle.url}api/poll`).then((r) => r.json())) as { saveNumber: number })
+        .saveNumber;
+    assert.equal(await poll(), 0);
+    await post(handle.url, "api/comment", { path: "a.ts", lineNumber: 1, body: "a reply" });
+    assert.equal(await poll(), 0, "the agent's reply rides the poll, not the save number");
+    await post(handle.url, "api/comment", {
+      path: "a.ts",
+      lineNumber: 1,
+      body: "the reviewer's",
+      role: "user",
+    });
+    assert.equal(await poll(), 1, "idle tabs read the reviewer's comment");
+    const read = await fetch(`${handle.url}api/review`).then((r) => r.json());
+    assert.equal(read.saveNumber, 1);
+    assert.equal(read.review.comments.length, 2);
+  });
 });

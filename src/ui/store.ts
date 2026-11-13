@@ -1,7 +1,25 @@
 import Alpine from "alpinejs";
-import type { DiffHolder, SaveStamp, Store } from "./types";
+import type {
+  DiffHolder,
+  ReviewRead,
+  ReviewState,
+  ReviewerDelta,
+  ReviewerSave,
+  SaveAnswer,
+  SaveStamp,
+  Store,
+} from "./types";
 import { loadSettings } from "./settings";
 import { createSaver, reviewerSlice } from "./save";
+import {
+  applyReviewerChanges,
+  copyOf,
+  noChanges,
+  reviewerChanges,
+  stampDecisions,
+  unionChanges,
+} from "./review-delta-derive";
+import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
 
 // Single reactive source of truth: the imperative diff island mutates it directly,
 // and the Alpine-driven chrome (tree, toolbar, composer, modals, toast) renders from it.
@@ -49,6 +67,9 @@ export const S: Store = Alpine.reactive<Store>({
   sendNotSent: "",
   sendNote: "",
   sendFinishing: false,
+  sending: false,
+  sendFailed: false,
+  reach: null,
   overviewOpen: false,
   sidebarTab: "tree",
   requestsOpen: false,
@@ -110,16 +131,23 @@ export function hide(e: Element) {
 }
 let toastTimer: ReturnType<typeof setTimeout>;
 let toastRun: (() => void) | null = null;
-// An action toast ("Reset review · Undo") stays up long enough to reach its button. The next toast
-// replaces it, action and all, so an action never outlives the moment it answers. A toast that
-// names a shortcut passes it as keys, drawn as keycaps after the text.
-export function toast(t: string, action?: { label: string; run: () => void }, keys = "") {
+// An action toast ("Reset review · Undo") stays up long enough to reach its button, as does a
+// message too long to read in the default time (`ms`). The next toast replaces it, action and all,
+// so an action never outlives the moment it answers. A toast that names a shortcut passes it as
+// keys, drawn as keycaps after the text.
+const LONG_TOAST_MS = 6000;
+export function toast(
+  t: string,
+  action?: { label: string; run: () => void },
+  keys = "",
+  ms = action ? LONG_TOAST_MS : 2800,
+) {
   S.toastMsg = t;
   S.toastKeys = keys;
   S.toastAction = action?.label ?? "";
   toastRun = action?.run ?? null;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(clearToast, action ? 6000 : 2800);
+  toastTimer = setTimeout(clearToast, ms);
 }
 function clearToast() {
   S.toastMsg = S.toastAction = S.toastKeys = "";
@@ -155,12 +183,258 @@ export const saveStamp = (): SaveStamp => ({
   reloadGeneration: S.reloadGeneration,
   baseDiffHash: S.state.baseDiffHash,
 });
-// Post only the reviewer-owned slice (see reviewerSlice in save.ts) — never the whole
-// (multi-MB) ReviewState. Saves coalesce so rapid approvals don't saturate connections.
-export const saver = createSaver(
-  () => ({ ...reviewerSlice(S.state), seen: saveStamp() }),
-  (payload) => api("/api/save", { method: "POST", body: JSON.stringify(payload) }),
-);
+// The last time the desk answered this tab at all (a poll, a save, an error answer included): what
+// tells an unreachable desk from one that answers but can't save (reach-derive.ts).
+let lastAnswerAt = Date.now();
+export const noteAnswer = () => {
+  lastAnswerAt = Date.now();
+};
+export const lastAnswer = () => lastAnswerAt;
+// The desk kept its own verdicts over a save or Send made on a diff it can no longer place them on
+// (types.ts, SaveAnswer). The tab takes the desk's review on the next poll, as it would anyway; the
+// notice says so, and that adoption leaves it up rather than replacing it with "Diff updated".
+const UNPLACED_MS = 10_000;
+let unplacedUntil = 0;
+export const unplacedShowing = () => Date.now() < unplacedUntil;
+export function noteUnplaced(answer: Partial<SaveAnswer> | null) {
+  if (!answer?.unplaced) return;
+  unplacedUntil = Date.now() + UNPLACED_MS;
+  toast(
+    "Decisions and sign-offs made on an older diff couldn't be carried over. Comments were saved; the desk's review is shown.",
+    undefined,
+    "",
+    UNPLACED_MS,
+  );
+}
+// Post the reviewer's work (a save, a Send, a reset) to the desk: its answer, or null when none came.
+// A request can hang with no error (a network gone under a sleeping laptop) until the browser
+// gives it up, minutes later; the saver would sit in flight and send nothing again meanwhile. So
+// an attempt that hasn't answered within ATTEMPT_MS is given up as unanswered. A late duplicate of
+// a save is harmless: the desk applies its changes by key, so twice leaves what once does.
+const ATTEMPT_MS = 25_000;
+export async function postToDesk<Answer = Partial<SaveAnswer>>(
+  path: "/api/save" | "/api/send" | "/api/reset",
+  payload: unknown,
+): Promise<{ ok: boolean; answer: Answer | null } | null> {
+  const abort = new AbortController();
+  const limit = setTimeout(() => abort.abort(), ATTEMPT_MS);
+  try {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: abort.signal,
+    });
+    noteAnswer();
+    const answer = (await res.json().catch(() => null)) as Answer | null;
+    return { ok: res.ok, answer };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(limit);
+  }
+}
+
+// The reviewer-owned fields as the desk last confirmed them, with their save number and the diff
+// they're keyed to. A save sends what the tab changed since this copy (types.ts, ReviewerChanges),
+// worked out when it is sent, so a save retried after an outage carries everything since. Until
+// the boot sets it, it is empty: a save then sends every record as changed.
+type Confirmed = { saveNumber: number; review: ReviewerSave; diff: string };
+let confirmed: Confirmed = {
+  saveNumber: 0,
+  review: { comments: [], reviewedFiles: [] },
+  diff: "",
+};
+// How many times the confirmed copy has moved: a poll sent before it last moved can carry a review
+// older than the copy (poll.ts).
+let confirmedMoves = 0;
+const confirm = (next: Confirmed) => {
+  confirmed = next;
+  confirmedMoves++;
+};
+export const confirmedMoved = () => confirmedMoves;
+// The tab took the desk's review whole: at boot, a new diff's, a reset's.
+export function confirmDesk(state: ReviewState) {
+  doubtful.clear();
+  confirm({
+    saveNumber: state.saveNumber ?? 0,
+    review: copyOf(reviewerSlice(state)),
+    diff: state.baseDiffHash,
+  });
+}
+// What a save or Send is out with: the copy its changes were taken from, kept until it answers,
+// and the doubtful copies (below) its changes cover.
+type Outgoing = { body: ReviewerDelta; sent: ReviewerSave; diff: string; covers: Doubt[] };
+const outgoing = new Set<Outgoing>();
+// The copies saves and Sends went out with that got no successful answer: an error answer can come
+// after the desk applied the save, and a request given up or lost may have reached it. The desk may
+// hold any of their records, so the confirmed copy alone can't tell what to correct: a comment only
+// a doubtful save carried, deleted since, is in neither the confirmed copy nor the tab. Until a
+// later save or Send lands, or the tab takes the desk's review whole, a save also carries the
+// difference from each of them, so every key one touched is told the tab's current truth. A light
+// read settles them too: the tab holds nothing unsaved then, and after it the tab is the desk.
+// Each is held in a box, so a merged answer can rebase it (landed) and the saves covering it still
+// find it.
+type Doubt = { copy: ReviewerSave };
+const doubtful = new Set<Doubt>();
+// Retries through an outage go out with the same copy every few seconds: one kept copy stands for
+// them all, so the copies grow with the reviewer's edits, not with the outage's length.
+function keepDoubtful(sent: ReviewerSave) {
+  for (const { copy } of doubtful)
+    if (noChanges(reviewerChanges(copy, sent)) && noChanges(reviewerChanges(sent, copy))) return;
+  doubtful.add({ copy: sent });
+}
+// The save number of the confirmed copy: the poll reads the desk's review (/api/review) once the
+// desk's is past it.
+export const confirmedNumber = () => confirmed.saveNumber;
+// A save or Send is out, its answer not in yet.
+export const postsOut = () => outgoing.size > 0;
+// Another tab's save landed and this tab, holding nothing unsaved, read the desk's review: it
+// becomes the tab's reviewer-owned fields and the confirmed copy, with each block's status from its
+// decision. The tab's own placements are kept over the desk's, as a new diff's adoption keeps them,
+// and go out as its reports. A read for another diff, or no newer than the copy, is not taken.
+// The agent's replies a newer poll brought in while the read was out (they move no save number)
+// stay: the read takes them, so the confirmed copy holds them too and no save sends them back. Only
+// those: an agent record the tab held when the read went out (`held`, agentRecords) and the read
+// lacks is gone on the desk (a reset), and goes.
+export function takeDeskReview(read: ReviewRead, held: ReadonlySet<string>): boolean {
+  if (read.baseDiffHash !== S.state.baseDiffHash) return false;
+  if (confirmed.diff === read.baseDiffHash && read.saveNumber <= confirmed.saveNumber) return false;
+  const arrived = (m: { id: string; role?: string }) => m.role === "agent" && !held.has(m.id);
+  const have = new Set(read.review.comments.map((c) => c.id));
+  read.review.comments.push(...S.state.comments.filter((c) => arrived(c) && !have.has(c.id)));
+  mergeAgentReplies(
+    read.review.annotations ?? [],
+    (S.state.annotations ?? []).map((a) => ({ ...a, comments: a.comments.filter(arrived) })),
+  );
+  confirm({ saveNumber: read.saveNumber, review: copyOf(read.review), diff: read.baseDiffHash });
+  doubtful.clear();
+  keepPlacements(read.review.annotations ?? [], S.state.annotations ?? []);
+  Object.assign(S.state, read.review);
+  stampDecisions(S.state.changes, S.state.decisions ?? []);
+  return true;
+}
+// The ids of the agent's records the tab holds: its comments, and its messages in annotation threads.
+export const agentRecords = (): Set<string> =>
+  new Set(
+    [...S.state.comments, ...(S.state.annotations ?? []).flatMap((a) => a.comments)]
+      .filter((m) => m.role === "agent")
+      .map((m) => m.id),
+  );
+// The tab took records from the desk outside a save's answer (an agent reply off the poll, the
+// placements a reload reset): `take` applies them to the confirmed copy and to every copy a save is
+// out with, as it did to the tab's own. They're the desk's, and no save sends them back as the
+// reviewer's.
+export function takenFromDesk(take: (review: ReviewerSave) => void) {
+  take(confirmed.review);
+  for (const out of outgoing) take(out.sent);
+  for (const doubt of doubtful) take(doubt.copy);
+}
+function dispatch(): Outgoing {
+  const sent = copyOf(reviewerSlice(S.state));
+  const covers = [...doubtful];
+  const body = {
+    base: confirmed.saveNumber,
+    changes: unionChanges(
+      [confirmed.review, ...covers.map((d) => d.copy)].map((base) => reviewerChanges(base, sent)),
+    ),
+    seen: saveStamp(),
+  };
+  return { body, sent, diff: S.state.baseDiffHash, covers };
+}
+// A save or Send landed (or had nothing to send): the doubtful copies it covered are settled.
+const settle = (out: Outgoing) => {
+  for (const doubt of out.covers) doubtful.delete(doubt);
+};
+// Set by main.ts: redraw once a save's answer replaced the tab's reviewer-owned fields.
+let redraw = () => {};
+export const onDeskMerge = (run: () => void) => {
+  redraw = run;
+};
+// A save or Send landed: what it sent is what the desk has now confirmed. When other saves landed
+// before it, the answer carries the desk's merged review: the tab takes it and puts back over it
+// whatever the reviewer changed since the save was sent. An answer from before the copy the tab
+// holds (a Send and a save out at once), or for a diff the tab has since left, changes nothing.
+function landed(out: Outgoing, answer: Partial<SaveAnswer>) {
+  const number = answer.saveNumber ?? confirmed.saveNumber;
+  if (S.state.baseDiffHash !== out.diff) return;
+  if (confirmed.diff === out.diff && number < confirmed.saveNumber) return;
+  if (!answer.merged) {
+    confirm({ saveNumber: number, review: out.sent, diff: out.diff });
+    return;
+  }
+  const since = reviewerChanges(out.sent, reviewerSlice(S.state));
+  confirm({ saveNumber: number, review: copyOf(answer.merged), diff: out.diff });
+  Object.assign(S.state, applyReviewerChanges(answer.merged, since));
+  // What the merged review brought in is the desk's, as a poll's records are (takenFromDesk): every
+  // other copy still out takes it under the reviewer's own changes, from that copy's send to this
+  // one's, so no later answer counts it as the reviewer's and puts it back over a newer desk record.
+  // So does every doubtful copy this save didn't cover.
+  for (const other of outgoing)
+    if (other !== out)
+      other.sent = applyReviewerChanges(answer.merged, reviewerChanges(out.sent, other.sent));
+  for (const doubt of doubtful)
+    doubt.copy = applyReviewerChanges(answer.merged, reviewerChanges(out.sent, doubt.copy));
+  stampDecisions(S.state.changes, S.state.decisions ?? []);
+  redraw();
+}
+// Post a save or Send carrying the reviewer's changes: the desk's answer, or null when none came,
+// and the confirmed copy moved on when it landed (`landedIf` says what landing takes).
+async function postChanges(
+  out: Outgoing,
+  path: "/api/save" | "/api/send",
+  extra: Record<string, unknown>,
+  landedIf: (answer: Partial<SaveAnswer>) => boolean,
+) {
+  outgoing.add(out);
+  try {
+    const reply = await postToDesk(path, { ...out.body, ...extra });
+    if (reply?.ok && reply.answer && landedIf(reply.answer)) {
+      settle(out);
+      landed(out, reply.answer);
+    } else keepDoubtful(out.sent);
+    return reply;
+  } finally {
+    outgoing.delete(out);
+  }
+}
+// Send takes the same changes as a save, with the note, and always posts (send.ts).
+export const postSend = (overallNote: string) =>
+  postChanges(dispatch(), "/api/send", { overallNote }, (answer) => answer.sent === true);
+// A reset of the whole review is out (decisions.ts, resetWholeReview): a save due meanwhile waits
+// until the tab has taken its answer, then works out its changes from the review the reset left.
+let resetOut: Promise<void> | undefined;
+// Only the call that set the hold releases it.
+export async function holdSaves(run: () => Promise<void>) {
+  const held = run();
+  const hold = held.catch(() => {});
+  resetOut = hold;
+  try {
+    await held;
+  } finally {
+    if (resetOut === hold) resetOut = undefined;
+  }
+}
+// A save has landed only on a 2xx answer whose body says ok; anything else, no answer included,
+// leaves it unsaved and the saver retries (save.ts). Nothing changed since the confirmed copy and the
+// doubtful ones sends nothing, and has landed.
+async function postSave(out: Outgoing): Promise<boolean> {
+  if (resetOut) {
+    while (resetOut) await resetOut;
+    out = dispatch();
+  }
+  if (noChanges(out.body.changes)) {
+    settle(out);
+    return true;
+  }
+  const reply = await postChanges(out, "/api/save", {}, (answer) => answer.ok === true);
+  if (!reply?.ok || reply.answer?.ok !== true) return false;
+  noteUnplaced(reply.answer);
+  return true;
+}
+// Saves coalesce so rapid approvals don't saturate connections; each attempt works out its changes
+// as it goes out (save.ts calls dispatch at send time).
+export const saver = createSaver(dispatch, postSave);
 // Instant auto-save: there is no manual Save button, so every state mutation
 // (decision, comment, stage/unstage, approval) MUST call persist() to write the
 // review to ~/.galley/<repoHash>/<session>/. Saves coalesce (see save.ts): at most one

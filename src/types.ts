@@ -275,14 +275,19 @@ export type ReviewState = {
   // The highest number ever given to an annotation, deleted ones included, so a number is never
   // reused: the agent never meets two different #3s. Only a review reset starts it over.
   lastAnnotationNumber?: number;
+  // Raised by every save, Send and reset the desk applies, and by a reviewer comment posted to it
+  // directly (/api/comment), and persisted with the review, so a restarted desk never hands out a
+  // number a tab has already seen. A tab's save names the number
+  // its changes are relative to (ReviewerDelta). Absent on reviews saved before it existed: 0.
+  saveNumber?: number;
   persistFile?: string;
 };
 
-// The reviewer-owned slice the browser posts to /api/save. Only these fields are mutated
-// from the tab; everything else on ReviewState (rawDiff, file contents, changes, guide,
-// mode params, hashes) is server/agent-owned and stays authoritative on the server — so
-// the save wire carries this slice instead of the whole (multi-MB) state. The server
-// replaces exactly these fields (snapshot semantics, latest wins) and touches nothing else.
+// The reviewer-owned slice: the only fields mutated from the tab. Everything else on ReviewState
+// (rawDiff, file contents, changes, guide, mode params, hashes) is server/agent-owned and stays
+// authoritative on the server, so a save carries what changed in these fields (ReviewerChanges),
+// never the whole (multi-MB) state. A tab from before that posts this slice whole, and the server
+// replaces exactly these fields and touches nothing else.
 // decisionFiles rides along because it's reviewer-mutated and gates the per-file Reset
 // button on reload; stagedFiles/stagedChangeKeys deliberately do NOT — they're maintained
 // server-side by /api/stage, /api/unstage, /api/restage, and syncGitState.
@@ -311,6 +316,64 @@ export type IndexEntry = { mode: string; oid: string } | null;
 // desk carries a save made on an older diff onto its own (mergeReviewerSave). The desk's own stamp
 // leaves it out, as does a tab from before it existed.
 export type SaveStamp = { token: string | null; reloadGeneration: number; baseDiffHash?: string };
+
+// The desk's answer to a save (/api/save); Send's (/api/send) carries `sent` and `resultJson` in
+// place of `file`. A save has landed only on a 2xx answer whose `ok` is true. `unplaced`: the save
+// was made on a diff older than the one before the desk's current one, so the desk could not place
+// its decisions and sign-offs and kept its own (mergeReviewerSave); its comments still landed.
+// `saveNumber`: the desk's number once it applied this save (ReviewState.saveNumber). `merged`: the
+// desk's reviewer-owned fields after the merge, when the save's `base` was not the desk's latest
+// number, so other saves landed since the tab's copy, and the tab is on the desk's current diff.
+// A tab on an older diff gets none: they're keyed to a diff it doesn't have.
+export type SaveAnswer = {
+  ok: true;
+  file?: string;
+  sent?: true;
+  resultJson?: string;
+  unplaced?: true;
+  saveNumber?: number;
+  merged?: ReviewerSave;
+};
+
+// One reviewer-owned collection's difference: the records changed or added since the tab's
+// confirmed copy, each sent whole, and the keys of those removed.
+export type KeyedChanges<T> = { changed: T[]; removed: string[] };
+
+// What the page reported about an annotation by itself, with no action from the reviewer: where it
+// found it, and that its screenshot capture failed. Sent apart from the whole record, so a report
+// from a tab that is behind never replaces another tab's edit of the same annotation.
+export type AnnotationReport = {
+  id: string;
+  placement?: UiPlacement;
+  screenshotCapture?: "failed";
+};
+
+// What a tab changed since the copy of the reviewer-owned fields the desk last confirmed. A
+// collection the tab didn't touch is left out. Keys: a decision's `key`, a comment's and an
+// annotation's `id`, a block sign-off's `path:stableKey`, a file sign-off's and a decided file's
+// path. A file sign-off is reviewedFiles and its reviewedFileHashes entry as one record.
+export type ReviewerChanges = {
+  decisions?: KeyedChanges<Decision>;
+  comments?: KeyedChanges<ReviewComment>;
+  fileSignOffs?: KeyedChanges<{ path: string; hash?: string }>;
+  signedOffBlocks?: KeyedChanges<{ key: string; hash: string }>;
+  decisionFiles?: KeyedChanges<string>;
+  annotations?: KeyedChanges<UiAnnotationRecord>;
+  annotationReports?: AnnotationReport[];
+  // Only goes up: the desk keeps the highest it has seen.
+  lastAnnotationNumber?: number;
+};
+
+// The body of a save (/api/save): the changes since the tab's confirmed copy, and that copy's
+// save number. A body with no `changes` is a full copy from a tab opened before saves carried
+// changes (ReviewerSave and its stamp), and the desk takes it as it always did.
+export type ReviewerDelta = {
+  base: number;
+  changes: ReviewerChanges;
+  seen: SaveStamp;
+};
+// Send's body (/api/send): the same, with the reviewer's one-time note.
+export type SendBody = ReviewerDelta & { overallNote: string };
 
 // Transient desk-liveness fields injected into the /api/state response alongside
 // ReviewState. Deliberately NOT on ReviewState: anything on state is persisted by
@@ -614,10 +677,17 @@ export type FileContentsPayload = {
 // never ride the poll; the tab fetches /api/state exactly once per baseDiffHash change and diffs
 // guide/comments off this slice in between. DeskStatus is merged into the response alongside these.
 // `ui` rides along so `galley ui` on a live desk reaches the open tab without a diff change.
+// `saveNumber` is the desk's (0 on a review never saved): ahead of the tab's confirmed copy, another
+// tab's save landed, and an idle tab reads the review it brought from /api/review (ReviewRead).
 export type PollPayload = Pick<
   ReviewState,
   "baseDiffHash" | "guide" | "comments" | "ui" | "annotations" | "project" | "branch"
->;
+> & { saveNumber: number };
+
+// The desk's reviewer-owned fields, the save number they're at, and the diff they're keyed to
+// (GET /api/review). What an idle tab takes when another tab's save landed: never the full state,
+// which carries every file's contents.
+export type ReviewRead = { saveNumber: number; baseDiffHash: string; review: ReviewerSave };
 
 // The structured payload printed to stdout (and written to result.json) when
 // the reviewer clicks "Send Review". This is the handoff contract.

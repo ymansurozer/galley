@@ -245,3 +245,9 @@ test("SPEC describes the scoped refresh flag, status, and retry contract", () =>
   ])
     assert.ok(SPEC.includes(rule), rule);
 });
+
+test("SPEC promises durable sent reviews and describes delivery across restarts", () => {
+  assert.ok(SPEC.includes("A sent review survives a desk stop"));
+  assert.ok(SPEC.includes("delivered once after the restart"));
+  assert.ok(SPEC.includes("Reviews already handed to an agent are not replayed"));
+});

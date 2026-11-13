@@ -1,4 +1,4 @@
-import { S, $, openEditorAt, toast, persist, persistSoon, saver } from "./store";
+import { S, $, openEditorAt, toast, persist, persistSoon, saver, takenFromDesk } from "./store";
 import { buildCommentThread, updateAwaitingDom, type ThreadControls } from "./annotations";
 import {
   buildComposer,
@@ -256,6 +256,10 @@ export function placedInApp(placements: ReadonlyArray<{ id: string; placement: U
 // wait for their page to load.
 export function annotationsUnvisited() {
   for (const a of annotationsOf()) a.placement = "unvisited";
+  // The desk marked its own copy so: no save sends it back as the tab's report.
+  takenFromDesk((review) => {
+    for (const a of review.annotations ?? []) a.placement = "unvisited";
+  });
   S.lookedFor.clear();
   if (S.uiProxy && S.app.connected) {
     placePageAnnotations();
@@ -339,7 +343,8 @@ async function storeScreenshots(a: UiAnnotationRecord) {
   );
   const crop = target ? shot.crop : shot.viewport;
   if (!crop) throw new Error("the annotated target wasn't on screen");
-  await saver.settled();
+  // The desk takes screenshots only for an annotation it has saved.
+  if (!(await saver.settled())) throw new Error("the desk hasn't saved the annotation");
   for (const [kind, png] of [
     ["crop", crop],
     ["viewport", shot.viewport],
@@ -373,18 +378,21 @@ export const shotTitle = () => {
 };
 
 // Hand a question to the agent now, once the save carrying it has landed: the desk builds the
-// question event from its stored copy of the annotation. A turn made while the save drained
-// supersedes this ask (askStamp).
+// question event from its stored copy of the annotation. One whose save didn't land waits for the
+// next Send, as one the desk couldn't deliver. A turn made while the save drained supersedes this
+// ask (askStamp).
 async function askAgent(annotationId: string, messageId: string) {
   const message = () => find(annotationId)?.comments.find((m) => m.id === messageId);
   const asked = askStamp(message());
-  await saver.settled();
+  const saved = await saver.settled();
   if (askStamp(message()) !== asked) return;
-  const res = await fetch("/api/ask", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ annotationId, messageId }),
-  }).catch(() => null);
+  const res = saved
+    ? await fetch("/api/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ annotationId, messageId }),
+      }).catch(() => null)
+    : null;
   if (res?.ok) S.undeliveredAsks.delete(messageId);
   else {
     S.undeliveredAsks.add(messageId);
