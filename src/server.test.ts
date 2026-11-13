@@ -1,5 +1,6 @@
 import { mock, test } from "node:test";
 import assert from "node:assert/strict";
+import { promises as fs, readFileSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -2037,6 +2038,45 @@ test("POST /api/shutdown acks then triggers shutdown with reason stop", async ()
   );
 });
 
+test("a stop waits until a review the agent received is off the undelivered file", async (t) => {
+  // Slow disk: hold the write that retires the delivered review until the stop has been asked.
+  const rename = fs.rename;
+  let hold: Promise<void> | undefined;
+  let release!: () => void;
+  let retiring!: () => void;
+  const retirement = new Promise<void>((resolve) => (retiring = resolve));
+  t.mock.method(fs, "rename", async (from: string, to: string) => {
+    if (hold && to.endsWith("undelivered-reviews.queue")) {
+      retiring();
+      await hold;
+    }
+    return rename(from, to);
+  });
+  let queuedAtStop: number | undefined;
+  let file = "";
+  await withServer(
+    async (handle, root, st) => {
+      file = path.join(await reviewDir(root, st.session), "undelivered-reviews.queue");
+      assert.equal((await post(handle.url, "api/send", { overallNote: "received" })).status, 200);
+      hold = new Promise<void>((resolve) => (release = resolve));
+      const event = await (await awaitEvent(handle.url)).json();
+      assert.equal(event.result.overallNote, "received");
+      await retirement;
+      assert.equal((await post(handle.url, "api/shutdown", {})).status, 200);
+      await sleep(20);
+      release();
+      for (let i = 0; i < 100 && queuedAtStop === undefined; i++) await sleep(5);
+      assert.equal(queuedAtStop, 0, "the received review was retired before the desk stopped");
+    },
+    {
+      idleTimeoutMs: 0,
+      onShutdown: () => {
+        queuedAtStop = JSON.parse(readFileSync(file, "utf8")).reviews.length;
+      },
+    },
+  );
+});
+
 test("idle timeout shuts the desk down when nothing is connected", async () => {
   const reasons: string[] = [];
   await withServer(
@@ -2074,6 +2114,8 @@ test("an in-flight await-send long-poll pins the desk past the idle timeout", as
       await closed;
       // The same checker must still exit once the request no longer pins the desk.
       t.mock.timers.tick(50);
+      // An orderly stop lets queued writes land first, so it runs a turn later.
+      await new Promise((resolve) => setImmediate(resolve));
       assert.deepEqual(reasons, ["idle"]);
     },
     { idleTimeoutMs: 50, onShutdown: (reason) => reasons.push(reason) },

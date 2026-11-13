@@ -649,7 +649,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       () => {
         if (activeRequests === 0 && Date.now() - lastActivity >= idleMs) {
           clearInterval(idleTimer); // one-shot: never re-fire while shutdown runs
-          shutdown("idle");
+          stop("idle");
         }
       },
       Math.min(60_000, Math.max(idleMs / 4, 10)),
@@ -672,6 +672,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // caller still sees the rejection and the outer handler turns it into a 500. (createSerializer
   // is unit-tested in mutex.test.ts; the ordering/non-poisoning guarantees live there.)
   const serialize = createSerializer();
+  // An orderly stop (`galley stop`, the idle timer) first lets every write queued before it land:
+  // a delivered review's retirement above all, or a restart hands the agent a review it already
+  // has. Only a kill skips it, and a crash's replay is what the contract allows (spec.ts).
+  const stop = (reason: "idle" | "stop") =>
+    void serialize(async () => {}).then(() => shutdown(reason));
 
   // Screenshots belong to their annotation: once a save or Send has dropped it, its files go too.
   const pruneScreenshots = (sessionDir: string) =>
@@ -764,7 +769,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
       if (req.method === "POST" && url.pathname === "/api/shutdown") {
         // `galley stop`: exit after the response flushes so the caller gets its ack.
         // The process exit handler removes the desk lock.
-        res.on("finish", () => shutdown("stop"));
+        res.on("finish", () => stop("stop"));
         return json(res, 200, { ok: true, stopping: true });
       }
       // Display preferences, stored globally in ~/.galley/settings.json — the desk's
