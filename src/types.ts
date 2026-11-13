@@ -275,8 +275,9 @@ export type ReviewState = {
   // The highest number ever given to an annotation, deleted ones included, so a number is never
   // reused: the agent never meets two different #3s. Only a review reset starts it over.
   lastAnnotationNumber?: number;
-  // Raised by every save, Send and reset the desk applies, and persisted with the review, so a
-  // restarted desk never hands out a number a tab has already seen. A tab's save names the number
+  // Raised by every save, Send and reset the desk applies, and by a reviewer comment posted to it
+  // directly (/api/comment), and persisted with the review, so a restarted desk never hands out a
+  // number a tab has already seen. A tab's save names the number
   // its changes are relative to (ReviewerDelta). Absent on reviews saved before it existed: 0.
   saveNumber?: number;
   persistFile?: string;
