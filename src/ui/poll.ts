@@ -255,6 +255,11 @@ async function pollOnce() {
     if (S.view === "topics") renderTopics();
     toast("Guide updated");
   }
+  // A Send from another tab starts the next round: what is settled from then on is settled in it.
+  if ((lite.round ?? 1) !== (S.state.round ?? 1)) {
+    S.state.round = lite.round;
+    if (S.view === "topics") renderTopics();
+  }
   // A branch switch can leave the diff unchanged too (`git checkout -b` keeps the working tree), so
   // the names the header and tab title show ride the lite poll.
   if (lite.project !== S.state.project || lite.branch !== S.state.branch) {

@@ -232,7 +232,13 @@ export type GuideStage = { id: string; label: string; groups: GuideGroup[] };
 // on every reload (state.ts stampTopics). `blocks` are the change blocks it claims, `path:stableKey`
 // in diff order; `lines` is their added plus removed lines; `coverHash` hashes the blocks' content in
 // order and no line number, so it holds while lines shift above them and moves when one is edited.
-export type TopicStamp = { blocks: string[]; lines: number; coverHash: string };
+// `changed`: the reviewer's sign-off on it was dropped because its cover hash moved (state.ts
+// carryTopicSignOffs); kept until the topic is settled again.
+export type TopicStamp = { blocks: string[]; lines: number; coverHash: string; changed?: true };
+
+// A settled topic (ReviewState.settledTopics): its cover hash when the reviewer settled it, and the
+// round it was settled in. Settled while `hash` is the topic's current coverHash (topicSettled).
+export type TopicSignOff = { hash: string; round: number };
 
 // The guided review the coding agent attaches (the desk renders it, runs no model).
 // Absent on a ReviewState → no guide surfaces render and the desk works as today.
@@ -307,6 +313,13 @@ export type ReviewState = {
   // Each guide topic's resolution against this diff, by topic id (TopicStamp). Server-owned and
   // rebuilt whenever the guide is attached or the diff is rebuilt; absent when the guide has no topics.
   topics?: Record<string, TopicStamp>;
+  // The topics the reviewer settled, by topic id (TopicSignOff). Reviewer-owned, like
+  // signedOffBlocks: carried across a reload or restart only while the topic is in the guide and
+  // its cover hash is unchanged.
+  settledTopics?: Record<string, TopicSignOff>;
+  // The review's round: one more than the number of Sends. Absent: 1. Raised by each Send, kept
+  // across reloads, restarts and a reset.
+  round?: number;
   // The running app under review (`--ui <url>` / `galley ui <url>`): a loopback http:// URL the
   // desk reverse-proxies into its UI view. Agent-owned like `target` — set by the CLI, carried
   // across reload/restart by mergeReviewState, never posted back by the tab. Absent → no UI lane.
@@ -341,6 +354,7 @@ export type ReviewerSave = Pick<
   | "reviewedFiles"
   | "reviewedFileHashes"
   | "signedOffBlocks"
+  | "settledTopics"
   | "decisionFiles"
   | "annotations"
   | "lastAnnotationNumber"
@@ -367,11 +381,13 @@ export type SaveStamp = { token: string | null; reloadGeneration: number; baseDi
 // `saveNumber`: the desk's number once it applied this save (ReviewState.saveNumber). `merged`: the
 // desk's reviewer-owned fields after the merge, when the save's `base` was not the desk's latest
 // number, so other saves landed since the tab's copy, and the tab is on the desk's current diff.
-// A tab on an older diff gets none: they're keyed to a diff it doesn't have.
+// A tab on an older diff gets none: they're keyed to a diff it doesn't have. `round`: on a Send, the
+// round it started (ReviewState.round).
 export type SaveAnswer = {
   ok: true;
   file?: string;
   sent?: true;
+  round?: number;
   resultJson?: string;
   unplaced?: true;
   saveNumber?: number;
@@ -394,12 +410,14 @@ export type AnnotationReport = {
 // What a tab changed since the copy of the reviewer-owned fields the desk last confirmed. A
 // collection the tab didn't touch is left out. Keys: a decision's `key`, a comment's and an
 // annotation's `id`, a block sign-off's `path:stableKey`, a file sign-off's and a decided file's
-// path. A file sign-off is reviewedFiles and its reviewedFileHashes entry as one record.
+// path, a settled topic's id. A file sign-off is reviewedFiles and its reviewedFileHashes entry as
+// one record.
 export type ReviewerChanges = {
   decisions?: KeyedChanges<Decision>;
   comments?: KeyedChanges<ReviewComment>;
   fileSignOffs?: KeyedChanges<{ path: string; hash?: string }>;
   signedOffBlocks?: KeyedChanges<{ key: string; hash: string }>;
+  settledTopics?: KeyedChanges<{ id: string } & TopicSignOff>;
   decisionFiles?: KeyedChanges<string>;
   annotations?: KeyedChanges<UiAnnotationRecord>;
   annotationReports?: AnnotationReport[];
@@ -724,7 +742,7 @@ export type FileContentsPayload = {
 // tab's save landed, and an idle tab reads the review it brought from /api/review (ReviewRead).
 export type PollPayload = Pick<
   ReviewState,
-  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations" | "project" | "branch"
+  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations" | "project" | "branch" | "round"
 > & { saveNumber: number };
 
 // The desk's reviewer-owned fields, the save number they're at, and the diff they're keyed to
@@ -758,6 +776,9 @@ export type ReviewResult = {
   // Files the reviewer signed off as-is (no rejected hunks, no open requested-change
   // comments, approval still current): the agent should leave these unchanged.
   approvedFiles: string[];
+  // The guide's topic ids, in the guide's order: those the reviewer settled (their lines unchanged
+  // since) and those still to do. Absent when the guide has no topics.
+  topics?: { settled: string[]; todo: string[] };
   // Questions still unanswered when the reviewer hit Send — folded into the round so an
   // agent that missed the live await still owes an answer. Every open question message
   // (intent "question", no later agent reply in its thread), code comments and UI annotation

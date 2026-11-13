@@ -2,6 +2,13 @@ import type { ReviewComment } from "./types";
 import { asksChange, codeThreads } from "./requests-derive";
 import { messageWaiting } from "./thread-derive";
 
+// The Send dialog's topics line: how many topics go as settled, and how many are still to do.
+export function topicsSendLine(done: number, total: number) {
+  const left = total - done;
+  const settled = `${done} topic${done === 1 ? "" : "s"} settled`;
+  return left ? `${settled} · ${left} still to do` : `${settled} · none left to do`;
+}
+
 // The Send dialog's Code line, the code lane's counterpart of sendSummary (uilane-derive.ts):
 // what goes, by what it asks of the agent, and what doesn't. Store-free, so it unit-tests.
 

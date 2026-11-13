@@ -31,6 +31,7 @@ import {
   anchorTextFor,
   buildReviewResult,
   buildReviewState,
+  carryTopicSignOffs,
   hash,
   inPortRange,
   carriesChanges,
@@ -48,6 +49,7 @@ import {
   resolveGuide,
   reviewDir,
   reviewerFields,
+  roundOf,
   syncGitState,
   uiQuestionPayload,
   unvisitedAnnotations,
@@ -747,6 +749,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           annotations: state.annotations,
           project: state.project,
           branch: state.branch,
+          round: state.round,
           saveNumber: state.saveNumber ?? 0,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
@@ -944,15 +947,26 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             priorDiff,
           );
           await syncGitState(state);
-          const file = await persistReview(state);
-          const sessionDir = path.dirname(file);
+          const sessionDir = await reviewDir(state.root, state.session);
           await pruneScreenshots(sessionDir);
           const resultJson = path.join(sessionDir, `${state.id}-result.json`);
           const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
-          await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
+          // The Send ends the round: what the reviewer settles from here is settled in the next.
+          // A Send that fails before its review is queued for the agent ended nothing, so the
+          // round goes back, on disk too, and a retry sends the same round.
+          const round = state.round;
+          state.round = roundOf(state) + 1;
           const event: ReviewEvent = { kind: "review", result: payload };
           const pending = [...undelivered, event];
-          await writeUndelivered(pending);
+          try {
+            await persistReview(state);
+            await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
+            await writeUndelivered(pending);
+          } catch (error) {
+            state.round = round;
+            await persistReview(state).catch(() => {});
+            throw error;
+          }
           undelivered = pending;
           // The review goes to the agent once the tab's answer is over, written or not: a tab
           // that closed, dropped or gave up before it never sees "finish", only "close", and
@@ -969,7 +983,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             emitEvent(event);
           };
           res.once("close", handOver);
-          const answer: SaveAnswer = { ok: true, sent: true, resultJson, saveNumber };
+          const answer: SaveAnswer = {
+            ok: true,
+            sent: true,
+            resultJson,
+            saveNumber,
+            round: state.round,
+          };
           if (unplaced) answer.unplaced = true;
           if (merged) answer.merged = merged;
           json(res, 200, answer);
@@ -1223,6 +1243,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
                 `Invalid guide: ${resolved.reason}.`,
                 "Run `galley spec` for the guided-review schema.",
               );
+            // Topic sign-offs are judged by this guide's stamps, not the old guide's.
+            carryTopicSignOffs(merged, state);
             // The carry source's stamps index the old guide's entries: never carry them under this one.
             stampSource = undefined;
           }
@@ -1502,6 +1524,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
           state.signedOffBlocks = {};
+          state.settledTopics = {};
           state.stagedFiles = [];
           state.stagedChangeKeys = [];
           state.decisionFiles = [];

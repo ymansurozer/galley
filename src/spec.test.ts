@@ -97,6 +97,12 @@ const ANCHORS = [
   "covers (required, non-empty array)",
   'a folder ending in "/"',
   "Two topics may cover the same lines",
+  // settling topics across rounds: the result's ids, the round and how a sign-off carries
+  "topics? — {settled[], todo[]}",
+  "#### Settling and rounds",
+  "each Send starts the next",
+  "the next reload drops the sign-off",
+  "loses its sign-off",
   "ids unique among stages, among groups and among\ntopics",
   "a cover naming a file not in the diff, a\nfolder with no changed file under it, or a span that touches no change",
   "naming the topic and the cover",
