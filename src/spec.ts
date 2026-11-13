@@ -202,6 +202,8 @@ The \`result\` field of a review event:
 - overallNote? — optional note about the WHOLE review (absent if blank): an overall remark, or an
   afterthought instruction for after applying (e.g. "run the formatter"). Not tied to any line.
 - stagedFiles[], approvedFiles[]
+- topics? — {settled[], todo[]}: the guide's topic ids in the guide's order, those the reviewer
+  settled and those still to do (absent when the guide has no topics). See "Settling and rounds".
 - openQuestions[]: questions you never answered, folded into this Send (superseding queued live
   question events), each the same lane-tagged shape as a live question. A question is answered
   once you reply in its thread after it was asked: a reply from before a change request was turned
@@ -355,6 +357,16 @@ folder with no changed file under it, or a span that touches no change aborts th
 \`galley reload --guide\`, leaving the desk as it was) naming the topic and the cover. Across reloads
 that keep the guide, a topic keeps the blocks its covers claimed by their content, as skims do; a
 file or folder cover also takes the new blocks under its path.
+
+#### Settling and rounds
+The reviewer settles a topic once they are content with it; ReviewResult.topics lists settled and
+to-do ids. A review runs in rounds: round 1 until the first Send, and each Send starts the next. A
+settled topic stays settled while its lines don't change: the desk keeps a hash of the content of
+the change blocks its covers claim (no line numbers), so lines shifting above it and rewritten
+prose (title, body, recorded) keep it settled. When you edit a block it covers, or a new guide
+makes it claim other blocks, the next reload drops the sign-off: the topic is to do again and
+shows the reviewer it changed since their last round. A topic a new guide no longer has (by id)
+loses its sign-off. Settled topics from earlier rounds fold away in the reviewer's sidebar.
 
 ### When to skim / focused review
 Skim ONLY on request ("give me a focused review"; "ignore the import churn, show me the real
