@@ -17,6 +17,7 @@ import {
   noChanges,
   reviewerChanges,
   stampDecisions,
+  unionChanges,
 } from "./review-delta-derive";
 import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
 
@@ -254,15 +255,31 @@ const confirm = (next: Confirmed) => {
 export const confirmedMoved = () => confirmedMoves;
 // The tab took the desk's review whole: at boot, a new diff's, a reset's.
 export function confirmDesk(state: ReviewState) {
+  doubtful.clear();
   confirm({
     saveNumber: state.saveNumber ?? 0,
     review: copyOf(reviewerSlice(state)),
     diff: state.baseDiffHash,
   });
 }
-// What a save or Send is out with: the copy its changes were taken from, kept until it answers.
-type Outgoing = { body: ReviewerDelta; sent: ReviewerSave; diff: string };
+// What a save or Send is out with: the copy its changes were taken from, kept until it answers,
+// and the doubtful copies (below) its changes cover.
+type Outgoing = { body: ReviewerDelta; sent: ReviewerSave; diff: string; covers: ReviewerSave[] };
 const outgoing = new Set<Outgoing>();
+// The copies saves and Sends went out with that got no successful answer: an error answer can come
+// after the desk applied the save, and a request given up or lost may have reached it. The desk may
+// hold any of their records, so the confirmed copy alone can't tell what to correct: a comment only
+// a doubtful save carried, deleted since, is in neither the confirmed copy nor the tab. Until a
+// later save or Send lands, or the tab takes the desk's review whole, a save also carries the
+// difference from each of them, so every key one touched is told the tab's current truth.
+const doubtful = new Set<ReviewerSave>();
+// Retries through an outage go out with the same copy every few seconds: one kept copy stands for
+// them all, so the copies grow with the reviewer's edits, not with the outage's length.
+function keepDoubtful(sent: ReviewerSave) {
+  for (const copy of doubtful)
+    if (noChanges(reviewerChanges(copy, sent)) && noChanges(reviewerChanges(sent, copy))) return;
+  doubtful.add(sent);
+}
 // The save number of the confirmed copy: the poll reads the desk's review (/api/review) once the
 // desk's is past it.
 export const confirmedNumber = () => confirmed.saveNumber;
@@ -306,16 +323,22 @@ export const agentRecords = (): Set<string> =>
 export function takenFromDesk(take: (review: ReviewerSave) => void) {
   take(confirmed.review);
   for (const out of outgoing) take(out.sent);
+  for (const copy of doubtful) take(copy);
 }
 function dispatch(): Outgoing {
   const sent = copyOf(reviewerSlice(S.state));
+  const covers = [...doubtful];
   const body = {
     base: confirmed.saveNumber,
-    changes: reviewerChanges(confirmed.review, sent),
+    changes: unionChanges([confirmed.review, ...covers].map((base) => reviewerChanges(base, sent))),
     seen: saveStamp(),
   };
-  return { body, sent, diff: S.state.baseDiffHash };
+  return { body, sent, diff: S.state.baseDiffHash, covers };
 }
+// A save or Send landed (or had nothing to send): the doubtful copies it covered are settled.
+const settle = (out: Outgoing) => {
+  for (const copy of out.covers) doubtful.delete(copy);
+};
 // Set by main.ts: redraw once a save's answer replaced the tab's reviewer-owned fields.
 let redraw = () => {};
 export const onDeskMerge = (run: () => void) => {
@@ -356,7 +379,10 @@ async function postChanges(
   outgoing.add(out);
   try {
     const reply = await postToDesk(path, { ...out.body, ...extra });
-    if (reply?.ok && reply.answer && landedIf(reply.answer)) landed(out, reply.answer);
+    if (reply?.ok && reply.answer && landedIf(reply.answer)) {
+      settle(out);
+      landed(out, reply.answer);
+    } else keepDoubtful(out.sent);
     return reply;
   } finally {
     outgoing.delete(out);
@@ -366,10 +392,13 @@ async function postChanges(
 export const postSend = (overallNote: string) =>
   postChanges(dispatch(), "/api/send", { overallNote }, (answer) => answer.sent === true);
 // A save has landed only on a 2xx answer whose body says ok; anything else, no answer included,
-// leaves it unsaved and the saver retries (save.ts). Nothing changed since the confirmed copy
-// sends nothing, and has landed.
+// leaves it unsaved and the saver retries (save.ts). Nothing changed since the confirmed copy and the
+// doubtful ones sends nothing, and has landed.
 async function postSave(out: Outgoing): Promise<boolean> {
-  if (noChanges(out.body.changes)) return true;
+  if (noChanges(out.body.changes)) {
+    settle(out);
+    return true;
+  }
   const reply = await postChanges(out, "/api/save", {}, (answer) => answer.ok === true);
   if (!reply?.ok || reply.answer?.ok !== true) return false;
   noteUnplaced(reply.answer);

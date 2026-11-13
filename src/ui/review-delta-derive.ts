@@ -128,6 +128,43 @@ export function reviewerChanges(base: ReviewerSave, now: ReviewerSave): Reviewer
 
 export const noChanges = (changes: ReviewerChanges) => Object.keys(changes).length === 0;
 
+function unionKeyed<T>(
+  all: ReadonlyArray<KeyedChanges<T> | undefined>,
+  key: (record: T) => string,
+): KeyedChanges<T> | undefined {
+  const given = all.filter((c) => c !== undefined);
+  if (!given.length) return undefined;
+  const changed = new Map(given.flatMap((c) => c.changed.map((r) => [key(r), r] as const)));
+  return { changed: [...changed.values()], removed: [...new Set(given.flatMap((c) => c.removed))] };
+}
+
+// Several differences taken to the same current state, as one: what a save sends when saves the
+// desk may hold are out beside the confirmed copy (store.ts). Each describes the same current state,
+// so a key two of them carry carries the same record (or the same removal) in both. An annotation
+// sent whole carries its placement and capture with it, so no report for it goes beside it.
+export function unionChanges(all: readonly ReviewerChanges[]): ReviewerChanges {
+  const pick = <K extends keyof ReviewerChanges>(k: K) => all.map((c) => c[k]);
+  const annotations = unionKeyed(pick("annotations"), (a) => a.id);
+  const whole = new Set(annotations?.changed.map((a) => a.id));
+  const reports = new Map<string, AnnotationReport>();
+  for (const report of all.flatMap((c) => c.annotationReports ?? []))
+    if (!whole.has(report.id)) reports.set(report.id, { ...reports.get(report.id), ...report });
+  const marks = all.flatMap((c) => c.lastAnnotationNumber ?? []);
+  const out: ReviewerChanges = {
+    decisions: unionKeyed(pick("decisions"), (d) => d.key),
+    comments: unionKeyed(pick("comments"), (c) => c.id),
+    fileSignOffs: unionKeyed(pick("fileSignOffs"), (f) => f.path),
+    signedOffBlocks: unionKeyed(pick("signedOffBlocks"), (b) => b.key),
+    decisionFiles: unionKeyed(pick("decisionFiles"), (p) => p),
+    annotations,
+    annotationReports: reports.size ? [...reports.values()] : undefined,
+    lastAnnotationNumber: marks.length ? Math.max(...marks) : undefined,
+  };
+  for (const k of Object.keys(out) as Array<keyof ReviewerChanges>)
+    if (out[k] === undefined) delete out[k];
+  return out;
+}
+
 // `changes` applied onto `copy`, as a new copy: what the reviewer did since a save was sent, put
 // back over the merged review its answer brought (store.ts).
 export function applyReviewerChanges(copy: ReviewerSave, changes: ReviewerChanges): ReviewerSave {

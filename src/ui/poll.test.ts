@@ -41,13 +41,15 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
     settings: { disableIframePageLoading: true },
   });
   const pending: Array<{ snapshot: any; release: (payload?: any) => void; fail: () => void }> = [];
-  // The desk's failures: it doesn't answer at all, it answers saves and Sends with an error, or a
-  // save's request hangs with no answer until the tab gives it up. `holdSend` and `holdSave` park
+  // The desk's failures: it doesn't answer at all, it answers saves and Sends with an error (before
+  // applying them, or after: `failingAfter`), or a save's request hangs with no answer until the
+  // tab gives it up. `holdSend` and `holdSave` park
   // the next Send or save, before the desk applies it, until the test releases it; `holdReview`
   // parks the next read of the review (/api/review) after the desk answered it.
   const desk = {
     down: false,
     failing: false,
+    failingAfter: false,
     hang: false,
     holdSend: undefined as undefined | Promise<void>,
     holdSave: undefined as undefined | Promise<void>,
@@ -58,7 +60,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
   t.after(async () => {
     // A save the desk never took keeps retrying, and the window waits on its timers: bring the
     // desk back and let it land.
-    Object.assign(desk, { down: false, failing: false, hang: false });
+    Object.assign(desk, { down: false, failing: false, failingAfter: false, hang: false });
     h.saver.retryNow();
     await h.saver.settled();
     for (const request of pending) request.release();
@@ -150,6 +152,8 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
         },
         deskState.priorDiff,
       );
+      if (desk.failingAfter)
+        return { ok: false, status: 500, json: async () => ({ ok: false, code: "INTERNAL" }) };
       // As the wire carries it: plain JSON, out of the desk's realm.
       const answer = JSON.parse(
         JSON.stringify({
@@ -1282,4 +1286,65 @@ test("a poll the desk answered before another tab's reset doesn't put back the a
   for (let i = 0; i < 3; i++) await f.poll();
   assert.deepEqual(plain(f.S.state.comments), []);
   assert.deepEqual(f.server().comments, []);
+});
+
+// A save the desk applied but answered with an error: the tab can't tell it from one the desk
+// never took, and keeps the copy it went out with.
+async function appliedButFailed(t: Parameters<typeof fixture>[0]) {
+  const f = await fixture(t);
+  f.desk.failingAfter = true;
+  f.S.state.comments.push({ ...structuredClone(reviewerComment), id: "doubtful" });
+  f.h.persist();
+  assert.equal(await f.h.saver.settled(), false, "the tab counts the save as failed");
+  assert.deepEqual(
+    f.server().comments.map((c: { id: string }) => c.id),
+    ["doubtful"],
+    "the desk holds it",
+  );
+  f.desk.failingAfter = false;
+  return f;
+}
+
+test("a comment the reviewer deletes after a save the desk applied but failed doesn't come back", async (t) => {
+  const f = await appliedButFailed(t);
+  await f.h.deleteComment("doubtful");
+  await f.poll();
+  assert.equal(await f.h.saver.settled(), true);
+  assert.deepEqual(f.server().comments, [], "the desk was told the comment went");
+  for (let i = 0; i < 2; i++) await f.poll();
+  assert.deepEqual(plain(f.S.state.comments), [], "and the tab doesn't get it back");
+});
+
+test("a comment the reviewer keeps after a save the desk applied but failed is on the desk once", async (t) => {
+  const f = await appliedButFailed(t);
+  f.S.state.comments[0].body = "Edited";
+  f.h.persist();
+  await f.poll();
+  assert.equal(await f.h.saver.settled(), true);
+  assert.deepEqual(
+    f.server().comments.map((c: { id: string; body: string }) => [c.id, c.body]),
+    [["doubtful", "Edited"]],
+  );
+  await f.poll();
+  assert.deepEqual(
+    plain(f.S.state.comments.map((c: { id: string; body: string }) => [c.id, c.body])),
+    [["doubtful", "Edited"]],
+  );
+});
+
+test("a sign-off withdrawn after a Send the desk applied but failed stays withdrawn", async (t) => {
+  const f = await outageFixture(t);
+  f.S.state.reviewedFiles = ["a.ts"];
+  f.S.state.reviewedFileHashes = { "a.ts": "H" };
+  f.desk.failingAfter = true;
+  assert.equal(await f.h.send(""), false, "the tab counts the Send as failed");
+  assert.deepEqual(f.server().reviewedFiles, ["a.ts"], "the desk holds the sign-off");
+  f.desk.failingAfter = false;
+  f.S.state.reviewedFiles = [];
+  f.S.state.reviewedFileHashes = {};
+  f.h.persist();
+  assert.equal(await f.h.saver.settled(), true);
+  assert.deepEqual(f.server().reviewedFiles, [], "the desk was told the sign-off went");
+  for (let i = 0; i < 2; i++) await f.poll();
+  assert.deepEqual(plain(f.S.state.reviewedFiles), []);
 });

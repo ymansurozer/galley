@@ -14,6 +14,7 @@ import {
   noChanges,
   reviewerChanges,
   stampDecisions,
+  unionChanges,
 } from "./review-delta-derive.js";
 
 const decision = (key: string, status: Decision["status"] = "accepted"): Decision => ({
@@ -233,6 +234,74 @@ test("applyReviewerChanges: onto a newer copy, the changes replace their records
     ],
   );
   assert.equal(newer.comments.length, 3, "the copy it was given is untouched");
+});
+
+test("unionChanges: a key a doubtful save touched gets the current truth, its removal included", () => {
+  const confirmed = review();
+  // A save the desk may have taken added c3 and signed off c.ts; the reviewer then deleted c3 and
+  // rejected a.ts:k1.
+  const doubtful = review({
+    comments: [comment("c1"), comment("c2"), comment("c3")],
+    reviewedFiles: ["a.ts", "b.ts", "c.ts"],
+    reviewedFileHashes: { "a.ts": "A1", "b.ts": "B1", "c.ts": "C1" },
+  });
+  const now = review({
+    decisions: [decision("a.ts:k1", "rejected"), decision("a.ts:k2", "rejected")],
+    reviewedFiles: ["a.ts", "b.ts", "c.ts"],
+    reviewedFileHashes: { "a.ts": "A1", "b.ts": "B1", "c.ts": "C1" },
+  });
+  assert.deepEqual(
+    unionChanges([reviewerChanges(confirmed, now), reviewerChanges(doubtful, now)]),
+    {
+      decisions: { changed: [decision("a.ts:k1", "rejected")], removed: [] },
+      comments: { changed: [], removed: ["c3"] },
+      fileSignOffs: { changed: [{ path: "c.ts", hash: "C1" }], removed: [] },
+    },
+  );
+});
+
+test("unionChanges: a key in several differences goes once", () => {
+  const now = review({
+    comments: [comment("c1", "Edited"), comment("c2")],
+    decisionFiles: [],
+    lastAnnotationNumber: 4,
+  });
+  const older = review({ comments: [comment("c1", "Older"), comment("c2"), comment("c4")] });
+  const union = unionChanges([reviewerChanges(review(), now), reviewerChanges(older, now)]);
+  assert.deepEqual(union.comments, { changed: [comment("c1", "Edited")], removed: ["c4"] });
+  assert.deepEqual(union.decisionFiles, { changed: [], removed: ["a.ts"] });
+  assert.equal(union.lastAnnotationNumber, 4);
+});
+
+test("unionChanges: an annotation sent whole carries its placement, so no report goes beside it", () => {
+  const now = review({
+    annotations: [
+      annotation("p1", { status: "resolved", placement: "placed" }),
+      annotation("p2", { number: 2, placement: "unplaced", screenshotCapture: "failed" }),
+    ],
+  });
+  const edited = review({
+    annotations: [
+      annotation("p1", { status: "resolved" }),
+      annotation("p2", { number: 2, screenshotCapture: "requested" }),
+    ],
+  });
+  const before = review({
+    annotations: [
+      annotation("p1"),
+      annotation("p2", { number: 2, placement: "unplaced", screenshotCapture: "requested" }),
+    ],
+  });
+  const union = unionChanges([reviewerChanges(before, now), reviewerChanges(edited, now)]);
+  assert.deepEqual(union.annotations, { changed: [now.annotations![0]], removed: [] });
+  assert.deepEqual(union.annotationReports, [
+    { id: "p2", placement: "unplaced", screenshotCapture: "failed" },
+  ]);
+});
+
+test("unionChanges: no differences, or empty ones, are no change", () => {
+  assert.deepEqual(unionChanges([]), {});
+  assert.equal(noChanges(unionChanges([{}, reviewerChanges(review(), review())])), true);
 });
 
 test("stampDecisions: each block takes its decision's status, pending where it has none", () => {
