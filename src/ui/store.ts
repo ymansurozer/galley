@@ -264,21 +264,32 @@ export const postsOut = () => outgoing.size > 0;
 // decision. The tab's own placements are kept over the desk's, as a new diff's adoption keeps them,
 // and go out as its reports. A read for another diff, or no newer than the copy, is not taken.
 // The agent's replies a newer poll brought in while the read was out (they move no save number)
-// stay: the read takes them, so the confirmed copy holds them too and no save sends them back.
-export function takeDeskReview(read: ReviewRead): boolean {
+// stay: the read takes them, so the confirmed copy holds them too and no save sends them back. Only
+// those: an agent record the tab held when the read went out (`held`, agentRecords) and the read
+// lacks is gone on the desk (a reset), and goes.
+export function takeDeskReview(read: ReviewRead, held: ReadonlySet<string>): boolean {
   if (read.baseDiffHash !== S.state.baseDiffHash) return false;
   if (confirmed.diff === read.baseDiffHash && read.saveNumber <= confirmed.saveNumber) return false;
+  const arrived = (m: { id: string; role?: string }) => m.role === "agent" && !held.has(m.id);
   const have = new Set(read.review.comments.map((c) => c.id));
-  read.review.comments.push(
-    ...S.state.comments.filter((c) => c.role === "agent" && !have.has(c.id)),
+  read.review.comments.push(...S.state.comments.filter((c) => arrived(c) && !have.has(c.id)));
+  mergeAgentReplies(
+    read.review.annotations ?? [],
+    (S.state.annotations ?? []).map((a) => ({ ...a, comments: a.comments.filter(arrived) })),
   );
-  mergeAgentReplies(read.review.annotations ?? [], S.state.annotations ?? []);
   confirmed = { saveNumber: read.saveNumber, review: copyOf(read.review), diff: read.baseDiffHash };
   keepPlacements(read.review.annotations ?? [], S.state.annotations ?? []);
   Object.assign(S.state, read.review);
   stampDecisions(S.state.changes, S.state.decisions ?? []);
   return true;
 }
+// The ids of the agent's records the tab holds: its comments, and its messages in annotation threads.
+export const agentRecords = (): Set<string> =>
+  new Set(
+    [...S.state.comments, ...(S.state.annotations ?? []).flatMap((a) => a.comments)]
+      .filter((m) => m.role === "agent")
+      .map((m) => m.id),
+  );
 // The tab took records from the desk outside a save's answer (an agent reply off the poll, the
 // placements a reload reset): `take` applies them to the confirmed copy and to every copy a save is
 // out with, as it did to the tab's own. They're the desk's, and no save sends them back as the

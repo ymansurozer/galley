@@ -1,6 +1,7 @@
 import {
   S,
   D,
+  agentRecords,
   api,
   confirmDesk,
   confirmedNumber,
@@ -288,13 +289,14 @@ async function pullReview(saveNumber: number | undefined) {
   if (reviewRead || !mayTakeReview()) return;
   const state = S.state;
   const saveGeneration = saver.generation();
+  const held = agentRecords();
   reviewRead = true;
   try {
     const read = await api<ReviewRead>("/api/review");
     // The reviewer changed something, opened a composer, or the tab took a new diff meanwhile.
     if (S.state !== state || saver.generation() !== saveGeneration || !mayTakeReview()) return;
     if (!read?.review || typeof read.saveNumber !== "number") return;
-    if (takeDeskReview(read)) render();
+    if (takeDeskReview(read, held)) render();
   } catch {
     return;
   } finally {

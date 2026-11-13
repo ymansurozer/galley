@@ -1189,3 +1189,51 @@ test("a read that lands after a newer poll brought the agent's replies keeps the
   assert.equal(await b.h.saver.settled(), true);
   assert.deepEqual(Object.keys(b.saves.at(-1).changes).sort(), ["decisionFiles", "decisions"]);
 });
+
+test("another tab's reset clears the agent's comments in an idle tab", async (t) => {
+  const { a, b } = await twoTabs(t);
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const annotation = structuredClone(reviewerAnnotation);
+  annotation.comments.push(reply("ui-reply"));
+  a.update({ comments: [reply("code-reply")], annotations: [structuredClone(annotation)] });
+  for (const f of [a, b]) {
+    f.S.state.comments = [reply("code-reply")];
+    f.S.state.annotations = [structuredClone(annotation)];
+    f.confirm();
+  }
+  // Tab A resets the review (/api/reset): every comment and annotation goes, and the number rises.
+  a.update({
+    comments: [],
+    annotations: [],
+    lastAnnotationNumber: 0,
+    saveNumber: (a.server().saveNumber ?? 0) + 1,
+  });
+  await b.poll();
+  await b.poll();
+  assert.equal(reads(b), 1);
+  assert.deepEqual(plain(b.S.state.comments), [], "the agent's comment went with the reset");
+  assert.deepEqual(plain(b.S.state.annotations), []);
+});
+
+test("an agent message the desk dropped from a still-present annotation isn't put back by the read", async (t) => {
+  const { a, b } = await twoTabs(t);
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const annotation = structuredClone(reviewerAnnotation);
+  annotation.comments.push(reply("ui-reply"));
+  a.update({ annotations: [structuredClone(annotation)] });
+  for (const f of [a, b]) {
+    f.S.state.annotations = [structuredClone(annotation)];
+    f.confirm();
+  }
+  // The desk's thread no longer holds the agent's message, and another tab's save moved the number.
+  a.update({
+    annotations: [structuredClone(reviewerAnnotation)],
+    saveNumber: (a.server().saveNumber ?? 0) + 1,
+  });
+  await b.poll();
+  assert.equal(reads(b), 1);
+  assert.deepEqual(
+    b.S.state.annotations[0].comments.map((m: { id: string }) => m.id),
+    ["annotation-message"],
+  );
+});
