@@ -349,6 +349,18 @@ walkthrough and Decisions mode shows the topics.
         line numbers. Covers resolve like part lines: a span claims every change block it touches,
         a new untracked file is one whole-file change. Two topics may cover the same lines.
       - pages? — array of app paths ("/settings") the topic shows up on.
+Coverage: every changed block must be under a topic or skimmed when attaching a guide with stages.
+- skims? — array of { reason, rule?, covers }. reason is required and non-empty; covers resolves
+  exactly like a topic's covers. Skim rules are the reviewer's: cite the rule you applied.
+  Galley keeps no skim patterns. These skims count for coverage only; they do not fold Code mode.
+- A files entry's whole-file skim or skimBlocks counts too. Topics win overlaps with skims.
+- An uncovered change refuses attach with "guide leaves changes uncovered: path:line", the first
+  twenty places in diff order, then "and N more". Both start --guide and reload --guide check this,
+  after resolving covers. A refused reload leaves the desk unchanged.
+- Reload without a new guide never refuses coverage gaps: they appear as "not in the guide yet".
+  State coverage carries topicLines, skimmedLines, totalLines, uncoveredLines and each skim's
+  reason, optional rule and exclusive line count. Shares use totalLines minus skimmedLines.
+
 Topic validation: every required field above, ids unique among stages, among groups and among
 topics, and every cover resolving to a change in the diff — a cover naming a file not in the diff, a
 folder with no changed file under it, or a span that touches no change aborts the launch (or

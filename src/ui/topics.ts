@@ -1,3 +1,8 @@
+import { currentFile } from "./changes";
+import { appGo, hasUi, setView } from "./appview";
+import { jumpToBlocker } from "./blockers";
+import { topicPoints } from "./topics-coverage-derive";
+import { renderPoints, renderTopicShare } from "./topics-coverage-dom";
 import { S, $ } from "./store";
 import { renderMarkdown } from "./markdown";
 import { isGuideBaseStale } from "./guide-derive";
@@ -23,6 +28,9 @@ export const hasTopics = () => !!S.state?.guide?.stages?.length;
 const stages = () => S.state?.guide?.stages ?? [];
 
 // What the centre showed when it was last drawn, so a redraw of the same page keeps its scroll.
+let pointsCount = 10;
+let pointsOpen = false;
+let coverageOpen = false;
 let drawn: TopicAt | undefined;
 
 // Draw the sidebar list and the Overview or the open topic. A topic a new guide dropped falls back
@@ -37,8 +45,32 @@ export function renderTopics() {
     ?.classList.toggle("active", S.topicAt === null);
   const page = $("topics");
   const place = placeOf(stages(), S.topicAt);
-  if (place) renderTopicPage(page, place, renderMarkdown);
-  else renderTopicsOverview(page, overview(), renderMarkdown);
+  if (drawn !== S.topicAt) {
+    pointsCount = 10;
+    pointsOpen = false;
+  }
+  if (place) {
+    const lines = S.state.topics?.[place.topic.id]?.lines ?? 0;
+    const c = S.state.coverage;
+    renderTopicPage(page, place, renderMarkdown, {
+      share: renderTopicShare(lines, c ? c.totalLines - c.skimmedLines : 0),
+      points: renderPoints(topicPoints(place.topic, S.state), lines, hasUi(), pointsCount),
+    });
+  } else renderTopicsOverview(page, overview(), renderMarkdown);
+  const points = page.querySelector<HTMLDetailsElement>(".topic-points");
+  if (points) {
+    points.open = pointsOpen;
+    points.addEventListener("toggle", () => {
+      pointsOpen = points.open;
+    });
+  }
+  const coverage = page.querySelector<HTMLDetailsElement>(".topic-coverage details");
+  if (coverage) {
+    coverage.open = coverageOpen;
+    coverage.addEventListener("toggle", () => {
+      coverageOpen = coverage.open;
+    });
+  }
   if (drawn !== S.topicAt) {
     page.scrollTop = 0;
     nav.querySelector(".node.active, .node.current")?.scrollIntoView({ block: "nearest" });
@@ -53,6 +85,7 @@ function overview() {
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const totals = lineTotals(st.files);
   return {
+    coverage: st.coverage,
     title: g.title || st.target || "Review",
     facts: [
       st.mode,
@@ -107,6 +140,30 @@ export function installTopics() {
     }
   });
   $("topics").addEventListener("click", (e) => {
+    const target = e.target as Element;
+    const code = target.closest<HTMLElement>("[data-topic-code]");
+    if (code) void openTopicCode(code.dataset.topicCode!, Number(code.dataset.line));
+    const app = target.closest<HTMLElement>("[data-topic-app]");
+    if (app && hasUi()) {
+      void setView("ui");
+      appGo(app.dataset.topicApp!);
+    }
+    if (target.closest("[data-topic-more]")) {
+      pointsCount += 10;
+      renderTopics();
+    }
     if ((e.target as Element).closest('[data-act="start"]')) startTopics();
   });
+}
+
+// Wait for Code's render before landing, so the mode switch cannot repaint over the cursor.
+async function openTopicCode(path: string, lineNumber: number) {
+  await setView("code");
+  const fileIndex = S.state.files.findIndex((f) => f.path === path);
+  if (fileIndex < 0) return;
+  await S.selectStep?.({ fileIndex });
+  await jumpToBlocker(
+    { kind: "thread", side: "additions", lineNumber, preview: "", unanchored: false },
+    () => S.view === "code" && currentFile()?.path === path,
+  );
 }

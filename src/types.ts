@@ -105,6 +105,8 @@ export type ChangeState = {
   // covers on attach, then carried by content like `skim` (state.ts carryGuideStamps). Never rides
   // /api/save.
   topics?: string[];
+  // Coverage-only skims; independent of Code mode folding.
+  coverageSkims?: number[];
 };
 
 // An explicit, durable record of a user's accept/reject on a change block, keyed
@@ -224,6 +226,15 @@ export type GuideTopic = {
   // App paths to look at.
   pages?: string[];
 };
+export type GuideSkim = { reason: string; rule?: string; covers: Cover[] };
+export type TopicCoverage = {
+  topicLines: number;
+  skimmedLines: number;
+  totalLines: number;
+  uncoveredLines: number;
+  skims: Array<{ reason: string; rule?: string; lines: number }>;
+};
+
 export type GuideGroup = { id: string; title: string; summary?: string; topics: GuideTopic[] };
 // Where a group sits in the system. Stages are columns, in the guide's order.
 export type GuideStage = { id: string; label: string; groups: GuideGroup[] };
@@ -246,6 +257,7 @@ export type Guide = {
   files?: GuideFile[];
   // The topics Decisions mode opens: stages hold groups, groups hold topics.
   stages?: GuideStage[];
+  skims?: GuideSkim[];
   // A focused review (issue 04): the reviewer asked for churn to be de-emphasized, so the agent
   // shaped attention (whole-file/block skims, movedFrom merges). Display-only — the overview page
   // badges the review so the human knows churn was deliberately skimmed. A plain guide omits it.
@@ -307,6 +319,7 @@ export type ReviewState = {
   // Each guide topic's resolution against this diff, by topic id (TopicStamp). Server-owned and
   // rebuilt whenever the guide is attached or the diff is rebuilt; absent when the guide has no topics.
   topics?: Record<string, TopicStamp>;
+  coverage?: TopicCoverage;
   // The running app under review (`--ui <url>` / `galley ui <url>`): a loopback http:// URL the
   // desk reverse-proxies into its UI view. Agent-owned like `target` — set by the CLI, carried
   // across reload/restart by mergeReviewState, never posted back by the tab. Absent → no UI lane.

@@ -4141,6 +4141,7 @@ function topicsGuide(
 ): Guide {
   return {
     overview: "o",
+    skims: [{ reason: "Library scaffolding", covers: [{ path: "src/lib/" }] }],
     stages: [
       {
         id: "s",
@@ -4280,4 +4281,71 @@ test("a guide without stages leaves no topic stamps", async () => {
     assert.equal(st.topics, undefined);
     assert.ok(st.changes.every((c) => c.topics === undefined));
   });
+});
+
+test("topics coverage refuses gaps, accepts reasoned skims and gives topics precedence", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    const guide = topicsGuide({ app: [{ path: "src/app.ts", lines: [3] }] });
+    guide.skims = [
+      { reason: "Library scaffolding", rule: "Generated", covers: [{ path: "src/lib/" }] },
+    ];
+    const gap = resolveGuide(st, guide);
+    assert.equal(gap.ok, false);
+    if (!gap.ok) assert.match(gap.reason, /src\/app.ts:10/);
+    guide.skims.push({ reason: "Mechanical", covers: [{ path: "src/app.ts", lines: [3, 10] }] });
+    assert.deepEqual(resolveGuide(st, guide), { ok: true });
+    assert.equal(st.coverage?.topicLines, 2);
+    assert.equal(st.coverage?.skimmedLines, 9);
+    assert.equal(st.coverage?.totalLines, 11);
+    st.guide = guide;
+    const after = await mergeReviewState(await build(appLines(topicsTree, ["top"])), st);
+    assert.equal(after.coverage?.uncoveredLines, 1);
+    assert.equal(after.coverage?.skimmedLines, 9);
+  });
+});
+
+test("whole-file skims satisfy topics coverage", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    const guide = topicsGuide({ app: [{ path: "src/app.ts" }] });
+    guide.files = ["src/lib/util.ts", "src/lib/new.ts"].map((path) => ({
+      path,
+      order: 0,
+      category: "C",
+      skim: true,
+    }));
+    assert.deepEqual(resolveGuide(st, guide), { ok: true });
+    assert.equal(st.coverage?.skimmedLines, 6);
+  });
+});
+
+test("coverage refusal lists twenty places and counts the rest", async () => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-coverage-")));
+  const gitq = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    const lines = Array.from({ length: 260 }, (_, i) => `line ${i + 1}`);
+    await fs.writeFile(path.join(dir, "a.txt"), lines.join("\n") + "\n");
+    gitq("add", ".");
+    gitq("commit", "-qm", "init");
+    await fs.writeFile(
+      path.join(dir, "a.txt"),
+      lines.map((l, i) => (i % 10 === 0 ? `edit ${l}` : l)).join("\n") + "\n",
+    );
+    const st = (await buildReviewState(dir, { session: "s" }))!;
+    const guide = topicsGuide({ first: [{ path: "a.txt", lines: [1] }] });
+    delete guide.skims;
+    const r = resolveGuide(st, guide);
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.match(r.reason, /a.txt:11/);
+      assert.match(r.reason, /a.txt:201; and 5 more$/);
+      assert.equal((r.reason.match(/a.txt:/g) ?? []).length, 20);
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });

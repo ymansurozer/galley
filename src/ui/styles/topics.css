@@ -251,3 +251,138 @@
     padding: 18px 16px 120px;
   }
 }
+
+/* Coverage and evidence stay quiet until opened, at the end of the reading column. */
+.topic-coverage {
+  position: relative;
+  margin-top: 28px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+.topic-coverage-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.topic-coverage-head b {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+.topic-coverage-bar {
+  display: flex;
+  height: 7px;
+  margin: 10px 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--fill-2);
+}
+.topic-coverage-bar i:first-child {
+  background: var(--blue);
+}
+.topic-coverage-bar i:last-child {
+  background: var(--ink-3);
+}
+.topic-coverage summary,
+.topic-points summary {
+  cursor: pointer;
+}
+.topic-skims {
+  margin-top: 10px;
+}
+.topic-skims > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 6px 0;
+  border-top: 1px solid var(--sep);
+}
+.topic-skims small {
+  display: block;
+  color: var(--ink-3);
+}
+.topic-coverage-head:has(details[open]) {
+  flex-wrap: wrap;
+}
+.topic-coverage-head details[open] {
+  flex: 1 1 100%;
+}
+.topic-coverage-gap {
+  color: var(--orange-ink);
+}
+.topic-share {
+  margin-left: 16px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.topic-points {
+  margin-top: 26px;
+  padding-top: 12px;
+  border-top: 1px solid var(--sep);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+.topic-points summary > span:first-child {
+  margin-left: 8px;
+}
+.topic-points summary > span:last-child {
+  float: right;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+.topic-points-list {
+  padding: 9px 0 0 18px;
+}
+.topic-point {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.topic-point {
+  cursor: pointer;
+}
+button.topic-point:hover {
+  background: var(--fill);
+  color: var(--ink);
+}
+.topic-point b {
+  color: var(--ink);
+  font: 500 12px/18px var(--mono);
+}
+.topic-point span {
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topic-more {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  cursor: pointer;
+}
+.topic-more:hover {
+  color: var(--ink);
+}
+@media (max-width: 600px) {
+  .topic-share {
+    white-space: normal;
+  }
+  .topic-points summary > span:first-child {
+    display: block;
+    margin-left: 14px;
+  }
+}

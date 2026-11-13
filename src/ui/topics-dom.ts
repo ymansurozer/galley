@@ -1,3 +1,5 @@
+import { renderCoverage } from "./topics-coverage-dom";
+import type { TopicCoverage } from "../types";
 import { esc } from "./html";
 import { keycapsHtml } from "./keycaps";
 import type { TopicPlace, TopicsNavRow } from "./topics-derive";
@@ -29,17 +31,22 @@ export function renderTopicsNav(host: HTMLElement, rows: TopicsNavRow[]) {
 
 // A topic's page: the bar naming its stage and group, then the topic as a reading column — its
 // concern, title, where the call is recorded, the body, and the Flagged card under the body.
-export function renderTopicPage(host: HTMLElement, place: TopicPlace, md: (s: string) => string) {
+export function renderTopicPage(
+  host: HTMLElement,
+  place: TopicPlace,
+  md: (s: string) => string,
+  extras = { share: "", points: "" },
+) {
   const { topic, group, stage } = place;
   const where = `${stage.label} / ${group.title}`;
-  const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span><span class="fb-grow"></span></div>`;
+  const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span>${extras.share}<span class="fb-grow"></span></div>`;
   const meta = topic.concern
     ? `<div class="topic-meta"><span class="topic-concern">${esc(topic.concern)}</span></div>`
     : "";
   const flag = topic.flag
     ? `<div class="topic-flag"><div class="topic-lab">${glyph("flag", "")}Flagged</div><div class="md">${md(topic.flag)}</div></div>`
     : "";
-  host.innerHTML = `${bar}<article class="topic-page">${meta}<h1 class="topic-title">${esc(topic.title)}</h1><p class="topic-recorded"><b>Recorded:</b> ${esc(topic.recorded)}</p><div class="topic-body md">${md(topic.body)}</div>${flag}</article>`;
+  host.innerHTML = `${bar}<article class="topic-page">${meta}<h1 class="topic-title">${esc(topic.title)}</h1><p class="topic-recorded"><b>Recorded:</b> ${esc(topic.recorded)}</p><div class="topic-body md">${md(topic.body)}</div>${flag}${extras.points}</article>`;
 }
 
 export type TopicsOverview = {
@@ -50,6 +57,7 @@ export type TopicsOverview = {
   removed: number;
   summary: string;
   stale: boolean;
+  coverage?: TopicCoverage;
 };
 
 // The Overview: title and facts, the guide's summary, and Start Review at the end.
@@ -66,5 +74,5 @@ export function renderTopicsOverview(
     <div class="go-sub">${o.facts.map(esc).join(" · ")} · <span class="add">+${o.added}</span> <span class="del">−${o.removed}</span></div>
     ${stale}
     <div class="go-overview md">${md(o.summary)}</div>
-  </div><div class="go-card topics-end"><div class="go-actions"><button class="btn primary" data-act="start">Start Review ${keycapsHtml("↵")}</button></div></div></div>`;
+  </div>${renderCoverage(o.coverage)}<div class="go-card topics-end"><div class="go-actions"><button class="btn primary" data-act="start">Start Review ${keycapsHtml("↵")}</button></div></div></div>`;
 }
