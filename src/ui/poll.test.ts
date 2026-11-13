@@ -11,7 +11,7 @@ import { addPostedComment, mergeReviewerSave, reviewerFields } from "../state.js
 const bundle = build({
   stdin: {
     contents:
-      'import {S,saver,persist,persistSoon,confirmDesk} from "./store"; import {pollState,adoptDeskStatus} from "./poll"; import {deleteComment,turnComment} from "./comments"; import {acceptChange} from "./decisions"; import {submitUiComposer,placedInApp} from "./uilane"; import {renderMarkdown} from "./markdown"; import {askComment} from "./comments"; import {approveFile} from "./decisions"; import {installCloseWarning,deskReachMessage,deskRestartCommand} from "./reach"; import {send,sendCancel,sendConfirm} from "./send"; window.h={S,saver,persist,persistSoon,confirmDesk,pollState,adoptDeskStatus,deleteComment,turnComment,acceptChange,submitUiComposer,placedInApp,renderMarkdown,askComment,approveFile,installCloseWarning,deskReachMessage,deskRestartCommand,send,sendCancel,sendConfirm};',
+      'import {S,saver,persist,persistSoon,confirmDesk} from "./store"; import {pollState,adoptDeskStatus} from "./poll"; import {deleteComment,turnComment} from "./comments"; import {acceptChange,resetWholeReview} from "./decisions"; import {submitUiComposer,placedInApp} from "./uilane"; import {renderMarkdown} from "./markdown"; import {askComment} from "./comments"; import {approveFile} from "./decisions"; import {installCloseWarning,deskReachMessage,deskRestartCommand} from "./reach"; import {send,sendCancel,sendConfirm} from "./send"; window.h={S,saver,persist,persistSoon,confirmDesk,pollState,adoptDeskStatus,deleteComment,turnComment,acceptChange,resetWholeReview,submitUiComposer,placedInApp,renderMarkdown,askComment,approveFile,installCloseWarning,deskReachMessage,deskRestartCommand,send,sendCancel,sendConfirm};',
     resolveDir: fileURLToPath(new URL(".", import.meta.url)),
   },
   bundle: true,
@@ -45,7 +45,8 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
   // applying them, or after: `failingAfter`), or a save's request hangs with no answer until the
   // tab gives it up. `holdSend` and `holdSave` park
   // the next Send or save, before the desk applies it, until the test releases it; `holdReview`
-  // parks the next read of the review (/api/review) after the desk answered it.
+  // parks the next read of the review (/api/review) after the desk answered it, and `holdReset`
+  // the next reset before the desk applies it.
   const desk = {
     down: false,
     failing: false,
@@ -54,6 +55,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
     holdSend: undefined as undefined | Promise<void>,
     holdSave: undefined as undefined | Promise<void>,
     holdReview: undefined as undefined | Promise<void>,
+    holdReset: undefined as undefined | Promise<void>,
   };
   let h: any;
   const polls: Promise<void>[] = [];
@@ -165,6 +167,25 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
         }),
       );
       return { ok: true, json: async () => answer };
+    }
+    if (url === "/api/reset") {
+      const hold = desk.holdReset;
+      desk.holdReset = undefined;
+      await hold;
+      // What the desk's reset clears (server.ts, /api/reset), and the number it raises.
+      Object.assign(deskState.server, {
+        comments: [],
+        annotations: [],
+        lastAnnotationNumber: 0,
+        reviewedFiles: [],
+        reviewedFileHashes: {},
+        signedOffBlocks: {},
+        decisionFiles: [],
+        decisions: [],
+        saveNumber: (deskState.server.saveNumber ?? 0) + 1,
+      });
+      const state = JSON.parse(JSON.stringify(deskState.server));
+      return { ok: true, json: async () => ({ ok: true, state }) };
     }
     if (url === "/api/ask") {
       asks.push(JSON.parse(options.body));
@@ -1347,4 +1368,56 @@ test("a sign-off withdrawn after a Send the desk applied but failed stays withdr
   assert.deepEqual(f.server().reviewedFiles, [], "the desk was told the sign-off went");
   for (let i = 0; i < 2; i++) await f.poll();
   assert.deepEqual(plain(f.S.state.reviewedFiles), []);
+});
+
+test("a Reset pressed while a save is out posts once it has landed, and the desk's review is empty", async (t) => {
+  const f = await fixture(t);
+  let release!: () => void;
+  f.desk.holdSave = new Promise<void>((resolve) => (release = resolve));
+  f.S.state.comments.push({ ...structuredClone(reviewerComment), id: "first" });
+  f.h.persist();
+  f.S.state.comments.push({ ...structuredClone(reviewerComment), id: "second" });
+  f.h.persist();
+  assert.equal(f.h.saver.inFlight(), true, "the first save is out, the second waits on it");
+  const reset = f.h.resetWholeReview();
+  release();
+  await reset;
+  assert.deepEqual(f.server().comments, [], "no save of the tab's landed on top of the reset");
+  assert.deepEqual(plain(f.S.state.comments), []);
+  assert.equal(await f.h.saver.settled(), true);
+  await f.poll();
+  assert.deepEqual(f.server().comments, []);
+  assert.deepEqual(plain(f.S.state.comments), []);
+});
+
+test("no save goes out while a Reset is out; one due meanwhile goes from the reset review", async (t) => {
+  const f = await fixture(t);
+  let release!: () => void;
+  f.desk.holdReset = new Promise<void>((resolve) => (release = resolve));
+  const reset = f.h.resetWholeReview();
+  await until(() => f.requests.includes("/api/reset"));
+  f.S.state.comments.push({ ...structuredClone(reviewerComment), id: "meanwhile" });
+  f.h.persist();
+  assert.equal(f.saves.length, 0, "the save waits for the reset's answer");
+  release();
+  await reset;
+  assert.equal(await f.h.saver.settled(), true);
+  assert.deepEqual(f.server().comments, []);
+  assert.equal(f.saves.length, 0, "the reset review left nothing to send");
+});
+
+test("a Reset whose tab's save can't land doesn't post, and says so", async (t) => {
+  const f = await fixture(t);
+  f.desk.down = true;
+  f.S.state.comments.push({ ...structuredClone(reviewerComment), id: "held" });
+  f.h.persist();
+  assert.equal(await f.h.saver.settled(), false);
+  await f.h.resetWholeReview();
+  assert.ok(!f.requests.includes("/api/reset"), "the reset never went out");
+  assert.match(f.S.toastMsg, /reset/i);
+  assert.deepEqual(
+    f.S.state.comments.map((c: { id: string }) => c.id),
+    ["held"],
+    "the tab keeps the reviewer's work",
+  );
 });

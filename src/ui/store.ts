@@ -391,10 +391,26 @@ async function postChanges(
 // Send takes the same changes as a save, with the note, and always posts (send.ts).
 export const postSend = (overallNote: string) =>
   postChanges(dispatch(), "/api/send", { overallNote }, (answer) => answer.sent === true);
+// A reset of the whole review is out (decisions.ts, resetWholeReview): a save due meanwhile waits
+// until the tab has taken its answer, then works out its changes from the review the reset left.
+let resetOut: Promise<void> | undefined;
+export async function holdSaves(run: () => Promise<void>) {
+  const held = run();
+  resetOut = held.catch(() => {});
+  try {
+    await held;
+  } finally {
+    resetOut = undefined;
+  }
+}
 // A save has landed only on a 2xx answer whose body says ok; anything else, no answer included,
 // leaves it unsaved and the saver retries (save.ts). Nothing changed since the confirmed copy and the
 // doubtful ones sends nothing, and has landed.
 async function postSave(out: Outgoing): Promise<boolean> {
+  if (resetOut) {
+    while (resetOut) await resetOut;
+    out = dispatch();
+  }
   if (noChanges(out.body.changes)) {
     settle(out);
     return true;

@@ -24,7 +24,7 @@ import {
   flowIndex,
 } from "./changes";
 import { agentPresence, deskSubtitle, deskTitle, unansweredAsks } from "./topbar-derive";
-import { toggleSignOff } from "./decisions";
+import { resetWholeReview, toggleSignOff } from "./decisions";
 import { installBlockers } from "./blockers";
 import { closeComposerIfEmpty } from "./selection";
 import { applyActiveRow, showActiveRow, treeRows, allDirPaths, touchedDirPaths } from "./tree";
@@ -541,15 +541,7 @@ const submitComment = (intent: "question" | "action") => {
 S.saveComment = () => submitComment("action"); // editing Save + the `c` shortcut default
 S.ask = () => submitComment("question");
 S.requestChange = () => submitComment("action");
-S.reset = async () => {
-  const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" });
-  if (r.state) {
-    S.state = r.state;
-    confirmDesk(r.state);
-    D.fileDiff = D.rawFileDiff = null;
-    render();
-  }
-};
+S.reset = resetWholeReview;
 S.send = send;
 
 // The UI lane: the Code / UI switch and the chrome bar over the proxied app (appview.ts).

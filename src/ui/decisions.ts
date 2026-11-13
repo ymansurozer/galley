@@ -1,4 +1,4 @@
-import { S, toast, api, persist } from "./store";
+import { S, D, toast, api, confirmDesk, holdSaves, persist, saver } from "./store";
 import { currentFile, fileFinished, fileObjections, flowIndex } from "./changes";
 import { render, deferRender } from "./render";
 import { currentStep, nextUnreviewedStep, reviewTally, skimmedStepBlocks, stepSlot } from "./guide";
@@ -189,6 +189,24 @@ export function resetReview(path: string) {
   deferRender(true);
   toast("Reset review", { label: "Undo", run: () => void undoReset(state, prior, unstaged) });
   persist();
+}
+
+// Reset the whole review (Reset Review, ⇧R): the desk clears it, and the tab takes its answer whole.
+// It posts once the tab's saves have landed, and no save goes out until its answer is in: a save
+// of the tab's from before the reset, sent after it, would land on top of it, as another tab's
+// does. A save the desk can't take keeps the reset back, and the reviewer's work with it.
+export async function resetWholeReview() {
+  if (!(await saver.settled()))
+    return toast("Couldn't reset the review — the desk hasn't saved your latest changes");
+  await holdSaves(async () => {
+    const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" });
+    if (r.state) {
+      S.state = r.state;
+      confirmDesk(r.state);
+      D.fileDiff = D.rawFileDiff = null;
+      render();
+    }
+  });
 }
 
 async function undoReset(
