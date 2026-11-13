@@ -76,7 +76,9 @@ const getText = async (p) => (await fetch(BASE + p)).text();
 const BUDGET_STARTUP_MS = 15_000; // local ~2s
 const BUDGET_STATE_BYTES = 10 * 1024 * 1024;
 const BUDGET_PERSISTED_BYTES = 10 * 1024 * 1024;
-const BUDGET_BUNDLE_BYTES = 3.2 * 1024 * 1024;
+// 3.2 MiB → 3.4 MB, the build's own gate (scripts/build-ui.mjs), when Decisions mode's topic threads
+// met the Overview map and coverage: real feature code took ui.js just past 3.2 MiB.
+const BUDGET_BUNDLE_BYTES = 3_400_000;
 const BUDGET_RELOAD_MS = 10_000; // local ~280ms
 
 let desk, tmp, homeDir;
