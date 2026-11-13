@@ -1078,6 +1078,14 @@ export async function mergeReviewerSave(
   };
 }
 
+// A comment posted to the desk directly (/api/comment). The reviewer's raises the save number as a
+// save does, so idle tabs read it with the review (ReviewRead); the agent's rides the poll, which
+// adds the agent's comments only.
+export function addPostedComment(state: ReviewState, comment: ReviewComment) {
+  state.comments.push(comment);
+  if (comment.role === "user") state.saveNumber = (state.saveNumber ?? 0) + 1;
+}
+
 // A save body that carries changes (types.ts, ReviewerDelta), not a full copy. A tab from before
 // 0.6.2 posts its whole ReviewState, whose `changes` is the diff's block list, so only an object
 // counts.
@@ -1089,7 +1097,7 @@ export const carriesChanges = (body: object) => {
 type PriorDiff = Pick<ReviewState, "baseDiffHash" | "changes" | "files" | "stagedChangeKeys">;
 
 // The reviewer-owned fields as the desk holds them, every one present: what a merged answer carries.
-const reviewerFields = (state: ReviewState): ReviewerSave => ({
+export const reviewerFields = (state: ReviewState): ReviewerSave => ({
   decisions: state.decisions ?? [],
   comments: state.comments,
   reviewedFiles: state.reviewedFiles,

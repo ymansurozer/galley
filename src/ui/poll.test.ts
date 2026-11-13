@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { Window } from "happy-dom";
-import { mergeReviewerSave } from "../state.js";
+import { addPostedComment, mergeReviewerSave, reviewerFields } from "../state.js";
 
 // Real poll/status/render modules, adapted from the independent starvation probe. HTTP
 // snapshots and response ordering are controlled; bundles never write generated output.
@@ -43,13 +43,15 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
   const pending: Array<{ snapshot: any; release: (payload?: any) => void; fail: () => void }> = [];
   // The desk's failures: it doesn't answer at all, it answers saves and Sends with an error, or a
   // save's request hangs with no answer until the tab gives it up. `holdSend` and `holdSave` park
-  // the next Send or save, before the desk applies it, until the test releases it.
+  // the next Send or save, before the desk applies it, until the test releases it; `holdReview`
+  // parks the next read of the review (/api/review) after the desk answered it.
   const desk = {
     down: false,
     failing: false,
     hang: false,
     holdSend: undefined as undefined | Promise<void>,
     holdSave: undefined as undefined | Promise<void>,
+    holdReview: undefined as undefined | Promise<void>,
   };
   let h: any;
   const polls: Promise<void>[] = [];
@@ -114,7 +116,10 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
   h.confirmDesk(S.state);
   const saves: any[] = [];
   const asks: any[] = [];
+  // Every request the tab made, by path, in order.
+  const requests: string[] = [];
   win.fetch = (async (url: string, options: any) => {
+    requests.push(url);
     if (desk.down) throw new TypeError("Failed to fetch");
     if (desk.failing && (url === "/api/save" || url === "/api/send"))
       return { ok: false, status: 500, json: async () => ({ ok: false, code: "INTERNAL" }) };
@@ -162,6 +167,18 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
       return { ok: true, json: async () => ({ ok: true }) };
     }
     const snapshot = structuredClone(deskState.server);
+    if (url === "/api/review") {
+      const read = JSON.parse(
+        JSON.stringify({
+          saveNumber: snapshot.saveNumber ?? 0,
+          baseDiffHash: snapshot.baseDiffHash,
+          review: reviewerFields(snapshot),
+        }),
+      );
+      const hold = desk.holdReview;
+      desk.holdReview = undefined;
+      return { ok: true, json: async () => (await hold, read) };
+    }
     return {
       ok: true,
       json: () =>
@@ -176,8 +193,9 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
           : Promise.resolve(
               url === "/api/tree"
                 ? { files: [] }
-                : Object.fromEntries(
-                    [
+                : Object.fromEntries([
+                    ["saveNumber", snapshot.saveNumber ?? 0],
+                    ...[
                       "baseDiffHash",
                       "guide",
                       "comments",
@@ -196,7 +214,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
                     ]
                       .filter((key) => key in snapshot)
                       .map((key) => [key, snapshot[key]]),
-                  ),
+                  ]),
             ),
     };
   }) as any;
@@ -209,6 +227,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
     win,
     saves,
     asks,
+    requests,
     desk,
     pending,
     advance: (ms: number) => (clock += ms),
@@ -954,4 +973,267 @@ test("a record a merged answer brought in is the desk's, not the reviewer's, to 
   assert.equal(await a.h.saver.settled(), true);
   assert.equal(a.server().comments[0].body, "Text B");
   assert.equal(a.S.state.comments[0].body, "Text B");
+});
+
+// Another tab's save reaching an idle tab by itself, on the poll (Behaviors 12, 17).
+const reads = (f: { requests: string[] }) => f.requests.filter((r) => r === "/api/review").length;
+const addComment = async (f: Awaited<ReturnType<typeof fixture>>, id: string) => {
+  f.S.state.comments.push({ ...structuredClone(reviewerComment), id, body: `From ${id}` });
+  f.h.persist();
+  assert.equal(await f.h.saver.settled(), true);
+};
+
+test("tab A's save shows in idle tab B after B's next poll, with no action in B", async (t) => {
+  const { a, b } = await twoTabs(t);
+  await a.h.approveFile("a.ts", { advance: false });
+  assert.equal(await a.h.saver.settled(), true);
+  await addComment(a, "from-a");
+  await b.poll();
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["a.ts"], "B shows A's approval");
+  assert.deepEqual(decisionsOf(b.S.state), [["a.ts:key", "accepted"]]);
+  assert.equal(b.S.state.changes[0].status, "accepted", "A's block reads accepted in B");
+  assert.deepEqual(
+    b.S.state.comments.map((c: { id: string }) => c.id),
+    ["from-a"],
+  );
+  assert.equal(b.saves.length, 0, "B saved nothing");
+  assert.equal(reads(b), 1);
+  assert.ok(!b.requests.includes("/api/state"), "B never fetched the full state for it");
+  // What B took is the desk's: B's next save, about something else, carries none of it.
+  await b.h.acceptChange("b-change", "rejected");
+  assert.equal(await b.h.saver.settled(), true);
+  assert.equal(b.saves[0].base, 2, "B's copy is at A's save number");
+  assert.deepEqual(Object.keys(b.saves[0].changes).sort(), ["decisionFiles", "decisions"]);
+  assert.deepEqual(a.server().reviewedFiles, ["a.ts"]);
+  assert.equal(a.server().comments.length, 1);
+});
+
+test("a poll that carries the tab's own save number reads nothing", async (t) => {
+  const { a, b } = await twoTabs(t);
+  await a.h.approveFile("a.ts", { advance: false });
+  assert.equal(await a.h.saver.settled(), true);
+  await a.poll();
+  await a.poll();
+  assert.equal(reads(a), 0, "A's own save's answer already moved its copy");
+  await b.poll();
+  await b.poll();
+  assert.equal(reads(b), 1, "B reads A's save once, then holds its number");
+});
+
+test("a tab holding unsaved changes doesn't take another tab's save on a poll; its own save brings it", async (t) => {
+  const { a, b } = await twoTabs(t);
+  await a.h.approveFile("a.ts", { advance: false });
+  assert.equal(await a.h.saver.settled(), true);
+  let release!: () => void;
+  b.desk.holdSave = new Promise<void>((resolve) => (release = resolve));
+  await b.h.approveFile("b.ts", { advance: false });
+  assert.equal(b.h.saver.isBusy(), true, "B's save hasn't landed");
+  await b.poll();
+  assert.equal(reads(b), 0, "B read nothing while it held unsaved changes");
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["b.ts"]);
+  release();
+  assert.equal(await b.h.saver.settled(), true);
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["a.ts", "b.ts"], "the merged review");
+  await b.poll();
+  assert.equal(reads(b), 0, "the answer brought B to the desk's number");
+});
+
+test("another tab's save waits while a composer is open, and comes in once it closes", async (t) => {
+  const { a, b } = await twoTabs(t);
+  b.S.composerOpen = true;
+  b.S.composerBody = "Half a thought";
+  await a.h.approveFile("a.ts", { advance: false });
+  await addComment(a, "from-a");
+  await b.poll();
+  await b.poll();
+  assert.equal(reads(b), 0);
+  assert.deepEqual(plain(b.S.state.comments), [], "B's threads didn't change under its composer");
+  assert.deepEqual(plain(b.S.state.reviewedFiles), []);
+  assert.equal(b.S.composerOpen, true, "the composer stays open");
+  assert.equal(b.S.composerBody, "Half a thought");
+  b.S.composerOpen = false;
+  await b.poll();
+  assert.deepEqual(
+    b.S.state.comments.map((c: { id: string }) => c.id),
+    ["from-a"],
+  );
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["a.ts"]);
+});
+
+test("a composer opened while the read is out cancels the take; the next poll tries again", async (t) => {
+  const { a, b } = await twoTabs(t);
+  await a.h.approveFile("a.ts", { advance: false });
+  assert.equal(await a.h.saver.settled(), true);
+  let release!: () => void;
+  b.desk.holdReview = new Promise<void>((resolve) => (release = resolve));
+  const poll = b.poll();
+  await until(() => reads(b) === 1);
+  // A second poll while the read is out doesn't read the same number again.
+  await b.poll();
+  assert.equal(reads(b), 1);
+  b.S.composerOpen = true;
+  release();
+  await poll;
+  assert.deepEqual(plain(b.S.state.reviewedFiles), [], "B took nothing under its composer");
+  b.S.composerOpen = false;
+  await b.poll();
+  assert.equal(reads(b), 2);
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["a.ts"]);
+});
+
+test("a reviewer change made while the read is out cancels the take; the save brings the merge", async (t) => {
+  const { a, b } = await twoTabs(t);
+  await a.h.approveFile("a.ts", { advance: false });
+  assert.equal(await a.h.saver.settled(), true);
+  let release!: () => void;
+  b.desk.holdReview = new Promise<void>((resolve) => (release = resolve));
+  const poll = b.poll();
+  await until(() => reads(b) === 1);
+  let releaseSave!: () => void;
+  b.desk.holdSave = new Promise<void>((resolve) => (releaseSave = resolve));
+  await b.h.acceptChange("b-change", "rejected");
+  release();
+  await poll;
+  assert.deepEqual(decisionsOf(b.S.state), [["b.ts:key", "rejected"]], "the read was dropped");
+  releaseSave();
+  assert.equal(await b.h.saver.settled(), true);
+  assert.deepEqual(decisionsOf(b.S.state), [
+    ["a.ts:key", "accepted"],
+    ["b.ts:key", "rejected"],
+  ]);
+});
+
+test("another tab's save doesn't move the open file, part, cursor or scroll", async (t) => {
+  const { a, b } = await twoTabs(t);
+  b.S.fileIndex = 1;
+  b.S.stepPart = 2;
+  b.S.selected = { side: "additions", lineNumber: 7 };
+  const diff = b.win.document.getElementById("diff")!;
+  diff.scrollTop = 140;
+  await a.h.approveFile("a.ts", { advance: false });
+  assert.equal(await a.h.saver.settled(), true);
+  await b.poll();
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["a.ts"], "B took A's save");
+  assert.equal(b.S.fileIndex, 1);
+  assert.equal(b.S.stepPart, 2);
+  assert.deepEqual(plain(b.S.selected), { side: "additions", lineNumber: 7 });
+  assert.equal(diff.scrollTop, 140);
+  assert.equal(b.S.toastMsg, "", "quiet: no toast");
+});
+
+test("taking another tab's save keeps the tab's own annotation placements", async (t) => {
+  const { a, b } = await twoTabs(t);
+  a.update({ annotations: [structuredClone(reviewerAnnotation)] });
+  for (const f of [a, b]) {
+    f.S.state.annotations = [structuredClone(reviewerAnnotation)];
+    f.confirm();
+  }
+  // B's page found the annotation; B's report hasn't gone out yet.
+  b.S.state.annotations[0].placement = "placed";
+  await a.h.approveFile("a.ts", { advance: false });
+  assert.equal(await a.h.saver.settled(), true);
+  await b.poll();
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["a.ts"]);
+  assert.equal(b.S.state.annotations[0].placement, "placed", "B's own placement stays");
+  b.h.persist();
+  assert.equal(await b.h.saver.settled(), true);
+  assert.equal(a.server().annotations[0].placement, "placed", "and goes out as B's report");
+});
+
+test("a reviewer comment posted to the desk directly reaches an idle tab through the read", async (t) => {
+  const f = await fixture(t);
+  addPostedComment(f.server(), { ...structuredClone(reviewerComment), id: "posted", role: "user" });
+  await f.poll();
+  assert.deepEqual(
+    f.S.state.comments.map((c: { id: string }) => c.id),
+    ["posted"],
+  );
+  assert.equal(reads(f), 1);
+});
+
+test("a read that lands after a newer poll brought the agent's replies keeps them, as the desk's", async (t) => {
+  const { a, b } = await twoTabs(t);
+  a.update({ annotations: [structuredClone(reviewerAnnotation)] });
+  for (const f of [a, b]) {
+    f.S.state.annotations = [structuredClone(reviewerAnnotation)];
+    f.confirm();
+  }
+  await a.h.approveFile("a.ts", { advance: false });
+  assert.equal(await a.h.saver.settled(), true);
+  // B's read goes out, and the desk answers it before the agent replies in both lanes.
+  let release!: () => void;
+  b.desk.holdReview = new Promise<void>((resolve) => (release = resolve));
+  const poll = b.poll();
+  await until(() => reads(b) === 1);
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const annotations = structuredClone(a.server().annotations);
+  annotations[0].comments.push(reply("ui-reply"));
+  a.update({ comments: [...a.server().comments, reply("code-reply")], annotations });
+  // A newer poll brings the replies in while the read is still out.
+  await b.poll();
+  assert.equal(b.S.state.comments.length, 1);
+  release();
+  await poll;
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["a.ts"], "B took A's save");
+  assert.deepEqual(
+    b.S.state.comments.map((c: { id: string }) => c.id),
+    ["code-reply"],
+    "the code lane's reply stays",
+  );
+  assert.deepEqual(
+    b.S.state.annotations[0].comments.map((m: { id: string }) => m.id),
+    ["annotation-message", "ui-reply"],
+    "the UI lane's reply stays",
+  );
+  await b.h.acceptChange("b-change", "rejected");
+  assert.equal(await b.h.saver.settled(), true);
+  assert.deepEqual(Object.keys(b.saves.at(-1).changes).sort(), ["decisionFiles", "decisions"]);
+});
+
+test("another tab's reset clears the agent's comments in an idle tab", async (t) => {
+  const { a, b } = await twoTabs(t);
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const annotation = structuredClone(reviewerAnnotation);
+  annotation.comments.push(reply("ui-reply"));
+  a.update({ comments: [reply("code-reply")], annotations: [structuredClone(annotation)] });
+  for (const f of [a, b]) {
+    f.S.state.comments = [reply("code-reply")];
+    f.S.state.annotations = [structuredClone(annotation)];
+    f.confirm();
+  }
+  // Tab A resets the review (/api/reset): every comment and annotation goes, and the number rises.
+  a.update({
+    comments: [],
+    annotations: [],
+    lastAnnotationNumber: 0,
+    saveNumber: (a.server().saveNumber ?? 0) + 1,
+  });
+  await b.poll();
+  await b.poll();
+  assert.equal(reads(b), 1);
+  assert.deepEqual(plain(b.S.state.comments), [], "the agent's comment went with the reset");
+  assert.deepEqual(plain(b.S.state.annotations), []);
+});
+
+test("an agent message the desk dropped from a still-present annotation isn't put back by the read", async (t) => {
+  const { a, b } = await twoTabs(t);
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const annotation = structuredClone(reviewerAnnotation);
+  annotation.comments.push(reply("ui-reply"));
+  a.update({ annotations: [structuredClone(annotation)] });
+  for (const f of [a, b]) {
+    f.S.state.annotations = [structuredClone(annotation)];
+    f.confirm();
+  }
+  // The desk's thread no longer holds the agent's message, and another tab's save moved the number.
+  a.update({
+    annotations: [structuredClone(reviewerAnnotation)],
+    saveNumber: (a.server().saveNumber ?? 0) + 1,
+  });
+  await b.poll();
+  assert.equal(reads(b), 1);
+  assert.deepEqual(
+    b.S.state.annotations[0].comments.map((m: { id: string }) => m.id),
+    ["annotation-message"],
+  );
 });

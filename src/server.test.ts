@@ -3230,3 +3230,63 @@ test("the save number continues from the stored one after the desk restarts", as
     }
   });
 });
+
+test("the poll carries the save number, and /api/review the reviewer-owned fields it belongs to", async () => {
+  await withServer(async (handle, _root, st) => {
+    st.rawDiff = "HEAVY DIFF THAT MUST NOT RIDE THE READ";
+    const seen = { token: null, reloadGeneration: 0, baseDiffHash: st.baseDiffHash };
+    const poll = () => fetch(`${handle.url}api/poll`).then((r) => r.json());
+    assert.equal((await poll()).saveNumber, 0, "a review never saved is at 0");
+    await post(handle.url, "api/save", {
+      base: 0,
+      changes: { fileSignOffs: { changed: [{ path: "a.ts", hash: "H" }], removed: [] } },
+      seen,
+    });
+    await post(handle.url, "api/comment", { path: "a.ts", lineNumber: 1, body: "a reply" });
+    assert.equal((await poll()).saveNumber, 1);
+    const read = (await fetch(`${handle.url}api/review`).then((r) => r.json())) as Record<
+      string,
+      any
+    >;
+    assert.deepEqual(Object.keys(read).sort(), ["baseDiffHash", "review", "saveNumber"]);
+    assert.equal(read.saveNumber, 1);
+    assert.equal(read.baseDiffHash, st.baseDiffHash);
+    assert.deepEqual(Object.keys(read.review).sort(), [
+      "annotations",
+      "comments",
+      "decisionFiles",
+      "decisions",
+      "lastAnnotationNumber",
+      "reviewedFileHashes",
+      "reviewedFiles",
+      "signedOffBlocks",
+    ]);
+    assert.deepEqual(read.review.reviewedFiles, ["a.ts"]);
+    assert.deepEqual(read.review.reviewedFileHashes, { "a.ts": "H" });
+    assert.equal(read.review.comments.length, 1, "the agent's reply is the desk's too");
+    const wire = JSON.stringify(read);
+    assert.ok(!wire.includes("HEAVY DIFF"), "the raw diff stays off the read");
+    assert.ok(!wire.includes("newContents") && !wire.includes("hunks"), "no file contents");
+  });
+});
+
+test("a reviewer comment through /api/comment raises the save number; an agent's leaves it", async () => {
+  await withServer(async (handle) => {
+    const poll = async () =>
+      ((await fetch(`${handle.url}api/poll`).then((r) => r.json())) as { saveNumber: number })
+        .saveNumber;
+    assert.equal(await poll(), 0);
+    await post(handle.url, "api/comment", { path: "a.ts", lineNumber: 1, body: "a reply" });
+    assert.equal(await poll(), 0, "the agent's reply rides the poll, not the save number");
+    await post(handle.url, "api/comment", {
+      path: "a.ts",
+      lineNumber: 1,
+      body: "the reviewer's",
+      role: "user",
+    });
+    assert.equal(await poll(), 1, "idle tabs read the reviewer's comment");
+    const read = await fetch(`${handle.url}api/review`).then((r) => r.json());
+    assert.equal(read.saveNumber, 1);
+    assert.equal(read.review.comments.length, 2);
+  });
+});

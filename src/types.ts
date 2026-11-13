@@ -275,8 +275,9 @@ export type ReviewState = {
   // The highest number ever given to an annotation, deleted ones included, so a number is never
   // reused: the agent never meets two different #3s. Only a review reset starts it over.
   lastAnnotationNumber?: number;
-  // Raised by every save, Send and reset the desk applies, and persisted with the review, so a
-  // restarted desk never hands out a number a tab has already seen. A tab's save names the number
+  // Raised by every save, Send and reset the desk applies, and by a reviewer comment posted to it
+  // directly (/api/comment), and persisted with the review, so a restarted desk never hands out a
+  // number a tab has already seen. A tab's save names the number
   // its changes are relative to (ReviewerDelta). Absent on reviews saved before it existed: 0.
   saveNumber?: number;
   persistFile?: string;
@@ -676,10 +677,17 @@ export type FileContentsPayload = {
 // never ride the poll; the tab fetches /api/state exactly once per baseDiffHash change and diffs
 // guide/comments off this slice in between. DeskStatus is merged into the response alongside these.
 // `ui` rides along so `galley ui` on a live desk reaches the open tab without a diff change.
+// `saveNumber` is the desk's (0 on a review never saved): ahead of the tab's confirmed copy, another
+// tab's save landed, and an idle tab reads the review it brought from /api/review (ReviewRead).
 export type PollPayload = Pick<
   ReviewState,
   "baseDiffHash" | "guide" | "comments" | "ui" | "annotations" | "project" | "branch"
->;
+> & { saveNumber: number };
+
+// The desk's reviewer-owned fields, the save number they're at, and the diff they're keyed to
+// (GET /api/review). What an idle tab takes when another tab's save landed: never the full state,
+// which carries every file's contents.
+export type ReviewRead = { saveNumber: number; baseDiffHash: string; review: ReviewerSave };
 
 // The structured payload printed to stdout (and written to result.json) when
 // the reviewer clicks "Send Review". This is the handoff contract.

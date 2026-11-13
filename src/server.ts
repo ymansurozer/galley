@@ -27,6 +27,7 @@ import { createSerializer } from "./mutex.js";
 import { parseUiTarget, startUiProxy, tryListen } from "./proxy.js";
 import type { UiProxy } from "./proxy.js";
 import {
+  addPostedComment,
   anchorTextFor,
   buildReviewResult,
   buildReviewState,
@@ -46,6 +47,7 @@ import {
   resolveMovedFrom,
   resolveGuide,
   reviewDir,
+  reviewerFields,
   syncGitState,
   uiQuestionPayload,
   unvisitedAnnotations,
@@ -61,6 +63,7 @@ import type {
   IndexEntry,
   PollPayload,
   QuestionPayload,
+  ReviewRead,
   ReviewState,
   SaveAnswer,
   SaveStamp,
@@ -729,7 +732,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         // carries the contents of every file in the diff (>100 MB on a big monorepo PR),
         // and re-serializing it every tick pegged both the desk process and the tab.
         // Ship only what pollState diffs — hash, guide, comments, the names the title shows,
-        // liveness; the tab fetches /api/state exactly once per baseDiffHash change.
+        // liveness, the save number; the tab fetches /api/state exactly once per baseDiffHash
+        // change, and /api/review when another tab's save moved the number.
         const poll: PollPayload = {
           baseDiffHash: state.baseDiffHash,
           guide: state.guide,
@@ -738,8 +742,20 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           annotations: state.annotations,
           project: state.project,
           branch: state.branch,
+          saveNumber: state.saveNumber ?? 0,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
+      }
+      if (req.method === "GET" && url.pathname === "/api/review") {
+        // What an idle tab takes when another tab saved (types.ts, ReviewRead): the reviewer-owned
+        // fields only, git-free like the poll. A save applies its changes and raises the number with
+        // no I/O between, so a read here never sees one without the other.
+        const read: ReviewRead = {
+          saveNumber: state.saveNumber ?? 0,
+          baseDiffHash: state.baseDiffHash,
+          review: reviewerFields(state),
+        };
+        return json(res, 200, read);
       }
       if (req.method === "GET" && url.pathname === "/api/state") {
         await syncGitState(state);
@@ -1390,7 +1406,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             role: body.role === "user" ? ("user" as const) : ("agent" as const),
             anchorText: anchorTextFor(contents, side, lineNumber),
           };
-          state.comments.push(comment);
+          addPostedComment(state, comment);
           // The reply the reviewer was waiting on has landed — the "what I'm doing
           // now" line is obsolete the moment a real agent message exists.
           if (comment.role === "agent") {
