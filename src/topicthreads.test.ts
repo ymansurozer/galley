@@ -273,6 +273,97 @@ test("the result carries open topic change requests with their part and quote; q
   assert.deepEqual(computeOpenQuestions(live), []);
 });
 
+test("option picks survive saves, follow labels and reach the result with their label", async () => {
+  const body = '```options\n[{"label":"A","ships":true},{"label":"B"}]\n```';
+  const live = state({ guide: guideOf(topic("t1", { body })) });
+  await save(live, 0, [
+    sent("pick", "t1", "option:2", { option: "B", comments: [message({ body: "Use: B" })] }),
+  ]);
+  assert.equal(live.topicThreads![0]!.quote, "B");
+  assert.deepEqual(
+    buildReviewResult(live, { resultJson: "r", sessionDir: "d" }).topicChangeRequests,
+    [{ id: "pick", topic: "t1", part: "option:2", quote: "B", body: "Use: B", option: "B" }],
+  );
+  live.guide = guideOf(
+    topic("t1", {
+      body: body.replace(
+        '[{"label":"A","ships":true},{"label":"B"}]',
+        '[{"label":"B"},{"label":"A","ships":true}]',
+      ),
+    }),
+  );
+  carryTopicThreads(live);
+  assert.equal(live.topicThreads![0]!.target.part, "option:1");
+  live.guide = guideOf(topic("t1"));
+  carryTopicThreads(live);
+  assert.equal(live.topicThreads![0]!.target.part, "title");
+  assert.equal(live.topicThreads![0]!.moved, true);
+  assert.equal(live.topicThreads![0]!.option, undefined);
+  // A stale save may still carry the old pick marker, but cannot restore it on the title.
+  await save(live, 1, [sent("pick", "t1", "option:1", { option: "B" })]);
+  assert.equal(live.topicThreads![0]!.option, undefined);
+  assert.equal(
+    buildReviewResult(live, { resultJson: "r", sessionDir: "d" }).topicChangeRequests[0]!.option,
+    undefined,
+  );
+});
+
+test("a reply pick carries the latest picked option through save and result", async () => {
+  const live = state({ guide: guideOf(topic("t1")) });
+  await save(live, 0, [
+    sent("reply-pick", "t1", "title", {
+      intent: "question",
+      comments: [
+        message({ intent: "question", body: "Alternatives?" }),
+        message({
+          id: "agent",
+          role: "agent",
+          intent: "note",
+          body: '```options\n[{"label":"A"},{"label":"B"}]\n```',
+        }),
+        message({ id: "pickA", option: "A", body: "Use: A" }),
+        message({ id: "pickB", option: "B", body: "Use: B" }),
+      ],
+    }),
+  ]);
+  const result = buildReviewResult(live, { resultJson: "r", sessionDir: "d" });
+  assert.equal(result.topicChangeRequests[0]!.option, "B");
+  assert.equal(result.topicChangeRequests[0]!.body, "Use: B");
+});
+
+test("saves from tabs behind keep only the last made open pick per topic", async () => {
+  const body = '```options\n[{"label":"A"},{"label":"B"},{"label":"C"}]\n```';
+  const live = state({ guide: guideOf(topic("t1", { body })) });
+  const pick = (id: string, label: string, part: string, createdAt: string) =>
+    sent(id, "t1", part, {
+      option: label,
+      comments: [message({ body: `Use: ${label}`, createdAt })],
+    });
+  await save(live, 0, [pick("older", "B", "option:2", "2026-11-13T10:00:00Z")]);
+  await save(live, 0, [pick("newer", "C", "option:3", "2026-11-13T10:01:00Z")]);
+  assert.deepEqual(
+    live.topicThreads!.map((t) => t.id),
+    ["newer"],
+  );
+  // Even a late arrival of the earlier pick cannot displace the one made later.
+  await save(live, 0, [pick("older", "B", "option:2", "2026-11-13T10:00:00Z")]);
+  assert.deepEqual(
+    live.topicThreads!.map((t) => t.id),
+    ["newer"],
+  );
+});
+
+test("a new pick from a stale guide follows its label, not the old option number", async () => {
+  const body = '```options\n[{"label":"B"},{"label":"A"}]\n```';
+  const live = state({ guide: guideOf(topic("t1", { body })) });
+  await save(live, 0, [
+    sent("stale", "t1", "option:2", { option: "B", comments: [message({ body: "Use: B" })] }),
+  ]);
+  assert.equal(live.topicThreads![0]!.target.part, "option:1");
+  assert.equal(live.topicThreads![0]!.quote, "B");
+  assert.equal(live.topicThreads![0]!.option, "B");
+});
+
 // ── The Overview ─────────────────────────────────────────────────────────────────────────────────
 
 // Three groups in two stages, two links: api feeds store, store feeds ui.

@@ -46,6 +46,15 @@ import {
 } from "./topicthreads-dom";
 import { uuid } from "./uuid";
 import type { GuideTopic, TopicThread } from "../types";
+import { optionsList } from "./topics-options-dom";
+import {
+  isPick,
+  parseOptions,
+  replacePick,
+  replaceReplyPick,
+  selectedOption,
+} from "./topics-options-derive";
+import { parseTopicBody } from "./topics-body-derive";
 
 // The threads on a topic's parts (ReviewState.topicThreads): the gutter button, ⇧ click and the
 // keyboard's cursor that open the composer on a part, the threads drawn under their parts with the
@@ -83,6 +92,19 @@ function stopsHere(): string[] {
 export function decorateTopicPage(host: HTMLElement, topic: GuideTopic) {
   const page = host.querySelector<HTMLElement>(".topic-page");
   if (!page) return;
+  const stamp = S.state.topics?.[topic.id];
+  if (stamp?.options) {
+    const selected = selectedOption(stamp.options, threads(), topic.id);
+    page.querySelector(`.topic-body pre[data-line="${stamp.optionsLine}"]`)?.replaceWith(
+      optionsList(
+        page.ownerDocument,
+        stamp.options,
+        selected,
+        threads().some((t) => isPick(t, topic.id)),
+        (index) => pickOption(index),
+      ),
+    );
+  }
   const parts = partsOf(topic);
   const mine = threadsOf(threads(), topic.id);
   const has = new Set(mine.filter((t) => t.status === "open").map((t) => t.target.part));
@@ -208,6 +230,54 @@ function threadCard(t: TopicThread): HTMLElement {
           held: requestsChange(t),
         };
   wrap.append(buildCommentThread({ ...t, head }, controls(t), "chrome"));
+  for (const message of t.comments.filter((m) => m.role === "agent")) {
+    for (const block of parseTopicBody(message.body).filter((b) => b.kind === "options")) {
+      const options = parseOptions(block.text);
+      if (!options) continue;
+      const picked = [...t.comments]
+        .reverse()
+        .find((m) => m.role !== "agent" && m.option !== undefined);
+      const selected = picked
+        ? options.findIndex((o) => o.label === picked.option)
+        : options.findIndex((o) => o.ships);
+      const fence = wrap.querySelector(
+        `.msg[data-id="${CSS.escape(message.id)}"] pre[data-line="${block.line}"]`,
+      );
+      const focusKey = `${t.id}:${message.id}:${block.line}`;
+      const list = optionsList(
+        document,
+        options,
+        selected,
+        t.status === "open" && !!picked,
+        (index) => {
+          const option = options[index];
+          if (!option) return;
+          const now = new Date().toISOString();
+          const next = replaceReplyPick(t, option, {
+            id: uuid(),
+            role: "user",
+            intent: "action",
+            body: `Use: ${option.label}`,
+            option: option.label,
+            createdAt: now,
+            updatedAt: now,
+          });
+          if (next === t) return;
+          Object.assign(t, next);
+          renderTopics();
+          document
+            .querySelector<HTMLElement>(
+              `[data-reply-options="${CSS.escape(focusKey)}"] [data-option-part="option:${index + 1}"] .topic-option`,
+            )
+            ?.focus({ preventScroll: true });
+          persist();
+          if (option.ships) toast("Option change request removed — what ships is selected");
+        },
+      );
+      list.dataset.replyOptions = focusKey;
+      fence?.replaceWith(list);
+    }
+  }
   return wrap;
 }
 
@@ -305,8 +375,11 @@ export function submitTopicComposer(intent: "action" | "question") {
       intent: intent === "question" ? "question" : "change",
       status: "open",
       comments: [message],
+      ...(intent === "action" && draft.option !== undefined && { option: draft.option }),
     };
-    (S.state.topicThreads ??= []).push(created);
+    if (created.option !== undefined)
+      S.state.topicThreads = replacePick(threads(), draft.topic, created);
+    else (S.state.topicThreads ??= []).push(created);
     if (intent === "question") asked = { thread: created.id, message: message.id };
   } else if (t) {
     t.comments.push(message);
@@ -323,6 +396,38 @@ export function submitTopicComposer(intent: "action" | "question") {
 export function commentOn(part: string) {
   cursorAt.set(here(), S.topicAt === null ? overviewSlot(part) : part);
   openTopicComposer({ topic: here(), part });
+}
+
+// Picks remain drafts until Request change; cancelling a draft preserves the previous pick.
+export function pickOption(index: number) {
+  const topic = openTopicPlace();
+  if (!topic) return;
+  const option = S.state.topics?.[topic.id]?.options?.[index];
+  if (!option) return;
+  if (option.ships) {
+    if (!threads().some((t) => isPick(t, topic.id))) return;
+    S.state.topicThreads = replacePick(threads(), topic.id);
+    closeComposer();
+    renderTopics();
+    persist();
+    toast("Option change request removed — what ships is selected");
+    return;
+  }
+  openTopicComposer(
+    { topic: topic.id, part: `option:${index + 1}`, option: option.label },
+    null,
+    `Use: ${option.label}`,
+  );
+}
+// Space keeps its normal scrolling behavior unless the visible topic cursor names an option.
+export function cursorOnOption() {
+  const topic = openTopicPlace();
+  const part = topic && cursorAt.get(topic.id);
+  return !!(railShown && part?.startsWith("option:") && topic && partsOf(topic).includes(part));
+}
+export function pickAtCursor() {
+  const part = S.topicAt && cursorAt.get(S.topicAt);
+  if (part?.startsWith("option:")) pickOption(Number(part.slice(7)) - 1);
 }
 
 // c, and ↵ on a topic page: comment on the part under the cursor (the first part before j or k
@@ -382,6 +487,14 @@ export function installTopicThreads() {
     const gut = target.closest<HTMLElement>("[data-gut]");
     if (gut?.dataset.gut) return commentOn(gut.dataset.gut);
     const part = target.closest<HTMLElement>(".topic-part");
+    if (
+      e.shiftKey &&
+      part?.dataset.part?.startsWith("option:") &&
+      target.closest(".topic-option")
+    ) {
+      e.preventDefault();
+      return commentOn(part.dataset.part);
+    }
     if (!part?.dataset.part || inThread(target)) return;
     if (e.shiftKey) {
       e.preventDefault();

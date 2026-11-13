@@ -47,13 +47,19 @@ const ANCHORS = [
   // topic threads: the question lane, the reply form, the result field and the parts
   'lane "topic": {lane, id, topic, part, quote?, body, mode, session}',
   'galley comment --topic <id> --body "…"',
-  "topicChangeRequests[]: {id, topic, part, quote?, body}",
+  "topicChangeRequests[]: {id, topic, part, quote?, body, option?}",
   '"body:<n>" — a block of the body',
   // the Overview's parts, as a question event and the result name them
   'On the Overview (topic "overview") the parts are:',
   '"link:<from>><to>" — a link, by its two group ids',
   '"group:<id>" — a group\'s box',
   "Topic Ask:",
+  "#### Options fence",
+  "option? — the picked option label",
+  "One options block per topic",
+  '"option:<n>" — the n-th option',
+  "There is one reply pick per thread",
+  "Arrows move focus only; Space, Enter and click pick.",
   "How to act on a review",
   // the human can turn a change request into a question and back between rounds
   "change kind between rounds",

@@ -1,6 +1,10 @@
 import MarkdownIt from "markdown-it";
 
-export type TopicBodyBlock = { kind: "markdown" | "mermaid"; text: string; line: number };
+export type TopicBodyBlock = {
+  kind: "markdown" | "mermaid" | "options";
+  text: string;
+  line: number;
+};
 const parser = new MarkdownIt({ html: false });
 
 // Use markdown's own fence rules so examples inside longer fences, lists and quotes stay prose.
@@ -13,7 +17,7 @@ export function parseTopicBody(body: string): TopicBodyBlock[] {
     if (
       token.type !== "fence" ||
       token.level !== 0 ||
-      token.info.trim() !== "mermaid" ||
+      !["mermaid", "options"].includes(token.info.trim()) ||
       !token.map
     )
       continue;
@@ -23,7 +27,7 @@ export function parseTopicBody(body: string): TopicBodyBlock[] {
     const closing = lines[end - 1]?.trim() ?? "";
     const closed = new RegExp(`^${token.markup[0]}{${token.markup.length},}$`).test(closing);
     blocks.push({
-      kind: "mermaid",
+      kind: token.info.trim() as "mermaid" | "options",
       text: lines.slice(start + 1, closed ? end - 1 : end).join(""),
       line: start + 1,
     });

@@ -56,6 +56,10 @@ const earlierOpen = new Set<string>();
 // to the Overview.
 export function renderTopics() {
   if (!hasTopics()) return;
+  // A save or poll can redraw the list after a pick too; keep keyboard focus in that reply.
+  const active = document.activeElement as HTMLElement | null;
+  const replyOptions = active?.closest<HTMLElement>("[data-reply-options]")?.dataset.replyOptions;
+  const optionPart = active?.closest<HTMLElement>("[data-option-part]")?.dataset.optionPart;
   if (!placeOf(stages(), S.topicAt)) S.topicAt = null;
   const nav = $("topicsNav");
   const threads = S.state.topicThreads ?? [];
@@ -112,6 +116,12 @@ export function renderTopics() {
   }
   drawn = S.topicAt;
   updateProgress();
+  if (replyOptions && optionPart)
+    page
+      .querySelector<HTMLElement>(
+        `[data-reply-options="${CSS.escape(replyOptions)}"] [data-option-part="${CSS.escape(optionPart)}"] .topic-option`,
+      )
+      ?.focus({ preventScroll: true });
 }
 
 // The box or link the pointer names on the Overview, as a part (a box, or a link or a thread on

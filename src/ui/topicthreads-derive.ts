@@ -12,12 +12,14 @@ import { messageWaiting } from "./thread-derive";
 // bodyParts, so the desk's quote and the tab's part are the same block), then the Flagged card.
 // The cursor (j / k) walks this list. A kind of part a later page adds joins it here.
 export function topicParts(topic: GuideTopic, stamp: TopicStamp | undefined): string[] {
-  return [
-    "title",
-    "recorded",
-    ...(stamp?.bodyParts ?? []).map((line) => `body:${line}`),
-    ...(topic.flag ? ["flag"] : []),
-  ];
+  const body = [
+    ...(stamp?.bodyParts ?? []).map((line) => ({ part: `body:${line}`, line })),
+    ...(stamp?.options ?? []).map((_, i) => ({
+      part: `option:${i + 1}`,
+      line: stamp?.optionsLine ?? Infinity,
+    })),
+  ].sort((a, b) => a.line - b.line);
+  return ["title", "recorded", ...body.map((b) => b.part), ...(topic.flag ? ["flag"] : [])];
 }
 
 // ── The Overview ─────────────────────────────────────────────────────────────────────────────────
@@ -144,7 +146,11 @@ export const topicBlockers = (threads: readonly TopicThread[], topic: string) =>
 
 // The message that asks for a thread's change: its first Request change, else its opening one.
 export const askOf = (t: TopicThread) =>
-  t.comments.find((m) => m.role !== "agent" && m.intent === "action") ?? t.comments[0];
+  [...t.comments]
+    .reverse()
+    .find((m) => m.role !== "agent" && m.intent === "action" && m.option !== undefined) ??
+  t.comments.find((m) => m.role !== "agent" && m.intent === "action") ??
+  t.comments[0];
 
 // What the topic's bar offers and says. To do: Settle Topic, or Mark Reviewed while it has open
 // change requests. Settled (a sign-off by either button): Settled, or "Reviewed with requests"
@@ -182,6 +188,7 @@ export type TopicRequest = {
 // A part's place on its topic's page, top to bottom (topicParts). On the Overview: the summary, then
 // everything under the map in the order made, then coverage.
 export function partRank(part: string): number {
+  if (part.startsWith("option:")) return 3 + Number(part.slice(7)) / 1e7;
   const line = bodyLine(part);
   if (line !== undefined) return 2 + line / 1e7;
   if (onMap(part)) return 1;

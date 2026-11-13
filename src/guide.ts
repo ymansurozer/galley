@@ -7,6 +7,7 @@ import type {
   GuideStage,
   GuideTopic,
 } from "./types.js";
+import { optionBlocks } from "./topicoptions.js";
 
 export type GuideValidation = { ok: true; guide: Guide } | { ok: false; reason: string };
 
@@ -97,6 +98,12 @@ function topic(
     body: r.body as string,
     covers: c.covers,
   };
+  const options = optionBlocks(t.body);
+  if (options.length > 1 || options.some((b) => !b.options))
+    return {
+      ok: false,
+      reason: `${e.at} topic ${t.id}: options must be one JSON array of at least two labelled options, at most one ships; note must be text and ships/recommended booleans`,
+    };
   if (text(r.concern)) t.concern = r.concern as string;
   if (text(r.flag)) t.flag = r.flag as string;
   if (r.pages !== undefined) {

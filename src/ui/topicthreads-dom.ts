@@ -22,6 +22,7 @@ const OWN_ELEMENT: Record<string, string> = {
 export function partElement(page: ParentNode, part: string): HTMLElement | null {
   const own = OWN_ELEMENT[part];
   if (own) return page.querySelector(own);
+  if (/^option:[1-9]\d*$/.test(part)) return page.querySelector(`[data-option-part="${part}"]`);
   const line = String(bodyLine(part));
   const body = page.querySelector(".topic-body");
   for (const child of body?.children ?? []) {
