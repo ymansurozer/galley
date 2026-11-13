@@ -98,14 +98,10 @@ test("pointing at a thread on one link lights that link alone, in the drawing an
   const host = mount(mapHtml(layout) + mapListHtml(STAGES, LINKS));
   lightMapLinks(host, null, ["a", "d"]);
   const hot = [...host.querySelectorAll<HTMLElement>(".map-hot")].map(
-    (e) => `${e.className.replace(" map-hot", "")} ${e.dataset.from ?? e.dataset.group}>${e.dataset.to ?? ""}`,
+    (e) =>
+      `${e.className.replace(" map-hot", "")} ${e.dataset.from ?? e.dataset.group}>${e.dataset.to ?? ""}`,
   );
-  assert.deepEqual(hot, [
-    "map-link a>d",
-    "map-label a>d",
-    "map-cross a>d",
-    "map-list-feed a>d",
-  ]);
+  assert.deepEqual(hot, ["map-link a>d", "map-label a>d", "map-cross a>d", "map-list-feed a>d"]);
   // A box's thread lights the box, in the drawing and as its list row.
   lightMapLinks(host, "b");
   assert.ok(host.querySelector('.map-box[data-group="b"]')!.classList.contains("map-hot"));

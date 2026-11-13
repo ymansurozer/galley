@@ -205,7 +205,8 @@ export function topicRequestList(
               kind: "topic" as const,
               id: t.id,
               topic: t.target.topic,
-              title: t.target.topic === OVERVIEW ? "Overview" : (title.get(t.target.topic) ?? t.title),
+              title:
+                t.target.topic === OVERVIEW ? "Overview" : (title.get(t.target.topic) ?? t.title),
               part: t.target.part,
               rank: t.target.topic === OVERVIEW ? -1 : (rank.get(t.target.topic) ?? Infinity),
               partRank: partRank(t.target.part),

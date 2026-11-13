@@ -167,3 +167,190 @@ li > .topic-threads {
   font-size: var(--text-sm);
   font-weight: 600;
 }
+
+/* ── Comments on the Overview (topicthreads.ts decorateTopicsOverview) ──
+   The summary, the map and coverage are parts as a topic's are, and every box and link on the map
+   takes a comment of its own. The map's threads sit under it, in the reading column. */
+.topics-overview > .topic-part,
+.topics-overview > .topic-threads {
+  max-width: 660px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+/* The map's part hugs the drawing, which is wider than the reading column, so its rail and button
+   sit beside it, in the page's padding. */
+.topics-overview > .topic-part[data-part="map"] {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.topics-overview > .topic-part[data-part="map"] > .topic-gut {
+  left: -32px;
+}
+
+.topics-overview > .topic-part[data-part="map"]::before {
+  left: -6px;
+}
+
+/* A box's and a list row's comment button: in the corner while the pointer is on it, and kept in
+   view while the box has an open thread. */
+.map-cm {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s var(--ease);
+}
+
+.map-cm .ic {
+  width: 12px;
+  height: 12px;
+}
+
+:is(.map-box, .map-list-row):is(:hover, :focus-within) > .map-cm,
+:is(.map-ask, .map-change) > .map-cm,
+.map-cm:focus-visible {
+  opacity: 1;
+}
+
+.map-cm:hover {
+  background: var(--fill-3);
+  color: var(--ink);
+}
+
+.topic-shift :is(.map-box, .map-list-row):hover > .map-cm {
+  opacity: 1;
+  color: var(--blue-ink);
+}
+
+.map-list-row {
+  position: relative;
+  padding-right: 30px;
+}
+
+.map-list-row > .map-cm {
+  top: 5px;
+  right: 4px;
+  background: transparent;
+}
+
+/* A link is pointed at along a wide invisible line, or by its label, note or list line. */
+.map-link .map-hit {
+  stroke-width: 14px;
+  opacity: 0;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.map-link:hover path:not(.map-hit) {
+  stroke: var(--ink);
+}
+
+.map-label[data-gut],
+.map-note[data-gut] {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.map-label[data-gut]:hover {
+  fill: var(--ink);
+}
+
+.map-note[data-gut]:hover,
+.map-list-feed[data-gut]:hover,
+.map-list-feed.map-hot {
+  color: var(--ink);
+}
+
+.map-list-feed[data-gut] {
+  cursor: pointer;
+}
+
+.map-list-row.map-hot {
+  background: var(--fill);
+}
+
+/* An open thread tints what it is on: blue for a question, orange for a change request. */
+.map-box.map-ask {
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+
+.map-box.map-change {
+  box-shadow: inset 0 0 0 1px var(--orange);
+}
+
+.map-box.map-ask.map-hot {
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+.map-box.map-change.map-hot {
+  box-shadow: inset 0 0 0 2px var(--orange);
+}
+
+.map-ask > .map-cm {
+  color: var(--blue-ink);
+}
+
+.map-change > .map-cm {
+  color: var(--orange-ink);
+}
+
+.map-link.map-ask path:not(.map-hit),
+.map-cross.map-ask {
+  stroke: var(--blue);
+}
+
+.map-link.map-change path:not(.map-hit),
+.map-cross.map-change {
+  stroke: var(--orange);
+}
+
+.map-label.map-ask {
+  fill: var(--blue-ink);
+}
+
+.map-label.map-change {
+  fill: var(--orange-ink);
+}
+
+:is(.map-note, .map-list-feed).map-ask,
+.map-list-feed.map-ask .map-list-label,
+.map-list-row.map-ask > .map-list-title {
+  color: var(--blue-ink);
+}
+
+:is(.map-note, .map-list-feed).map-change,
+.map-list-feed.map-change .map-list-label,
+.map-list-row.map-change > .map-list-title {
+  color: var(--orange-ink);
+}
+
+/* What a thread under the map is about: the box, or the link's two groups. */
+.topic-anchor {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 7px;
+  border-radius: var(--radius-sm);
+  background: var(--fill-2);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topic-thread[data-map-part]:hover .topic-anchor {
+  background: var(--fill-3);
+}

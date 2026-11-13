@@ -276,10 +276,12 @@ test("the result carries open topic change requests with their part and quote; q
 // ── The Overview ─────────────────────────────────────────────────────────────────────────────────
 
 // Three groups in two stages, two links: api feeds store, store feeds ui.
-const mapGuide = (links = [
-  { from: "api", to: "store", label: "writes rows" },
-  { from: "store", to: "ui", label: "serves reads" },
-]): Guide => ({
+const mapGuide = (
+  links = [
+    { from: "api", to: "store", label: "writes rows" },
+    { from: "store", to: "ui", label: "serves reads" },
+  ],
+): Guide => ({
   overview: "The summary.",
   stages: [
     {
@@ -338,16 +340,25 @@ test("an open change request on a link goes in the result with the Overview as i
       comments: [message({ body: "Reads should go through a cache." })],
     }),
   ]);
-  assert.deepEqual(buildReviewResult(live, { resultJson: "r", sessionDir: "d" }).topicChangeRequests, [
-    {
-      id: "on-link",
-      topic: "overview",
-      part: "link:store>ui",
-      quote: "Store → UI: serves reads",
-      body: "Reads should go through a cache.",
-    },
-    { id: "on-topic", topic: "t1", part: "title", quote: "Title of t1", body: "Please change this." },
-  ]);
+  assert.deepEqual(
+    buildReviewResult(live, { resultJson: "r", sessionDir: "d" }).topicChangeRequests,
+    [
+      {
+        id: "on-link",
+        topic: "overview",
+        part: "link:store>ui",
+        quote: "Store → UI: serves reads",
+        body: "Reads should go through a cache.",
+      },
+      {
+        id: "on-topic",
+        topic: "t1",
+        part: "title",
+        quote: "Title of t1",
+        body: "Please change this.",
+      },
+    ],
+  );
 });
 
 test("a new guide that drops a link or a box moves its thread to the map, saying what it was on", async () => {

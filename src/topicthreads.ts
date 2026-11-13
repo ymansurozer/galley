@@ -111,7 +111,9 @@ function overviewQuote(
     return title === undefined ? null : { quote: title };
   }
   const link = guide?.links?.find((l) => linkPart(l.from, l.to) === part);
-  return link ? { quote: `${groups.get(link.from)} → ${groups.get(link.to)}: ${link.label}` } : null;
+  return link
+    ? { quote: `${groups.get(link.from)} → ${groups.get(link.to)}: ${link.label}` }
+    : null;
 }
 
 // ── Following a new guide ────────────────────────────────────────────────────────────────────────

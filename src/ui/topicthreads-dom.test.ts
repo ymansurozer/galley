@@ -256,7 +256,12 @@ test("each box and list row takes a comment button, and each link a hit area, it
   markMap(host, new Map());
   const guts = (sel: string) =>
     [...host.querySelectorAll<HTMLElement>(sel)].map((el) => el.dataset.gut);
-  assert.deepEqual(guts(".map-box > .map-cm"), ["group:api", "group:store", "group:cache", "group:ui"]);
+  assert.deepEqual(guts(".map-box > .map-cm"), [
+    "group:api",
+    "group:store",
+    "group:cache",
+    "group:ui",
+  ]);
   assert.deepEqual(guts(".map-list-row > .map-cm").length, 4);
   // A drawn link's wide invisible line, inside its group so pointing at it is pointing at the link.
   assert.deepEqual(guts(".map-link > .map-hit"), ["link:api>store", "link:store>ui"]);
