@@ -204,3 +204,30 @@
 .map-list-arrow {
   color: var(--ink-3);
 }
+
+/* ── On the Overview: wider than the reading column, scrolling sideways inside its own area ── */
+.topics-map {
+  margin: 30px 0 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.topics-map .map {
+  margin: 0 auto;
+}
+
+.topics-map .map-list {
+  display: none;
+  max-width: 660px;
+  margin: 0 auto;
+}
+
+@media (max-width: 760px) {
+  .topics-map .map {
+    display: none;
+  }
+
+  .topics-map .map-list {
+    display: grid;
+  }
+}

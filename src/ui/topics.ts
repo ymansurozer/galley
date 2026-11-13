@@ -4,6 +4,7 @@ import { isGuideBaseStale } from "./guide-derive";
 import { lineTotals } from "./walkthrough";
 import {
   firstTopic,
+  groupEntry,
   placeOf,
   stepGroup,
   stepTopic,
@@ -12,6 +13,8 @@ import {
   type TopicAt,
 } from "./topics-derive";
 import { renderTopicPage, renderTopicsNav, renderTopicsOverview } from "./topics-dom";
+import { layoutMap, MAP_WIDTH } from "./map-derive";
+import { canvasMeasure, lightMapLinks } from "./map-dom";
 
 // Decisions mode: the guide's topics, read one page at a time. It draws into its own sidebar list
 // (#topicsNav) and centre (#topics); Code mode's diff and lists stand aside while it shows
@@ -38,7 +41,10 @@ export function renderTopics() {
   const page = $("topics");
   const place = placeOf(stages(), S.topicAt);
   if (place) renderTopicPage(page, place, renderMarkdown);
-  else renderTopicsOverview(page, overview(), renderMarkdown);
+  else {
+    renderTopicsOverview(page, overview(page.clientWidth), renderMarkdown);
+    lightMapLinks(page, lit);
+  }
   if (drawn !== S.topicAt) {
     page.scrollTop = 0;
     nav.querySelector(".node.active, .node.current")?.scrollIntoView({ block: "nearest" });
@@ -46,9 +52,17 @@ export function renderTopics() {
   drawn = S.topicAt;
 }
 
-function overview() {
+// The group the pointer is on in the Overview's map, so a redraw keeps its links lit.
+let lit: string | null = null;
+
+// The Overview's map is laid out for the room the page has: wider than the reading column, up to
+// the widest it draws at, and never so narrow it stops being a map (it scrolls sideways instead).
+function overview(room: number) {
   const st = S.state;
   const g = st.guide!;
+  const links = g.links ?? [];
+  const width = Math.max(720, Math.min(MAP_WIDTH, room - 76));
+  const layout = layoutMap(stages(), links, canvasMeasure(), width);
   const groups = stages().reduce((n, s) => n + s.groups.length, 0);
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const totals = lineTotals(st.files);
@@ -66,6 +80,7 @@ function overview() {
     removed: totals.removed,
     summary: g.overview,
     stale: isGuideBaseStale(st.baseDiffHash, g.baseDiffHash),
+    ...(layout ? { map: { layout, stages: stages(), links } } : {}),
   };
 }
 
@@ -74,6 +89,15 @@ export function openTopic(at: TopicAt) {
   S.topicAt = at;
   S.treeDrawerOpen = false;
   renderTopics();
+}
+
+// Open a group, by id, where groupEntry says it is entered. The map's boxes open groups this way.
+export function openGroup(id: string) {
+  const group = stages()
+    .flatMap((s) => s.groups)
+    .find((g) => g.id === id);
+  const at = group && groupEntry(group);
+  if (at) openTopic(at);
 }
 
 // ⇧→ / ⇧←, ⇧↓ / ⇧↑: a step that has nowhere to go stays put.
@@ -106,7 +130,43 @@ export function installTopics() {
       if (group?.topics[0]) openTopic(group.topics[0].id);
     }
   });
-  $("topics").addEventListener("click", (e) => {
-    if ((e.target as Element).closest('[data-act="start"]')) startTopics();
+  const page = $("topics");
+  page.addEventListener("click", (e) => {
+    const t = e.target as Element;
+    if (t.closest('[data-act="start"]')) startTopics();
+    const box = t.closest<HTMLElement>(".topics-map [data-group]");
+    if (box?.dataset.group) openGroup(box.dataset.group);
+  });
+  // ↵ or space on a focused box opens it, ahead of the Overview's own ↵ (Start Review).
+  page.addEventListener("keydown", (e) => {
+    const box = (e.target as Element).closest<HTMLElement>(".topics-map [data-group]");
+    if (!box?.dataset.group || (e.key !== "Enter" && e.key !== " ")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openGroup(box.dataset.group);
+  });
+  // Pointing at a box lights its links.
+  page.addEventListener("mouseover", (e) => {
+    const group = (e.target as Element).closest<HTMLElement>(".map-box")?.dataset.group ?? null;
+    if (group === lit) return;
+    lit = group;
+    lightMapLinks(page, lit);
+  });
+  page.addEventListener("mouseleave", () => {
+    lit = null;
+    lightMapLinks(page, null);
+  });
+  // The map measures its text, so it is laid out again when the room or the font changes.
+  const overviewShowing = () => hasTopics() && S.view === "topics" && S.topicAt === null;
+  let pending = 0;
+  window.addEventListener("resize", () => {
+    cancelAnimationFrame(pending);
+    pending = requestAnimationFrame(() => {
+      if (overviewShowing()) renderTopics();
+    });
+  });
+  document.fonts?.addEventListener("loadingdone", () => {
+    if (overviewShowing()) renderTopics();
   });
 }

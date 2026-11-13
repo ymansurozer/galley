@@ -1,5 +1,8 @@
+import type { GuideLink } from "../types";
 import { esc } from "./html";
 import { keycapsHtml } from "./keycaps";
+import type { MapLayout, MapStage } from "./map-derive";
+import { mapHtml, mapListHtml } from "./map-dom";
 import type { TopicPlace, TopicsNavRow } from "./topics-derive";
 
 // Decisions mode's markup: the sidebar's stage, group and topic rows, the topic page and the
@@ -50,9 +53,12 @@ export type TopicsOverview = {
   removed: number;
   summary: string;
   stale: boolean;
+  // How the groups relate, when the guide has three or more: the drawn map, and the list that
+  // replaces it in a narrow window.
+  map?: { layout: MapLayout; stages: MapStage[]; links: GuideLink[] };
 };
 
-// The Overview: title and facts, the guide's summary, and Start Review at the end.
+// The Overview: title and facts, the guide's summary, the map, and Start Review at the end.
 export function renderTopicsOverview(
   host: HTMLElement,
   o: TopicsOverview,
@@ -61,10 +67,13 @@ export function renderTopicsOverview(
   const stale = o.stale
     ? `<div class="go-stale">${glyph("warn", "")} This guide was generated for an earlier version of the diff. Regenerate it and attach it with <code>galley reload --guide &lt;file&gt;</code> to refresh.</div>`
     : "";
+  const map = o.map
+    ? `<section class="topics-map" aria-label="Map of the groups">${mapHtml(o.map.layout)}${mapListHtml(o.map.stages, o.map.links)}</section>`
+    : "";
   host.innerHTML = `<div class="guide-overview topics-overview"><div class="go-card">
     <h1>${esc(o.title)}</h1>
     <div class="go-sub">${o.facts.map(esc).join(" · ")} · <span class="add">+${o.added}</span> <span class="del">−${o.removed}</span></div>
     ${stale}
     <div class="go-overview md">${md(o.summary)}</div>
-  </div><div class="go-card topics-end"><div class="go-actions"><button class="btn primary" data-act="start">Start Review ${keycapsHtml("↵")}</button></div></div></div>`;
+  </div>${map}<div class="go-card topics-end"><div class="go-actions"><button class="btn primary" data-act="start">Start Review ${keycapsHtml("↵")}</button></div></div></div>`;
 }

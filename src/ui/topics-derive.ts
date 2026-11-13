@@ -20,7 +20,7 @@ export const placeOf = (stages: GuideStage[], id: TopicAt) =>
   id === null ? undefined : topicPlaces(stages).find((p) => p.topic.id === id);
 
 // Where a group is entered: its first topic.
-const groupEntry = (group: GuideGroup) => group.topics[0]?.id;
+export const groupEntry = (group: GuideGroup) => group.topics[0]?.id;
 
 export const firstTopic = (stages: GuideStage[]) => topicPlaces(stages)[0]?.topic.id;
 
