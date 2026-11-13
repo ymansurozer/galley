@@ -960,6 +960,61 @@ try {
     seen: { token: null, reloadGeneration: 0, baseDiffHash: settling.baseDiffHash },
   });
   assert.equal(settled.status, 200, "the settle saves");
+  // Two topic threads the Send must carry as topicChangeRequests, saved as the tab saves them: a
+  // pick of an option the agent offered in its answer to topic-q1 (the reviewer's message names the
+  // label), and a new change request on b-top's first body block, with the text the tab showed.
+  const threadsNow = await getJson("/api/state");
+  const answered = threadsNow.topicThreads.find((t) => t.id === "topic-q1");
+  const pickedAt = new Date().toISOString();
+  const threadsSaved = await post("/api/save", {
+    base: threadsNow.saveNumber ?? 0,
+    changes: {
+      topicThreads: {
+        changed: [
+          {
+            ...answered,
+            comments: [
+              ...answered.comments,
+              {
+                id: "topic-q1-pick",
+                role: "user",
+                intent: "action",
+                body: "Use: Write it down",
+                option: "Write it down",
+                createdAt: pickedAt,
+                updatedAt: pickedAt,
+              },
+            ],
+          },
+          {
+            id: "topic-c1",
+            target: { topic: "b-top", part: "body:1" },
+            title: "",
+            quote: "Why.",
+            intent: "change",
+            status: "open",
+            comments: [
+              {
+                id: "topic-c1-m1",
+                role: "user",
+                intent: "action",
+                body: "Say why b.txt moved.",
+                createdAt: pickedAt,
+                updatedAt: pickedAt,
+              },
+            ],
+          },
+        ],
+        removed: [],
+      },
+    },
+    seen: {
+      token: null,
+      reloadGeneration: threadsNow.reloadGeneration,
+      baseDiffHash: threadsNow.baseDiffHash,
+    },
+  });
+  assert.equal(threadsSaved.status, 200, "the topic threads save");
   const preSend = await getJson("/api/state");
   const approvedHash = preSend.files.find((f) => f.path === "huge-approved.txt").contentHash;
   const rejectedDecisions = preSend.changes
@@ -1039,6 +1094,28 @@ try {
     { settled: ["a-line"], todo: ["b-top"] },
     "the settled topic is listed as settled, the other as to do",
   );
+  assert.deepEqual(
+    ev2.result.topicChangeRequests,
+    [
+      {
+        id: "topic-q1",
+        topic: "a-line",
+        part: "recorded",
+        quote: "Only the code records this.",
+        body: "Use: Write it down",
+        option: "Write it down",
+      },
+      {
+        id: "topic-c1",
+        topic: "b-top",
+        part: "body:1",
+        quote: "Why.",
+        body: "Say why b.txt moved.",
+      },
+    ],
+    "the pick and the open request arrive in topicChangeRequests, in the guide's order",
+  );
+  console.log("✓ a topic pick and an open topic request arrive in result.topicChangeRequests");
   assert.equal((await getJson("/api/poll")).round, 2, "the Send started round 2");
   console.log("✓ a topic settled through the save route arrives in result.topics; the round moves");
   assert.equal(ev2.result.overallNote, NOTE, "overallNote round-trips on the result");
