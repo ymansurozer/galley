@@ -46,7 +46,8 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
   // tab gives it up. `holdSend` and `holdSave` park
   // the next Send or save, before the desk applies it, until the test releases it; `holdReview`
   // parks the next read of the review (/api/review) after the desk answered it, and `holdReset`
-  // the next reset before the desk applies it.
+  // the next reset before the desk applies it. `hangReset` leaves the next reset unanswered until the
+  // tab gives it up, the desk never having applied it ("before") or having applied it ("after").
   const desk = {
     down: false,
     failing: false,
@@ -56,6 +57,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
     holdSave: undefined as undefined | Promise<void>,
     holdReview: undefined as undefined | Promise<void>,
     holdReset: undefined as undefined | Promise<void>,
+    hangReset: undefined as undefined | "before" | "after",
   };
   let h: any;
   const polls: Promise<void>[] = [];
@@ -169,6 +171,13 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
       return { ok: true, json: async () => answer };
     }
     if (url === "/api/reset") {
+      const hang = desk.hangReset;
+      desk.hangReset = undefined;
+      const unanswered = () =>
+        new Promise((_resolve, reject) =>
+          options.signal?.addEventListener("abort", () => reject(new Error("aborted"))),
+        );
+      if (hang === "before") return unanswered();
       const hold = desk.holdReset;
       desk.holdReset = undefined;
       await hold;
@@ -184,6 +193,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
         decisions: [],
         saveNumber: (deskState.server.saveNumber ?? 0) + 1,
       });
+      if (hang === "after") return unanswered();
       const state = JSON.parse(JSON.stringify(deskState.server));
       return { ok: true, json: async () => ({ ok: true, state }) };
     }
@@ -1493,4 +1503,90 @@ test("a Reset pressed while one is out does nothing, and the first keeps saves h
   assert.equal(await f.h.saver.settled(), true);
   assert.deepEqual(f.server().comments, []);
   assert.deepEqual(plain(f.S.state.comments), []);
+});
+
+// Catch the time limit of the tab's next request to the desk, so a test can run it out at once.
+function catchTimeLimit(
+  f: Awaited<ReturnType<typeof fixture>>,
+  t: { after: (fn: () => void) => void },
+) {
+  const originalTimeout = f.win.setTimeout.bind(f.win);
+  const limit: { expire?: () => void } = {};
+  f.win.setTimeout = ((callback: () => void, ms: number, ...args: any[]) => {
+    if (ms === 25_000) limit.expire = callback;
+    return originalTimeout(callback, ms, ...args);
+  }) as any;
+  t.after(() => (f.win.setTimeout = originalTimeout));
+  return limit;
+}
+
+test("a Reset the desk never answers is given up: the tab keeps its review, and saves go again", async (t) => {
+  const f = await fixture(t);
+  f.S.state.comments = [{ ...structuredClone(reviewerComment), id: "kept" }];
+  f.update({ comments: [{ ...structuredClone(reviewerComment), id: "kept" }] });
+  f.confirm();
+  const limit = catchTimeLimit(f, t);
+  f.desk.hangReset = "before";
+  const reset = f.h.resetWholeReview();
+  await until(() => f.requests.includes("/api/reset"));
+  f.S.state.comments.push({ ...structuredClone(reviewerComment), id: "meanwhile" });
+  f.h.persist();
+  assert.ok(limit.expire, "the reset has a time limit");
+  limit.expire!();
+  await reset;
+  assert.match(f.S.toastMsg, /not reset/);
+  assert.equal(await f.h.saver.settled(), true, "the held save went out and landed");
+  assert.deepEqual(
+    f.server().comments.map((c: { id: string }) => c.id),
+    ["kept", "meanwhile"],
+  );
+  assert.deepEqual(
+    f.S.state.comments.map((c: { id: string }) => c.id),
+    ["kept", "meanwhile"],
+  );
+});
+
+test("a Reset the desk applied but never answered: the tab ends with the reset review and what came since", async (t) => {
+  const f = await fixture(t);
+  f.S.state.comments = [{ ...structuredClone(reviewerComment), id: "old" }];
+  f.update({ comments: [{ ...structuredClone(reviewerComment), id: "old" }] });
+  f.confirm();
+  const limit = catchTimeLimit(f, t);
+  f.desk.hangReset = "after";
+  const reset = f.h.resetWholeReview();
+  await until(() => f.requests.includes("/api/reset"));
+  f.S.state.comments.push({ ...structuredClone(reviewerComment), id: "meanwhile" });
+  f.h.persist();
+  limit.expire!();
+  await reset;
+  assert.match(f.S.toastMsg, /not reset/);
+  assert.equal(await f.h.saver.settled(), true);
+  assert.deepEqual(
+    f.server().comments.map((c: { id: string }) => c.id),
+    ["meanwhile"],
+    "the desk's reset review, with the reviewer's comment since",
+  );
+  assert.deepEqual(
+    plain(f.S.state.comments.map((c: { id: string }) => c.id)),
+    ["meanwhile"],
+    "the save's merged answer brought the reset review to the tab",
+  );
+});
+
+test("a Reset the desk answers with an error leaves the review as it is, and says so", async (t) => {
+  const f = await fixture(t);
+  f.S.state.comments = [{ ...structuredClone(reviewerComment), id: "kept" }];
+  f.update({ comments: [{ ...structuredClone(reviewerComment), id: "kept" }] });
+  f.confirm();
+  const deskFetch = f.win.fetch.bind(f.win);
+  f.win.fetch = (async (url: string, options: any) =>
+    url === "/api/reset"
+      ? { ok: false, status: 500, json: async () => ({ code: "INTERNAL" }) }
+      : deskFetch(url, options)) as any;
+  await f.h.resetWholeReview();
+  assert.match(f.S.toastMsg, /not reset/);
+  assert.deepEqual(
+    f.S.state.comments.map((c: { id: string }) => c.id),
+    ["kept"],
+  );
 });

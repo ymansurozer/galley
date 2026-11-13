@@ -206,16 +206,16 @@ export function noteUnplaced(answer: Partial<SaveAnswer> | null) {
     UNPLACED_MS,
   );
 }
-// Post the reviewer's work (a save or a Send) to the desk: its answer, or null when none came.
+// Post the reviewer's work (a save, a Send, a reset) to the desk: its answer, or null when none came.
 // A request can hang with no error (a network gone under a sleeping laptop) until the browser
 // gives it up, minutes later; the saver would sit in flight and send nothing again meanwhile. So
 // an attempt that hasn't answered within ATTEMPT_MS is given up as unanswered. A late duplicate of
 // a save is harmless: the desk applies its changes by key, so twice leaves what once does.
 const ATTEMPT_MS = 25_000;
-export async function postToDesk(
-  path: "/api/save" | "/api/send",
+export async function postToDesk<Answer = Partial<SaveAnswer>>(
+  path: "/api/save" | "/api/send" | "/api/reset",
   payload: unknown,
-): Promise<{ ok: boolean; answer: Partial<SaveAnswer> | null } | null> {
+): Promise<{ ok: boolean; answer: Answer | null } | null> {
   const abort = new AbortController();
   const limit = setTimeout(() => abort.abort(), ATTEMPT_MS);
   try {
@@ -226,7 +226,7 @@ export async function postToDesk(
       signal: abort.signal,
     });
     noteAnswer();
-    const answer = (await res.json().catch(() => null)) as Partial<SaveAnswer> | null;
+    const answer = (await res.json().catch(() => null)) as Answer | null;
     return { ok: res.ok, answer };
   } catch {
     return null;

@@ -1,4 +1,4 @@
-import { S, D, toast, api, confirmDesk, holdSaves, persist, saver } from "./store";
+import { S, D, toast, api, confirmDesk, holdSaves, persist, postToDesk, saver } from "./store";
 import { currentFile, fileFinished, fileObjections, flowIndex } from "./changes";
 import { render, deferRender } from "./render";
 import { currentStep, nextUnreviewedStep, reviewTally, skimmedStepBlocks, stepSlot } from "./guide";
@@ -195,7 +195,9 @@ export function resetReview(path: string) {
 // It posts once the tab's saves have landed, and no save goes out until its answer is in: a save
 // of the tab's from before the reset, sent after it, would land on top of it, as another tab's
 // does. A save the desk can't take keeps the reset back, and the reviewer's work with it. One
-// Reset at a time: one pressed while another is out does nothing.
+// Reset at a time: one pressed while another is out does nothing. A reset the desk doesn't answer
+// within a save's time limit, or answers with an error, leaves the tab's review as it is; if the
+// desk did reset, its save number moved, and the next light read or save's answer brings it.
 let resetting = false;
 export async function resetWholeReview() {
   if (resetting) return;
@@ -204,13 +206,13 @@ export async function resetWholeReview() {
     if (!(await saver.settled()))
       return toast("Couldn't reset the review — the desk hasn't saved your latest changes");
     await holdSaves(async () => {
-      const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" });
-      if (r.state) {
-        S.state = r.state;
-        confirmDesk(r.state);
-        D.fileDiff = D.rawFileDiff = null;
-        render();
-      }
+      const reply = await postToDesk<{ state?: ReviewState }>("/api/reset", {});
+      const state = reply?.ok ? reply.answer?.state : undefined;
+      if (!state) return toast("Review not reset — the desk didn't take it");
+      S.state = state;
+      confirmDesk(state);
+      D.fileDiff = D.rawFileDiff = null;
+      render();
     });
   } finally {
     resetting = false;
