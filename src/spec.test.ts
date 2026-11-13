@@ -48,6 +48,8 @@ const ANCHORS = [
   'lane "topic": {lane, id, topic, part, quote?, body, mode, session}',
   'galley comment --topic <id> --body "…"',
   "topicChangeRequests[]: {id, topic, part, quote?, body, option?}",
+  // a request on a topic a new guide dropped is still sent, even when that guide has no topics
+  "still named by its old id, even when that guide has no topics",
   '"body:<n>" — a block of the body',
   // the Overview's parts, as a question event and the result name them
   'On the Overview (topic "overview") the parts are:',
@@ -236,6 +238,11 @@ test("SPEC uses only the renamed codeChangeRequests field (issue 04)", () => {
     !SPEC.includes("requestedChanges"),
     "requestedChanges was renamed to codeChangeRequests",
   );
+});
+
+test("SPEC never says topic change requests are empty without topics", () => {
+  // Open requests on topics a new guide dropped are kept and sent (topicthreads.ts carryTopicThreads).
+  assert.ok(!SPEC.includes("empty without topics"));
 });
 
 test("SPEC has no dangling references to the old skill/command", () => {
