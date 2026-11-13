@@ -1,6 +1,7 @@
 import Alpine from "alpinejs";
 import type {
   DiffHolder,
+  ReviewRead,
   ReviewState,
   ReviewerDelta,
   ReviewerSave,
@@ -17,6 +18,7 @@ import {
   reviewerChanges,
   stampDecisions,
 } from "./review-delta-derive";
+import { keepPlacements } from "./uilane-derive";
 
 // Single reactive source of truth: the imperative diff island mutates it directly,
 // and the Alpine-driven chrome (tree, toolbar, composer, modals, toast) renders from it.
@@ -252,6 +254,24 @@ export function confirmDesk(state: ReviewState) {
 // What a save or Send is out with: the copy its changes were taken from, kept until it answers.
 type Outgoing = { body: ReviewerDelta; sent: ReviewerSave; diff: string };
 const outgoing = new Set<Outgoing>();
+// The save number of the confirmed copy: the poll reads the desk's review (/api/review) once the
+// desk's is past it.
+export const confirmedNumber = () => confirmed.saveNumber;
+// A save or Send is out, its answer not in yet.
+export const postsOut = () => outgoing.size > 0;
+// Another tab's save landed and this tab, holding nothing unsaved, read the desk's review: it
+// becomes the tab's reviewer-owned fields and the confirmed copy, with each block's status from its
+// decision. The tab's own placements are kept over the desk's, as a new diff's adoption keeps them,
+// and go out as its reports. A read for another diff, or no newer than the copy, is not taken.
+export function takeDeskReview(read: ReviewRead): boolean {
+  if (read.baseDiffHash !== S.state.baseDiffHash) return false;
+  if (confirmed.diff === read.baseDiffHash && read.saveNumber <= confirmed.saveNumber) return false;
+  confirmed = { saveNumber: read.saveNumber, review: copyOf(read.review), diff: read.baseDiffHash };
+  keepPlacements(read.review.annotations ?? [], S.state.annotations ?? []);
+  Object.assign(S.state, read.review);
+  stampDecisions(S.state.changes, S.state.decisions ?? []);
+  return true;
+}
 // The tab took records from the desk outside a save's answer (an agent reply off the poll, the
 // placements a reload reset): `take` applies them to the confirmed copy and to every copy a save is
 // out with, as it did to the tab's own. They're the desk's, and no save sends them back as the

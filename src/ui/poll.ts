@@ -3,9 +3,12 @@ import {
   D,
   api,
   confirmDesk,
+  confirmedNumber,
   noteAnswer,
+  postsOut,
   toast,
   saver,
+  takeDeskReview,
   takenFromDesk,
   unplacedShowing,
 } from "./store";
@@ -19,7 +22,7 @@ import { adoptUiStatus, adoptUiTarget, applyPendingUiRefresh, syncView } from ".
 import { renderUiLane } from "./uilane";
 import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
 import { recordActivity } from "./thread-derive";
-import type { DeskStatus, PollPayload, ReviewState } from "./types";
+import type { DeskStatus, PollPayload, ReviewRead, ReviewState } from "./types";
 
 // Pull the transient DeskStatus fields off a server payload into the store and
 // return the rest. They must never enter S.state: persist() posts S.state back
@@ -80,7 +83,9 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
 
 // Only changes that can invalidate full-state work belong here. Presence, names and replies
 // keep arriving on lite polls while a large snapshot transfers; they must not starve adoption.
-function stateRevision(payload: PollPayload & Partial<DeskStatus>): string {
+function stateRevision(
+  payload: Pick<PollPayload, "ui" | "baseDiffHash" | "guide"> & Partial<DeskStatus>,
+): string {
   return JSON.stringify([
     payload.uiProxy ?? null,
     payload.ui ?? null,
@@ -247,8 +252,10 @@ async function pollOnce() {
     refreshBaseTitle();
     updateProgress();
   }
+  // Only the agent's: another tab's comments come with its save (pullReview), which waits on what
+  // this tab holds and on an open composer.
   const localIds = new Set(S.state.comments.map((c) => c.id));
-  const incoming = lite.comments.filter((c) => !localIds.has(c.id));
+  const incoming = lite.comments.filter((c) => c.role === "agent" && !localIds.has(c.id));
   S.state.comments.push(...incoming);
   // The agent's replies in UI annotation threads (`galley comment --ui`) join the same way; a save
   // from this tab before they arrive keeps them on the server (mergeReviewerSave).
@@ -264,4 +271,33 @@ async function pollOnce() {
   // render() redraws the UI lane too.
   if (incoming.length) render();
   else if (uiReplies) renderUiLane();
+  await pullReview(lite.saveNumber);
+}
+
+// Another tab's save landed: the desk's save number is past the tab's confirmed copy. A tab that
+// holds nothing unsaved reads the desk's reviewer-owned fields (/api/review, never the full state:
+// it carries every file's contents) and takes them in place, quietly, as the agent's replies come
+// in; the open file, part, cursor and scroll stay. A tab with unsaved work doesn't: its own save's
+// answer brings the merged review. An open composer holds it off too, so typing is never lost.
+// Anything that stops it leaves the number ahead, and the next poll tries again.
+let reviewRead = false;
+const mayTakeReview = () =>
+  !saver.isBusy() && !postsOut() && !S.composerOpen && S.lastBaseDiffHash === S.state.baseDiffHash;
+async function pullReview(saveNumber: number | undefined) {
+  if (saveNumber === undefined || saveNumber <= confirmedNumber()) return;
+  if (reviewRead || !mayTakeReview()) return;
+  const state = S.state;
+  const saveGeneration = saver.generation();
+  reviewRead = true;
+  try {
+    const read = await api<ReviewRead>("/api/review");
+    // The reviewer changed something, opened a composer, or the tab took a new diff meanwhile.
+    if (S.state !== state || saver.generation() !== saveGeneration || !mayTakeReview()) return;
+    if (!read?.review || typeof read.saveNumber !== "number") return;
+    if (takeDeskReview(read)) render();
+  } catch {
+    return;
+  } finally {
+    reviewRead = false;
+  }
 }
