@@ -5,6 +5,7 @@ import type {
   Guide,
   GuideTopic,
   ReviewState,
+  TopicCoverage,
   ThreadMessage,
   TopicChangeRequest,
   TopicQuestion,
@@ -73,6 +74,48 @@ const topicsOf = (guide: Guide | undefined) =>
     guide?.stages?.flatMap((s) => s.groups.flatMap((g) => g.topics.map((t) => [t.id, t]))) ?? [],
   );
 
+// ── The Overview's parts ─────────────────────────────────────────────────────────────────────────
+
+// A thread on the Overview has this for its topic (no topic may take the id: guide.ts), and its
+// kept title is the Overview's.
+export const OVERVIEW = "overview";
+const OVERVIEW_TITLE = "Overview";
+
+// The Overview's parts: "summary", "map" (the map as a whole), "group:<id>" (a box),
+// "link:<from>><to>" (a link: its line, its label or its note) and "coverage". A group id may hold
+// ">", so a link part is found among the guide's links by its whole name, which the guide keeps
+// unique (it refuses a second link whose `from>to` reads the same).
+export const groupPart = (id: string) => `group:${id}`;
+export const linkPart = (from: string, to: string) => `link:${from}>${to}`;
+
+// The coverage card's line, as the agent reads what the reviewer saw.
+export function coverageLine(c: TopicCoverage) {
+  const gap = c.uncoveredLines ? `, ${c.uncoveredLines} not in the guide yet` : "";
+  return `${c.totalLines} lines: ${c.topicLines} under a topic, ${c.skimmedLines} skimmed by rule${gap}`;
+}
+
+// What an Overview part quotes on `guide` now: the summary's text, a box's title, a link as "From →
+// To: label", coverage's line; the map as a whole quotes nothing. Null where the guide has no such
+// part (a box or a link it dropped).
+function overviewQuote(
+  part: string,
+  guide: Guide | undefined,
+  coverage: TopicCoverage | undefined,
+): { quote?: string } | null {
+  if (part === "map") return {};
+  if (part === "summary") return guide ? { quote: guide.overview } : null;
+  if (part === "coverage") return coverage ? { quote: coverageLine(coverage) } : {};
+  const groups = new Map(guide?.stages?.flatMap((s) => s.groups.map((g) => [g.id, g.title])));
+  if (part.startsWith("group:")) {
+    const title = groups.get(part.slice("group:".length));
+    return title === undefined ? null : { quote: title };
+  }
+  const link = guide?.links?.find((l) => linkPart(l.from, l.to) === part);
+  return link
+    ? { quote: `${groups.get(link.from)} → ${groups.get(link.to)}: ${link.label}` }
+    : null;
+}
+
 // ── Following a new guide ────────────────────────────────────────────────────────────────────────
 
 // Where a thread on `topic` sits once its topic is `topic` (a new guide): a body block where its
@@ -96,15 +139,28 @@ function follow(t: TopicThread, topic: GuideTopic): TopicThread {
     : { ...moved, title: topic.title };
 }
 
+// Where a thread on the Overview sits on a new guide: a box or a link still in it keeps its thread,
+// quoting it as it reads now; one the guide dropped sends its thread to the map as a whole, `moved`,
+// its quote still saying what it was on. The summary's quotes the new summary. Coverage's keeps the
+// line the reviewer commented on: the numbers move with every edit, not with the guide.
+function followOverview(t: TopicThread, guide: Guide | undefined): TopicThread {
+  const { part } = t.target;
+  if (part === "summary" && guide) return { ...t, quote: guide.overview };
+  if (t.moved || !/^(group|link):/.test(part)) return t;
+  const now = overviewQuote(part, guide, undefined);
+  if (now) return { ...t, ...now };
+  return { ...t, target: { ...t.target, part: "map" }, moved: true };
+}
+
 // The threads carried onto a new guide (launch with --guide, reload --guide): each on a topic still
-// in it follows its part (follow). On a topic the guide dropped, an open change request stays, under
-// the title the thread kept, so it still goes to the agent; its questions and resolved threads go.
-// Threads on the Overview stay as they are.
+// in it follows its part (follow), and each on the Overview as followOverview says; the Overview
+// never leaves the guide. On a topic the guide dropped, an open change request stays, under the
+// title the thread kept, so it still goes to the agent; its questions and resolved threads go.
 export function carryTopicThreads(state: Pick<ReviewState, "guide" | "topicThreads">) {
   if (!state.topicThreads) return;
   const topics = topicsOf(state.guide);
   state.topicThreads = state.topicThreads.flatMap((t) => {
-    if (t.target.topic === "overview") return [t];
+    if (t.target.topic === OVERVIEW) return [followOverview(t, state.guide)];
     const topic = topics.get(t.target.topic);
     if (topic) return [follow(t, topic)];
     return isOpenChange(t) ? [t] : [];
@@ -175,11 +231,14 @@ export function readTopicThreads(value: unknown): TopicThread[] | undefined {
 // hasn't caught up still sends the old ones. A new thread is placed on the desk's guide: its title
 // and quote from the topic, on the title when the part it names isn't there. An agent reply (`galley
 // comment --topic`) lands between the tab's polls, so a save from a tab that hasn't seen it yet
-// lacks it; the tab can't delete an agent message, so every one the save lacks is kept.
+// lacks it; the tab can't delete an agent message, so every one the save lacks is kept. A new thread
+// on the Overview quotes its part (overviewQuote), and sits on the map when the desk's guide lacks
+// the box or link it names.
 export function takeTopicThread(
   t: TopicThread,
   prev: TopicThread | undefined,
   guide: Guide | undefined,
+  coverage?: TopicCoverage,
 ): TopicThread {
   if (prev) {
     const have = new Set(t.comments.map((m) => m.id));
@@ -194,6 +253,14 @@ export function takeTopicThread(
       ...(moved && { moved }),
       comments: [...t.comments, ...replies],
     };
+  }
+  if (t.target.topic === OVERVIEW) {
+    const placed: TopicThread = { ...t, title: OVERVIEW_TITLE };
+    delete placed.quote;
+    delete placed.moved;
+    const found = overviewQuote(t.target.part, guide, coverage);
+    if (found) return { ...placed, ...found };
+    return { ...placed, target: { ...t.target, part: "map" } };
   }
   const topic = topicsOf(guide).get(t.target.topic);
   if (!topic) return t;
@@ -210,9 +277,10 @@ export function takeTopicThreads(
   sent: TopicThread[],
   desk: readonly TopicThread[] | undefined,
   guide: Guide | undefined,
+  coverage?: TopicCoverage,
 ): TopicThread[] {
   const own = new Map(desk?.map((t) => [t.id, t]));
-  return sent.map((t) => takeTopicThread(t, own.get(t.id), guide));
+  return sent.map((t) => takeTopicThread(t, own.get(t.id), guide, coverage));
 }
 
 // ── What the agent gets ──────────────────────────────────────────────────────────────────────────
@@ -264,23 +332,29 @@ export function topicQuestionPayload(
 }
 
 // A part's place on its topic's page, top to bottom: the title, Recorded, the body by line, the
-// flag, then any other.
+// flag, then any other. On the Overview: the summary, then everything on the map (its threads sit
+// under it in the order made), then coverage.
+const OVERVIEW_RANK: Record<string, number> = { summary: 0, map: 1, coverage: 2 };
 function partRank(part: string): number {
+  if (/^(group|link):/.test(part)) return OVERVIEW_RANK.map!;
+  if (part in OVERVIEW_RANK) return OVERVIEW_RANK[part]!;
   const p = readPart(part);
   if (!p) return 4;
   if (p.kind === "body") return 2 + p.line / 1e7;
   return { title: 0, recorded: 1, flag: 3 }[p.kind];
 }
 
-// The open change requests for the review result: by topic in the guide's order, then down the
-// page, then in the order they were made; those on topics the guide no longer has come last. The
+// The open change requests for the review result: the Overview's first (it opens the guide), then by
+// topic in the guide's order, each down its page, then in the order they were made; those on topics
+// the guide no longer has come last. The
 // body is the message that asks for the change: the opening one, else the reply that turned a
 // question into a change request.
 export function topicChangeRequests(
   state: Pick<ReviewState, "guide" | "topicThreads">,
 ): TopicChangeRequest[] {
   const order = new Map([...topicsOf(state.guide).keys()].map((id, i) => [id, i]));
-  const rank = (t: TopicThread) => order.get(t.target.topic) ?? order.size;
+  const rank = (t: TopicThread) =>
+    t.target.topic === OVERVIEW ? -1 : (order.get(t.target.topic) ?? order.size);
   return (state.topicThreads ?? [])
     .filter(isOpenChange)
     .map((t, i) => ({ t, i }))

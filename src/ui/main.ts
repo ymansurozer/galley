@@ -79,7 +79,7 @@ import { installCaptureDebug } from "./capturedebug";
 import { askComment } from "./comments";
 import { composerInTopics, composerInUi } from "./composer";
 import { installTopicThreads, submitTopicComposer } from "./topicthreads";
-import { topicThreadsSendLine } from "./topicthreads-derive";
+import { topicSendParts } from "./topicthreads-derive";
 import {
   annotatePage,
   closeShot,
@@ -434,14 +434,14 @@ S.confirmNo = confirmNo;
 // Open the Send modal: a receipt of what's about to go, plus an empty (always fresh) note box.
 // An attached agent picks the review up the instant it's sent, so there's no taking it back —
 // this is the moment to look, and to leave an overall instruction for the whole review.
+// The topics line says what is settled; the topic threads' requests and questions count in the
+// lead with the code's, or, where the receipt splits by lane, on this line.
 const openSendModal = (msg: string, lanes: Store["sendLanes"], notSent = "") => {
   S.sendMsg = msg;
   S.sendNotSent = notSent;
   const topics = hasTopics() ? topicsDone(S.state.guide?.stages ?? [], S.state) : null;
   S.sendTopics = topics
-    ? [topicsSendLine(topics.done, topics.total), topicThreadsSendLine(S.state.topicThreads ?? [])]
-        .filter(Boolean)
-        .join(" · ")
+    ? [topicsSendLine(topics.done, topics.total), ...(lanes ? topicParts() : [])].join(" · ")
     : "";
   S.sendLanes = lanes;
   S.sendNote = "";
@@ -452,10 +452,12 @@ const openSendModal = (msg: string, lanes: Store["sendLanes"], notSent = "") => 
 // The receipt says what the review asks of the agent, not how big the diff is. With a UI lane it
 // splits by lane: the code lines (none on a UI-only desk) and the UI ones. Without one, the code
 // line reads inline in the lead, with what it holds back under it.
-const codeSummary = () => codeSendSummary(S.state?.comments ?? [], reviewStats().rejections);
+const codeSummary = (topics: string[] = []) =>
+  codeSendSummary(S.state?.comments ?? [], reviewStats().rejections, topics);
+const topicParts = () => topicSendParts(S.state?.topicThreads ?? []);
 const openReceipt = (lead: string, question: string) => {
   if (!hasUi()) {
-    const { code, codeNotSent } = codeSummary();
+    const { code, codeNotSent } = codeSummary(topicParts());
     openSendModal(`${lead}: ${code}. ${question}`, null, codeNotSent);
     return;
   }

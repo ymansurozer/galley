@@ -85,6 +85,9 @@ function topic(
   const e = entry(raw, at, ["title", "recorded", "body"]);
   if (!e.ok) return e;
   const r = e.raw;
+  // A topic thread's target names a topic by id, or the Overview by this one.
+  if (r.id === "overview")
+    return { ok: false, reason: `${e.at}.id "overview" is taken: it names the Overview` };
   const c = covers(r.covers, e.at);
   if (!c.ok) return c;
   const t: GuideTopic = {

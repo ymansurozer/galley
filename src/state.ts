@@ -1547,7 +1547,8 @@ async function mergeReviewerCopy(
     state.annotations = annotations;
   }
   const threads = readTopicThreads(incoming.topicThreads);
-  if (threads) state.topicThreads = takeTopicThreads(threads, state.topicThreads, state.guide);
+  if (threads)
+    state.topicThreads = takeTopicThreads(threads, state.topicThreads, state.guide, state.coverage);
   raiseAnnotationMark(state, incoming.lastAnnotationNumber);
   return unplaced;
 }
@@ -1806,7 +1807,12 @@ async function applyReviewerChanges(
   // A topic thread sits where the desk placed it, on its guide, whichever diff or guide the tab
   // was on (takeTopicThread).
   if (c.topicThreads) {
-    const changed = takeTopicThreads(c.topicThreads.changed, state.topicThreads, state.guide);
+    const changed = takeTopicThreads(
+      c.topicThreads.changed,
+      state.topicThreads,
+      state.guide,
+      state.coverage,
+    );
     state.topicThreads = applyKeyed(
       state.topicThreads ?? [],
       { ...c.topicThreads, changed },

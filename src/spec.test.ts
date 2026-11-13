@@ -49,6 +49,10 @@ const ANCHORS = [
   'galley comment --topic <id> --body "…"',
   "topicChangeRequests[]: {id, topic, part, quote?, body}",
   '"body:<n>" — a block of the body',
+  // the Overview's parts, as a question event and the result name them
+  'On the Overview (topic "overview") the parts are:',
+  '"link:<from>><to>" — a link, by its two group ids',
+  '"group:<id>" — a group\'s box',
   "Topic Ask:",
   "How to act on a review",
   // the human can turn a change request into a question and back between rounds
