@@ -529,6 +529,51 @@ test("UI annotations ride the save slice into the poll and the Send result; rese
   });
 });
 
+test("a Send reports settled and to-do topics and starts the next round; reset clears the sign-offs", async () => {
+  await withServer(async (handle, _root, st) => {
+    // No files: a reset has no git work to do in this repo-less temp dir.
+    st.files = [];
+    const topic = (id: string) => ({ id, title: id, recorded: "r", body: "b", covers: [] });
+    st.guide = {
+      overview: "o",
+      stages: [
+        {
+          id: "s",
+          label: "S",
+          groups: [{ id: "g", title: "G", topics: [topic("t1"), topic("t2")] }],
+        },
+      ],
+    };
+    st.topics = {
+      t1: { blocks: [], lines: 1, coverHash: "H1" },
+      t2: { blocks: [], lines: 1, coverHash: "H2" },
+    };
+    const seen = { token: null, reloadGeneration: 0, baseDiffHash: "base" };
+    const poll = async () =>
+      (await fetch(`${handle.url}api/poll`).then((r) => r.json())) as { round?: number };
+    assert.equal((await poll()).round, undefined, "a new review is in round 1");
+    await post(handle.url, "api/save", {
+      base: 0,
+      changes: { settledTopics: { changed: [{ id: "t1", hash: "H1", round: 1 }], removed: [] } },
+      seen,
+    });
+    const sent = (await post(handle.url, "api/send", {
+      base: 1,
+      changes: {},
+      seen,
+      overallNote: "",
+    }).then((r) => r.json())) as { resultJson: string };
+    const result = JSON.parse(await readFile(sent.resultJson, "utf8")) as ReviewResult;
+    assert.deepEqual(result.topics, { settled: ["t1"], todo: ["t2"] });
+    assert.equal(st.round, 2);
+    assert.equal((await poll()).round, 2, "other tabs learn the round from the poll");
+    assert.deepEqual(st.settledTopics, { t1: { hash: "H1", round: 1 } });
+    await post(handle.url, "api/reset", {});
+    assert.deepEqual(st.settledTopics, {});
+    assert.equal(st.round, 2, "a reset keeps the round: the Send happened");
+  });
+});
+
 // ── Annotation screenshots ──────────────────────────────────────────────────────────────────────
 // A 1×1 PNG, the smallest real image.
 const PNG = Buffer.from(

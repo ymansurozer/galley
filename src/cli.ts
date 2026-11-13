@@ -17,6 +17,7 @@ import {
   findLiveDesks,
   loadLatestReview,
   mergeReviewState,
+  carryTopicSignOffs,
   parsedDiffOf,
   persistReview,
   readDeskLock,
@@ -664,6 +665,8 @@ async function runDesk(
       process.exitCode = 1;
       return;
     }
+    // Topic sign-offs are judged by this guide's stamps, not the old guide's.
+    if (saved) carryTopicSignOffs(state, saved);
   }
   // A guide carried forward by the merge (a restart without a new --guide) keeps the part and skim
   // stamps the merge carried by content (carryGuideStamps).

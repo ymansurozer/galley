@@ -31,6 +31,7 @@ import {
   anchorTextFor,
   buildReviewResult,
   buildReviewState,
+  carryTopicSignOffs,
   hash,
   inPortRange,
   carriesChanges,
@@ -48,6 +49,7 @@ import {
   resolveGuide,
   reviewDir,
   reviewerFields,
+  roundOf,
   syncGitState,
   uiQuestionPayload,
   unvisitedAnnotations,
@@ -747,6 +749,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           annotations: state.annotations,
           project: state.project,
           branch: state.branch,
+          round: state.round,
           saveNumber: state.saveNumber ?? 0,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
@@ -944,11 +947,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             priorDiff,
           );
           await syncGitState(state);
-          const file = await persistReview(state);
-          const sessionDir = path.dirname(file);
+          const sessionDir = await reviewDir(state.root, state.session);
           await pruneScreenshots(sessionDir);
           const resultJson = path.join(sessionDir, `${state.id}-result.json`);
           const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
+          // The Send ends the round: what the reviewer settles from here is settled in the next.
+          state.round = roundOf(state) + 1;
+          await persistReview(state);
           await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
           const event: ReviewEvent = { kind: "review", result: payload };
           const pending = [...undelivered, event];
@@ -1223,6 +1228,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
                 `Invalid guide: ${resolved.reason}.`,
                 "Run `galley spec` for the guided-review schema.",
               );
+            // Topic sign-offs are judged by this guide's stamps, not the old guide's.
+            carryTopicSignOffs(merged, state);
             // The carry source's stamps index the old guide's entries: never carry them under this one.
             stampSource = undefined;
           }
@@ -1502,6 +1509,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
           state.signedOffBlocks = {};
+          state.settledTopics = {};
           state.stagedFiles = [];
           state.stagedChangeKeys = [];
           state.decisionFiles = [];
