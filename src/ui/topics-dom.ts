@@ -1,6 +1,10 @@
+import { renderCoverage } from "./topics-coverage-dom";
+import type { GuideLink, TopicCoverage } from "../types";
 import { renderTopicBody } from "./topics-body-dom";
 import { esc } from "./html";
 import { keycapsHtml } from "./keycaps";
+import type { MapLayout, MapStage } from "./map-derive";
+import { mapHtml, mapListHtml } from "./map-dom";
 import type { TopicPlace, TopicsNavRow } from "./topics-derive";
 import { signOffStand, topicMark, type TopicSignOffStand } from "./topicthreads-derive";
 
@@ -67,10 +71,11 @@ export function renderTopicPage(
   place: TopicPlace,
   md: (s: string) => string,
   stand: TopicStand = { settled: false, changed: false },
+  extras = { share: "", points: "" },
 ) {
   const { topic, group, stage } = place;
   const where = `${stage.label} / ${group.title}`;
-  const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span><span class="fb-grow"></span><span class="fb-actions">${barActions(signOffStand(stand.settled, stand.requests ?? 0))}</span></div>`;
+  const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span>${extras.share}<span class="fb-grow"></span><span class="fb-actions">${barActions(signOffStand(stand.settled, stand.requests ?? 0))}</span></div>`;
   const tags = [
     topic.concern ? `<span class="topic-concern">${esc(topic.concern)}</span>` : "",
     stand.changed ? `<span class="topic-changed">Changed since your last round</span>` : "",
@@ -79,7 +84,7 @@ export function renderTopicPage(
   const flag = topic.flag
     ? `<div class="topic-flag"><div class="topic-lab">${glyph("flag", "")}Flagged</div><div class="md">${md(topic.flag)}</div></div>`
     : "";
-  host.innerHTML = `${bar}<article class="topic-page">${meta}<h1 class="topic-title">${esc(topic.title)}</h1><p class="topic-recorded"><b>Recorded:</b> ${esc(topic.recorded)}</p><div class="topic-body md"></div>${flag}</article>`;
+  host.innerHTML = `${bar}<article class="topic-page">${meta}<h1 class="topic-title">${esc(topic.title)}</h1><p class="topic-recorded"><b>Recorded:</b> ${esc(topic.recorded)}</p><div class="topic-body md"></div>${flag}${extras.points}</article>`;
   void renderTopicBody(host.querySelector<HTMLElement>(".topic-body")!, topic.body, md);
 }
 
@@ -91,9 +96,13 @@ export type TopicsOverview = {
   removed: number;
   summary: string;
   stale: boolean;
+  coverage?: TopicCoverage;
   // The way in at the end: Start Review, Continue Review, or Send Review once every topic is
   // settled.
   way: "start" | "continue" | "send";
+  // How the groups relate, when the guide has three or more: the drawn map, and the list that
+  // replaces it in a narrow window.
+  map?: { layout: MapLayout; stages: MapStage[]; links: GuideLink[] };
 };
 
 function wayIn(way: TopicsOverview["way"]) {
@@ -102,7 +111,7 @@ function wayIn(way: TopicsOverview["way"]) {
   return `${all}<button class="btn primary" data-act="start">${label} ${keycapsHtml("↵")}</button>`;
 }
 
-// The Overview: title and facts, the guide's summary, and the way in at the end.
+// The Overview: title and facts, the guide's summary, the map, coverage, and the way in at the end.
 export function renderTopicsOverview(
   host: HTMLElement,
   o: TopicsOverview,
@@ -111,10 +120,13 @@ export function renderTopicsOverview(
   const stale = o.stale
     ? `<div class="go-stale">${glyph("warn", "")} This guide was generated for an earlier version of the diff. Regenerate it and attach it with <code>galley reload --guide &lt;file&gt;</code> to refresh.</div>`
     : "";
+  const map = o.map
+    ? `<section class="topics-map" aria-label="Map of the groups">${mapHtml(o.map.layout)}${mapListHtml(o.map.stages, o.map.links)}</section>`
+    : "";
   host.innerHTML = `<div class="guide-overview topics-overview"><div class="go-card">
     <h1>${esc(o.title)}</h1>
     <div class="go-sub">${o.facts.map(esc).join(" · ")} · <span class="add">+${o.added}</span> <span class="del">−${o.removed}</span></div>
     ${stale}
     <div class="go-overview md">${md(o.summary)}</div>
-  </div><div class="go-card topics-end"><div class="go-actions">${wayIn(o.way)}</div></div></div>`;
+  </div>${map}${renderCoverage(o.coverage)}<div class="go-card topics-end"><div class="go-actions">${wayIn(o.way)}</div></div></div>`;
 }

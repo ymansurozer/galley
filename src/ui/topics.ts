@@ -1,3 +1,8 @@
+import { currentFile } from "./changes";
+import { appGo, hasUi, setView } from "./appview";
+import { jumpToBlocker } from "./blockers";
+import { topicPoints } from "./topics-coverage-derive";
+import { renderPoints, renderTopicShare } from "./topics-coverage-dom";
 import { S, $, persist, toast } from "./store";
 import { renderMarkdown } from "./markdown";
 import { isGuideBaseStale } from "./guide-derive";
@@ -25,6 +30,8 @@ import {
   renderTopicsOverview,
   type TopicsOverview,
 } from "./topics-dom";
+import { layoutMap, MAP_WIDTH } from "./map-derive";
+import { canvasMeasure, lightMapLinks } from "./map-dom";
 
 // Decisions mode: the guide's topics, read one page at a time. It draws into its own sidebar list
 // (#topicsNav) and centre (#topics); Code mode's diff and lists stand aside while it shows
@@ -36,6 +43,10 @@ export const hasTopics = () => !!S.state?.guide?.stages?.length;
 
 const stages = () => S.state?.guide?.stages ?? [];
 
+// Keep evidence expansion across redraws; a different topic starts folded with ten items.
+let pointsCount = 10;
+let pointsOpen = false;
+let coverageOpen = false;
 // What the centre showed when it was last drawn, so a redraw of the same page keeps its scroll.
 let drawn: TopicAt | undefined;
 // The groups whose fold of topics settled in earlier rounds the reviewer opened. Closed at first.
@@ -55,13 +66,45 @@ export function renderTopics() {
     ?.classList.toggle("active", S.topicAt === null);
   const page = $("topics");
   const place = placeOf(stages(), S.topicAt);
+  if (drawn !== S.topicAt) {
+    pointsCount = 10;
+    pointsOpen = false;
+  }
   if (place) {
+    const lines = S.state.topics?.[place.topic.id]?.lines ?? 0;
+    const c = S.state.coverage;
     const settled = topicSettled(S.state, place.topic.id);
     const changed = !settled && !!S.state.topics?.[place.topic.id]?.changed;
     const requests = topicBlockers(threads, place.topic.id).length;
-    renderTopicPage(page, place, renderMarkdown, { settled, changed, requests });
+    renderTopicPage(
+      page,
+      place,
+      renderMarkdown,
+      { settled, changed, requests },
+      {
+        share: renderTopicShare(lines, c ? c.totalLines - c.skimmedLines : 0),
+        points: renderPoints(topicPoints(place.topic, S.state), lines, hasUi(), pointsCount),
+      },
+    );
     decorateTopicPage(page, place.topic);
-  } else renderTopicsOverview(page, overview(), renderMarkdown);
+  } else {
+    renderTopicsOverview(page, overview(page.clientWidth), renderMarkdown);
+    lightMapLinks(page, lit);
+  }
+  const points = page.querySelector<HTMLDetailsElement>(".topic-points");
+  if (points) {
+    points.open = pointsOpen;
+    points.addEventListener("toggle", () => {
+      pointsOpen = points.open;
+    });
+  }
+  const coverage = page.querySelector<HTMLDetailsElement>(".topic-coverage details");
+  if (coverage) {
+    coverage.open = coverageOpen;
+    coverage.addEventListener("toggle", () => {
+      coverageOpen = coverage.open;
+    });
+  }
   if (drawn !== S.topicAt) {
     page.scrollTop = 0;
     nav.querySelector(".node.active, .node.current")?.scrollIntoView({ block: "nearest" });
@@ -70,13 +113,22 @@ export function renderTopics() {
   updateProgress();
 }
 
-function overview() {
+// The group the pointer is on in the Overview's map, so a redraw keeps its links lit.
+let lit: string | null = null;
+
+// The Overview's map is laid out for the room the page has: wider than the reading column, up to
+// the widest it draws at, and never so narrow it stops being a map (it scrolls sideways instead).
+function overview(room: number) {
   const st = S.state;
   const g = st.guide!;
+  const links = g.links ?? [];
+  const width = Math.max(720, Math.min(MAP_WIDTH, room - 76));
+  const layout = layoutMap(stages(), links, canvasMeasure(), width);
   const groups = stages().reduce((n, s) => n + s.groups.length, 0);
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const totals = lineTotals(st.files);
   return {
+    coverage: st.coverage,
     title: g.title || st.target || "Review",
     facts: [
       st.mode,
@@ -92,6 +144,7 @@ function overview() {
     summary: g.overview,
     stale: isGuideBaseStale(st.baseDiffHash, g.baseDiffHash),
     way: wayIn(),
+    ...(layout ? { map: { layout, stages: stages(), links } } : {}),
   };
 }
 
@@ -200,7 +253,20 @@ export function installTopics() {
       renderTopics();
     }
   });
-  $("topics").addEventListener("click", (e) => {
+  const page = $("topics");
+  page.addEventListener("click", (e) => {
+    const target = e.target as Element;
+    const code = target.closest<HTMLElement>("[data-topic-code]");
+    if (code) void openTopicCode(code.dataset.topicCode!, Number(code.dataset.line));
+    const app = target.closest<HTMLElement>("[data-topic-app]");
+    if (app && hasUi()) {
+      void setView("ui");
+      appGo(app.dataset.topicApp!);
+    }
+    if (target.closest("[data-topic-more]")) {
+      pointsCount += 10;
+      renderTopics();
+    }
     const act = (e.target as Element).closest<HTMLElement>("[data-act]")?.dataset.act;
     if (act === "start") startTopics();
     else if (act === "settle") settleOpenTopic();
@@ -208,5 +274,52 @@ export function installTopics() {
       reset(S.topicAt);
       renderTopics();
     }
+    // A box on the Overview's map opens its group.
+    const box = target.closest<HTMLElement>(".topics-map [data-group]");
+    if (box?.dataset.group) openGroup(box.dataset.group);
   });
+  // ↵ or space on a focused box opens it, ahead of the Overview's own ↵ (Start Review).
+  page.addEventListener("keydown", (e) => {
+    const box = (e.target as Element).closest<HTMLElement>(".topics-map [data-group]");
+    if (!box?.dataset.group || (e.key !== "Enter" && e.key !== " ")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openGroup(box.dataset.group);
+  });
+  // Pointing at a box lights its links.
+  page.addEventListener("mouseover", (e) => {
+    const group = (e.target as Element).closest<HTMLElement>(".map-box")?.dataset.group ?? null;
+    if (group === lit) return;
+    lit = group;
+    lightMapLinks(page, lit);
+  });
+  page.addEventListener("mouseleave", () => {
+    lit = null;
+    lightMapLinks(page, null);
+  });
+  // The map measures its text, so it is laid out again when the room or the font changes.
+  const overviewShowing = () => hasTopics() && S.view === "topics" && S.topicAt === null;
+  let pending = 0;
+  window.addEventListener("resize", () => {
+    cancelAnimationFrame(pending);
+    pending = requestAnimationFrame(() => {
+      if (overviewShowing()) renderTopics();
+    });
+  });
+  document.fonts?.addEventListener("loadingdone", () => {
+    if (overviewShowing()) renderTopics();
+  });
+}
+
+// Wait for Code's render before landing, so the mode switch cannot repaint over the cursor.
+async function openTopicCode(path: string, lineNumber: number) {
+  await setView("code");
+  const fileIndex = S.state.files.findIndex((f) => f.path === path);
+  if (fileIndex < 0) return;
+  await S.selectStep?.({ fileIndex });
+  await jumpToBlocker(
+    { kind: "thread", side: "additions", lineNumber, preview: "", unanchored: false },
+    () => S.view === "code" && currentFile()?.path === path,
+  );
 }

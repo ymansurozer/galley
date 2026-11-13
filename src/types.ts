@@ -105,6 +105,8 @@ export type ChangeState = {
   // covers on attach, then carried by content like `skim` (state.ts carryGuideStamps). Never rides
   // /api/save.
   topics?: string[];
+  // Coverage-only skims; independent of Code mode folding.
+  coverageSkims?: number[];
 };
 
 // An explicit, durable record of a user's accept/reject on a change block, keyed
@@ -224,9 +226,30 @@ export type GuideTopic = {
   // App paths to look at.
   pages?: string[];
 };
+// An agent explains why these changes need no topic and may cite the reviewer’s rule.
+// Coverage-only: these claims never fold Code mode, whose skims live on files entries.
+export type GuideSkim = { reason: string; rule?: string; covers: Cover[] };
+// Server-owned coverage, rebuilt on every guide attach and diff reload. Counts are added plus
+// removed lines of whole change blocks, never literal span lengths.
+export type TopicCoverage = {
+  // Exclusive union of topic claims: a topic wins any overlap with a skim.
+  topicLines: number;
+  // Claimed by a skim and no topic; overlapping skims assign their lines to the first source.
+  skimmedLines: number;
+  // All changed lines: topicLines + skimmedLines + uncoveredLines equals this total.
+  totalLines: number;
+  // Neither claimed nor skimmed: zero on attach, possible after a retained guide reloads.
+  uncoveredLines: number;
+  // Per-source exclusive counts add up to skimmedLines, including zero-line sources.
+  skims: Array<{ reason: string; rule?: string; lines: number }>;
+};
+
 export type GuideGroup = { id: string; title: string; summary?: string; topics: GuideTopic[] };
 // Where a group sits in the system. Stages are columns, in the guide's order.
 export type GuideStage = { id: string; label: string; groups: GuideGroup[] };
+// What one group hands another, by group id, with a short label. Galley draws the Overview's map
+// from the stages, groups and links; the agent writes no diagram.
+export type GuideLink = { from: string; to: string; label: string };
 
 // The desk's resolution of one topic's covers against the diff, stamped on attach and kept current
 // on every reload (state.ts stampTopics). `blocks` are the change blocks it claims, `path:stableKey`
@@ -260,6 +283,10 @@ export type Guide = {
   files?: GuideFile[];
   // The topics Decisions mode opens: stages hold groups, groups hold topics.
   stages?: GuideStage[];
+  // How the groups relate, drawn as the Overview's map. Only with stages.
+  links?: GuideLink[];
+  // Requires stages: explains the changes left outside the topic narrative, for coverage only.
+  skims?: GuideSkim[];
   // A focused review (issue 04): the reviewer asked for churn to be de-emphasized, so the agent
   // shaped attention (whole-file/block skims, movedFrom merges). Display-only — the overview page
   // badges the review so the human knows churn was deliberately skimmed. A plain guide omits it.
@@ -321,6 +348,9 @@ export type ReviewState = {
   // Each guide topic's resolution against this diff, by topic id (TopicStamp). Server-owned and
   // rebuilt whenever the guide is attached or the diff is rebuilt; absent when the guide has no topics.
   topics?: Record<string, TopicStamp>;
+  // Server-owned split rebuilt on attach/reload; absent without stages. The tab displays it
+  // rather than resolving possibly stale guide spans itself (TopicCoverage records the partition).
+  coverage?: TopicCoverage;
   // The topics the reviewer settled, by topic id (TopicSignOff). Reviewer-owned, like
   // signedOffBlocks: carried across a reload or restart only while the topic is in the guide and
   // its cover hash is unchanged.

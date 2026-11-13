@@ -375,12 +375,32 @@ walkthrough and Decisions mode shows the topics.
         line numbers. Covers resolve like part lines: a span claims every change block it touches,
         a new untracked file is one whole-file change. Two topics may cover the same lines.
       - pages? — array of app paths ("/settings") the topic shows up on.
+- links? (array, only with stages), each { from, to, label } — what one group hands another, by
+  group id: from and to are two different groups of the guide, label (required) at most 40
+  characters, one link per from/to pair. Galley draws the Overview's MAP from the stages, groups
+  and links — you write no diagram: a column per stage, a box per group, a line per link. A link
+  back to an earlier stage shows as a note under its source. Under three groups there is no map.
+Coverage: every changed block must be under a topic or skimmed when attaching a guide with stages.
+- skims? — array of { reason, rule?, covers }. Requires stages; otherwise "guide.skims needs stages".
+  reason is required and non-empty; covers resolves
+  exactly like a topic's covers. Skim rules are the reviewer's: cite the rule you applied.
+  Galley keeps no skim patterns. These skims count for coverage only; they do not fold Code mode.
+- A files entry's whole-file skim or skimBlocks counts too. Topics win overlaps with skims.
+- An uncovered change refuses attach with "guide leaves changes uncovered: path:line", the first
+  twenty places in diff order, then "and N more". Both start --guide and reload --guide check this,
+  after resolving covers. A refused reload leaves the desk unchanged.
+- Reload without a new guide never refuses coverage gaps: they appear as "not in the guide yet".
+  State coverage carries topicLines, skimmedLines, totalLines, uncoveredLines and each skim's
+  reason, optional rule and exclusive line count. Shares use totalLines minus skimmedLines.
+
 Topic validation: every required field above, ids unique among stages, among groups and among
 topics, and every cover resolving to a change in the diff — a cover naming a file not in the diff, a
 folder with no changed file under it, or a span that touches no change aborts the launch (or
-\`galley reload --guide\`, leaving the desk as it was) naming the topic and the cover. Across reloads
-that keep the guide, a topic keeps the blocks its covers claimed by their content, as skims do; a
-file or folder cover also takes the new blocks under its path.
+\`galley reload --guide\`, leaving the desk as it was) naming the topic and the cover. A link
+naming an unknown group, joining a group to itself, repeating a pair or with a label over 40
+characters aborts it the same way, naming the link. Across reloads that keep the guide, a topic
+keeps the blocks its covers claimed by their content, as skims do; a file or folder cover also
+takes the new blocks under its path.
 
 #### Settling and rounds
 The reviewer settles a topic once they are content with it; ReviewResult.topics lists settled and

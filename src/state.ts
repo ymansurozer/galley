@@ -494,7 +494,7 @@ type GuideDiff = {
 // rather than each resolver. A carried-forward guide keeps the stamps the merge carried
 // (carryGuideStamps, stampTopics).
 export function resolveGuide(
-  review: GuideDiff & Pick<ReviewState, "files" | "topics">,
+  review: GuideDiff & Pick<ReviewState, "files" | "topics" | "coverage">,
   guide: Guide,
   preparsed?: DiffFile[],
 ): SkimResolution {
@@ -502,7 +502,9 @@ export function resolveGuide(
   const parts = resolveParts(review, guide, parsed);
   if (!parts.ok) return parts;
   const skims = resolveSkim(review.rawDiff, review.changes, guide, parsed);
-  return skims.ok ? resolveTopics(review, guide) : skims;
+  if (!skims.ok) return skims;
+  const topics = resolveTopics(review, guide);
+  return topics.ok ? stampCoverage(review, guide, true) : topics;
 }
 
 // What a cover can claim: a change block, or the whole of a file the diff shows without hunks (an
@@ -702,6 +704,95 @@ function writeTopicStamps(
     };
   }
   review.topics = stamps;
+}
+
+// Coverage is server-owned. Span skims travel with content on retained guides, just as topic
+// spans do; whole-file/folder skims claim their current units. Topics always win an overlap.
+function stampCoverage(
+  review: Pick<ReviewState, "files" | "changes" | "topics" | "coverage">,
+  guide: Guide | undefined,
+  attaching = false,
+): SkimResolution {
+  delete review.coverage;
+  if (attaching || !guide?.stages) for (const c of review.changes) delete c.coverageSkims;
+  if (!guide?.stages) return { ok: true };
+  const index = coverIndex(review);
+  const byKey = new Map(review.changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
+  const topicKeys = new Set(Object.values(review.topics ?? {}).flatMap((t) => t.blocks));
+  const skimKeys = new Set<string>();
+  const rows: NonNullable<ReviewState["coverage"]>["skims"] = [];
+  const add = (reason: string, rule: string | undefined, keys: Set<string>) => {
+    let lines = 0;
+    for (const units of index.values())
+      for (const u of units) {
+        if (!keys.has(u.key) || topicKeys.has(u.key) || skimKeys.has(u.key)) continue;
+        skimKeys.add(u.key);
+        lines += u.lines;
+      }
+    rows.push({ reason, ...(rule === undefined ? {} : { rule }), lines });
+  };
+  // Give each block skim its own source even when two reasons read alike. These indices stay
+  // stable while the same guide is retained, and new attaches clear the old stamps.
+  const skims = [
+    ...(guide.skims ?? []),
+    ...(guide.files ?? []).flatMap((f) =>
+      (f.skimBlocks ?? []).map((span) => ({
+        reason: span.reason ?? "Skimmed change block",
+        covers: [{ path: f.path, lines: [span.lines] }],
+      })),
+    ),
+  ];
+  for (const [i, skim] of skims.entries()) {
+    const keys = new Set<string>();
+    for (const c of review.changes)
+      if (!attaching && c.coverageSkims?.includes(i)) keys.add(`${c.path}:${c.stableKey}`);
+    for (const cover of skim.covers) {
+      const whole = index.get(cover.path)?.every((u) => u.key.endsWith(":file"));
+      if (!attaching && cover.lines && !whole) continue;
+      const r = resolveCovers([cover], index);
+      if (!r.ok) {
+        if (attaching) return { ok: false, reason: `guide skims[${i}]: ${r.reason}` };
+      } else for (const key of r.keys) keys.add(key);
+    }
+    for (const key of keys) {
+      const c = byKey.get(key);
+      if (c && !c.coverageSkims?.includes(i)) c.coverageSkims = [...(c.coverageSkims ?? []), i];
+    }
+    add(skim.reason, "rule" in skim ? skim.rule : undefined, keys);
+  }
+  for (const f of guide.files ?? []) {
+    if (f.skim)
+      add(
+        f.skimReason ?? "Whole-file skim",
+        undefined,
+        new Set((index.get(f.path) ?? []).map((u) => u.key)),
+      );
+  }
+  const coverage = {
+    topicLines: 0,
+    skimmedLines: 0,
+    totalLines: 0,
+    uncoveredLines: 0,
+    skims: rows,
+  };
+  const gaps: string[] = [];
+  for (const [path, units] of index)
+    for (const u of units) {
+      coverage.totalLines += u.lines;
+      if (topicKeys.has(u.key)) coverage.topicLines += u.lines;
+      else if (skimKeys.has(u.key)) coverage.skimmedLines += u.lines;
+      else {
+        coverage.uncoveredLines += u.lines;
+        gaps.push(`${path}:${Math.max(1, u.lo)}`);
+      }
+    }
+  if (attaching && gaps.length)
+    return {
+      ok: false,
+      reason: `guide leaves changes uncovered: ${gaps.slice(0, 20).join(", ")}${gaps.length > 20 ? `; and ${gaps.length - 20} more` : ""}`,
+    };
+  review.coverage = coverage;
+  return { ok: true };
 }
 
 export type MovedResolution = { ok: true } | { ok: false; reason: string };
@@ -2171,8 +2262,10 @@ export function carryGuideStamps(
     delete c.part;
     delete c.skim;
     delete c.topics;
+    delete c.coverageSkims;
   }
-  if (!before.changes.some((c) => c.part !== undefined || c.skim || c.topics)) return;
+  if (!before.changes.some((c) => c.part !== undefined || c.skim || c.topics || c.coverageSkims))
+    return;
   const keyOf = (c: ChangeState) => `${c.path}:${c.stableKey}`;
   // A previous block's key, at its file's new path when this rebuild shows the file renamed.
   const renames = renamesIn(rebuilt.files);
@@ -2202,6 +2295,7 @@ export function carryGuideStamps(
     if (from?.part !== undefined) change.part = from.part;
     if (from?.skim) change.skim = from.skim;
     if (from?.topics) change.topics = from.topics;
+    if (from?.coverageSkims) change.coverageSkims = from.coverageSkims;
     const blocks = blocksByPath.get(change.path) ?? [];
     blocks.push({ change, from });
     blocksByPath.set(change.path, blocks);
@@ -2364,6 +2458,7 @@ export async function mergeReviewState(
   } satisfies ReviewState;
   signOffCoveredFiles(merged);
   stampTopics(merged);
+  stampCoverage(merged, merged.guide);
   // A new guide given with this reload or restart carries them again once it is resolved.
   carryTopicSignOffs(merged, saved);
   return merged;

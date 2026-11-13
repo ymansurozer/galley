@@ -7,6 +7,8 @@ import {
   renderTopicsOverview,
   type TopicsOverview,
 } from "./topics-dom";
+import { estimateMeasure } from "./map-check";
+import { layoutMap } from "./map-derive";
 import { topicPlaces, topicsNavRows } from "./topics-derive";
 import type { GuideStage } from "../types";
 
@@ -117,6 +119,38 @@ test("a topic without a concern or a flag shows neither", () => {
   assert.equal(page.querySelector(".topic-flag"), null);
 });
 
+const OVERVIEW = {
+  title: "Rate limiting",
+  facts: ["working", "main"],
+  added: 3,
+  removed: 1,
+  summary: "Adds limits.",
+  stale: false,
+  way: "start" as const,
+};
+
+test("the Overview shows the map, and its narrow list, between the summary and the way in", () => {
+  const page = host();
+  const links = [{ from: "limits", to: "flags", label: "limits" }];
+  const layout = layoutMap(STAGES, links, estimateMeasure())!;
+  renderTopicsOverview(page, { ...OVERVIEW, map: { layout, stages: STAGES, links } }, (s) => s);
+  const sections = [...page.querySelectorAll(".topics-overview > *")].map((el) => el.className);
+  assert.deepEqual(sections, ["go-card", "topics-map", "go-card topics-end"]);
+  const map = page.querySelector(".topics-map")!;
+  assert.deepEqual(
+    [...map.querySelectorAll<HTMLElement>(".map-box")].map((b) => b.dataset.group),
+    ["limits", "store", "flags"],
+  );
+  assert.equal(map.querySelectorAll(".map-link").length, 1);
+  assert.equal(map.querySelectorAll(".map-list-row").length, 3);
+});
+
+test("the Overview has no map without one", () => {
+  const page = host();
+  renderTopicsOverview(page, OVERVIEW, (s) => s);
+  assert.equal(page.querySelector(".topics-map"), null);
+});
+
 // t1 settled in round 2 (the current one), t3 and t4 in round 1.
 const SETTLED = {
   round: 2,
@@ -215,4 +249,24 @@ test("the Overview's way in reads Start, Continue, or Send once every topic is s
   assert.equal(done.querySelector(".topics-all")?.textContent, "Every topic is settled.");
   assert.match(done.querySelector('[data-act="start"]')?.textContent ?? "", /Send Review/);
   assert.match(done.querySelector(".go-sub")?.textContent ?? "", /round 2/);
+});
+
+test("coverage evidence shares the topic page with sign-off controls and the body renderer", () => {
+  const page = host();
+  renderTopicPage(
+    page,
+    topicPlaces(STAGES)[1]!,
+    (s) => `<p>${s}</p>`,
+    { settled: false, changed: false },
+    {
+      share: '<span class="topic-share">6.7%</span>',
+      points: '<details class="topic-points"><summary>Points to</summary></details>',
+    },
+  );
+  const bar = page.querySelector(".topics-bar")!;
+  assert.ok(bar.querySelector(".topic-share"));
+  assert.ok(bar.querySelector('[data-act="settle"]'));
+  assert.ok(bar.innerHTML.indexOf("topic-share") < bar.innerHTML.indexOf("fb-actions"));
+  assert.equal(page.querySelector(".topic-page")?.lastElementChild?.className, "topic-points");
+  assert.match(page.querySelector(".topic-body")?.textContent ?? "", /b/);
 });

@@ -12,7 +12,9 @@ import { fileURLToPath } from "node:url";
 // 3.3 → 3.35 MB when the desk redesign met guide parts (#97): the redesign's surfaces plus #97's
 // step UI (steps, folds, replay) pushed ui.js just past 3.3 MB. The gate stays a tripwire for
 // accidental bloat, not a budget to fill.
-const SIZE_LIMIT = 3_350_000;
+// 3.35 → 3.4 MB when Decisions mode's Overview map (its layout and drawing) met coverage and
+// settling across rounds: real feature code took ui.js just past 3.35 MB.
+const SIZE_LIMIT = 3_400_000;
 
 const shimPath = fileURLToPath(new URL("../src/ui/shiki-shim.ts", import.meta.url));
 const emptyModule = "export default {}; export {};";

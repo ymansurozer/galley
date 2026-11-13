@@ -252,6 +252,7 @@ async function pollOnce() {
     }
     S.state.guide = server.guide;
     S.state.topics = server.topics;
+    S.state.coverage = server.coverage;
     // The new guide moved topic threads onto its parts and dropped some, none of it the reviewer's:
     // the confirmed copy takes the desk's, and the tab too, with any agent reply since and what the
     // tab holds and hasn't saved (keepUnsavedThreads), which its next save sends.
