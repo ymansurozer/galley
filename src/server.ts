@@ -27,6 +27,7 @@ import { createSerializer } from "./mutex.js";
 import { parseUiTarget, startUiProxy, tryListen } from "./proxy.js";
 import type { UiProxy } from "./proxy.js";
 import {
+  addPostedComment,
   anchorTextFor,
   buildReviewResult,
   buildReviewState,
@@ -1405,7 +1406,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             role: body.role === "user" ? ("user" as const) : ("agent" as const),
             anchorText: anchorTextFor(contents, side, lineNumber),
           };
-          state.comments.push(comment);
+          addPostedComment(state, comment);
           // The reply the reviewer was waiting on has landed — the "what I'm doing
           // now" line is obsolete the moment a real agent message exists.
           if (comment.role === "agent") {

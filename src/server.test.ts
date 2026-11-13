@@ -3269,3 +3269,24 @@ test("the poll carries the save number, and /api/review the reviewer-owned field
     assert.ok(!wire.includes("newContents") && !wire.includes("hunks"), "no file contents");
   });
 });
+
+test("a reviewer comment through /api/comment raises the save number; an agent's leaves it", async () => {
+  await withServer(async (handle) => {
+    const poll = async () =>
+      ((await fetch(`${handle.url}api/poll`).then((r) => r.json())) as { saveNumber: number })
+        .saveNumber;
+    assert.equal(await poll(), 0);
+    await post(handle.url, "api/comment", { path: "a.ts", lineNumber: 1, body: "a reply" });
+    assert.equal(await poll(), 0, "the agent's reply rides the poll, not the save number");
+    await post(handle.url, "api/comment", {
+      path: "a.ts",
+      lineNumber: 1,
+      body: "the reviewer's",
+      role: "user",
+    });
+    assert.equal(await poll(), 1, "idle tabs read the reviewer's comment");
+    const read = await fetch(`${handle.url}api/review`).then((r) => r.json());
+    assert.equal(read.saveNumber, 1);
+    assert.equal(read.review.comments.length, 2);
+  });
+});

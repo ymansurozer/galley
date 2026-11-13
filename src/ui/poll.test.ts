@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { Window } from "happy-dom";
-import { mergeReviewerSave, reviewerFields } from "../state.js";
+import { addPostedComment, mergeReviewerSave, reviewerFields } from "../state.js";
 
 // Real poll/status/render modules, adapted from the independent starvation probe. HTTP
 // snapshots and response ordering are controlled; bundles never write generated output.
@@ -1138,4 +1138,15 @@ test("taking another tab's save keeps the tab's own annotation placements", asyn
   b.h.persist();
   assert.equal(await b.h.saver.settled(), true);
   assert.equal(a.server().annotations[0].placement, "placed", "and goes out as B's report");
+});
+
+test("a reviewer comment posted to the desk directly reaches an idle tab through the read", async (t) => {
+  const f = await fixture(t);
+  addPostedComment(f.server(), { ...structuredClone(reviewerComment), id: "posted", role: "user" });
+  await f.poll();
+  assert.deepEqual(
+    f.S.state.comments.map((c: { id: string }) => c.id),
+    ["posted"],
+  );
+  assert.equal(reads(f), 1);
 });
