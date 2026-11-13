@@ -575,6 +575,29 @@ test("a Send reports settled and to-do topics and starts the next round; reset c
   });
 });
 
+test("a Send that fails leaves the round where it was, so a retry sends the same round", async () => {
+  await withServer(async (handle, root, st) => {
+    const seen = { token: null, reloadGeneration: 0, baseDiffHash: "base" };
+    const send = () =>
+      post(handle.url, "api/send", {
+        base: st.saveNumber ?? 0,
+        changes: {},
+        seen,
+        overallNote: "",
+      });
+    // The result file can't be written where a folder stands.
+    const blocker = path.join(await reviewDir(root, st.session), `${st.id}-result.json`);
+    await mkdir(blocker);
+    assert.equal((await send()).status, 500);
+    assert.equal(st.round, undefined, "still round 1");
+    assert.equal((await loadLatestReview(root, st.session))?.round, undefined, "on disk too");
+    await rm(blocker, { recursive: true });
+    const sent = (await send().then((r) => r.json())) as { round?: number };
+    assert.equal(sent.round, 2, "the retry ends round 1");
+    assert.equal(st.round, 2);
+  });
+});
+
 // ── Annotation screenshots ──────────────────────────────────────────────────────────────────────
 // A 1×1 PNG, the smallest real image.
 const PNG = Buffer.from(

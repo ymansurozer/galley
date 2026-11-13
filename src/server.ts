@@ -952,12 +952,21 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           const resultJson = path.join(sessionDir, `${state.id}-result.json`);
           const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
           // The Send ends the round: what the reviewer settles from here is settled in the next.
+          // A Send that fails before its review is queued for the agent ended nothing, so the
+          // round goes back, on disk too, and a retry sends the same round.
+          const round = state.round;
           state.round = roundOf(state) + 1;
-          await persistReview(state);
-          await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
           const event: ReviewEvent = { kind: "review", result: payload };
           const pending = [...undelivered, event];
-          await writeUndelivered(pending);
+          try {
+            await persistReview(state);
+            await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
+            await writeUndelivered(pending);
+          } catch (error) {
+            state.round = round;
+            await persistReview(state).catch(() => {});
+            throw error;
+          }
           undelivered = pending;
           // The review goes to the agent once the tab's answer is over, written or not: a tab
           // that closed, dropped or gave up before it never sees "finish", only "close", and
