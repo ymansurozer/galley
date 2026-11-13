@@ -289,6 +289,12 @@ function landed(out: Outgoing, answer: Partial<SaveAnswer>) {
   const since = reviewerChanges(out.sent, reviewerSlice(S.state));
   confirmed = { saveNumber: number, review: copyOf(answer.merged), diff: out.diff };
   Object.assign(S.state, applyReviewerChanges(answer.merged, since));
+  // What the merged review brought in is the desk's, as a poll's records are (takenFromDesk): every
+  // other copy still out takes it under the reviewer's own changes, from that copy's send to this
+  // one's, so no later answer counts it as the reviewer's and puts it back over a newer desk record.
+  for (const other of outgoing)
+    if (other !== out)
+      other.sent = applyReviewerChanges(answer.merged, reviewerChanges(out.sent, other.sent));
   stampDecisions(S.state.changes, S.state.decisions ?? []);
   redraw();
 }

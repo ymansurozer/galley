@@ -919,3 +919,39 @@ test("a save with nothing changed sends nothing and counts as landed; Send alway
   assert.deepEqual(f.saves[0].changes, {});
   assert.equal(f.server().saveNumber, 1);
 });
+
+test("a record a merged answer brought in is the desk's, not the reviewer's, to a Send out meanwhile", async (t) => {
+  const { a, b } = await twoTabs(t);
+  a.update({ comments: [structuredClone(reviewerComment)] });
+  for (const f of [a, b]) {
+    f.S.state.comments = [structuredClone(reviewerComment)];
+    f.confirm();
+  }
+  const edit = async (f: typeof a, body: string) => {
+    f.S.state.comments[0].body = body;
+    f.h.persist();
+    assert.equal(await f.h.saver.settled(), true);
+  };
+  // Tab B edits the comment; tab A, behind, has an autosave and a Send out together.
+  await edit(b, "Text A");
+  let releaseSave!: () => void;
+  let releaseSend!: () => void;
+  a.desk.holdSave = new Promise<void>((resolve) => (releaseSave = resolve));
+  a.desk.holdSend = new Promise<void>((resolve) => (releaseSend = resolve));
+  await a.h.approveFile("a.ts", { advance: false });
+  const sent = a.h.send("");
+  // The autosave lands first, and its merged answer brings B's text into A.
+  releaseSave();
+  assert.equal(await a.h.saver.settled(), true);
+  assert.equal(a.S.state.comments[0].body, "Text A");
+  // B edits again before A's Send lands, with B's newer text in its merged answer.
+  await edit(b, "Text B");
+  releaseSend();
+  assert.equal(await sent, true);
+  assert.equal(a.S.state.comments[0].body, "Text B", "A shows B's latest text");
+  // A's next save, about something else, leaves B's text alone.
+  await a.h.acceptChange("b-change", "rejected");
+  assert.equal(await a.h.saver.settled(), true);
+  assert.equal(a.server().comments[0].body, "Text B");
+  assert.equal(a.S.state.comments[0].body, "Text B");
+});
