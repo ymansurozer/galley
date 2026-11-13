@@ -275,6 +275,10 @@ export type ReviewState = {
   // The highest number ever given to an annotation, deleted ones included, so a number is never
   // reused: the agent never meets two different #3s. Only a review reset starts it over.
   lastAnnotationNumber?: number;
+  // Raised by every save, Send and reset the desk applies, and persisted with the review, so a
+  // restarted desk never hands out a number a tab has already seen. A tab's save names the number
+  // its changes are relative to (ReviewerDelta). Absent on reviews saved before it existed: 0.
+  saveNumber?: number;
   persistFile?: string;
 };
 
@@ -316,13 +320,59 @@ export type SaveStamp = { token: string | null; reloadGeneration: number; baseDi
 // place of `file`. A save has landed only on a 2xx answer whose `ok` is true. `unplaced`: the save
 // was made on a diff older than the one before the desk's current one, so the desk could not place
 // its decisions and sign-offs and kept its own (mergeReviewerSave); its comments still landed.
+// `saveNumber`: the desk's number once it applied this save (ReviewState.saveNumber). `merged`: the
+// desk's reviewer-owned fields after the merge, when the save's `base` was not the desk's latest
+// number, so other saves landed since the tab's copy, and the tab is on the desk's current diff.
+// A tab on an older diff gets none: they're keyed to a diff it doesn't have.
 export type SaveAnswer = {
   ok: true;
   file?: string;
   sent?: true;
   resultJson?: string;
   unplaced?: true;
+  saveNumber?: number;
+  merged?: ReviewerSave;
 };
+
+// One reviewer-owned collection's difference: the records changed or added since the tab's
+// confirmed copy, each sent whole, and the keys of those removed.
+export type KeyedChanges<T> = { changed: T[]; removed: string[] };
+
+// What the page reported about an annotation by itself, with no action from the reviewer: where it
+// found it, and that its screenshot capture failed. Sent apart from the whole record, so a report
+// from a tab that is behind never replaces another tab's edit of the same annotation.
+export type AnnotationReport = {
+  id: string;
+  placement?: UiPlacement;
+  screenshotCapture?: "failed";
+};
+
+// What a tab changed since the copy of the reviewer-owned fields the desk last confirmed. A
+// collection the tab didn't touch is left out. Keys: a decision's `key`, a comment's and an
+// annotation's `id`, a block sign-off's `path:stableKey`, a file sign-off's and a decided file's
+// path. A file sign-off is reviewedFiles and its reviewedFileHashes entry as one record.
+export type ReviewerChanges = {
+  decisions?: KeyedChanges<Decision>;
+  comments?: KeyedChanges<ReviewComment>;
+  fileSignOffs?: KeyedChanges<{ path: string; hash?: string }>;
+  signedOffBlocks?: KeyedChanges<{ key: string; hash: string }>;
+  decisionFiles?: KeyedChanges<string>;
+  annotations?: KeyedChanges<UiAnnotationRecord>;
+  annotationReports?: AnnotationReport[];
+  // Only goes up: the desk keeps the highest it has seen.
+  lastAnnotationNumber?: number;
+};
+
+// The body of a save (/api/save): the changes since the tab's confirmed copy, and that copy's
+// save number. A body with no `changes` is a full copy from a tab opened before saves carried
+// changes (ReviewerSave and its stamp), and the desk takes it as it always did.
+export type ReviewerDelta = {
+  base: number;
+  changes: ReviewerChanges;
+  seen: SaveStamp;
+};
+// Send's body (/api/send): the same, with the reviewer's one-time note.
+export type SendBody = ReviewerDelta & { overallNote: string };
 
 // Transient desk-liveness fields injected into the /api/state response alongside
 // ReviewState. Deliberately NOT on ReviewState: anything on state is persisted by
