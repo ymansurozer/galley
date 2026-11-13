@@ -148,6 +148,11 @@ try {
     }
   }
 
+  // Diagrams ship beside the UI, served as an independently importable module.
+  const diagrams = await fetch(BASE + "/diagrams.js");
+  assert.equal(diagrams.status, 200);
+  assert.match(diagrams.headers.get("content-type"), /javascript/);
+  assert.match(await diagrams.text(), /renderDiagram/);
   const state = await getJson("/api/state");
   assert.equal(state.mode, "repo");
   assert.ok(state.changes.length >= 1, "desk has a change to review");

@@ -92,6 +92,8 @@ const ANCHORS = [
   "groups (required, non-empty array), each { id, title, summary?, topics }",
   "STABLE from one guide to the next",
   "recorded (required, non-empty)",
+  "A `mermaid` fence draws a diagram",
+  "what needs a diagram is your call",
   "covers (required, non-empty array)",
   'a folder ending in "/"',
   "Two topics may cover the same lines",

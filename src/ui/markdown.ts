@@ -1,4 +1,5 @@
 import MarkdownIt from "markdown-it";
+import { sourceLine } from "./markdown-source";
 import footnote from "markdown-it-footnote";
 // markdown-it-task-lists ships no types and has no @types package.
 // @ts-ignore
@@ -36,18 +37,6 @@ let hl: Awaited<ReturnType<typeof createHighlighterCore>> | null = null;
 // keeps it bounded like the other UI caches (contents.ts, render.ts both cap at 30).
 const COMMENT_CACHE_CAP = 30;
 const cache = new Map<string, string>();
-
-// Stamp each commentable block-open token with its 1-based source line (1-based
-// matches @pierre/diffs' additions-side numbers). Top-level blocks AND list items,
-// so a comment can target an individual list item rather than the whole list.
-function sourceLine(mdi: MarkdownIt) {
-  mdi.core.ruler.push("source_line", (state) => {
-    for (const t of state.tokens)
-      if (t.map && (t.level === 0 || t.type === "list_item_open"))
-        t.attrSet("data-line", String(t.map[0] + 1));
-    return true;
-  });
-}
 
 // Shiki's highlighter loads async (wasm + grammars); markdown-it render is sync once
 // ready. Until then renderMarkdown returns an escaped-text fallback; on ready we
