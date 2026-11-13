@@ -34,6 +34,14 @@
 
 .topic-lines-code {
   background: var(--canvas);
+  /* The diff's gutter comment button (topics-lines.ts), quiet like a part's, blue under ⇧. */
+  --topic-gut-bg: var(--fill-3);
+  --topic-gut-fg: var(--ink);
+}
+
+.topic-shift .topic-lines-code {
+  --topic-gut-bg: var(--blue);
+  --topic-gut-fg: #fff;
 }
 
 .topic-body .topic-lines-note {

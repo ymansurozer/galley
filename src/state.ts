@@ -668,7 +668,8 @@ export function resolveTopics(
         const e = resolveCovers([{ path: entry.path, lines: [[entry.start, entry.end]] }], index);
         if (!e.ok) return { ok: false, reason: `${at} touches no change in the diff` };
         for (const key of e.keys) r.keys.add(key);
-        mine.push({ fence: block.line, path: entry.path, blocks: [...e.keys], ...range(entry) });
+        const { path, start, end } = entry;
+        mine.push({ fence: block.line, path, blocks: [...e.keys], start, end });
       }
     claimed.set(topic.id, r.keys);
     spans.set(topic.id, mine);
@@ -676,8 +677,6 @@ export function resolveTopics(
   writeTopicStamps(review, topics, index, claimed, spans);
   return { ok: true };
 }
-
-const range = (r: { start: number; end: number }) => ({ start: r.start, end: r.end });
 
 // Re-stamp the topics of a guide carried across a reload or restart, after carryGuideStamps carried
 // each block's topics by content. A file or folder cover claims what is under its path now, new

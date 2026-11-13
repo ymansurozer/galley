@@ -31,6 +31,8 @@ type ReviewFile = ReviewState["files"][number];
 // What an entry draws: its rows, or why it draws none (its lines left the diff, its file is too
 // large to draw here, or the file's contents are still on their way).
 type Slice = SliceRow[] | "gone" | "large" | "loading";
+// The files whose contents are on their way, so a redraw meanwhile doesn't ask again.
+const fetching = new Set<string>();
 
 function sliceOf(span: LineSpan): Slice {
   const file = S.state.files.find((f) => f.path === span.path);
@@ -40,9 +42,13 @@ function sliceOf(span: LineSpan): Slice {
   // A file the diff shows without hunks (an untracked add) is drawn from its contents.
   const contents = peekContents(file);
   if (!contents) {
-    void fetchContents(file)
-      .then(() => S.view === "topics" && renderTopics())
-      .catch(() => {});
+    if (!fetching.has(file.path)) {
+      fetching.add(file.path);
+      void fetchContents(file)
+        .then(() => S.view === "topics" && renderTopics())
+        .catch(() => {})
+        .finally(() => fetching.delete(file.path));
+    }
     return "loading";
   }
   return sliceRows([], span.start, span.end, contents.newContents.split("\n"));
@@ -237,6 +243,9 @@ function instanceFor(
     // separator leads it. One between two of its hunks still says lines are left out.
     unsafeCSS:
       "[data-separator-first]{display:none}" +
+      // The gutter's comment button takes its colours from the page (topics-lines.css), so it
+      // turns blue while ⇧ is held, as every part's does.
+      "[data-utility-button]{background-color:var(--topic-gut-bg);color:var(--topic-gut-fg)}" +
       "[data-code]{scrollbar-gutter:auto}" +
       "[data-line-annotation],[data-gutter-buffer=annotation]{--diffs-line-bg:var(--diffs-annotation-bg)}" +
       (codeScheme(S.settings.theme) === "dark"
