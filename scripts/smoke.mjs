@@ -607,6 +607,10 @@ try {
   assert.equal(coverage.topicLines, 2);
   assert.equal(coverage.skimmedLines, coverage.totalLines - 2);
   assert.equal(coverage.uncoveredLines, 0);
+  // Later Send assertions settle one topic and leave the other to do.
+  writeFileSync(topicsPath, JSON.stringify(goodTopics));
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", topicsPath)).ok);
+  checkTopics(await getJson("/api/state"), "after coverage refusal scenario");
   rmSync(topicsDir, { recursive: true, force: true });
   console.log(
     "✓ topics guide → attached on start and by reload --guide; a bad cover exits 1 naming the topic, desk kept",
