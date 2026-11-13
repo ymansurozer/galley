@@ -238,18 +238,27 @@ export async function postToDesk(
 // they're keyed to. A save sends what the tab changed since this copy (types.ts, ReviewerChanges),
 // worked out when it is sent, so a save retried after an outage carries everything since. Until
 // the boot sets it, it is empty: a save then sends every record as changed.
-let confirmed: { saveNumber: number; review: ReviewerSave; diff: string } = {
+type Confirmed = { saveNumber: number; review: ReviewerSave; diff: string };
+let confirmed: Confirmed = {
   saveNumber: 0,
   review: { comments: [], reviewedFiles: [] },
   diff: "",
 };
+// How many times the confirmed copy has moved: a poll sent before it last moved can carry a review
+// older than the copy (poll.ts).
+let confirmedMoves = 0;
+const confirm = (next: Confirmed) => {
+  confirmed = next;
+  confirmedMoves++;
+};
+export const confirmedMoved = () => confirmedMoves;
 // The tab took the desk's review whole: at boot, a new diff's, a reset's.
 export function confirmDesk(state: ReviewState) {
-  confirmed = {
+  confirm({
     saveNumber: state.saveNumber ?? 0,
     review: copyOf(reviewerSlice(state)),
     diff: state.baseDiffHash,
-  };
+  });
 }
 // What a save or Send is out with: the copy its changes were taken from, kept until it answers.
 type Outgoing = { body: ReviewerDelta; sent: ReviewerSave; diff: string };
@@ -277,7 +286,7 @@ export function takeDeskReview(read: ReviewRead, held: ReadonlySet<string>): boo
     read.review.annotations ?? [],
     (S.state.annotations ?? []).map((a) => ({ ...a, comments: a.comments.filter(arrived) })),
   );
-  confirmed = { saveNumber: read.saveNumber, review: copyOf(read.review), diff: read.baseDiffHash };
+  confirm({ saveNumber: read.saveNumber, review: copyOf(read.review), diff: read.baseDiffHash });
   keepPlacements(read.review.annotations ?? [], S.state.annotations ?? []);
   Object.assign(S.state, read.review);
   stampDecisions(S.state.changes, S.state.decisions ?? []);
@@ -321,11 +330,11 @@ function landed(out: Outgoing, answer: Partial<SaveAnswer>) {
   if (S.state.baseDiffHash !== out.diff) return;
   if (confirmed.diff === out.diff && number < confirmed.saveNumber) return;
   if (!answer.merged) {
-    confirmed = { saveNumber: number, review: out.sent, diff: out.diff };
+    confirm({ saveNumber: number, review: out.sent, diff: out.diff });
     return;
   }
   const since = reviewerChanges(out.sent, reviewerSlice(S.state));
-  confirmed = { saveNumber: number, review: copyOf(answer.merged), diff: out.diff };
+  confirm({ saveNumber: number, review: copyOf(answer.merged), diff: out.diff });
   Object.assign(S.state, applyReviewerChanges(answer.merged, since));
   // What the merged review brought in is the desk's, as a poll's records are (takenFromDesk): every
   // other copy still out takes it under the reviewer's own changes, from that copy's send to this

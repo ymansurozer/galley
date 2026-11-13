@@ -4,6 +4,7 @@ import {
   agentRecords,
   api,
   confirmDesk,
+  confirmedMoved,
   confirmedNumber,
   noteAnswer,
   postsOut,
@@ -118,6 +119,7 @@ async function pollOnce() {
   // Transient status follows response sequence. Full-state work follows content revision:
   // another lite tick for the same revision neither cancels it nor starts a duplicate fetch.
   const superseded = () => sequence < adoptedPoll;
+  const moves = confirmedMoved();
   let lite: PollPayload | undefined;
   try {
     const payload = await api<PollPayload & DeskStatus>("/api/poll");
@@ -253,14 +255,21 @@ async function pollOnce() {
     refreshBaseTitle();
     updateProgress();
   }
+  // A poll sent before the confirmed copy last moved, and numbered below it, read the desk before
+  // the review the tab now holds: an agent record it carries may be one a reset since removed. Its
+  // records are left; the next poll brings the ones still there. One sent after the copy moved is
+  // the desk as it is now, whatever its number: a desk whose number went back still delivers.
+  const behind = confirmedMoved() !== moves && (lite.saveNumber ?? 0) < confirmedNumber();
   // Only the agent's: another tab's comments come with its save (pullReview), which waits on what
   // this tab holds and on an open composer.
   const localIds = new Set(S.state.comments.map((c) => c.id));
-  const incoming = lite.comments.filter((c) => c.role === "agent" && !localIds.has(c.id));
+  const incoming = behind
+    ? []
+    : lite.comments.filter((c) => c.role === "agent" && !localIds.has(c.id));
   S.state.comments.push(...incoming);
   // The agent's replies in UI annotation threads (`galley comment --ui`) join the same way; a save
   // from this tab before they arrive keeps them on the server (mergeReviewerSave).
-  const uiReplies = mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
+  const uiReplies = !behind && mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
   // Both came from the desk, not the reviewer: no save sends them back as the tab's changes.
   if (incoming.length || uiReplies)
     takenFromDesk((review) => {

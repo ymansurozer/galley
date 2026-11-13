@@ -1237,3 +1237,49 @@ test("an agent message the desk dropped from a still-present annotation isn't pu
     ["annotation-message"],
   );
 });
+
+test("a poll the desk answered before another tab's reset doesn't put back the agent reply it removed", async (t) => {
+  const f = await fixture(t);
+  f.update({ saveNumber: 1 });
+  // The desk serves the read of its review only once the test lets it, and parks the answer to
+  // one chosen poll on its way back.
+  const deskFetch = f.win.fetch.bind(f.win);
+  let readAsked!: () => void;
+  const readOut = new Promise<void>((resolve) => (readAsked = resolve));
+  let serveRead!: () => void;
+  const readGate = new Promise<void>((resolve) => (serveRead = resolve));
+  let deliverPoll!: () => void;
+  const pollGate = new Promise<void>((resolve) => (deliverPoll = resolve));
+  let holdPoll = false;
+  f.win.fetch = (async (url: string, options: any) => {
+    if (url === "/api/review") {
+      readAsked();
+      await readGate;
+    }
+    const response = await deskFetch(url, options);
+    if (url !== "/api/poll" || !holdPoll) return response;
+    holdPoll = false;
+    const payload = await response.json();
+    return { ok: true, json: async () => (await pollGate, payload) };
+  }) as any;
+  // The poll sees save 1 and reads the review; the read waits at the desk.
+  const first = f.poll();
+  await readOut;
+  // The agent replies, and the next poll's answer carries the reply and save 1.
+  f.update({ comments: [{ ...reviewerComment, id: "agent-reply", role: "agent" }] });
+  holdPoll = true;
+  const late = f.poll();
+  await until(() => !holdPoll);
+  // Another tab resets the review, and the read the first poll sent takes it.
+  f.update({ comments: [], annotations: [], saveNumber: 2 });
+  serveRead();
+  await first;
+  assert.deepEqual(plain(f.S.state.comments), []);
+  // The poll answered before the reset lands now.
+  deliverPoll();
+  await late;
+  assert.deepEqual(plain(f.S.state.comments), [], "the reset's removal holds");
+  for (let i = 0; i < 3; i++) await f.poll();
+  assert.deepEqual(plain(f.S.state.comments), []);
+  assert.deepEqual(f.server().comments, []);
+});
