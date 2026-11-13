@@ -256,8 +256,16 @@ export type GuideLink = { from: string; to: string; label: string };
 // in diff order; `lines` is their added plus removed lines; `coverHash` hashes the blocks' content in
 // order and no line number, so it holds while lines shift above them and moves when one is edited.
 // `changed`: the reviewer's sign-off on it was dropped because its cover hash moved (state.ts
-// carryTopicSignOffs); kept until the topic is settled again.
-export type TopicStamp = { blocks: string[]; lines: number; coverHash: string; changed?: true };
+// carryTopicSignOffs); kept until the topic is settled again. `bodyParts`: the source lines of the
+// body's blocks a comment can sit on (topicthreads.ts bodyBlocks), so the tab places them by the
+// desk's own list.
+export type TopicStamp = {
+  blocks: string[];
+  lines: number;
+  coverHash: string;
+  changed?: true;
+  bodyParts?: number[];
+};
 
 // A settled topic (ReviewState.settledTopics): its cover hash when the reviewer settled it, and the
 // round it was settled in. Settled while `hash` is the topic's current coverHash (topicSettled).
@@ -347,6 +355,9 @@ export type ReviewState = {
   // signedOffBlocks: carried across a reload or restart only while the topic is in the guide and
   // its cover hash is unchanged.
   settledTopics?: Record<string, TopicSignOff>;
+  // The reviewer's threads on the parts of topics (TopicThread). Reviewer-owned, like annotations,
+  // and apart from `comments`, whose rows need a file in the diff.
+  topicThreads?: TopicThread[];
   // The review's round: one more than the number of Sends. Absent: 1. Raised by each Send, kept
   // across reloads, restarts and a reset.
   round?: number;
@@ -388,6 +399,7 @@ export type ReviewerSave = Pick<
   | "decisionFiles"
   | "annotations"
   | "lastAnnotationNumber"
+  | "topicThreads"
 >;
 
 // A path's index entry as /api/unstage found it (a file's Reset), handed back to /api/restage by
@@ -439,8 +451,8 @@ export type AnnotationReport = {
 
 // What a tab changed since the copy of the reviewer-owned fields the desk last confirmed. A
 // collection the tab didn't touch is left out. Keys: a decision's `key`, a comment's and an
-// annotation's `id`, a block sign-off's `path:stableKey`, a file sign-off's and a decided file's
-// path, a settled topic's id. A file sign-off is reviewedFiles and its reviewedFileHashes entry as
+// annotation's and a topic thread's `id`, a block sign-off's `path:stableKey`, a file sign-off's and
+// a decided file's path, a settled topic's id. A file sign-off is reviewedFiles and its reviewedFileHashes entry as
 // one record.
 export type ReviewerChanges = {
   decisions?: KeyedChanges<Decision>;
@@ -451,6 +463,7 @@ export type ReviewerChanges = {
   decisionFiles?: KeyedChanges<string>;
   annotations?: KeyedChanges<UiAnnotationRecord>;
   annotationReports?: AnnotationReport[];
+  topicThreads?: KeyedChanges<TopicThread>;
   // Only goes up: the desk keeps the highest it has seen.
   lastAnnotationNumber?: number;
 };
@@ -733,6 +746,25 @@ export type UiAnnotationRecord = {
   // alone does not prove a capture is still running after a reload. Stored images take precedence.
   screenshotCapture?: "omitted" | "requested" | "failed";
 };
+// A thread on a part of a topic (ReviewState.topicThreads). Its first message is what it asks, as
+// an annotation's is; later messages are replies. `target.topic` is a topic id, or "overview" for
+// the Overview. `target.part` is where on it the thread sits: "title", "recorded", "flag", or
+// "body:<line>", a block of the body by its source line (topicthreads.ts bodyBlocks). `title` is
+// the topic's title when the thread was made, so a thread whose topic a new guide dropped can still
+// be named. `quote` is the text of its part (a body block's markdown source), which the thread
+// follows when a new guide rewrites the body; `moved`: that block is gone, so it sits on the title.
+// The desk sets the target's part, title, quote and moved; the tab only names a new thread's part.
+export type TopicThread = {
+  id: string;
+  target: { topic: string; part: string };
+  title: string;
+  quote?: string;
+  moved?: true;
+  intent: "change" | "question";
+  status: "open" | "resolved";
+  comments: ThreadMessage[];
+};
+
 // An annotation as the agent receives it in ReviewResult.uiAnnotations.
 export type UiAnnotation = {
   id: string;
@@ -772,7 +804,15 @@ export type FileContentsPayload = {
 // tab's save landed, and an idle tab reads the review it brought from /api/review (ReviewRead).
 export type PollPayload = Pick<
   ReviewState,
-  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations" | "project" | "branch" | "round"
+  | "baseDiffHash"
+  | "guide"
+  | "comments"
+  | "ui"
+  | "annotations"
+  | "topicThreads"
+  | "project"
+  | "branch"
+  | "round"
 > & { saveNumber: number };
 
 // The desk's reviewer-owned fields, the save number they're at, and the diff they're keyed to
@@ -809,6 +849,9 @@ export type ReviewResult = {
   // The guide's topic ids, in the guide's order: those the reviewer settled (their lines unchanged
   // since) and those still to do. Absent when the guide has no topics.
   topics?: { settled: string[]; todo: string[] };
+  // The open change requests on parts of topics (resolved ones are not sent): those on topics in
+  // the guide in its order, then those on topics a new guide dropped.
+  topicChangeRequests: TopicChangeRequest[];
   // Questions still unanswered when the reviewer hit Send — folded into the round so an
   // agent that missed the live await still owes an answer. Every open question message
   // (intent "question", no later agent reply in its thread), code comments and UI annotation
@@ -818,9 +861,21 @@ export type ReviewResult = {
   artifacts: { resultJson: string; sessionDir: string };
 };
 
+// A change request on a part of a topic, as the agent receives it. `id` is the thread's (answer in
+// it with `galley comment --topic <id>`), `part` says where on the topic it sits (TopicThread) and
+// `quote` the text there.
+export type TopicChangeRequest = {
+  id: string;
+  topic: string;
+  part: string;
+  quote?: string;
+  body: string;
+};
+
 // A question the reviewer asked (intent "question") that the agent should handle now: on a line
-// of the diff (lane "code"), or in a UI annotation's thread (lane "ui").
-export type QuestionPayload = CodeQuestion | UiQuestion;
+// of the diff (lane "code"), in a UI annotation's thread (lane "ui"), or on a part of a topic (lane
+// "topic").
+export type QuestionPayload = CodeQuestion | UiQuestion | TopicQuestion;
 export type CodeQuestion = {
   lane: "code";
   path: string;
@@ -841,6 +896,19 @@ export type UiQuestion = {
   route: string;
   body: string;
   target: string;
+  mode: ReviewMode;
+  session: string;
+};
+
+// Answered with `galley comment --topic <id>`, `id` being the thread's. `topic` is the topic's id,
+// `part` where on it the question sits (TopicThread), and `quote` the text there.
+export type TopicQuestion = {
+  lane: "topic";
+  id: string;
+  topic: string;
+  part: string;
+  quote?: string;
+  body: string;
   mode: ReviewMode;
   session: string;
 };

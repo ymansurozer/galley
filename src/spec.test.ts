@@ -44,6 +44,12 @@ const ANCHORS = [
   "overallNote",
   // unanswered questions fold into the Send (issue 05)
   "openQuestions",
+  // topic threads: the question lane, the reply form, the result field and the parts
+  'lane "topic": {lane, id, topic, part, quote?, body, mode, session}',
+  'galley comment --topic <id> --body "…"',
+  "topicChangeRequests[]: {id, topic, part, quote?, body}",
+  '"body:<n>" — a block of the body',
+  "Topic Ask:",
   "How to act on a review",
   // the human can turn a change request into a question and back between rounds
   "change kind between rounds",

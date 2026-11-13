@@ -38,6 +38,14 @@ import type {
   UiAnnotationRecord,
 } from "./types.js";
 import { questionTarget, readUiAnnotations, uiAnnotationsForAgent } from "./uiannotations.js";
+import {
+  bodyBlocks,
+  readTopicThreads,
+  replyToTopicThread,
+  takeTopicThreads,
+  topicChangeRequests,
+  topicQuestionPayload,
+} from "./topicthreads.js";
 import { shotDir } from "./uishots.js";
 
 export function nowIso() {
@@ -692,6 +700,7 @@ function writeTopicStamps(
       blocks: mine.map((u) => u.key),
       lines: mine.reduce((n, u) => n + u.lines, 0),
       coverHash: hash(mine.map((u) => u.hash).join("\n")),
+      bodyParts: bodyBlocks(topic.body).map((b) => b.line),
     };
   }
   review.topics = stamps;
@@ -1421,6 +1430,7 @@ export const reviewerFields = (state: ReviewState): ReviewerSave => ({
   decisionFiles: state.decisionFiles ?? [],
   annotations: state.annotations ?? [],
   lastAnnotationNumber: state.lastAnnotationNumber ?? 0,
+  topicThreads: state.topicThreads ?? [],
 });
 
 // Whether a save was made before the desk's latest reload or restart, which reset every
@@ -1536,6 +1546,8 @@ async function mergeReviewerCopy(
     }
     state.annotations = annotations;
   }
+  const threads = readTopicThreads(incoming.topicThreads);
+  if (threads) state.topicThreads = takeTopicThreads(threads, state.topicThreads, state.guide);
   raiseAnnotationMark(state, incoming.lastAnnotationNumber);
   return unplaced;
 }
@@ -1593,6 +1605,7 @@ function readChanges(value: unknown, app: string | undefined) {
       rs.filter((r): r is ReviewComment => isObject(r) && isString(r.id) && isString(r.path)),
     ),
     annotations: readKeyed(c.annotations, (rs) => readUiAnnotations(rs, app) ?? []),
+    topicThreads: readKeyed(c.topicThreads, (rs) => readTopicThreads(rs) ?? []),
     settledTopics: readKeyed(c.settledTopics, (rs) =>
       rs.flatMap((r) =>
         isObject(r) && isString(r.id) && isString(r.hash) ? [{ id: r.id, hash: r.hash }] : [],
@@ -1789,6 +1802,16 @@ async function applyReviewerChanges(
     if (report.placement && !beforeReload) a.placement = report.placement;
     if (report.failed && a.screenshotCapture === "requested" && !a.screenshots)
       a.screenshotCapture = "failed";
+  }
+  // A topic thread sits where the desk placed it, on its guide, whichever diff or guide the tab
+  // was on (takeTopicThread).
+  if (c.topicThreads) {
+    const changed = takeTopicThreads(c.topicThreads.changed, state.topicThreads, state.guide);
+    state.topicThreads = applyKeyed(
+      state.topicThreads ?? [],
+      { ...c.topicThreads, changed },
+      (t) => t.id,
+    );
   }
   raiseAnnotationMark(state, c.lastAnnotationNumber);
   return unplaced;
@@ -2428,6 +2451,8 @@ export async function mergeReviewState(
     // but none has been looked for on the changed app yet.
     annotations: unvisitedAnnotations(saved.annotations ?? base.annotations),
     lastAnnotationNumber: saved.lastAnnotationNumber,
+    // On the guide, not the diff: a re-diff never moves them. A new guide does (carryTopicThreads).
+    topicThreads: saved.topicThreads ?? base.topicThreads,
     round: saved.round,
     persistFile: saved.persistFile,
   } satisfies ReviewState;
@@ -2539,6 +2564,22 @@ export async function appendAnnotationReply(
   return reply;
 }
 
+// The agent's reply in a topic thread on the saved review, for when no desk is live (as
+// appendComment is). Null when the review has no thread with that id.
+export async function appendTopicReply(
+  root: string,
+  session: string,
+  id: string,
+  body: string,
+): Promise<ThreadMessage | null> {
+  const saved = await loadLatestReview(root, session);
+  if (!saved)
+    throw new Error(`No saved review for session "${session}" in ${root}. Open the desk first.`);
+  const reply = replyToTopicThread(saved, id, body, nowIso());
+  if (reply) await persistReview(saved);
+  return reply;
+}
+
 // The single QuestionPayload constructors — shared by /api/ask (live question event) and
 // computeOpenQuestions (questions folded into a Send) so the two payload shapes can't drift.
 export function questionPayload(
@@ -2584,7 +2625,8 @@ const answered = (question: ThreadMessage, thread: readonly ThreadMessage[]) =>
 
 // Questions the reviewer asked but the agent hasn't answered yet. Mirrors the UI's "answered"
 // heuristic (src/ui/uilane-derive.ts): an open question is unanswered until a later agent reply
-// lands in the same thread — the comments on its path/side/line, or its UI annotation's messages.
+// lands in the same thread — the comments on its path/side/line, or its UI annotation's or topic
+// thread's messages.
 // These ride out on the Send's ReviewResult so an agent that never saw the live await still owes
 // each an answer.
 export function computeOpenQuestions(state: ReviewState): QuestionPayload[] {
@@ -2609,7 +2651,14 @@ export function computeOpenQuestions(state: ReviewState): QuestionPayload[] {
         .filter((m) => asked(m) && !answered(m, a.comments))
         .map((m) => uiQuestionPayload(state, a, m)),
     );
-  return [...code, ...ui];
+  const topic = (state.topicThreads ?? [])
+    .filter((t) => t.status === "open")
+    .flatMap((t) =>
+      t.comments
+        .filter((m) => asked(m) && !answered(m, t.comments))
+        .map((m) => topicQuestionPayload(state, t, m)),
+    );
+  return [...code, ...ui, ...topic];
 }
 
 // The guide's topic ids, settled and still to do, in the guide's order; absent without topics.
@@ -2656,6 +2705,7 @@ export function buildReviewResult(
     stagedFiles: state.stagedFiles,
     approvedFiles: computeApprovedFiles(state),
     topics: topicsResult(state),
+    topicChangeRequests: topicChangeRequests(state),
     openQuestions: computeOpenQuestions(state),
     artifacts,
   };

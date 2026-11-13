@@ -5,6 +5,7 @@ import {
   api,
   confirmDesk,
   confirmedMoved,
+  confirmedReview,
   confirmedNumber,
   noteAnswer,
   postsOut,
@@ -24,6 +25,7 @@ import { adoptUiStatus, adoptUiTarget, applyPendingUiRefresh, syncView } from ".
 import { renderTopics } from "./topics";
 import { renderUiLane } from "./uilane";
 import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
+import { keepUnsavedThreads } from "./topicthreads-derive";
 import { recordActivity } from "./thread-derive";
 import type { DeskStatus, PollPayload, ReviewRead, ReviewState } from "./types";
 
@@ -196,6 +198,7 @@ async function pollOnce() {
     const ids = new Set(server.comments.map((c) => c.id));
     server.comments.push(...lite.comments.filter((c) => !ids.has(c.id)));
     mergeAgentReplies(server.annotations ?? [], lite.annotations ?? []);
+    mergeAgentReplies(server.topicThreads ?? [], lite.topicThreads ?? []);
     // The desk's review is the tab's confirmed copy from here: the tab's own placements, kept
     // over it below, are reports of the tab's (keepPlacements).
     confirmDesk(server);
@@ -250,6 +253,17 @@ async function pollOnce() {
     S.state.guide = server.guide;
     S.state.topics = server.topics;
     S.state.coverage = server.coverage;
+    // The new guide moved topic threads onto its parts and dropped some, none of it the reviewer's:
+    // the confirmed copy takes the desk's, and the tab too, with any agent reply since and what the
+    // tab holds and hasn't saved (keepUnsavedThreads), which its next save sends.
+    const desk = server.topicThreads ?? [];
+    mergeAgentReplies(desk, lite.topicThreads ?? []);
+    S.state.topicThreads = keepUnsavedThreads(
+      desk,
+      S.state.topicThreads ?? [],
+      confirmedReview().topicThreads ?? [],
+    );
+    takenFromDesk((review) => (review.topicThreads = copyOf(desk)));
     reseatStep(S.stepPart, title);
     syncView();
     render();
@@ -283,18 +297,23 @@ async function pollOnce() {
   S.state.comments.push(...incoming);
   // The agent's replies in UI annotation threads (`galley comment --ui`) join the same way; a save
   // from this tab before they arrive keeps them on the server (mergeReviewerSave).
-  const uiReplies = !behind && mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
+  const uiReplies =
+    !behind &&
+    mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []) +
+      mergeAgentReplies(S.state.topicThreads ?? [], lite.topicThreads ?? []);
   // Both came from the desk, not the reviewer: no save sends them back as the tab's changes.
   if (incoming.length || uiReplies)
     takenFromDesk((review) => {
       const have = new Set(review.comments.map((c) => c.id));
       review.comments.push(...copyOf(incoming.filter((c) => !have.has(c.id))));
       mergeAgentReplies(review.annotations ?? [], copyOf(lite.annotations ?? []));
+      mergeAgentReplies(review.topicThreads ?? [], copyOf(lite.topicThreads ?? []));
     });
   if (uiReplies || incoming.some((c) => c.role === "agent")) S.awaitingAgent = false;
-  // render() redraws the UI lane too.
+  // render() redraws the UI lane too; Decisions mode draws its own page.
   if (incoming.length) render();
   else if (uiReplies) renderUiLane();
+  if (uiReplies && S.view === "topics") renderTopics();
   await pullReview(lite.saveNumber);
 }
 

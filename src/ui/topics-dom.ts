@@ -6,6 +6,7 @@ import { keycapsHtml } from "./keycaps";
 import type { MapLayout, MapStage } from "./map-derive";
 import { mapHtml, mapListHtml } from "./map-dom";
 import type { TopicPlace, TopicsNavRow } from "./topics-derive";
+import { signOffStand, topicMark, type TopicSignOffStand } from "./topicthreads-derive";
 
 // Decisions mode's markup: the sidebar's stage, group and topic rows, the topic page and the
 // Overview. Markdown is rendered by the caller (`md`), which sanitises it.
@@ -13,9 +14,14 @@ import type { TopicPlace, TopicsNavRow } from "./topics-derive";
 const glyph = (name: string, cls: string) =>
   `<svg class="ic ${cls}" aria-hidden="true"><use href="#gly-${name}"></use></svg>`;
 
-// A topic's or a group's mark: to do, or done.
-const mark = (settled: boolean) =>
-  settled ? glyph("check", "st approved") : glyph("circle", "st pending");
+// A topic's or a group's mark: to do, done, or change requested while an open change request is on
+// it (topicthreads-derive topicMark).
+const MARKS = {
+  change: glyph("circle-alert", "st changes"),
+  done: glyph("check", "st approved"),
+  todo: glyph("circle", "st pending"),
+};
+const mark = (settled: boolean, requested = false) => MARKS[topicMark(settled, requested)];
 
 // A row of the sidebar. A group shows what is done of this round's topics, and its mark. A topic
 // shows at most two lines, its full title on hover, and the open one whole (topics.css); its mark,
@@ -26,7 +32,7 @@ function navRow(r: TopicsNavRow) {
   if (r.kind === "group") {
     const word = r.settled ? "Nothing to do" : `${r.total - r.done} to do`;
     const count = r.total ? `<i class="topics-n">${r.done}/${r.total}</i>` : "";
-    return `<div class="node topics-group${r.current ? " current" : ""}" data-group="${esc(r.id)}" title="${esc(r.title)} · ${word}"><span class="nm">${esc(r.title)}</span><span class="status-pack" aria-label="${word}">${count}${mark(r.settled)}</span></div>`;
+    return `<div class="node topics-group${r.current ? " current" : ""}" data-group="${esc(r.id)}" title="${esc(r.title)} · ${word}"><span class="nm">${esc(r.title)}</span><span class="status-pack" aria-label="${word}">${count}${mark(r.settled, r.requested)}</span></div>`;
   }
   if (r.kind === "earlier")
     return `<div class="node topics-earlier" data-earlier="${esc(r.group)}" role="button" aria-expanded="${r.open}">${glyph("chevron", `chev${r.open ? " open" : ""}`)}<span class="nm">${esc(r.label)}</span></div>`;
@@ -34,7 +40,7 @@ function navRow(r: TopicsNavRow) {
     ? `<svg class="ic crit" role="img" aria-label="Flagged"><title>Flagged</title><use href="#gly-flag"></use></svg>`
     : "";
   const tip = r.settled ? "Reset to do" : "Settle topic";
-  return `<div class="node topics-topic${r.open ? " active" : ""}${r.settled ? " settled" : ""}" data-topic="${esc(r.id)}" title="${esc(r.title)}"><button type="button" class="topics-mk" data-mark="${esc(r.id)}" title="${tip}" aria-label="${tip}">${mark(r.settled)}</button><span class="topics-tt">${esc(r.title)}</span>${flag}</div>`;
+  return `<div class="node topics-topic${r.open ? " active" : ""}${r.settled ? " settled" : ""}" data-topic="${esc(r.id)}" title="${esc(r.title)}"><button type="button" class="topics-mk" data-mark="${esc(r.id)}" title="${tip}" aria-label="${tip}">${mark(r.settled, r.requested)}</button><span class="topics-tt">${esc(r.title)}</span>${flag}</div>`;
 }
 
 export function renderTopicsNav(host: HTMLElement, rows: TopicsNavRow[]) {
@@ -42,14 +48,20 @@ export function renderTopicsNav(host: HTMLElement, rows: TopicsNavRow[]) {
 }
 
 // Where the open topic stands: settled (its sign-off is current), or to do with its lines changed
-// since the reviewer's last round.
-export type TopicStand = { settled: boolean; changed: boolean };
+// since the reviewer's last round; and how many open change requests it holds.
+export type TopicStand = { settled: boolean; changed: boolean; requests?: number };
 
-// The bar's end: Settle Topic, or once settled its state and Reset.
-const barActions = (settled: boolean) =>
-  settled
-    ? `<span class="fb-state ok">${glyph("check", "")}Settled</span><button class="btn quiet sm" data-act="reset">Reset</button>`
-    : `<button class="signoff fill" data-act="settle">Settle Topic ${keycapsHtml("⇧A")}</button>`;
+// The bar's end: Settle Topic (Mark Reviewed while it holds open change requests), or once settled
+// its state (Settled, or Reviewed with requests) and Reset.
+function barActions(stand: TopicSignOffStand) {
+  const reset = `<button class="btn quiet sm" data-act="reset">Reset</button>`;
+  if (stand === "settled")
+    return `<span class="fb-state ok">${glyph("check", "")}Settled</span>${reset}`;
+  if (stand === "reviewed")
+    return `<span class="fb-state warn">${glyph("circle-alert", "")}Reviewed with requests</span>${reset}`;
+  const label = stand === "mark" ? "Mark Reviewed" : "Settle Topic";
+  return `<button class="signoff fill${stand === "mark" ? " warn" : ""}" data-act="settle">${label} ${keycapsHtml("⇧A")}</button>`;
+}
 
 // A topic's page: the bar naming its stage and group with its sign-off, then the topic as a reading
 // column — its concern and whether it changed since the last round, title, where the call is
@@ -63,7 +75,7 @@ export function renderTopicPage(
 ) {
   const { topic, group, stage } = place;
   const where = `${stage.label} / ${group.title}`;
-  const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span>${extras.share}<span class="fb-grow"></span><span class="fb-actions">${barActions(stand.settled)}</span></div>`;
+  const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span>${extras.share}<span class="fb-grow"></span><span class="fb-actions">${barActions(signOffStand(stand.settled, stand.requests ?? 0))}</span></div>`;
   const tags = [
     topic.concern ? `<span class="topic-concern">${esc(topic.concern)}</span>` : "",
     stand.changed ? `<span class="topic-changed">Changed since your last round</span>` : "",

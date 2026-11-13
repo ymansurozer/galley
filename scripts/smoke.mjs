@@ -629,6 +629,68 @@ try {
     "✓ topics guide → attached on start and by reload --guide; a bad cover or link exits 1 naming it, desk kept",
   );
 
+  // A question on a topic's Recorded line: the desk quotes the part, await delivers it on the topic
+  // lane, and `galley comment --topic` answers in its thread.
+  const topicAsked = new Date().toISOString();
+  await post("/api/save", {
+    topicThreads: [
+      {
+        id: "topic-q1",
+        target: { topic: "a-line", part: "recorded" },
+        title: "",
+        intent: "question",
+        status: "open",
+        comments: [
+          {
+            id: "topic-q1-m1",
+            role: "user",
+            intent: "question",
+            body: "Where is this written down?",
+            createdAt: topicAsked,
+            updatedAt: topicAsked,
+          },
+        ],
+      },
+    ],
+  });
+  await post("/api/ask", { topicThreadId: "topic-q1", messageId: "topic-q1-m1" });
+  const evTopic = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  assert.equal(evTopic.kind, "question");
+  assert.deepEqual(evTopic.questions, [
+    {
+      lane: "topic",
+      id: "topic-q1",
+      topic: "a-line",
+      part: "recorded",
+      quote: "Only the code records this.",
+      body: "Where is this written down?",
+      mode: "repo",
+      session: ID,
+    },
+  ]);
+  const topicReply = JSON.parse(
+    cli("comment", "--repo", tmp, "--session", ID, "--topic", "topic-q1", "--body", "Nowhere yet."),
+  );
+  assert.ok(topicReply.ok && topicReply.live, "the reply went to the live desk");
+  const topicThread = (await getJson("/api/poll")).topicThreads.find((t) => t.id === "topic-q1");
+  assert.deepEqual(
+    topicThread.comments.map((m) => [m.role, m.body]),
+    [
+      ["user", "Where is this written down?"],
+      ["agent", "Nowhere yet."],
+    ],
+    "the answer is in the thread the tab polls",
+  );
+  const noThread = spawnSync(
+    "node",
+    [CLI, "comment", "--repo", tmp, "--session", ID, "--topic", "nope", "--body", "x"],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.equal(noThread.status, 1, "a thread id the review doesn't have exits non-zero");
+  console.log(
+    "✓ topic question → await yields lane topic with the part and its quote; comment --topic answers in the thread",
+  );
+
   // human asks a question → `galley await` yields a question event
   await post("/api/ask", {
     path: "a.txt",

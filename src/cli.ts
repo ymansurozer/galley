@@ -9,9 +9,11 @@ import { sameGuide, validateGuide } from "./guide.js";
 import { parseUiTarget } from "./proxy.js";
 import { AGENT_HEADER, startServer } from "./server.js";
 import { SPEC } from "./spec.js";
+import { carryTopicThreads } from "./topicthreads.js";
 import {
   appendAnnotationReply,
   appendComment,
+  appendTopicReply,
   buildReviewState,
   deskLockPath,
   findLiveDesks,
@@ -137,7 +139,8 @@ async function runComment(args: Record<string, string | boolean>) {
   const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
   const session = await resolveActionSession(root, args);
   const body = typeof args.body === "string" ? args.body.trim() : "";
-  if (args.ui !== undefined) return runUiComment(root, session, args.ui, body);
+  if (args.ui !== undefined) return runThreadComment(root, session, "ui", args.ui, body);
+  if (args.topic !== undefined) return runThreadComment(root, session, "topic", args.topic, body);
   const filePath = typeof args.path === "string" ? args.path : "";
   if (!filePath || !body) {
     console.error(
@@ -179,24 +182,50 @@ async function runComment(args: Record<string, string | boolean>) {
   );
 }
 
-// `galley comment --ui <id> --body "..."` — an agent reply in a UI annotation's thread: over HTTP
-// to a live desk, else appended to the saved review. Only a desk that doesn't answer gets the
-// offline append: a live desk persists over that file, so writing behind it would be lost. An id
-// the review doesn't have fails rather than landing nowhere, whichever way it went.
-async function runUiComment(root: string, session: string, id: string | boolean, body: string) {
-  if (typeof id !== "string" || !body) {
-    console.error(
+// A thread the agent replies in by its id: a UI annotation's (`galley comment --ui <id>`) or a
+// topic's (`galley comment --topic <id>`).
+const THREAD_LANES = {
+  ui: {
+    usage:
       'Usage: galley comment --ui <annotation-id> --body "..." [--session <id>] [--repo <path>]',
-    );
+    route: "api/ui-comment",
+    field: "annotationId",
+    missing: "annotation",
+    append: appendAnnotationReply,
+  },
+  topic: {
+    usage:
+      'Usage: galley comment --topic <thread-id> --body "..." [--session <id>] [--repo <path>]',
+    route: "api/topic-comment",
+    field: "threadId",
+    missing: "topic thread",
+    append: appendTopicReply,
+  },
+} as const;
+
+// `galley comment --ui|--topic <id> --body "..."` — an agent reply in a thread: over HTTP to a live
+// desk, else appended to the saved review. Only a desk that doesn't answer gets the offline append:
+// a live desk persists over that file, so writing behind it would be lost. An id the review doesn't
+// have fails rather than landing nowhere, whichever way it went.
+async function runThreadComment(
+  root: string,
+  session: string,
+  lane: keyof typeof THREAD_LANES,
+  id: string | boolean,
+  body: string,
+) {
+  const how = THREAD_LANES[lane];
+  if (typeof id !== "string" || !body) {
+    console.error(how.usage);
     process.exitCode = 1;
     return;
   }
   const lock = await readDeskLock(root, session);
   if (lock && (await deskAlive(lock.url))) {
-    const res = await fetch(`${lock.url}api/ui-comment`, {
+    const res = await fetch(`${lock.url}${how.route}`, {
       method: "POST",
       headers: { "content-type": "application/json", [AGENT_HEADER]: "1" },
-      body: JSON.stringify({ annotationId: id, body }),
+      body: JSON.stringify({ [how.field]: id, body }),
     }).catch(() => null);
     const json = ((await res?.json().catch(() => null)) ?? {}) as {
       commentId?: string;
@@ -217,9 +246,9 @@ async function runUiComment(root: string, session: string, id: string | boolean,
     );
     return;
   }
-  const reply = await appendAnnotationReply(root, session, id, body);
+  const reply = await how.append(root, session, id, body);
   if (!reply) {
-    console.error(`No annotation "${id}" in session "${session}".`);
+    console.error(`No ${how.missing} "${id}" in session "${session}".`);
     process.exitCode = 1;
     return;
   }
@@ -308,7 +337,7 @@ async function runStop(args: Record<string, string | boolean>) {
 //   {"kind":"question","question":{lane,…},"questions":[…]}  — answer it now
 //   {"kind":"review","result":{…ReviewResult…}}              — the reviewer hit Send
 // Call in a loop and branch on `kind`. Answer a question with `galley comment` (`--ui <id>` for a
-// question with lane "ui").
+// question with lane "ui", `--topic <id>` for one with lane "topic").
 async function runAwait(args: Record<string, string | boolean>) {
   const root = await getGitRoot(resolveRepo(args)).catch(() => resolveRepo(args));
   const session = await resolveActionSession(root, args);
@@ -665,8 +694,10 @@ async function runDesk(
       process.exitCode = 1;
       return;
     }
-    // Topic sign-offs are judged by this guide's stamps, not the old guide's.
+    // Topic sign-offs are judged by this guide's stamps, not the old guide's, and topic threads
+    // follow their parts onto it.
     if (saved) carryTopicSignOffs(state, saved);
+    carryTopicThreads(state);
   }
   // A guide carried forward by the merge (a restart without a new --guide) keeps the part and skim
   // stamps the merge carried by content (carryGuideStamps).
@@ -777,6 +808,7 @@ Usage:
                                     sets it on the live desk, or starts one (UI-only if clean)
   galley comment --path <f> --line <n> --body "..."   Post an agent reply into the desk
   galley comment --ui <id> --body "..."   Post an agent reply into a UI annotation's thread
+  galley comment --topic <id> --body "..."   Post an agent reply into a topic thread
   galley status --body "..."        Post an ephemeral "what I'm doing" line into the desk
   galley await [--timeout <s>]      Block for the next desk event (question | review)
   galley reload [--guide <file>] [--refresh-ui]   Re-diff the working tree into the open desk

@@ -3396,6 +3396,7 @@ test("the poll carries the save number, and /api/review the reviewer-owned field
       "reviewedFiles",
       "settledTopics",
       "signedOffBlocks",
+      "topicThreads",
     ]);
     assert.deepEqual(read.review.reviewedFiles, ["a.ts"]);
     assert.deepEqual(read.review.reviewedFileHashes, { "a.ts": "H" });
@@ -3424,5 +3425,86 @@ test("a reviewer comment through /api/comment raises the save number; an agent's
     const read = await fetch(`${handle.url}api/review`).then((r) => r.json());
     assert.equal(read.saveNumber, 1);
     assert.equal(read.review.comments.length, 2);
+  });
+});
+
+test("a topic question reaches await on the topic lane, the agent answers by thread id, and reset clears topic threads", async () => {
+  await withServer(async (handle, _root, st) => {
+    st.files = [];
+    st.guide = {
+      overview: "o",
+      stages: [
+        {
+          id: "s",
+          label: "S",
+          groups: [
+            {
+              id: "g",
+              title: "G",
+              topics: [{ id: "t1", title: "T1", recorded: "ADR 7", body: "One.", covers: [] }],
+            },
+          ],
+        },
+      ],
+    };
+    const now = new Date().toISOString();
+    const thread = {
+      id: "th1",
+      target: { topic: "t1", part: "recorded" },
+      title: "",
+      intent: "question",
+      status: "open",
+      comments: [
+        {
+          id: "q1",
+          role: "user",
+          intent: "question",
+          body: "Which ADR?",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    };
+    const seen = { token: null, reloadGeneration: 0, baseDiffHash: "base" };
+    await post(handle.url, "api/save", {
+      base: 0,
+      changes: { topicThreads: { changed: [thread], removed: [] } },
+      seen,
+    });
+    const ask = await post(handle.url, "api/ask", { topicThreadId: "th1", messageId: "q1" });
+    assert.equal(ask.status, 200);
+    const event = (await awaitEvent(handle.url, "?timeout=5").then((r) => r.json())) as {
+      kind: string;
+      questions: unknown[];
+    };
+    assert.equal(event.kind, "question");
+    assert.deepEqual(event.questions, [
+      {
+        lane: "topic",
+        id: "th1",
+        topic: "t1",
+        part: "recorded",
+        quote: "ADR 7",
+        body: "Which ADR?",
+        mode: "repo",
+        session: "s",
+      },
+    ]);
+    const reply = await agentPost(handle.url, "api/topic-comment", { threadId: "th1", body: "7." });
+    assert.equal(reply.status, 200);
+    const poll = (await fetch(`${handle.url}api/poll`).then((r) => r.json())) as {
+      topicThreads: Array<{ comments: Array<{ role: string; body: string }> }>;
+    };
+    assert.deepEqual(
+      poll.topicThreads[0]!.comments.map((m) => [m.role, m.body]),
+      [
+        ["user", "Which ADR?"],
+        ["agent", "7."],
+      ],
+    );
+    const unknown = await agentPost(handle.url, "api/topic-comment", { threadId: "x", body: "y" });
+    assert.equal(unknown.status, 404);
+    await post(handle.url, "api/reset", {});
+    assert.deepEqual(st.topicThreads, []);
   });
 });

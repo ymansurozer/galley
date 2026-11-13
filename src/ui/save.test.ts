@@ -59,6 +59,7 @@ test("reviewerSlice carries only reviewer-owned fields — no rawDiff, no file c
     "reviewedFiles",
     "settledTopics",
     "signedOffBlocks",
+    "topicThreads",
   ]);
   // The heavy/server-owned fields are absent from the wire.
   const wire = slice as Record<string, unknown>;

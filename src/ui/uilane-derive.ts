@@ -59,9 +59,9 @@ export const askStamp = (m: ThreadMessage | undefined) =>
   m && m.role !== "agent" && m.intent === "question" ? (m.askedAt ?? m.createdAt) : null;
 
 // An annotation's kind lives on it (its pin, row tint and tooltip) and on its opening message (what
-// the Send sends), so the two turn together.
+// the Send sends), so the two turn together. A topic thread's turns the same way.
 export function turnAnnotationInto(
-  a: UiAnnotationRecord,
+  a: Pick<UiAnnotationRecord, "intent" | "comments">,
   intent: "action" | "question",
   now: string,
 ) {
@@ -105,13 +105,11 @@ export function sendSummary(list: readonly UiAnnotationRecord[]) {
   };
 }
 
-// The agent's replies from the poll (`galley comment --ui`) that the tab's threads lack, added to
-// them. Only agent messages: the tab owns everything else, and a message or annotation it dropped
-// isn't brought back. Returns how many it added.
-export function mergeAgentReplies(
-  local: readonly UiAnnotationRecord[],
-  server: readonly UiAnnotationRecord[],
-): number {
+// The agent's replies from the poll (`galley comment --ui`, `--topic`) that the tab's threads (UI
+// annotations, topic threads) lack, added to them. Only agent messages: the tab owns everything
+// else, and a message or thread it dropped isn't brought back. Returns how many it added.
+type Thread = { id: string; comments: ThreadMessage[] };
+export function mergeAgentReplies(local: readonly Thread[], server: readonly Thread[]): number {
   let added = 0;
   for (const a of local) {
     const have = new Set(a.comments.map((m) => m.id));
