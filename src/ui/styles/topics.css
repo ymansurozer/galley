@@ -253,21 +253,21 @@
 }
 
 .topic-diagram {
-  --pele-bg: var(--canvas);
+  --pele-bg: transparent;
   --pele-fg: var(--ink);
   --pele-muted: var(--ink-3);
   --pele-line: var(--ink-3);
-  --pele-surface: var(--fill);
-  --pele-surface-alt: var(--fill-2);
-  --pele-border: var(--sep);
-  --pele-accent: var(--ink-2);
+  --pele-surface: var(--raised);
+  --pele-border: var(--sep-strong);
+  --pele-accent: var(--blue-ink);
   --pele-font: var(--sans);
+  --pele-radius: 7px;
   --pele-font-mono: var(--mono);
   margin: 14px 0;
-  padding: 18px;
+  padding: 16px;
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--sep);
+  box-shadow: inset 0 0 0 1px var(--sep);
   border-radius: var(--radius-lg);
   color: var(--ink-3);
 }
