@@ -137,8 +137,9 @@ li > .topic-threads {
   color: var(--ink-2);
 }
 
+/* The title keeps its width up to its share, so a short one ("Overview") is never cut. */
 .cr-row.topic .cr-loc {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   max-width: 45%;
   overflow: hidden;
   font-family: var(--sans);
@@ -232,6 +233,11 @@ li > .topic-threads {
 .topic-shift :is(.map-box, .map-list-row):hover > .map-cm {
   opacity: 1;
   color: var(--blue-ink);
+}
+
+/* ⇧ over a box or a link comments on it, not on the map: the map's own icon stays as it was. */
+.topic-shift .topic-part:has(:is(.map-box, .map-list-row, .topics-map [data-gut]):hover) > .topic-gut {
+  color: var(--ink-3);
 }
 
 .map-list-row {
