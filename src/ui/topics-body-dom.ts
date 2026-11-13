@@ -32,6 +32,14 @@ export async function renderTopicBody(
     const fence = host.querySelector(`pre[data-line="${block.line}"]`);
     // The markdown highlighter may not be ready yet; its ready callback redraws the page.
     if (!fence) continue;
+    // A line block's place, which topics-lines.ts fills with the diff.
+    if (block.kind === "lines") {
+      const el = doc.createElement("div");
+      el.className = "topic-lines";
+      el.dataset.line = String(block.line);
+      fence.replaceWith(el);
+      continue;
+    }
     const el = doc.createElement("div");
     el.className = "topic-diagram";
     el.dataset.line = String(block.line);

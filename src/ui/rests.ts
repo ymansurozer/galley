@@ -1,5 +1,5 @@
 import { S, $, esc, toast } from "./store";
-import { KINDS, threadCard } from "./annotations";
+import { KINDS, threadCard, type ThreadControls } from "./annotations";
 import { cursorPlace, cursorRowEl, invalidateCursorRows } from "./cursor";
 import { lineLabel } from "./thread-derive";
 import { firstLine } from "./uilane-derive";
@@ -21,30 +21,36 @@ export const threadKey = (t: { path: string; side: Side; lineNumber: number }) =
 
 const slotThread = new WeakMap<
   HTMLElement,
-  { t: ThreadMeta; lost: boolean; surface: CommentSurface }
+  { t: ThreadMeta; lost: boolean; surface: CommentSurface; controls?: ThreadControls }
 >();
 
 // A slot for a thread: its card, or its rest while it's resolved and folded. `lost`: the thread is
 // in the unanchored block, its line struck through. `surface`: where it renders, the diff by
-// default (markdown.ts).
-export function threadSlot(t: ThreadMeta, lost = false, surface: CommentSurface = "code") {
+// default (markdown.ts). `controls`: what its card's buttons do, when not the code lane's
+// (annotations.ts lineThread).
+export function threadSlot(
+  t: ThreadMeta,
+  lost = false,
+  surface: CommentSurface = "code",
+  controls?: ThreadControls,
+) {
   const slot = document.createElement("div");
   slot.className = "thread-slot" + (t.status === "resolved" ? " resolved" : "");
   slot.dataset.thread = `${t.side}:${t.lineNumber}`;
   slot.dataset.key = threadKey(t);
-  slotThread.set(slot, { t, lost, surface });
+  slotThread.set(slot, { t, lost, surface, controls });
   fill(slot);
   return slot;
 }
 
 function fill(slot: HTMLElement) {
-  const { t, lost, surface } = slotThread.get(slot)!; // every slot is registered as it's made
+  const { t, lost, surface, controls } = slotThread.get(slot)!; // every slot is registered as it's made
   const key = slot.dataset.key!; // set with the slot
   if (t.status === "resolved" && key !== S.openThread) {
     slot.replaceChildren(rest(t, key));
     return;
   }
-  const card = threadCard(t, lost, surface);
+  const card = threadCard(t, lost, surface, controls);
   // An expanded resolved card folds back on a click on its header.
   if (t.status === "resolved")
     card.querySelector(".tc-head")!.addEventListener("click", () => openThread(null));

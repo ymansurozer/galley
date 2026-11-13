@@ -455,8 +455,14 @@ export function buildCommentThread(
 }
 
 // A code thread's card, wherever the thread shows: on its line in the diff, in the unanchored
-// block (`lost`), or under its block in the rendered markdown view (the "chrome" surface).
-export function threadCard(t: ThreadMeta, lost: boolean, surface: CommentSurface): HTMLElement {
+// block (`lost`), under its block in the rendered markdown view (the "chrome" surface), or on its
+// line in a topic page's line block, which acts through its own `controls` (topics-lines.ts).
+export function threadCard(
+  t: ThreadMeta,
+  lost: boolean,
+  surface: CommentSurface,
+  controls = lineThread(t),
+): HTMLElement {
   const asks = t.comments.some(asksChange);
   const head = {
     kind: threadKind(t.status, t.comments),
@@ -464,7 +470,7 @@ export function threadCard(t: ThreadMeta, lost: boolean, surface: CommentSurface
     lost,
     held: asks,
   };
-  return buildCommentThread({ ...t, head }, lineThread(t), surface);
+  return buildCommentThread({ ...t, head }, controls, surface);
 }
 
 // The new-comment composer as a card at its line: what it is (and the range, for one), then the

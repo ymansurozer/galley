@@ -9,15 +9,19 @@ import { messageWaiting } from "./thread-derive";
 
 // The parts of a topic page a comment can sit on, top to bottom, as a thread names them: the
 // title, Recorded, each block of the body by the source line the desk stamped (TopicStamp
-// bodyParts, so the desk's quote and the tab's part are the same block), then the Flagged card.
+// bodyParts, so the desk's quote and the tab's part are the same block) with the lines of its line
+// blocks where each block's fence sits (`lines`, topics-lines.ts lineParts), then the Flagged card.
 // The cursor (j / k) walks this list. A kind of part a later page adds joins it here.
-export function topicParts(topic: GuideTopic, stamp: TopicStamp | undefined): string[] {
-  return [
-    "title",
-    "recorded",
-    ...(stamp?.bodyParts ?? []).map((line) => `body:${line}`),
-    ...(topic.flag ? ["flag"] : []),
-  ];
+export function topicParts(
+  topic: GuideTopic,
+  stamp: TopicStamp | undefined,
+  lines: ReadonlyArray<{ fence: number; parts: readonly string[] }> = [],
+): string[] {
+  const body = [
+    ...(stamp?.bodyParts ?? []).map((line) => ({ line, parts: [`body:${line}`] })),
+    ...lines.map((l) => ({ line: l.fence, parts: l.parts })),
+  ].sort((a, b) => a.line - b.line);
+  return ["title", "recorded", ...body.flatMap((b) => b.parts), ...(topic.flag ? ["flag"] : [])];
 }
 
 // A body part's source line, or undefined for any other part.

@@ -76,7 +76,7 @@ import {
 } from "./appview";
 import { hasTopics, installTopics, openTopic, renderTopics } from "./topics";
 import { installCaptureDebug } from "./capturedebug";
-import { askComment } from "./comments";
+import { addLineComment } from "./comments";
 import { composerInTopics, composerInUi } from "./composer";
 import { installTopicThreads, submitTopicComposer } from "./topicthreads";
 import { topicThreadsSendLine } from "./topicthreads-derive";
@@ -95,7 +95,6 @@ import {
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { openRequest, requestRows } from "./requests";
-import { uuid } from "./uuid";
 import type { Step } from "./steps";
 import type { ChangeState, ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
@@ -526,7 +525,6 @@ const submitComment = (intent: "question" | "action") => {
     persist();
     return;
   }
-  const now = new Date().toISOString();
   // S.selected carries rendered (display) gutter numbers; persist the raw file line so
   // the anchor stays valid as decisions replay and across rounds.
   const file = currentFile();
@@ -540,27 +538,21 @@ const submitComment = (intent: "question" | "action") => {
   // so if cur isn't this file yet, leave it undefined rather than snapshot the wrong file's line.
   const contents =
     cur.path === file.path ? (side === "deletions" ? cur.oldContents : cur.newContents) : undefined;
-  const c = {
-    id: uuid(),
-    path: file.path,
-    side,
-    lineNumber,
-    endLine,
-    // Snapshot the anchored line's text so a reload can re-anchor the thread after the
-    // agent's edits shift it (reanchorComments).
-    anchorText: contents?.split("\n")[lineNumber - 1],
-    createdAt: now,
-    updatedAt: now,
-    status: "open" as const,
-    role: "user" as const,
+  S.composerOpen = false;
+  addLineComment(
+    {
+      path: file.path,
+      side,
+      lineNumber,
+      endLine,
+      // Snapshot the anchored line's text so a reload can re-anchor the thread after the
+      // agent's edits shift it (reanchorComments).
+      anchorText: contents?.split("\n")[lineNumber - 1],
+    },
     body,
     intent,
-  };
-  S.state.comments.push(c);
-  S.composerOpen = false;
+  );
   render();
-  persist();
-  if (intent === "question") void askComment(c.id);
 };
 S.saveComment = () => submitComment("action"); // editing Save + the `c` shortcut default
 S.ask = () => submitComment("question");

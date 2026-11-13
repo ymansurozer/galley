@@ -61,6 +61,22 @@ test("a topic's parts run title, Recorded, the body's blocks by the desk's lines
     "body:5",
   ]);
   assert.deepEqual(topicParts(topic("t2", "Careful"), undefined), ["title", "recorded", "flag"]);
+  // A line block's lines sit where its fence does, among the body's blocks.
+  assert.deepEqual(
+    topicParts(topic("t3", "Careful"), stamp, [
+      { fence: 4, parts: ["line:deletions:10:a.ts", "line:additions:10:a.ts"] },
+    ]),
+    [
+      "title",
+      "recorded",
+      "body:1",
+      "body:3",
+      "line:deletions:10:a.ts",
+      "line:additions:10:a.ts",
+      "body:5",
+      "flag",
+    ],
+  );
 });
 
 test("threads on the title sit under Recorded with Recorded's own, and one on Recorded says so", () => {
