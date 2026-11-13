@@ -268,7 +268,8 @@ One JSON object:
 - title? — overview heading; falls back to branch/ref.
 - overview (required, non-empty) — one-paragraph changeset overview.
 - prDescription? — author/PR intent, shown on the overview page.
-- files (required, non-empty array) — one entry per reviewed file (per part, for a split file):
+- files (required, non-empty array, unless stages is given) — the file walkthrough: one entry per
+  reviewed file (per part, for a split file):
   - path (required, non-empty) — repo-relative; must be a file in the diff.
   - orientation (non-empty; required unless skim: true) — the lens to read this file with: its
     role, the problem it solves, what to expect before opening it, what's non-obvious or worth
@@ -316,9 +317,44 @@ One JSON object:
     joins the part around it, and one it can't place falls to Rest.
 - focused? — top-level boolean; badges the overview ("focused review — mechanical churn skimmed")
   so the human knows attention was deliberately shaped. Display-only.
+- stages? — topics for Decisions mode (see "Topics" below). A guide carries files, stages, or both.
 A skimmed block collapses behind a one-click "expand" strip (nothing is ever hidden). A file skimmed
 whole (or every block skimmed), or a pure rename, leaves the default flow — it drops into a collapsed
 "Skimmed" group with no progress or completion weight, so skim only what genuinely needs no eyes.
+
+### Topics (Decisions mode)
+A guide with \`stages\` opens the desk in Decisions mode: the reviewer reads and settles TOPICS,
+one thing each they must decide on (a call you made, how a part works, who can reach what, what a
+deploy needs), rather than walking files. Topics sit in groups (a feature, a fix), and groups in
+stages (where the group sits in the system, in the order the reviewer should meet them). With
+stages and no files, Code mode shows the plain file tree; with both, Code mode keeps your file
+walkthrough and Decisions mode shows the topics.
+- stages (non-empty array), each { id, label, groups }:
+  - id (required, non-empty), label (required, non-empty) — the stage's name.
+  - groups (required, non-empty array), each { id, title, summary?, topics }:
+    - id (required, non-empty), title (required, non-empty), summary? — one or two lines.
+    - topics (required, non-empty array), each a topic:
+      - id (required, non-empty) — STABLE from one guide to the next. Keep a topic's id when you
+        regenerate the guide: what the reviewer did on a topic is found again by its id, so a
+        renamed id loses it.
+      - title (required, non-empty) — the call or question, as a sentence.
+      - recorded (required, non-empty) — where the call is written down (an ADR, a ticket, a doc),
+        or that only the code records it.
+      - body (required, non-empty) — markdown: prose, lists, tables, fenced code.
+      - concern? — a short label from the reviewer's skill ("Security", "Cost"); shown as is.
+      - flag? — flags the topic for closer scrutiny; the text is the note.
+      - covers (required, non-empty array) — where the topic lives in the diff, each { path,
+        lines? }: a file ("src/auth.ts"), a folder ending in "/" ("src/auth/", every changed file
+        under it), or a file with lines, an array of new-file-side [start, end] spans and single
+        line numbers. Covers resolve like part lines: a span claims every change block it touches,
+        a new untracked file is one whole-file change. Two topics may cover the same lines.
+      - pages? — array of app paths ("/settings") the topic shows up on.
+Topic validation: every required field above, ids unique among stages, among groups and among
+topics, and every cover resolving to a change in the diff — a cover naming a file not in the diff, a
+folder with no changed file under it, or a span that touches no change aborts the launch (or
+\`galley reload --guide\`, leaving the desk as it was) naming the topic and the cover. Across reloads
+that keep the guide, a topic keeps the blocks its covers claimed by their content, as skims do; a
+file or folder cover also takes the new blocks under its path.
 
 ### When to skim / focused review
 Skim ONLY on request ("give me a focused review"; "ignore the import churn, show me the real

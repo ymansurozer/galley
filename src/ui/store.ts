@@ -80,6 +80,7 @@ export const S: Store = Alpine.reactive<Store>({
   skimExpanded: new Set<string>(),
   loadedOversized: new Set<string>(),
   view: "code",
+  topicAt: null,
   ready: false,
   uiProxy: null,
   reloadGeneration: 0,

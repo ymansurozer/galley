@@ -9,6 +9,7 @@ import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import DOMPurify from "dompurify";
 import { S, esc } from "./store";
 import { render } from "./render";
+import { renderTopics } from "./topics";
 import { loadSettings } from "./settings";
 import type { ThreadMessage } from "./types";
 
@@ -87,6 +88,8 @@ void (async () => {
   });
   buildRenderers(loadSettings().theme);
   if (S.state) render();
+  // Decisions mode's pages are markdown too.
+  if (S.state && S.view === "topics") renderTopics();
 })();
 
 // Switch the comment-code theme (settings) — rebuild the renderer + drop the cache;

@@ -487,6 +487,93 @@ try {
     "✓ galley reload → parts follow content: the bottom part stays signed off, the top is pending",
   );
 
+  // A topics guide (Decisions mode): attached at start on a second desk and by reload --guide on
+  // this one, each topic read back with the blocks, line count and cover hash the desk stamped.
+  const topicsDir = mkdtempSync(path.join(tmpdir(), "galley-smoke-topics-"));
+  const topicsPath = path.join(topicsDir, "topics.json");
+  const topicsGuide = (covers) => ({
+    overview: "Topics.",
+    stages: [
+      {
+        id: "text",
+        label: "Text",
+        groups: [
+          {
+            id: "edits",
+            title: "Edits",
+            topics: Object.entries(covers).map(([id, c]) => ({
+              id,
+              title: `Topic ${id}`,
+              recorded: "Only the code records this.",
+              body: "Why.",
+              covers: c,
+            })),
+          },
+        ],
+      },
+    ],
+  });
+  const goodTopics = topicsGuide({
+    "a-line": [{ path: "a.txt" }],
+    "b-top": [{ path: "b.txt", lines: [[3, 6]] }],
+  });
+  writeFileSync(topicsPath, JSON.stringify(goodTopics));
+  const checkTopics = (st, where) => {
+    assert.deepEqual(
+      st.guide?.stages?.[0]?.groups[0]?.topics.map((t) => t.id),
+      ["a-line", "b-top"],
+      `${where}: the desk holds the guide's topics`,
+    );
+    assert.deepEqual(st.topics["a-line"].blocks, ["a.txt:additions:2:1:1"], where);
+    assert.equal(st.topics["a-line"].lines, 2, `${where}: a.txt's block is 1 removed + 1 added`);
+    assert.equal(st.topics["b-top"].lines, 4, `${where}: b.txt's blocks at lines 3 and 6`);
+    assert.match(st.topics["b-top"].coverHash, /^[0-9a-f]{16}$/, where);
+  };
+  const topicsDesk = spawn(
+    "node",
+    [
+      CLI,
+      "--repo",
+      tmp,
+      "--session",
+      "smoke-topics",
+      "--port",
+      "0",
+      "--no-open",
+      "--guide",
+      topicsPath,
+    ],
+    { stdio: ["ignore", "ignore", "pipe"], env: ENV },
+  );
+  const topicsBase = await waitForDeskUrl(topicsDesk);
+  checkTopics(await (await fetch(topicsBase + "/api/state")).json(), "start --guide");
+  assert.ok(JSON.parse(cli("stop", "--repo", tmp, "--session", "smoke-topics")).ok);
+  for (let i = 0; i < 50 && topicsDesk.exitCode === null; i++) await sleep(100);
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", topicsPath)).ok);
+  checkTopics(await getJson("/api/state"), "reload --guide");
+  // A cover naming a file not in the diff fails the reload, naming the topic and the cover, and
+  // leaves the desk on the guide it had.
+  writeFileSync(
+    topicsPath,
+    JSON.stringify(topicsGuide({ "a-line": [{ path: "a.txt" }], ghost: [{ path: "nope.txt" }] })),
+  );
+  const badTopics = spawnSync(
+    "node",
+    [CLI, "reload", "--repo", tmp, "--session", ID, "--guide", topicsPath],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.equal(badTopics.status, 1, "a cover that resolves to nothing exits non-zero");
+  assert.match(
+    badTopics.stderr,
+    /guide topic "ghost": cover "nope\.txt" names a file that is not in the diff/,
+    "the error names the topic and the cover",
+  );
+  checkTopics(await getJson("/api/state"), "after a refused reload");
+  rmSync(topicsDir, { recursive: true, force: true });
+  console.log(
+    "✓ topics guide → attached on start and by reload --guide; a bad cover exits 1 naming the topic, desk kept",
+  );
+
   // human asks a question → `galley await` yields a question event
   await post("/api/ask", {
     path: "a.txt",

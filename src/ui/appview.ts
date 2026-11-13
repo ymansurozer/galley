@@ -10,6 +10,7 @@ import {
 } from "./appnav";
 import { dispatchKey } from "./keys";
 import { restoreComposerFocus } from "./composer";
+import { hasTopics, renderTopics } from "./topics";
 import {
   annotationsUnvisited,
   hasUiDraft,
@@ -34,6 +35,7 @@ import type {
   UiMarkTarget,
   UiPage,
   UiProxyInfo,
+  View,
   Viewport,
 } from "./types";
 
@@ -166,17 +168,32 @@ function reclaimFocus() {
   restoreComposerFocus();
 }
 
+// The modes this desk has, in the switch's order: Code while there's a diff, App with a UI target,
+// Decisions with a guide that has topics.
+export function views(): View[] {
+  const out: View[] = [];
+  if (!uiOnly()) out.push("code");
+  if (hasUi()) out.push("ui");
+  if (hasTopics()) out.push("topics");
+  return out;
+}
+
 // Switching to the code view repaints the diff; the returned render settles once it has.
-export function setView(view: "code" | "ui"): Promise<void> | undefined {
-  if (view === "ui" ? !hasUi() : uiOnly()) return;
-  // A UI-lane composer can't stay open behind the code view (it would hold the code lane's keys
+export function setView(view: View): Promise<void> | undefined {
+  if (!views().includes(view)) return;
+  // A UI-lane composer can't stay open behind another mode (it would hold the code lane's keys
   // and the poll's diff adoption): it's set aside with its text and comes back with the UI view.
-  if (view === "code") setUiComposerAside();
+  if (view === "code" || view === "topics") setUiComposerAside();
   S.view = view;
   syncBridge();
   if (view === "code") {
     reclaimFocus();
-    return render(); // the diff pane was hidden while the app showed — repaint it
+    return render(); // the diff pane was hidden while another mode showed — repaint it
+  }
+  if (view === "topics") {
+    reclaimFocus();
+    renderTopics();
+    return;
   }
   if (!S.app.loaded) loadApp(targetRoute());
   shown = true;
@@ -184,7 +201,13 @@ export function setView(view: "code" | "ui"): Promise<void> | undefined {
   resumeUiComposer();
 }
 
-export const toggleView = () => setView(S.view === "ui" ? "code" : "ui");
+// ⇧U: the mode after the one showing, in the switch's order, round to the first.
+export function nextView(): View {
+  const all = views();
+  return all[(all.indexOf(S.view) + 1) % all.length] ?? S.view;
+}
+
+export const toggleView = () => setView(nextView());
 
 export function appBack() {
   if (S.uiProxy && S.app.connected) postToApp({ type: "back", token: S.uiProxy.token });
@@ -405,10 +428,15 @@ export function adoptUiTarget(ui: ReviewState["ui"]) {
   else toast("App attached — show it with", undefined, "⇧U");
 }
 
-// Keep the view legal for the desk's current shape (after init, a reload, or a target change).
+// Keep the view legal for the desk's current shape (after init, a reload, a guide swap or a target
+// change): a mode the desk no longer has gives way to its first. The code view is set without a
+// repaint, since every caller renders after.
 export function syncView() {
-  if (!hasUi()) S.view = "code";
-  else if (uiOnly() && S.view !== "ui") setView("ui");
+  const all = views();
+  if (all.includes(S.view)) return;
+  const first = all[0] ?? "code";
+  if (first === "code") S.view = "code";
+  else void setView(first);
 }
 
 export function installAppView() {

@@ -21,6 +21,7 @@ import { currentPartTitle, reseatStep } from "./guide";
 import { refreshBaseTitle, updateProgress } from "./progress";
 import { updateAwaitingDom } from "./annotations";
 import { adoptUiStatus, adoptUiTarget, applyPendingUiRefresh, syncView } from "./appview";
+import { renderTopics } from "./topics";
 import { renderUiLane } from "./uilane";
 import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
 import { recordActivity } from "./thread-derive";
@@ -215,8 +216,10 @@ async function pollOnce() {
     else if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
     reseatStep(remapped >= 0 ? S.stepPart : undefined, curTitle);
     S.awaitingAgent = false;
-    // A diff that appeared (or emptied) makes a UI-only desk combined (or back).
+    // A diff that appeared (or emptied) makes a UI-only desk combined (or back); a guide that lost
+    // its topics takes Decisions mode with it.
     syncView();
+    if (S.view === "topics") renderTopics();
     // The diff changed (e.g. a reload added files) — refresh the project listing too so
     // the tree reflects newly tracked files, not the listing fetched at startup.
     api<{ files?: string[] }>("/api/tree")
@@ -232,19 +235,24 @@ async function pollOnce() {
   // A reload can swap the guide without changing the diff (agent regenerated it) —
   // adopt it even when baseDiffHash is unchanged. Guides are small; the compare is cheap.
   if (guideChanged) {
-    // The new guide restamped which blocks its parts and skims claim, server-side; those stamps
-    // ride the changes, so take them off the full state (fetched only on a swap — the diff is the
-    // same). A diff that moved meanwhile waits for the next tick's full adoption above.
+    // The new guide restamped which blocks its parts, skims and topics claim, server-side; those
+    // stamps ride the changes and the topic stamps, so take them off the full state (fetched only
+    // on a swap — the diff is the same). A diff that moved meanwhile waits for the next tick's full
+    // adoption above.
     if (!server?.changes || server.baseDiffHash !== S.lastBaseDiffHash) return;
     const title = currentPartTitle();
     const stamped = new Map(server.changes.map((c) => [c.id, c]));
     for (const c of S.state.changes) {
       c.part = stamped.get(c.id)?.part;
       c.skim = stamped.get(c.id)?.skim;
+      c.topics = stamped.get(c.id)?.topics;
     }
     S.state.guide = server.guide;
+    S.state.topics = server.topics;
     reseatStep(S.stepPart, title);
+    syncView();
     render();
+    if (S.view === "topics") renderTopics();
     toast("Guide updated");
   }
   // A branch switch can leave the diff unchanged too (`git checkout -b` keeps the working tree), so

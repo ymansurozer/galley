@@ -3,7 +3,8 @@ import { hasGuide } from "./guide";
 import { approveCurrentStep } from "./decisions";
 import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
 import { closeComposer, composerInUi } from "./composer";
-import { hasUi, toggleView, uiOnly } from "./appview";
+import { hasUi, toggleView, uiOnly, views } from "./appview";
+import { groupStep, openTopic, startTopics, topicStep } from "./topics";
 import {
   annotatePage,
   clearPendingPicks,
@@ -38,7 +39,7 @@ import {
 // key matches and whose scope is active, and the ? help overlay renders from the same table — so
 // hints can never drift from behavior. Scopes keep a key meaning the right thing in context.
 
-type Group = "Navigate" | "Review" | "Comment" | "View" | "UI" | "App";
+type Group = "Navigate" | "Decisions" | "Review" | "Comment" | "View" | "UI" | "App";
 type Hotkey = {
   combo: string;
   desc: string;
@@ -55,12 +56,15 @@ type Hotkey = {
 // Scopes
 const inComposer = () => S.composerOpen;
 const inModal = () => S.settingsOpen || !!S.confirmMsg || S.sendOpen || !!S.shotView;
-const inOverview = () => !!S.overviewOpen && hasGuide();
-// The UI view (the proxied app) takes over the centre: diff and file bindings stand down there.
+// Each mode takes over the centre, and its keys are its own: the diff and file bindings act only in
+// the code view, the topic bindings only in Decisions, the app's only in the UI view.
+const inCodeView = () => S.view === "code";
 const inUiView = () => S.view === "ui";
-const inDiff = () => !inComposer() && !inModal() && !inOverview() && !inUiView();
+const inOverview = () => inCodeView() && !!S.overviewOpen && hasGuide();
+const inDiff = () => !inComposer() && !inModal() && !inOverview() && inCodeView();
 const navigable = () => !inComposer() && !inModal();
-const inCode = () => navigable() && !inUiView();
+const inCode = () => navigable() && inCodeView();
+const inTopics = () => navigable() && S.view === "topics";
 const isMd = () => inDiff() && !!S.isMarkdownFile?.();
 
 // Key matchers
@@ -175,6 +179,55 @@ const HOTKEYS: Hotkey[] = [
     typing: true,
     run: () => S.sendConfirm?.(),
     hide: true,
+  },
+  // Decisions: topic by topic, group by group, and the Overview before them.
+  {
+    combo: "⇧→",
+    desc: "Next topic",
+    group: "Decisions",
+    test: shift("ArrowRight"),
+    when: inTopics,
+    run: () => topicStep(1),
+  },
+  {
+    combo: "⇧←",
+    desc: "Previous topic",
+    group: "Decisions",
+    test: shift("ArrowLeft"),
+    when: inTopics,
+    run: () => topicStep(-1),
+  },
+  {
+    combo: "⇧↓",
+    desc: "Next group",
+    group: "Decisions",
+    test: shift("ArrowDown"),
+    when: inTopics,
+    run: () => groupStep(1),
+  },
+  {
+    combo: "⇧↑",
+    desc: "Previous group",
+    group: "Decisions",
+    test: shift("ArrowUp"),
+    when: inTopics,
+    run: () => groupStep(-1),
+  },
+  {
+    combo: "o",
+    desc: "Overview",
+    group: "Decisions",
+    test: k("o"),
+    when: inTopics,
+    run: () => openTopic(null),
+  },
+  {
+    combo: "↵",
+    desc: "Start review",
+    group: "Decisions",
+    test: enter,
+    when: () => inTopics() && S.topicAt === null,
+    run: () => startTopics(),
   },
   // Navigate
   {
@@ -412,10 +465,11 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "⇧U",
-    desc: "Code / App view",
+    desc: "Next mode (Code / App / Decisions)",
     group: "View",
-    // Only with both lanes. From inside the app it arrives only while annotating (dispatchKey).
-    when: () => navigable() && hasUi() && !uiOnly(),
+    // Only with two modes or more. From inside the app it arrives only while annotating
+    // (dispatchKey).
+    when: () => navigable() && views().length > 1,
     test: shift("U"),
     // Called through an arrow: appview and uilane import this module back, so their exports
     // aren't initialised yet while this table is built.
@@ -562,7 +616,7 @@ export function dispatchKey(k: ForwardedKey) {
 
 // Grouped view for the ? help overlay (built from the table so it stays in sync).
 export function helpGroups(): { group: Group; items: { combo: string; desc: string }[] }[] {
-  const order: Group[] = ["Navigate", "Review", "Comment", "View", "UI", "App"];
+  const order: Group[] = ["Navigate", "Decisions", "Review", "Comment", "View", "UI", "App"];
   return order.map((group) => ({
     group,
     items: HOTKEYS.filter((h) => h.group === group && !h.hide && h.enabled?.() !== false).map(

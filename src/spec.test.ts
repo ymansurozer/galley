@@ -51,7 +51,7 @@ const ANCHORS = [
   // guided review schema (folded in from the old guide-spec)
   "Guide JSON schema",
   "one-paragraph changeset overview",
-  "files (required, non-empty array)",
+  "files (required, non-empty array, unless stages is given)",
   "repo-relative; must be a file in the diff",
   "Orientation, not a changelog",
   // a whole-file skim needs no orientation; everything else, skimBlocks-only included, does
@@ -86,6 +86,18 @@ const ANCHORS = [
   "move code from one part to another",
   "places blocks by content",
   "for a part, its path, title and span",
+  // topics guide (Decisions mode): the schema, stable ids, covers and the refusals
+  "### Topics (Decisions mode)",
+  "stages (non-empty array), each { id, label, groups }",
+  "groups (required, non-empty array), each { id, title, summary?, topics }",
+  "STABLE from one guide to the next",
+  "recorded (required, non-empty)",
+  "covers (required, non-empty array)",
+  'a folder ending in "/"',
+  "Two topics may cover the same lines",
+  "ids unique among stages, among groups and among\ntopics",
+  "a cover naming a file not in the diff, a\nfolder with no changed file under it, or a span that touches no change",
+  "naming the topic and the cover",
   // The running app: loopback target and explicit refresh signal.
   "--ui <url>",
   "galley ui <url>",
