@@ -524,6 +524,11 @@ try {
       reason: "Other fixture changes",
       covers: [{ path: f.path }],
     }));
+  // The earlier reload scenario also left an insertion and the bottom edit in b.txt.
+  goodTopics.skims.push({
+    reason: "Earlier round fixture edits",
+    covers: [{ path: "b.txt", lines: [16, 27] }],
+  });
   writeFileSync(topicsPath, JSON.stringify(goodTopics));
   const checkTopics = (st, where) => {
     assert.deepEqual(
