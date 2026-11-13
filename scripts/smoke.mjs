@@ -620,13 +620,53 @@ try {
   assert.equal(coverage.topicLines, 2);
   assert.equal(coverage.skimmedLines, coverage.totalLines - 2);
   assert.equal(coverage.uncoveredLines, 0);
+  // A line block: "b-top" claims b.txt's blocks through a lines fence in its body alone, the desk
+  // stamps where the entry's lines are, and an agent comment on a line inside it is the ordinary
+  // line comment, read back for its path and line.
+  const lined = structuredClone(goodTopics);
+  Object.assign(lined.stages[0].groups[0].topics[1], {
+    body: "Why.\n\n```lines\nb.txt:3-6\n```\n",
+    covers: [],
+  });
+  writeFileSync(topicsPath, JSON.stringify(lined));
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", topicsPath)).ok);
+  const linedState = await getJson("/api/state");
+  assert.equal(linedState.topics["b-top"].lines, 4, "the line block claims b.txt's blocks");
+  assert.deepEqual(
+    linedState.topics["b-top"].lineSpans.map((s) => [s.path, s.start, s.end]),
+    [["b.txt", 3, 6]],
+  );
+  const lineReply = JSON.parse(
+    cli(
+      "comment",
+      "--repo",
+      tmp,
+      "--session",
+      ID,
+      "--path",
+      "b.txt",
+      "--line",
+      "6",
+      "--role",
+      "agent",
+      "--body",
+      "Line six, as the block quotes it.",
+    ),
+  );
+  assert.ok(lineReply.ok && lineReply.commentId, "comment posted on the block's line");
+  assert.deepEqual(
+    (await getJson("/api/state")).comments
+      .filter((c) => c.path === "b.txt" && c.lineNumber === 6)
+      .map((c) => [c.side, c.role, c.body]),
+    [["additions", "agent", "Line six, as the block quotes it."]],
+  );
   // Later Send assertions settle one topic and leave the other to do.
   writeFileSync(topicsPath, JSON.stringify(goodTopics));
   assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", topicsPath)).ok);
   checkTopics(await getJson("/api/state"), "after coverage refusal scenario");
   rmSync(topicsDir, { recursive: true, force: true });
   console.log(
-    "✓ topics guide → attached on start and by reload --guide; a bad cover or link exits 1 naming it, desk kept",
+    "✓ topics guide → attached on start and by reload --guide; a bad cover or link exits 1 naming it, desk kept; a line block's line takes a galley comment",
   );
 
   // A question on a topic's Recorded line: the desk quotes the part, await delivers it on the topic
