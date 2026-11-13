@@ -16,6 +16,7 @@ export function reviewerSlice(state: ReviewState): ReviewerSave {
     decisionFiles: state.decisionFiles,
     annotations: state.annotations,
     lastAnnotationNumber: state.lastAnnotationNumber,
+    topicThreads: state.topicThreads,
   };
 }
 

@@ -123,6 +123,7 @@ export function reviewerChanges(base: ReviewerSave, now: ReviewerSave): Reviewer
     settledTopics: keyedChanges(topicSignOffs(base), topicSignOffs(now), (t) => t.id),
     decisionFiles: keyedChanges(base.decisionFiles ?? [], now.decisionFiles ?? [], (p) => p),
     ...annotationChanges(base.annotations ?? [], now.annotations ?? []),
+    topicThreads: keyedChanges(base.topicThreads ?? [], now.topicThreads ?? [], (t) => t.id),
   };
   if ((now.lastAnnotationNumber ?? 0) > (base.lastAnnotationNumber ?? 0))
     out.lastAnnotationNumber = now.lastAnnotationNumber;
@@ -165,6 +166,7 @@ export function unionChanges(all: readonly ReviewerChanges[]): ReviewerChanges {
     annotations,
     annotationReports: reports.size ? [...reports.values()] : undefined,
     lastAnnotationNumber: marks.length ? Math.max(...marks) : undefined,
+    topicThreads: unionKeyed(pick("topicThreads"), (t) => t.id),
   };
   for (const k of Object.keys(out) as Array<keyof ReviewerChanges>)
     if (out[k] === undefined) delete out[k];
@@ -208,6 +210,8 @@ export function applyReviewerChanges(copy: ReviewerSave, changes: ReviewerChange
   }
   if (c.lastAnnotationNumber !== undefined)
     out.lastAnnotationNumber = Math.max(out.lastAnnotationNumber ?? 0, c.lastAnnotationNumber);
+  if (c.topicThreads)
+    out.topicThreads = applyKeyed(out.topicThreads ?? [], c.topicThreads, (t) => t.id);
   return out;
 }
 

@@ -122,6 +122,8 @@ export type TopicsNavRow =
       total: number;
       // Done once no topic of the group is still to do.
       settled: boolean;
+      // One of its topics has an open change request.
+      requested: boolean;
       current: boolean;
     }
   | {
@@ -132,6 +134,8 @@ export type TopicsNavRow =
       flagged: boolean;
       open: boolean;
       settled: boolean;
+      // It has an open change request.
+      requested: boolean;
     }
   // The topics of a group settled in earlier rounds, folded into one row.
   | { kind: "earlier"; key: string; group: string; label: string; open: boolean };
@@ -146,12 +150,13 @@ export function earlierLabel(rounds: readonly number[]) {
 // what is done of this round's topics, and the open topic's group unfolded into its topics. Topics
 // settled in an earlier round fold into one row after them, closed until the reviewer opens it
 // (`earlierOpen`, by group id) or one of them is the open topic. On the Overview no group is
-// unfolded.
+// unfolded. `requested`: the topics with an open change request, which mark them and their groups.
 export function topicsNavRows(
   stages: GuideStage[],
   at: TopicAt,
   review: TopicsReview = {},
   earlierOpen: ReadonlySet<string> = new Set(),
+  requested: ReadonlySet<string> = new Set(),
 ): TopicsNavRow[] {
   const current = placeOf(stages, at)?.group;
   const rows: TopicsNavRow[] = [];
@@ -163,6 +168,7 @@ export function topicsNavRows(
     flagged: !!topic.flag,
     open: topic.id === at,
     settled: topicSettled(review, topic.id),
+    requested: requested.has(topic.id),
   });
   for (const stage of stages) {
     rows.push({ kind: "stage", key: `stage:${stage.id}`, label: stage.label });
@@ -183,6 +189,7 @@ export function topicsNavRows(
         done,
         total: now.length,
         settled: done === now.length,
+        requested: group.topics.some((t) => requested.has(t.id)),
         current: open,
       });
       if (!open) continue;

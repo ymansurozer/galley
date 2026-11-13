@@ -77,7 +77,9 @@ import {
 import { hasTopics, installTopics, openTopic, renderTopics } from "./topics";
 import { installCaptureDebug } from "./capturedebug";
 import { askComment } from "./comments";
-import { composerInUi } from "./composer";
+import { composerInTopics, composerInUi } from "./composer";
+import { installTopicThreads, submitTopicComposer } from "./topicthreads";
+import { topicThreadsSendLine } from "./topicthreads-derive";
 import {
   annotatePage,
   closeShot,
@@ -436,7 +438,11 @@ const openSendModal = (msg: string, lanes: Store["sendLanes"], notSent = "") => 
   S.sendMsg = msg;
   S.sendNotSent = notSent;
   const topics = hasTopics() ? topicsDone(S.state.guide?.stages ?? [], S.state) : null;
-  S.sendTopics = topics ? topicsSendLine(topics.done, topics.total) : "";
+  S.sendTopics = topics
+    ? [topicsSendLine(topics.done, topics.total), topicThreadsSendLine(S.state.topicThreads ?? [])]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
   S.sendLanes = lanes;
   S.sendNote = "";
   S.sendFailed = false;
@@ -496,9 +502,14 @@ S.openInEditor = async () => {
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
 // body and keeps the existing intent; turning the thread's opening comment changes it (turnComment).
 const submitComment = (intent: "question" | "action") => {
-  // The UI lane's composers (a new annotation, a reply or edit in its thread) submit there.
+  // The UI lane's composers (a new annotation, a reply or edit in its thread) submit there, and a
+  // topic page's on its page.
   if (composerInUi()) {
     submitUiComposer(intent);
+    return;
+  }
+  if (composerInTopics()) {
+    submitTopicComposer(intent);
     return;
   }
   const body = (S.composerBody || "").trim();
@@ -632,6 +643,7 @@ if (hasGuide()) {
 if (hasTopics()) S.view = "topics";
 installAppView();
 installTopics();
+installTopicThreads();
 installUiLane();
 installCaptureDebug();
 installReach();

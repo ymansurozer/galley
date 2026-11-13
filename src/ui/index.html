@@ -99,9 +99,10 @@
           <div class="cr-list" x-show="$store.g.requestsOpen" x-cloak>
             <div class="node cr-empty" x-show="!$store.g.requests.length">No open change requests</div>
             <template x-for="r in $store.g.requests" :key="r.key">
-              <div class="node cr-row" :class="{app: r.kind==='app'}" :title="r.loc + ' — ' + r.text" @click="$store.g.openRequest(r)">
+              <div class="node cr-row" :class="{app: r.kind==='app', topic: r.kind==='topic'}" :title="r.loc + ' — ' + r.text" @click="$store.g.openRequest(r)">
                 <svg class="ic" x-show="r.kind==='code'"><use href="#gly-flag"></use></svg>
                 <svg class="ic" x-show="r.kind==='app'"><use href="#gly-app"></use></svg>
+                <svg class="ic" x-show="r.kind==='topic'"><use href="#gly-message"></use></svg>
                 <span class="cr-loc" x-text="r.loc"></span>
                 <span class="nm" x-text="r.text"></span>
               </div>

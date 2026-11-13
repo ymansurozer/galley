@@ -2,7 +2,8 @@ import { S } from "./store";
 import { hasGuide } from "./guide";
 import { approveCurrentStep } from "./decisions";
 import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
-import { closeComposer, composerInUi } from "./composer";
+import { closeComposer, composerInCode, composerInUi } from "./composer";
+import { commentAtCursor, hideTopicRail, moveTopicCursor } from "./topicthreads";
 import { hasUi, toggleView, uiOnly, views } from "./appview";
 import { groupStep, openTopic, settleOpenTopic, startTopics, topicStep } from "./topics";
 import {
@@ -65,6 +66,7 @@ const inDiff = () => !inComposer() && !inModal() && !inOverview() && inCodeView(
 const navigable = () => !inComposer() && !inModal();
 const inCode = () => navigable() && inCodeView();
 const inTopics = () => navigable() && S.view === "topics";
+const onTopic = () => inTopics() && S.topicAt !== null;
 const isMd = () => inDiff() && !!S.isMarkdownFile?.();
 
 // Key matchers
@@ -115,7 +117,7 @@ function escape() {
   if (S.composerOpen || S.editingCommentId) {
     // A code composer also drops the line highlight it was anchored to, unless it's a reply or an
     // edit in a thread's card: the cursor goes to the card's line, where r, ↵ and c act on it.
-    if (!composerInUi() && !cursorToComposingThread()) cursorReset();
+    if (composerInCode() && !cursorToComposingThread()) cursorReset();
     closeComposer(); // rebuilds the lane so the inline composer's DOM goes away
     return;
   }
@@ -134,6 +136,8 @@ function escape() {
     cursorReset();
     return;
   }
+  // A topic page's keyboard rail goes like a line selection does.
+  if (S.view === "topics" && hideTopicRail()) return;
   // Lowest priority: the narrow-width file drawer. Closes only once every transient surface
   // above it is gone, so Esc dismisses a composer/modal opened over the drawer first.
   if (S.treeDrawerOpen) S.treeDrawerOpen = false;
@@ -234,8 +238,41 @@ const HOTKEYS: Hotkey[] = [
     desc: "Settle the open topic",
     group: "Decisions",
     test: shift("A"),
-    when: () => inTopics() && S.topicAt !== null,
+    when: onTopic,
     run: () => settleOpenTopic(),
+  },
+  {
+    combo: "j",
+    desc: "Next part of the topic",
+    group: "Decisions",
+    test: k("j"),
+    when: onTopic,
+    run: () => moveTopicCursor(1),
+  },
+  {
+    combo: "k",
+    desc: "Previous part of the topic",
+    group: "Decisions",
+    test: k("k"),
+    when: onTopic,
+    run: () => moveTopicCursor(-1),
+  },
+  {
+    combo: "c",
+    desc: "Comment on the part",
+    group: "Decisions",
+    test: k("c"),
+    when: onTopic,
+    run: () => commentAtCursor(),
+  },
+  {
+    combo: "↵",
+    desc: "Comment on the part",
+    group: "Decisions",
+    test: enter,
+    when: onTopic,
+    run: () => commentAtCursor(),
+    hide: true,
   },
   // Navigate
   {

@@ -1,0 +1,148 @@
+/* ── Comments on a topic's parts (topicthreads.ts) ──
+   A part takes a comment as a line does in Code: a gutter button in the margin while the pointer
+   is on it, and the keyboard's cursor rail (j / k), which a click never leaves behind. A part with
+   an open thread keeps its button in view. Threads sit under their part. */
+.topic-part {
+  position: relative;
+  border-radius: var(--radius-sm);
+  scroll-margin: 64px 0 96px;
+}
+
+.topic-part::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: -14px;
+  width: 3px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.topic-kb .topic-part.topic-cur::before {
+  background: var(--blue);
+}
+
+.topic-gut {
+  position: absolute;
+  top: 0;
+  left: -44px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s var(--ease),
+    background-color 0.12s var(--ease);
+}
+
+/* A list item sits inside its list's indent: its rail and button line up with the others. */
+li.topic-part::before {
+  left: -32px;
+}
+
+li.topic-part > .topic-gut {
+  left: -62px;
+}
+
+.topic-gut .ic {
+  width: 13px;
+  height: 13px;
+}
+
+.topic-part:hover > .topic-gut,
+.topic-kb .topic-part.topic-cur > .topic-gut,
+.topic-gut:focus-visible {
+  opacity: 1;
+}
+
+.topic-gut:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.topic-part.topic-has > .topic-gut {
+  opacity: 1;
+  color: var(--ink-2);
+}
+
+/* ⇧ held: a click comments on the part under the pointer, and only its comment icon says so. */
+.topic-shift .topic-part:hover {
+  cursor: pointer;
+}
+
+.topic-shift .topic-part:hover > .topic-gut {
+  opacity: 1;
+  color: var(--blue-ink);
+}
+
+/* The threads under a part, in the page's sans, a little smaller than the body. */
+.topic-threads {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 14px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+li > .topic-threads {
+  margin: 6px 0 8px;
+}
+
+.topic-threads .thread-card .md :is(p, ul, ol, blockquote) {
+  margin: 6px 0;
+}
+
+.topic-threads .thread-card .md > :first-child {
+  margin-top: 0;
+}
+
+.topic-threads .thread-card .md > :last-child {
+  margin-bottom: 0;
+}
+
+/* The bar's blockers list hangs from its chip, as in Code mode's file bar. */
+.topics-bar .fb-actions {
+  position: relative;
+}
+
+@media (max-width: 760px) {
+  .topic-gut {
+    left: -30px;
+  }
+
+  li.topic-part > .topic-gut {
+    left: -48px;
+  }
+
+  .topic-part::before {
+    left: -8px;
+  }
+
+  li.topic-part::before {
+    left: -26px;
+  }
+}
+
+/* A topic's change request in the sidebar's list: its topic's title, in the page's face, gives way
+   to the request's own words. */
+.cr-row.topic .ic {
+  color: var(--ink-2);
+}
+
+.cr-row.topic .cr-loc {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  font-family: var(--sans);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

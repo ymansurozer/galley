@@ -103,6 +103,8 @@ export const S: Store = Alpine.reactive<Store>({
   lookedFor: new Set<string>(),
   annotationDraft: null,
   composerAnnotation: null,
+  topicDraft: null,
+  composerTopic: null,
   sendLanes: null,
   shotView: null,
 });
@@ -309,6 +311,10 @@ export function takeDeskReview(read: ReviewRead, held: ReadonlySet<string>): boo
     read.review.annotations ?? [],
     (S.state.annotations ?? []).map((a) => ({ ...a, comments: a.comments.filter(arrived) })),
   );
+  mergeAgentReplies(
+    read.review.topicThreads ?? [],
+    (S.state.topicThreads ?? []).map((t) => ({ ...t, comments: t.comments.filter(arrived) })),
+  );
   confirm({ saveNumber: read.saveNumber, review: copyOf(read.review), diff: read.baseDiffHash });
   doubtful.clear();
   keepPlacements(read.review.annotations ?? [], S.state.annotations ?? []);
@@ -316,10 +322,15 @@ export function takeDeskReview(read: ReviewRead, held: ReadonlySet<string>): boo
   stampDecisions(S.state.changes, S.state.decisions ?? []);
   return true;
 }
-// The ids of the agent's records the tab holds: its comments, and its messages in annotation threads.
+// The ids of the agent's records the tab holds: its comments, and its messages in annotation and
+// topic threads.
 export const agentRecords = (): Set<string> =>
   new Set(
-    [...S.state.comments, ...(S.state.annotations ?? []).flatMap((a) => a.comments)]
+    [
+      ...S.state.comments,
+      ...(S.state.annotations ?? []).flatMap((a) => a.comments),
+      ...(S.state.topicThreads ?? []).flatMap((t) => t.comments),
+    ]
       .filter((m) => m.role === "agent")
       .map((m) => m.id),
   );

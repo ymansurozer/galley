@@ -196,6 +196,7 @@ async function pollOnce() {
     const ids = new Set(server.comments.map((c) => c.id));
     server.comments.push(...lite.comments.filter((c) => !ids.has(c.id)));
     mergeAgentReplies(server.annotations ?? [], lite.annotations ?? []);
+    mergeAgentReplies(server.topicThreads ?? [], lite.topicThreads ?? []);
     // The desk's review is the tab's confirmed copy from here: the tab's own placements, kept
     // over it below, are reports of the tab's (keepPlacements).
     confirmDesk(server);
@@ -249,6 +250,12 @@ async function pollOnce() {
     }
     S.state.guide = server.guide;
     S.state.topics = server.topics;
+    // The new guide moved topic threads onto its parts, dropped some, and none of it was the
+    // reviewer's: the tab and its confirmed copy take the desk's, with any agent reply since.
+    const threads = server.topicThreads ?? [];
+    mergeAgentReplies(threads, lite.topicThreads ?? []);
+    S.state.topicThreads = threads;
+    takenFromDesk((review) => (review.topicThreads = copyOf(threads)));
     reseatStep(S.stepPart, title);
     syncView();
     render();
@@ -282,18 +289,23 @@ async function pollOnce() {
   S.state.comments.push(...incoming);
   // The agent's replies in UI annotation threads (`galley comment --ui`) join the same way; a save
   // from this tab before they arrive keeps them on the server (mergeReviewerSave).
-  const uiReplies = !behind && mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
+  const uiReplies =
+    !behind &&
+    mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []) +
+      mergeAgentReplies(S.state.topicThreads ?? [], lite.topicThreads ?? []);
   // Both came from the desk, not the reviewer: no save sends them back as the tab's changes.
   if (incoming.length || uiReplies)
     takenFromDesk((review) => {
       const have = new Set(review.comments.map((c) => c.id));
       review.comments.push(...copyOf(incoming.filter((c) => !have.has(c.id))));
       mergeAgentReplies(review.annotations ?? [], copyOf(lite.annotations ?? []));
+      mergeAgentReplies(review.topicThreads ?? [], copyOf(lite.topicThreads ?? []));
     });
   if (uiReplies || incoming.some((c) => c.role === "agent")) S.awaitingAgent = false;
-  // render() redraws the UI lane too.
+  // render() redraws the UI lane too; Decisions mode draws its own page.
   if (incoming.length) render();
   else if (uiReplies) renderUiLane();
+  if (uiReplies && S.view === "topics") renderTopics();
   await pullReview(lite.saveNumber);
 }
 

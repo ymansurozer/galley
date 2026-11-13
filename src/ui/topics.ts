@@ -17,6 +17,8 @@ import {
   topicsNavRows,
   type TopicAt,
 } from "./topics-derive";
+import { decorateTopicPage } from "./topicthreads";
+import { isOpenChange, topicBlockers } from "./topicthreads-derive";
 import {
   renderTopicPage,
   renderTopicsNav,
@@ -45,7 +47,9 @@ export function renderTopics() {
   if (!hasTopics()) return;
   if (!placeOf(stages(), S.topicAt)) S.topicAt = null;
   const nav = $("topicsNav");
-  renderTopicsNav(nav, topicsNavRows(stages(), S.topicAt, S.state, earlierOpen));
+  const threads = S.state.topicThreads ?? [];
+  const requested = new Set(threads.filter(isOpenChange).map((t) => t.target.topic));
+  renderTopicsNav(nav, topicsNavRows(stages(), S.topicAt, S.state, earlierOpen, requested));
   document
     .querySelector('.side-nav [data-key="topics-overview"]')
     ?.classList.toggle("active", S.topicAt === null);
@@ -54,7 +58,9 @@ export function renderTopics() {
   if (place) {
     const settled = topicSettled(S.state, place.topic.id);
     const changed = !settled && !!S.state.topics?.[place.topic.id]?.changed;
-    renderTopicPage(page, place, renderMarkdown, { settled, changed });
+    const requests = topicBlockers(threads, place.topic.id).length;
+    renderTopicPage(page, place, renderMarkdown, { settled, changed, requests });
+    decorateTopicPage(page, place.topic);
   } else renderTopicsOverview(page, overview(), renderMarkdown);
   if (drawn !== S.topicAt) {
     page.scrollTop = 0;

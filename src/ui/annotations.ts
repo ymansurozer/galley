@@ -14,7 +14,7 @@ import { renderCommentBody, type CommentSurface } from "./markdown";
 import {
   buildComposer,
   buildEditor,
-  composerInUi,
+  composerInCode,
   composerTargets,
   openComposer,
 } from "./composer";
@@ -79,7 +79,7 @@ export function annotations(): AnnotationInput[] {
   // A thread showing as its card on the composer's line hosts the reply: an open one (a lost one
   // in the unanchored block too), or the expanded resolved one (a group holds at least one comment).
   const replying =
-    S.composerOpen && !S.editingCommentId && !composerInUi()
+    S.composerOpen && !S.editingCommentId && composerInCode()
       ? [...groups.values()].find(
           (cs) =>
             (cs.some((c) => c.status === "open") || threadKey(cs[0]!) === S.openThread) &&
@@ -130,7 +130,7 @@ export function annotations(): AnnotationInput[] {
   // hosts the composer in its card. A resolved thread never hosts one, so a new comment on its
   // line still needs its own row.
   const composers: AnnotationInput[] = [];
-  if (file && S.composerOpen && !S.editingCommentId && !composerInUi()) {
+  if (file && S.composerOpen && !S.editingCommentId && composerInCode()) {
     if (!replying)
       composers.push({
         side: S.selected.side,
@@ -455,7 +455,12 @@ export function threadCard(t: ThreadMeta, lost: boolean, surface: CommentSurface
 // reviewer's composer. S.selected is display space; the header names the file's own lines.
 export function composerCard(): HTMLElement {
   const at = selectionAnchor(S.selected.side, S.selected.lineNumber, S.selected.endLine);
-  const loc = cardLoc(at.line, at.endLine, false);
+  return newCommentCard(cardLoc(at.line, at.endLine, false));
+}
+
+// A new comment's card: what it is, where it sits (`loc`, when its place doesn't say it), then the
+// reviewer's composer. The code lane's at its line, and a topic page's under its part.
+export function newCommentCard(loc: string | null): HTMLElement {
   const card = document.createElement("div");
   card.className = "comment-box thread-card k-new";
   card.innerHTML = `<div class="tc-head"><span class="tc-kind">${BUBBLE}New comment</span>${locHtml({ loc })}</div><div class="meta">${AVATAR.you}<span class="author">You</span></div>`;

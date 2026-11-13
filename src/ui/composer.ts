@@ -2,6 +2,7 @@ import { S } from "./store";
 import { rowAnchor } from "./changes";
 import { render } from "./render";
 import { renderUiLane } from "./uilane";
+import { renderTopics } from "./topics";
 import type { Side } from "./types";
 import { keycapsHtml } from "./keycaps";
 
@@ -17,9 +18,15 @@ import { keycapsHtml } from "./keycaps";
 // reply or edit in an annotation's thread (S.composerAnnotation). Those redraw the UI lane's
 // sidebar and composer instead of the diff.
 
-// The open composer belongs to the UI lane.
+// The open composer belongs to the UI lane, to a topic's page (S.topicDraft, S.composerTopic), or
+// else to the code lane.
 export const composerInUi = () => S.annotationDraft !== null || S.composerAnnotation !== null;
-const redraw = (ui: boolean) => (ui ? renderUiLane() : render());
+export const composerInTopics = () => S.topicDraft !== null || S.composerTopic !== null;
+export const composerInCode = () => !composerInUi() && !composerInTopics();
+type Lane = "code" | "ui" | "topics";
+const laneOf = (): Lane => (composerInUi() ? "ui" : composerInTopics() ? "topics" : "code");
+const redraw = (lane: Lane) =>
+  lane === "ui" ? renderUiLane() : lane === "topics" ? renderTopics() : render();
 
 // Caret offset in the open composer, kept alongside S.composerBody so a rebuild can restore
 // the insertion point, not just the text. Reset whenever a composer opens.
@@ -95,7 +102,7 @@ export function buildEditor(): HTMLElement {
 // the diff (and identity in the markdown view, where D.lineMap is null), so convert before
 // comparing against a thread's raw anchor.
 export function composerTargets(side: Side, rawLine: number): boolean {
-  if (!S.composerOpen || S.editingCommentId || composerInUi()) return false;
+  if (!S.composerOpen || S.editingCommentId || !composerInCode()) return false;
   const at = rowAnchor(S.selected.side, S.selected.lineNumber);
   return at.side === side && at.line === rawLine;
 }
@@ -118,8 +125,29 @@ export function openComposer(
   S.composerBody = body;
   S.editingCommentId = editing;
   S.composerAnnotation = annotation;
+  S.topicDraft = null;
+  S.composerTopic = null;
   S.composerOpen = true;
-  redraw(composerInUi());
+  redraw(laneOf());
+}
+
+// Open a fresh composer on a topic's page: a new thread on `draft`'s part, or a reply in topic
+// thread `thread` (an edit of its message `editing`, opening with its `body`).
+export function openTopicComposer(
+  draft: { topic: string; part: string } | null,
+  thread: string | null = null,
+  body = "",
+  editing: string | null = null,
+) {
+  composerCaret = body.length;
+  S.composerBody = body;
+  S.editingCommentId = editing;
+  S.composerAnnotation = null;
+  S.annotationDraft = null;
+  S.topicDraft = draft;
+  S.composerTopic = thread;
+  S.composerOpen = true;
+  renderTopics();
 }
 
 // Close whatever composer is open and rebuild the diff so its DOM goes away (the inline
@@ -133,20 +161,22 @@ export function openComposer(
 // that never become clicks (drags). If that same click opened a fresh composer (clicking
 // another line), the render simply draws it — state is untouched here.
 export function closeComposer(deferRender = false) {
-  const ui = composerInUi();
+  const lane = laneOf();
   S.composerOpen = false;
   S.editingCommentId = null;
   S.composerAnnotation = null;
   S.annotationDraft = null;
+  S.topicDraft = null;
+  S.composerTopic = null;
   if (!deferRender) {
-    redraw(ui);
+    redraw(lane);
     return;
   }
   let timer = 0;
   const settle = () => {
     clearTimeout(timer);
     document.removeEventListener("click", settle);
-    redraw(ui);
+    redraw(lane);
   };
   timer = window.setTimeout(settle, 200);
   document.addEventListener("click", settle); // bubble: runs after the target's own handlers
@@ -160,7 +190,9 @@ export function restoreComposerFocus() {
   const ta = document.querySelector<HTMLTextAreaElement>(
     composerInUi()
       ? "#uiComposer .js-composer-focus, #pinCard .js-composer-focus"
-      : ".js-composer-focus",
+      : composerInTopics()
+        ? "#topics .js-composer-focus"
+        : ".js-composer-focus",
   );
   if (!ta) return;
   if (ta.value !== S.composerBody) ta.value = S.composerBody;
