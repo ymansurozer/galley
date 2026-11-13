@@ -949,18 +949,27 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           const pending = [...undelivered, event];
           await writeUndelivered(pending);
           undelivered = pending;
-          res.on("finish", () => {
+          // The review goes to the agent once the tab's answer is over, written or not: a tab
+          // that closed, dropped or gave up before it never sees "finish", only "close", and
+          // "close" has already passed when the tab left while the desk was still working.
+          let handed = false;
+          const handOver = () => {
+            if (handed) return;
+            handed = true;
             // Drop any still-queued questions: the review supersedes them (their unanswered ones
             // ride out in result.openQuestions), so stale question events never dribble in after
             // the round lands. This is also the invariant the await-send batch drain relies on.
             for (let i = eventQueue.length - 1; i >= 0; i--)
               if (eventQueue[i].kind === "question") eventQueue.splice(i, 1);
             emitEvent(event);
-          });
+          };
+          res.once("close", handOver);
           const answer: SaveAnswer = { ok: true, sent: true, resultJson, saveNumber };
           if (unplaced) answer.unplaced = true;
           if (merged) answer.merged = merged;
-          return json(res, 200, answer);
+          json(res, 200, answer);
+          if (res.closed) handOver();
+          return;
         });
       }
       if (req.method === "POST" && url.pathname === "/api/ask") {

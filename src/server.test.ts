@@ -3115,6 +3115,30 @@ test("a parked agent receives a review that is retired before the next start", a
   });
 });
 
+test("a Send whose tab is gone before its answer still reaches the waiting agent, once", async () => {
+  await withServer(async (handle, root, st) => {
+    const waiting = awaitEvent(handle.url, "?timeout=2");
+    for (let i = 0; i < 100 && !(await getState(handle.url)).agentListening; i++) await sleep(5);
+    // The tab's connection drops once the desk has read the Send, before the desk answers it.
+    handle.server.once("request", (req) => req.once("end", () => req.socket.destroy()));
+    await post(handle.url, "api/send", { overallNote: "tab closed" }).catch(() => {});
+    const event = await waiting;
+    assert.equal(event.status, 200, "the waiting agent got the review");
+    assert.equal(
+      ((await event.json()) as { result: ReviewResult }).result.overallNote,
+      "tab closed",
+    );
+    assert.equal((await getState(handle.url)).queuedReviews, 0, "handed over, not queued");
+    assert.equal((await awaitEvent(handle.url, "?timeout=0.05")).status, 204, "delivered once");
+    await post(handle.url, "api/save", {}); // wait for serialized delivery retirement
+    const dir = await reviewDir(root, st.session);
+    assert.deepEqual(
+      JSON.parse(await readFile(path.join(dir, "undelivered-reviews.queue"), "utf8")).reviews,
+      [],
+    );
+  });
+});
+
 test("an unreadable review queue logs once and starts empty; it cannot be loaded as review state", async (t) => {
   await withServer(async (first, root, st) => {
     await new Promise<void>((resolve) => first.server.close(() => resolve()));
