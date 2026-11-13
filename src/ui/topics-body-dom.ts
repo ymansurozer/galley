@@ -16,6 +16,38 @@ const loadDiagrams = diagramLoader(() => {
   return import(url);
 });
 
+// How a diagram drawn `drawn` px wide sits in a column `column` px wide: as drawn when it fits;
+// scaled down to the column, keeping its shape, when it is wider by up to a third, so a small
+// diagram needs no sideways scroll; beyond that as drawn, scrolling sideways, so the text of a large
+// diagram stays readable. A column not laid out yet (0) leaves it as drawn.
+export function diagramFit(drawn: number, column: number): "drawn" | "scaled" | "scrolled" {
+  if (!(column > 0) || !(drawn > column)) return "drawn";
+  return drawn * 3 <= column * 4 ? "scaled" : "scrolled";
+}
+
+// Mark a diagram's place with how its drawing fits, from the drawing's own width (Pele's width
+// attribute, which the style that scales it leaves alone) and its wrapper's, which is the column.
+function fitDiagram(el: Element) {
+  const svg = el.querySelector("svg");
+  if (!svg) return;
+  const fit = diagramFit(Number(svg.getAttribute("width")), svg.parentElement?.clientWidth ?? 0);
+  el.setAttribute("data-fit", fit);
+}
+
+// The column changes width with the window, so a drawn diagram is fitted again when its place
+// resizes, and let go once it has left the page (its size drops to nothing).
+let resized: ResizeObserver | undefined;
+function watchFit(el: Element) {
+  fitDiagram(el);
+  if (typeof ResizeObserver === "undefined") return;
+  resized ??= new ResizeObserver((entries) => {
+    for (const { target } of entries)
+      if (target.isConnected) fitDiagram(target);
+      else resized?.unobserve(target);
+  });
+  resized.observe(el);
+}
+
 export async function renderTopicBody(
   host: HTMLElement,
   body: string,
@@ -55,6 +87,7 @@ export async function renderTopicBody(
       try {
         const diagrams = await load();
         el.replaceChildren(diagrams.renderDiagram(source, doc));
+        watchFit(el);
       } catch {
         const notice = doc.createElement("p");
         notice.className = "topic-diagram-notice";

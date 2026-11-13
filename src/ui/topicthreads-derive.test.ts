@@ -10,6 +10,7 @@ import {
   overviewSlot,
   overviewStops,
   overviewTints,
+  partQuote,
   signOffStand,
   threadPlace,
   threadSlot,
@@ -58,8 +59,11 @@ const thread = (id: string, topicId: string, part: string, over: Partial<TopicTh
     ...over,
   }) satisfies TopicThread;
 
+// The desk's list of a body's blocks, by these lines.
+const parts = (...lines: number[]) => lines.map((line) => ({ line, text: `Block at ${line}.` }));
+
 test("a topic's parts run title, Recorded, the body's blocks by the desk's lines, then the flag", () => {
-  const stamp = { blocks: [], lines: 0, coverHash: "h", bodyParts: [1, 3, 5] };
+  const stamp = { blocks: [], lines: 0, coverHash: "h", bodyParts: parts(1, 3, 5) };
   assert.deepEqual(topicParts(topic("t1"), stamp), [
     "title",
     "recorded",
@@ -92,7 +96,7 @@ test("a topic's parts run in page order: body blocks, options and a line block's
     blocks: [],
     lines: 0,
     coverHash: "h",
-    bodyParts: [1, 7, 14],
+    bodyParts: parts(1, 7, 14),
     options: [{ label: "Keep" }, { label: "Drop" }],
     optionsLine: 9,
   };
@@ -230,7 +234,7 @@ test("the cursor visits options where their fence sits among body blocks", () =>
       blocks: [],
       lines: 0,
       coverHash: "h",
-      bodyParts: [1, 9],
+      bodyParts: parts(1, 9),
       optionsLine: 3,
       options: [{ label: "A" }, { label: "B" }],
     }),
@@ -341,4 +345,17 @@ test("Overview requests come first, named Overview, summary then the map then co
       ["t1-title", "Title t1"],
     ],
   );
+});
+
+test("a part's quote is the desk's text of a body block, or the field the part names", () => {
+  const stamp = { blocks: [], lines: 0, coverHash: "h", bodyParts: parts(1, 3) };
+  const t = { ...topic("t1", "Careful"), title: "Cache it", recorded: "Kept the cache." };
+  assert.equal(partQuote(t, stamp, "body:3"), "Block at 3.");
+  assert.equal(partQuote(t, stamp, "title"), "Cache it");
+  assert.equal(partQuote(t, stamp, "recorded"), "Kept the cache.");
+  assert.equal(partQuote(t, stamp, "flag"), "Careful");
+  // A line the desk lists no block at, an option and a line of a line block quote nothing here.
+  assert.equal(partQuote(t, stamp, "body:2"), undefined);
+  assert.equal(partQuote(t, stamp, "option:1"), undefined);
+  assert.equal(partQuote(t, undefined, "body:1"), undefined);
 });

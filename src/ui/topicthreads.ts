@@ -26,6 +26,7 @@ import {
   overviewSlot,
   overviewStops,
   overviewTints,
+  partQuote,
   partRank,
   requestsChange,
   threadPlace,
@@ -385,6 +386,7 @@ export function submitTopicComposer(intent: "action" | "question") {
       intent: intent === "question" ? "question" : "change",
       status: "open",
       comments: [message],
+      ...(draft.quote !== undefined && { quote: draft.quote }),
       ...(intent === "action" && draft.option !== undefined && { option: draft.option }),
     };
     if (created.option !== undefined)
@@ -402,10 +404,13 @@ export function submitTopicComposer(intent: "action" | "question") {
 
 // ── Opening the composer on a part ───────────────────────────────────────────────────────────────
 
-// The cursor stays on what j / k stop at: on the Overview, a box or a link puts it on the map.
+// The cursor stays on what j / k stop at: on the Overview, a box or a link puts it on the map. On a
+// topic the draft keeps the text the part shows now, for the desk to place the thread by.
 export function commentOn(part: string) {
   cursorAt.set(here(), S.topicAt === null ? overviewSlot(part) : part);
-  openTopicComposer({ topic: here(), part });
+  const topic = openTopicPlace();
+  const quote = topic && partQuote(topic, S.state.topics?.[topic.id], part);
+  openTopicComposer({ topic: here(), part, ...(quote !== undefined && { quote }) });
 }
 
 // Picks remain drafts until Request change; cancelling a draft preserves the previous pick.

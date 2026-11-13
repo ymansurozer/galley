@@ -5,7 +5,7 @@ import MarkdownIt from "markdown-it";
 import footnote from "markdown-it-footnote";
 import createDOMPurify from "dompurify";
 import { sourceLine } from "./markdown-source";
-import { diagramLoader, renderTopicBody } from "./topics-body-dom";
+import { diagramFit, diagramLoader, renderTopicBody } from "./topics-body-dom";
 
 function fixture() {
   const window = new Window();
@@ -102,4 +102,31 @@ test("a lines fence becomes the block's place, with its source line and no code 
   assert.equal(place.dataset.line, "3");
   assert.equal(place.textContent, "");
   assert.equal(host.querySelector("pre"), null);
+});
+
+test("a drawing up to a third wider than its column is scaled to it; a wider one scrolls as drawn", async () => {
+  // The topic's column is 656 px; a third over it is 874.67 px.
+  const fitOf = async (drawn: number) => {
+    const { host, md } = fixture();
+    await renderTopicBody(host, "```mermaid\nflowchart LR\nA --> B\n```", md, async () => ({
+      renderDiagram: (_source, doc) => {
+        const wrap = doc.createElement("div");
+        Object.defineProperty(wrap, "clientWidth", { value: 656 });
+        wrap.innerHTML = `<svg class="pele" viewBox="0 0 ${drawn} 64" width="${drawn}" height="64"></svg>`;
+        return wrap;
+      },
+    }));
+    return (host.querySelector(".topic-diagram") as HTMLElement).dataset.fit;
+  };
+  assert.equal(await fitOf(600), "drawn");
+  assert.equal(await fitOf(656), "drawn");
+  assert.equal(await fitOf(697), "scaled");
+  assert.equal(await fitOf(874), "scaled");
+  assert.equal(await fitOf(875), "scrolled");
+  assert.equal(await fitOf(1400), "scrolled");
+});
+
+test("a diagram whose column is not laid out yet, or that could not be drawn, stays as drawn", () => {
+  assert.equal(diagramFit(697, 0), "drawn");
+  assert.equal(diagramFit(0, 656), "drawn");
 });

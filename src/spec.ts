@@ -220,9 +220,9 @@ The \`result\` field of a review event:
 - topics? — {settled[], todo[]}: the guide's topic ids in the guide's order, those the reviewer
   settled and those still to do (absent when the guide has no topics). See "Settling and rounds".
 - topicChangeRequests[]: {id, topic, part, quote?, body, option?} — the human's open change requests on
-  topics and on the Overview (resolved ones are not sent; empty without topics): the Overview's
-  first (topic "overview"), then by topic in the guide's order, each down the page; those on a
-  topic your new guide dropped come last, still named by its old id.
+  topics and on the Overview (resolved ones are not sent): the Overview's first (topic "overview"),
+  then by topic in the guide's order, each down the page. An open request on a topic your new guide
+  dropped is kept and comes last, still named by its old id, even when that guide has no topics.
   id is the thread's (reply with \`galley comment --topic <id>\`), part where on the topic (see Topic
   parts), quote the text that part showed, body the change to make.
   option? — the picked option label, present only for a request made by picking.

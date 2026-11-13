@@ -4375,7 +4375,7 @@ test("a topic whose only claim is a line block passes the coverage check and cou
       { fence: 3, path: "src/app.ts", blocks: ["src/app.ts:additions:10:1:2"], start: 9, end: 11 },
     ]);
     // The fence is drawn by the tab, so it is no part of the body's blocks.
-    assert.deepEqual(st.topics?.lines?.bodyParts, [1]);
+    assert.deepEqual(st.topics?.lines?.bodyParts, [{ line: 1, text: "Why it reads so." }]);
   });
 });
 
@@ -4421,6 +4421,27 @@ test("a line block's range follows its lines across a reload without a new guide
     // The change reverted: nothing of it is left to draw.
     const gone = await mergeReviewState(await build(appLines({ 3: ["A"] })), before);
     assert.deepEqual(span(gone), { fence: 3, path: "src/app.ts", blocks: [] });
+  });
+});
+
+test("a line block keeps its lines across a reload that emptied the diff and one that brings it back", async () => {
+  await withTopicsRepo(async (build) => {
+    const guide = linesGuide("src/app.ts:9-11");
+    const before = await build();
+    before.guide = guide;
+    assert.ok(resolveGuide(before, guide).ok);
+    const stamp = before.topics?.lines;
+    // The reload that found no diff clears the blocks and keeps the stamps (server.ts, `!base`);
+    // the desk holds the last diff that had blocks as the stamp source.
+    const emptied: ReviewState = { ...before, files: [], changes: [] };
+    const source = { files: before.files, changes: before.changes, stagedChangeKeys: [] };
+    const back = await mergeReviewState(await build(), emptied, source);
+    assert.deepEqual(back.topics?.lines?.lineSpans, [
+      { fence: 3, path: "src/app.ts", blocks: ["src/app.ts:additions:10:1:2"], start: 9, end: 11 },
+    ]);
+    assert.deepEqual(back.topics?.lines?.blocks, ["src/app.ts:additions:10:1:2"]);
+    assert.equal(back.topics?.lines?.lines, stamp?.lines);
+    assert.equal(back.topics?.lines?.coverHash, stamp?.coverHash);
   });
 });
 

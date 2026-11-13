@@ -498,6 +498,12 @@ button.topic-point:hover {
   margin: auto;
 }
 
+/* A drawing up to a third wider than the column is scaled to it (topics-body-dom.ts diagramFit). */
+.topic-diagram[data-fit="scaled"] svg.pele {
+  width: 100%;
+  height: auto;
+}
+
 .topic-diagram-notice {
   font-size: var(--text-sm);
   color: var(--ink-3);
