@@ -32,6 +32,7 @@ import {
   buildReviewState,
   hash,
   inPortRange,
+  carriesChanges,
   mergeReviewerSave,
   mergeReviewState,
   parsedDiffOf,
@@ -160,6 +161,23 @@ function json(res: http.ServerResponse, status: number, body: unknown) {
 
 function fail(res: http.ServerResponse, status: number, code: string, error: string, fix: string) {
   json(res, status, { error, code, fix, docs: DOCS });
+}
+
+// A save or Send that carries changes names the save number they're relative to (types.ts,
+// ReviewerDelta): without it the desk can't tell what the tab's copy had, so the body is refused
+// rather than read as an old tab's full copy, which it isn't.
+function saveNumbered(body: unknown) {
+  if (!body || typeof body !== "object" || !carriesChanges(body)) return true;
+  return Number.isSafeInteger((body as { base?: unknown }).base);
+}
+function failUnnumbered(res: http.ServerResponse) {
+  fail(
+    res,
+    400,
+    "INVALID_SAVE",
+    "A save that carries changes must name the save number they are relative to (base).",
+    "Reload the review tab.",
+  );
 }
 
 // Wrap a bare IPv6 literal in brackets for use as a URL/authority host; leave names and IPv4
@@ -865,18 +883,26 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/save") {
-        // Merge only the reviewer-owned slice; the diff, file contents, changes, and desk
-        // metadata stay authoritative here. Pick from whatever body arrives so a stale open
-        // tab still posting the old full-state body keeps working (extra fields ignored).
+        // Merge only the reviewer's changes (or an old tab's full copy of the reviewer-owned
+        // slice); the diff, file contents, changes, and desk metadata stay authoritative here.
+        // A stale open tab still posting the old full-state body keeps working (extra fields
+        // ignored).
         return await serialize(async () => {
           const body: unknown = JSON.parse(await readBody(req));
+          if (!saveNumbered(body)) return failUnnumbered(res);
           const asked = askedQuestions();
-          const { unplaced } = await mergeReviewerSave(state, body, saveStamp(), priorDiff);
+          const { unplaced, saveNumber, merged } = await mergeReviewerSave(
+            state,
+            body,
+            saveStamp(),
+            priorDiff,
+          );
           withdrawQuestions(asked);
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
-          const answer: SaveAnswer = { ok: true, file };
+          const answer: SaveAnswer = { ok: true, file, saveNumber };
           if (unplaced) answer.unplaced = true;
+          if (merged) answer.merged = merged;
           return json(res, 200, answer);
         });
       }
@@ -886,10 +912,16 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           // overallNote is an ephemeral, per-Send instruction threaded straight into the result —
           // mergeReviewerSave never copies it onto `state`, so it is never persisted.
           const overallNote = typeof body.overallNote === "string" ? body.overallNote.trim() : "";
-          // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
-          // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
-          // full ReviewState keeps working because everything else in the body is ignored.
-          const { unplaced } = await mergeReviewerSave(state, body, saveStamp(), priorDiff);
+          // Merge only the reviewer's work (same contract as /api/save): the UI posts its changes
+          // with the note (types.ts, SendBody), and a stale open tab still posting the old full
+          // ReviewState keeps working because everything else in the body is ignored.
+          if (!saveNumbered(body)) return failUnnumbered(res);
+          const { unplaced, saveNumber, merged } = await mergeReviewerSave(
+            state,
+            body,
+            saveStamp(),
+            priorDiff,
+          );
           await syncGitState(state);
           const file = await persistReview(state);
           const sessionDir = path.dirname(file);
@@ -909,8 +941,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               if (eventQueue[i].kind === "question") eventQueue.splice(i, 1);
             emitEvent(event);
           });
-          const answer: SaveAnswer = { ok: true, sent: true, resultJson };
+          const answer: SaveAnswer = { ok: true, sent: true, resultJson, saveNumber };
           if (unplaced) answer.unplaced = true;
+          if (merged) answer.merged = merged;
           return json(res, 200, answer);
         });
       }
@@ -1443,6 +1476,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           state.stagedChangeKeys = [];
           state.decisionFiles = [];
           state.decisions = [];
+          state.saveNumber = (state.saveNumber ?? 0) + 1;
           state.changes = state.changes.map((change) => ({
             ...change,
             status: "pending",

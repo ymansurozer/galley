@@ -1,10 +1,10 @@
 import type { ReviewState, ReviewerSave } from "./types";
 
-// The reviewer-owned slice posted to /api/save — never the whole (multi-MB) ReviewState.
-// The server holds rawDiff/file contents/changes/etc. authoritatively and merges only these
-// fields. It's a full picture of the reviewer-owned state (snapshot semantics), so the
-// coalesced trailing save re-derives it and latest wins. Enumerating keys explicitly (rather
-// than deleting server fields off a clone) guarantees the wire never carries file contents.
+// The reviewer-owned slice of the state — never the whole (multi-MB) ReviewState. The server
+// holds rawDiff/file contents/changes/etc. authoritatively; a save carries what changed in these
+// fields since the copy the desk last confirmed (store.ts), worked out from two of these slices.
+// Enumerating keys explicitly (rather than deleting server fields off a clone) guarantees the wire
+// never carries file contents.
 export function reviewerSlice(state: ReviewState): ReviewerSave {
   return {
     decisions: state.decisions,
@@ -24,10 +24,10 @@ export function reviewerSlice(state: ReviewState): ReviewerSave {
 // server block-serialized multi-MB JSON. This keeps at most one save in flight and
 // collapses everything requested while one is outstanding into a single TRAILING save.
 //
-// The trailing save re-reads getPayload() at send time (latest-wins over a full snapshot
-// of the reviewer-owned slice), so it reflects the newest state, not whatever was current
-// when the intermediate triggers fired. send/getPayload are injected so the coalescing
-// logic is unit-testable without a browser or fetch.
+// The trailing save re-reads getPayload() at send time (the changes since the desk's confirmed
+// copy, store.ts), so it reflects the newest state, not whatever was current when the
+// intermediate triggers fired. send/getPayload are injected so the coalescing logic is
+// unit-testable without a browser or fetch.
 //
 // A save has landed only when send resolves to true (the desk answered with success). Anything
 // else, a rejection included, leaves the reviewer's work unsaved: the saver keeps it busy, so the

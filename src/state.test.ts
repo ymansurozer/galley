@@ -3572,3 +3572,526 @@ test("mergeReviewState takes the project and branch from the rebuild, never the 
   assert.equal(merged.project, "acme");
   assert.equal(merged.branch, undefined);
 });
+
+// --- A save that carries changes (types.ts, ReviewerDelta) ---
+
+// A tab's save: what it changed since the copy the desk confirmed with save number `base`.
+const delta = (
+  base: number,
+  changes: Record<string, unknown>,
+  baseDiffHash = "base",
+  stamp: { token: string | null; reloadGeneration: number } = { token: null, reloadGeneration: 0 },
+) => ({ base, changes, seen: { ...stamp, baseDiffHash } });
+const keysOf = (s: ReviewState) => (s.decisions ?? []).map((d) => [d.key, d.status]);
+
+test("a save's changes land on the desk's newer review and keep another tab's work", async () => {
+  // Tab A approved a.ts (save 1). Tab B, still on save 0, approves b.ts.
+  const live = state({
+    saveNumber: 1,
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts" })],
+    reviewedFiles: ["a.ts"],
+    reviewedFileHashes: { "a.ts": "A" },
+    signedOffBlocks: { "a.ts:k1": "h1" },
+    decisionFiles: ["a.ts"],
+  });
+  const outcome = await mergeReviewerSave(
+    live,
+    delta(0, {
+      decisions: { changed: [decision({ key: "b.ts:k1", path: "b.ts" })], removed: [] },
+      fileSignOffs: { changed: [{ path: "b.ts", hash: "B" }], removed: [] },
+      signedOffBlocks: { changed: [{ key: "b.ts:k1", hash: "h2" }], removed: [] },
+      decisionFiles: { changed: ["b.ts"], removed: [] },
+    }),
+  );
+  assert.deepEqual(keysOf(live), [
+    ["a.ts:k1", "accepted"],
+    ["b.ts:k1", "accepted"],
+  ]);
+  assert.deepEqual(live.reviewedFiles, ["a.ts", "b.ts"]);
+  assert.deepEqual(live.reviewedFileHashes, { "a.ts": "A", "b.ts": "B" });
+  assert.deepEqual(live.signedOffBlocks, { "a.ts:k1": "h1", "b.ts:k1": "h2" });
+  assert.deepEqual(live.decisionFiles, ["a.ts", "b.ts"]);
+  assert.equal(outcome.saveNumber, 2);
+  assert.equal(live.saveNumber, 2);
+  assert.equal(outcome.unplaced, false);
+  assert.deepEqual(outcome.merged?.reviewedFiles, ["a.ts", "b.ts"], "B was behind: it gets both");
+});
+
+test("a save from the desk's latest copy gets no merged review back", async () => {
+  const live = state({ saveNumber: 7 });
+  const outcome = await mergeReviewerSave(
+    live,
+    delta(7, { comments: { changed: [comment({ id: "c1", path: "a.ts" })], removed: [] } }),
+  );
+  assert.equal(outcome.saveNumber, 8);
+  assert.equal(outcome.merged, undefined);
+});
+
+test("a tab behind on an older diff gets no merged review: it is keyed to a diff the tab lacks", async () => {
+  const live = state({ saveNumber: 3, baseDiffHash: "new" });
+  const outcome = await mergeReviewerSave(
+    live,
+    delta(1, { comments: { changed: [comment({ id: "c1", path: "a.ts" })], removed: [] } }, "old"),
+  );
+  assert.equal(outcome.saveNumber, 4);
+  assert.equal(outcome.merged, undefined);
+});
+
+test("two tabs change one record: the later save wins", async () => {
+  const live = state({ saveNumber: 0, comments: [comment({ id: "c1", path: "a.ts", body: "x" })] });
+  await mergeReviewerSave(
+    live,
+    delta(0, {
+      comments: { changed: [comment({ id: "c1", path: "a.ts", body: "From A" })], removed: [] },
+      decisions: { changed: [decision({ key: "a.ts:k1", path: "a.ts" })], removed: [] },
+    }),
+  );
+  await mergeReviewerSave(
+    live,
+    delta(0, {
+      comments: { changed: [comment({ id: "c1", path: "a.ts", body: "From B" })], removed: [] },
+      decisions: {
+        changed: [decision({ key: "a.ts:k1", path: "a.ts", status: "rejected" })],
+        removed: [],
+      },
+    }),
+  );
+  assert.deepEqual(
+    live.comments.map((c) => c.body),
+    ["From B"],
+  );
+  assert.deepEqual(keysOf(live), [["a.ts:k1", "rejected"]]);
+});
+
+test("a record one tab removed stays removed when a tab that never touched it saves", async () => {
+  const live = state({
+    saveNumber: 0,
+    comments: [comment({ id: "c1", path: "a.ts" }), comment({ id: "c2", path: "a.ts" })],
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts" })],
+    reviewedFiles: ["a.ts"],
+    reviewedFileHashes: { "a.ts": "A" },
+  });
+  // Tab A deletes c1, resets the decision and withdraws the sign-off.
+  await mergeReviewerSave(
+    live,
+    delta(0, {
+      comments: { changed: [], removed: ["c1"] },
+      decisions: { changed: [], removed: ["a.ts:k1"] },
+      fileSignOffs: { changed: [], removed: ["a.ts"] },
+    }),
+  );
+  // Tab B, still on save 0, edits c2 and removes a comment the desk never had.
+  await mergeReviewerSave(
+    live,
+    delta(0, {
+      comments: {
+        changed: [comment({ id: "c2", path: "a.ts", body: "Edited" })],
+        removed: ["never-there"],
+      },
+    }),
+  );
+  assert.deepEqual(
+    live.comments.map((c) => [c.id, c.body]),
+    [["c2", "Edited"]],
+  );
+  assert.deepEqual(live.decisions, []);
+  assert.deepEqual(live.reviewedFiles, []);
+  assert.deepEqual(live.reviewedFileHashes, {});
+});
+
+test("after a reset in one tab, another tab's held decision is all the review holds", async () => {
+  const live = state({
+    saveNumber: 4,
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts" })],
+    comments: [comment({ id: "c1", path: "a.ts" })],
+    reviewedFiles: ["a.ts"],
+    reviewedFileHashes: { "a.ts": "A" },
+  });
+  // Tab A resets the review (server.ts, /api/reset).
+  Object.assign(live, {
+    saveNumber: 5,
+    decisions: [],
+    comments: [],
+    reviewedFiles: [],
+    reviewedFileHashes: {},
+    signedOffBlocks: {},
+    decisionFiles: [],
+  });
+  // Tab B, on save 4, had rejected one block and not yet saved it.
+  await mergeReviewerSave(
+    live,
+    delta(4, {
+      decisions: {
+        changed: [decision({ key: "b.ts:k2", path: "b.ts", status: "rejected" })],
+        removed: [],
+      },
+    }),
+  );
+  assert.deepEqual(keysOf(live), [["b.ts:k2", "rejected"]]);
+  assert.deepEqual(live.comments, []);
+  assert.deepEqual(live.reviewedFiles, []);
+});
+
+test("an agent reply that reached the desk after the tab's last sync outlives the tab's save", async () => {
+  const live = state({
+    saveNumber: 2,
+    ui: UI,
+    comments: [
+      comment({ id: "c1", path: "a.ts" }),
+      comment({ id: "reply", path: "a.ts", role: "agent", body: "Done" }),
+    ],
+    annotations: [annotation({ id: "a1" })],
+  });
+  live.annotations![0]!.comments.push({
+    id: "ui-reply",
+    role: "agent",
+    body: "Fixed",
+    createdAt: "t",
+    updatedAt: "t",
+  });
+  const tabAnnotation = annotation({ id: "a1", status: "resolved" });
+  await mergeReviewerSave(
+    live,
+    delta(1, {
+      // Even a removal of the agent's own message by key never takes it.
+      comments: {
+        changed: [comment({ id: "c1", path: "a.ts", body: "Edited" })],
+        removed: ["reply"],
+      },
+      annotations: { changed: [tabAnnotation], removed: [] },
+    }),
+  );
+  assert.deepEqual(
+    live.comments.map((c) => [c.id, c.body]),
+    [
+      ["c1", "Edited"],
+      ["reply", "Done"],
+    ],
+  );
+  assert.equal(live.annotations![0]!.status, "resolved");
+  assert.deepEqual(
+    live.annotations![0]!.comments.map((m) => m.id),
+    ["a1-m1", "ui-reply"],
+  );
+});
+
+test("a changed annotation keeps the desk's screenshots, capture state and pre-reload placement", async () => {
+  const desk = { token: "t", reloadGeneration: 2 };
+  const live = state({
+    saveNumber: 0,
+    ui: UI,
+    annotations: [
+      annotation({
+        id: "a1",
+        screenshots: true,
+        screenshotCapture: "requested",
+        placement: "unvisited",
+      }),
+    ],
+  });
+  await mergeReviewerSave(
+    live,
+    delta(
+      0,
+      {
+        annotations: {
+          changed: [annotation({ id: "a1", status: "resolved", placement: "placed" })],
+          removed: [],
+        },
+      },
+      "base",
+      { token: "t", reloadGeneration: 1 },
+    ),
+    desk,
+  );
+  const a = live.annotations![0]!;
+  assert.deepEqual(
+    [a.status, a.screenshots, a.screenshotCapture, a.placement],
+    ["resolved", true, "requested", "unvisited"],
+  );
+});
+
+test("what the page reports changes only those fields of the desk's own annotation", async () => {
+  const desk = { token: "t", reloadGeneration: 0 };
+  const live = state({
+    saveNumber: 3,
+    ui: UI,
+    annotations: [
+      // Another tab resolved a1 and replied in it since this tab's copy.
+      annotation({ id: "a1", status: "resolved", placement: "unvisited" }),
+      annotation({ id: "a2", number: 2, screenshotCapture: "requested" }),
+      annotation({ id: "a3", number: 3, screenshotCapture: "omitted" }),
+    ],
+  });
+  await mergeReviewerSave(
+    live,
+    delta(
+      1,
+      {
+        annotationReports: [
+          { id: "a1", placement: "unplaced" },
+          { id: "a2", screenshotCapture: "failed" },
+          { id: "a3", screenshotCapture: "failed" },
+          { id: "gone", placement: "placed" },
+          { id: "a1", placement: "nowhere" },
+        ],
+      },
+      "base",
+      desk,
+    ),
+    desk,
+  );
+  assert.deepEqual(
+    live.annotations!.map((a) => [a.id, a.status, a.placement, a.screenshotCapture]),
+    [
+      ["a1", "resolved", "unplaced", undefined],
+      ["a2", "open", "placed", "failed"],
+      ["a3", "open", "placed", "omitted"],
+    ],
+  );
+  // A report from before the desk's latest reload is about placements that reload reset.
+  await mergeReviewerSave(
+    live,
+    delta(4, { annotationReports: [{ id: "a1", placement: "placed" }] }, "base", {
+      token: "t",
+      reloadGeneration: -1,
+    }),
+    desk,
+  );
+  assert.equal(live.annotations![0]!.placement, "unplaced");
+});
+
+test("a save the desk applies twice leaves the review as one application does", async () => {
+  const changes = {
+    decisions: {
+      changed: [decision({ key: "b.ts:k1", path: "b.ts", status: "rejected" })],
+      removed: ["a.ts:k1"],
+    },
+    comments: { changed: [comment({ id: "c2", path: "a.ts", body: "New" })], removed: ["c1"] },
+    fileSignOffs: { changed: [{ path: "b.ts", hash: "B" }], removed: ["a.ts"] },
+    signedOffBlocks: { changed: [{ key: "b.ts:k1", hash: "h" }], removed: ["a.ts:k1"] },
+    decisionFiles: { changed: ["b.ts"], removed: ["a.ts"] },
+    annotations: { changed: [annotation({ id: "a2", number: 2 })], removed: ["a1"] },
+    annotationReports: [{ id: "a2", placement: "unplaced" }],
+    lastAnnotationNumber: 2,
+  };
+  const fresh = () =>
+    state({
+      saveNumber: 0,
+      ui: UI,
+      decisions: [decision({ key: "a.ts:k1", path: "a.ts" })],
+      comments: [comment({ id: "c1", path: "a.ts" })],
+      reviewedFiles: ["a.ts"],
+      reviewedFileHashes: { "a.ts": "A" },
+      signedOffBlocks: { "a.ts:k1": "h" },
+      decisionFiles: ["a.ts"],
+      annotations: [annotation({ id: "a1" })],
+      lastAnnotationNumber: 1,
+    });
+  const once = fresh();
+  await mergeReviewerSave(once, delta(0, structuredClone(changes)));
+  // The tab gave up waiting on the first answer and sends the same save again, from the same base.
+  const twice = fresh();
+  await mergeReviewerSave(twice, delta(0, structuredClone(changes)));
+  await mergeReviewerSave(twice, delta(0, structuredClone(changes)));
+  const fields = ({ saveNumber: _n, ...rest }: ReviewState) => rest;
+  assert.deepEqual(fields(twice), fields(once));
+  assert.deepEqual(keysOf(once), [["b.ts:k1", "rejected"]]);
+  assert.deepEqual(once.reviewedFiles, ["b.ts"]);
+  assert.deepEqual(
+    once.annotations!.map((a) => [a.id, a.placement]),
+    [["a2", "unplaced"]],
+  );
+});
+
+test("a block's status follows the decisions a save's changes leave on the desk", async () => {
+  const live = state({
+    saveNumber: 0,
+    changes: [
+      change({
+        id: "a.ts:k1",
+        path: "a.ts",
+        stableKey: "k1",
+        status: "accepted",
+        reviewedHash: "H",
+      }),
+      change({ id: "a.ts:k2", path: "a.ts", stableKey: "k2" }),
+    ],
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts", reviewedHash: "H" })],
+  });
+  await mergeReviewerSave(
+    live,
+    delta(0, {
+      decisions: {
+        changed: [
+          decision({ key: "a.ts:k2", path: "a.ts", status: "rejected", reviewedHash: "H2" }),
+        ],
+        removed: ["a.ts:k1"],
+      },
+    }),
+  );
+  assert.deepEqual(
+    live.changes.map((c) => [c.id, c.status, c.reviewedHash]),
+    [
+      ["a.ts:k1", "pending", undefined],
+      ["a.ts:k2", "rejected", "H2"],
+    ],
+  );
+});
+
+test("a save's changes made on the diff before a reload are carried onto the reloaded blocks", async () => {
+  await withShiftRepo(async (edit) => {
+    const live = await edit(edited({ 8: "L8", 11: "L11" }));
+    const oldDiff = live.baseDiffHash;
+    const accepted = decide(live, "app.ts:additions:8:1:1", "accepted");
+    live.decisions = [accepted];
+    live.signedOffBlocks = signedOff(live, "app.ts:additions:8:1:1");
+    live.saveNumber = 1;
+    const prior = { baseDiffHash: live.baseDiffHash, changes: live.changes, files: live.files };
+    // The agent edits above both blocks and reloads: everything moves down by two.
+    Object.assign(
+      live,
+      await mergeReviewState(await edit(insertAbove(edited({ 8: "L8", 11: "L11" }))), live),
+    );
+    assert.deepEqual(decided(live), [["app.ts:additions:10:1:1", "accepted", 10]]);
+    // On the old diff, the reviewer rejects the l11 block and withdraws the l8 block's sign-off.
+    const rejected = decide(
+      { ...live, changes: prior.changes } as ReviewState,
+      "app.ts:additions:11:1:1",
+      "rejected",
+    );
+    const outcome = await mergeReviewerSave(
+      live,
+      delta(
+        1,
+        {
+          decisions: { changed: [rejected], removed: [] },
+          signedOffBlocks: { changed: [], removed: ["app.ts:additions:8:1:1"] },
+        },
+        oldDiff,
+      ),
+      undefined,
+      prior,
+    );
+    assert.equal(outcome.unplaced, false);
+    assert.equal(outcome.merged, undefined, "the tab is on an older diff");
+    assert.deepEqual(decided(live), [
+      ["app.ts:additions:10:1:1", "accepted", 10],
+      ["app.ts:additions:13:1:1", "rejected", 13],
+    ]);
+    assert.equal(statusOf(live, "app.ts:additions:10:1:1"), "accepted");
+    assert.equal(statusOf(live, "app.ts:additions:13:1:1"), "rejected");
+    assert.deepEqual(live.signedOffBlocks, {}, "the withdrawn sign-off went where its block went");
+  });
+});
+
+test("a save too old to place drops its verdict changes, says so, and lands its comments", async () => {
+  const live = state({
+    saveNumber: 5,
+    baseDiffHash: "now",
+    files: [file("a.ts")],
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts" })],
+    reviewedFiles: ["a.ts"],
+  });
+  const prior = { baseDiffHash: "before", changes: [], files: [] };
+  const far = await mergeReviewerSave(
+    live,
+    delta(
+      2,
+      {
+        decisions: { changed: [], removed: ["a.ts:k1"] },
+        fileSignOffs: { changed: [{ path: "b.ts" }], removed: [] },
+        comments: {
+          changed: [comment({ id: "c1", path: "gone.ts", body: "Still here" })],
+          removed: [],
+        },
+      },
+      "ancient",
+    ),
+    undefined,
+    prior,
+  );
+  assert.equal(far.unplaced, true);
+  assert.deepEqual(keysOf(live), [["a.ts:k1", "accepted"]]);
+  assert.deepEqual(live.reviewedFiles, ["a.ts"]);
+  assert.deepEqual(
+    live.comments.map((c) => [c.id, c.body]),
+    [["c1", "Still here"]],
+  );
+  // One whose verdict changes are already the desk's own lost nothing.
+  const echo = await mergeReviewerSave(
+    live,
+    delta(2, { fileSignOffs: { changed: [{ path: "a.ts" }], removed: [] } }, "ancient"),
+    undefined,
+    prior,
+  );
+  assert.equal(echo.unplaced, false);
+});
+
+test("an old tab's full copy is taken as it always was, and raises the save number", async () => {
+  const live = state({
+    saveNumber: 2,
+    decisions: [decision({ key: "a.ts:k1", path: "a.ts" })],
+    reviewedFiles: ["a.ts"],
+  });
+  const outcome = await mergeReviewerSave(live, {
+    decisions: [decision({ key: "b.ts:k1", path: "b.ts" })],
+    reviewedFiles: ["b.ts"],
+  });
+  assert.deepEqual(keysOf(live), [["b.ts:k1", "accepted"]]);
+  assert.deepEqual(live.reviewedFiles, ["b.ts"]);
+  assert.equal(outcome.saveNumber, 3);
+  assert.equal(outcome.merged, undefined);
+});
+
+test("the save number is stored with the review and carried across a restart", async () => {
+  const merged = await mergeReviewState(state({ baseDiffHash: "new" }), state({ saveNumber: 9 }));
+  assert.equal(merged.saveNumber, 9);
+});
+
+test("a withdrawal made on the previous diff never takes the record of a block rewritten in place", async () => {
+  await withShiftRepo(async (edit) => {
+    const live = await edit(edited({ 8: "L8", 11: "L11" }));
+    const oldDiff = live.baseDiffHash;
+    const [at8, at11] = ["app.ts:additions:8:1:1", "app.ts:additions:11:1:1"];
+    live.decisions = [decide(live, at8, "accepted"), decide(live, at11, "rejected")];
+    live.signedOffBlocks = signedOff(live, at8, at11);
+    const prior = { baseDiffHash: live.baseDiffHash, changes: live.changes, files: live.files };
+    // The agent rewrites the l8 block in place (same line, same size: the same key, new content).
+    Object.assign(live, await mergeReviewState(await edit(edited({ 8: "L8b", 11: "L11" })), live));
+    assert.deepEqual(decided(live), [[at11, "rejected", 11]], "the rewritten block is pending");
+    // Another tab, on the current diff, decides and signs off the new l8 block.
+    await mergeReviewerSave(
+      live,
+      delta(
+        0,
+        {
+          decisions: { changed: [decide(live, at8, "rejected")], removed: [] },
+          signedOffBlocks: {
+            changed: [{ key: at8, hash: signedOff(live, at8)[at8] }],
+            removed: [],
+          },
+        },
+        live.baseDiffHash,
+      ),
+    );
+    const newHash = signedOff(live, at8)[at8];
+    // The old tab withdraws its verdicts on both blocks, made on the diff before.
+    await mergeReviewerSave(
+      live,
+      delta(
+        0,
+        {
+          decisions: { changed: [], removed: [at8, at11] },
+          signedOffBlocks: { changed: [], removed: [at8, at11] },
+        },
+        oldDiff,
+      ),
+      undefined,
+      prior,
+    );
+    assert.deepEqual(decided(live), [[at8, "rejected", 8]], "the new block's decision stays");
+    assert.deepEqual(live.signedOffBlocks, { [at8]: newHash }, "and so does its sign-off");
+    assert.equal(statusOf(live, at11), "pending", "the unchanged block's withdrawal landed");
+  });
+});

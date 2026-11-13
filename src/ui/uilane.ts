@@ -1,4 +1,4 @@
-import { S, $, openEditorAt, toast, persist, persistSoon, saver } from "./store";
+import { S, $, openEditorAt, toast, persist, persistSoon, saver, takenFromDesk } from "./store";
 import { buildCommentThread, updateAwaitingDom, type ThreadControls } from "./annotations";
 import {
   buildComposer,
@@ -256,6 +256,10 @@ export function placedInApp(placements: ReadonlyArray<{ id: string; placement: U
 // wait for their page to load.
 export function annotationsUnvisited() {
   for (const a of annotationsOf()) a.placement = "unvisited";
+  // The desk marked its own copy so: no save sends it back as the tab's report.
+  takenFromDesk((review) => {
+    for (const a of review.annotations ?? []) a.placement = "unvisited";
+  });
   S.lookedFor.clear();
   if (S.uiProxy && S.app.connected) {
     placePageAnnotations();
