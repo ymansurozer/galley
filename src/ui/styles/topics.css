@@ -522,7 +522,8 @@ button.topic-point:hover {
   margin: 3px 0;
   border: 1px solid var(--sep);
   border-radius: var(--radius);
-  background: transparent;
+  background: var(--raised);
+  box-shadow: var(--shadow-control);
   color: var(--ink);
   text-align: left;
   font: inherit;
@@ -537,8 +538,8 @@ button.topic-point:hover {
   flex: none;
 }
 .topic-option[aria-checked="true"] {
-  background: var(--fill);
-  border-color: var(--sep-strong);
+  background: var(--sel);
+  border-color: var(--blue);
 }
 .topic-option[aria-checked="true"]::before {
   background: var(--blue);
@@ -558,10 +559,8 @@ button.topic-point:hover {
 }
 .topic-option-tag {
   font-size: var(--text-xs);
-  color: var(--orange-ink);
-  background: var(--orange-wash);
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
 }
 .topic-option-note {
   width: 100%;
@@ -569,4 +568,11 @@ button.topic-point:hover {
   color: var(--ink-2);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+}
+
+.topic-option-tag.recommended {
+  color: var(--blue-ink);
+}
+.topic-option-tag.requested {
+  color: var(--orange-ink);
 }

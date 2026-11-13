@@ -60,7 +60,10 @@ export type ReviewComment = {
 export type ThreadMessage = Pick<
   ReviewComment,
   "id" | "body" | "createdAt" | "updatedAt" | "intent" | "askedAt" | "role"
-> & { option?: string };
+> & {
+  // A reviewer pick from an agent reply in a topic thread.
+  option?: string;
+};
 
 export type ChangeState = {
   id: string;

@@ -35,7 +35,13 @@ export function optionsList(
       requested && index === selected && "Change requested",
     ].filter(Boolean)) {
       const badge = doc.createElement("span");
-      badge.className = "topic-option-tag";
+      badge.className =
+        "topic-option-tag" +
+        (tag === "Agent recommends"
+          ? " recommended"
+          : tag === "Change requested"
+            ? " requested"
+            : "");
       badge.textContent = String(tag);
       button.append(badge);
     }
