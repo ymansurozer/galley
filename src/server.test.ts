@@ -3396,6 +3396,7 @@ test("the poll carries the save number, and /api/review the reviewer-owned field
       "reviewedFiles",
       "settledTopics",
       "signedOffBlocks",
+      "topicThreads",
     ]);
     assert.deepEqual(read.review.reviewedFiles, ["a.ts"]);
     assert.deepEqual(read.review.reviewedFileHashes, { "a.ts": "H" });
