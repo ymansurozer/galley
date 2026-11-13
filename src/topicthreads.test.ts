@@ -272,3 +272,143 @@ test("the result carries open topic change requests with their part and quote; q
   replyToTopicThread(live, "ask", "Because.", "2026-11-13T12:00:00.000Z");
   assert.deepEqual(computeOpenQuestions(live), []);
 });
+
+// ── The Overview ─────────────────────────────────────────────────────────────────────────────────
+
+// Three groups in two stages, two links: api feeds store, store feeds ui.
+const mapGuide = (links = [
+  { from: "api", to: "store", label: "writes rows" },
+  { from: "store", to: "ui", label: "serves reads" },
+]): Guide => ({
+  overview: "The summary.",
+  stages: [
+    {
+      id: "back",
+      label: "Back",
+      groups: [
+        { id: "api", title: "API", topics: [topic("t1")] },
+        { id: "store", title: "Store", topics: [topic("t2")] },
+      ],
+    },
+    { id: "front", label: "Front", groups: [{ id: "ui", title: "UI", topics: [topic("t3")] }] },
+  ],
+  links,
+});
+const coverage = {
+  topicLines: 80,
+  skimmedLines: 30,
+  totalLines: 115,
+  uncoveredLines: 5,
+  skims: [{ reason: "Lockfile", lines: 30 }],
+};
+
+test("a new thread on the Overview quotes its part: the summary, a box's title, a link, coverage", async () => {
+  const live = state({ guide: mapGuide(), coverage });
+  await save(live, 0, [
+    sent("s", "overview", "summary"),
+    sent("m", "overview", "map"),
+    sent("g", "overview", "group:store"),
+    sent("l", "overview", "link:api>store"),
+    sent("c", "overview", "coverage"),
+    sent("x", "overview", "group:gone"),
+  ]);
+  assert.deepEqual(
+    live.topicThreads!.map((t) => [t.target.part, t.title, t.quote]),
+    [
+      ["summary", "Overview", "The summary."],
+      ["map", "Overview", undefined],
+      ["group:store", "Overview", "Store"],
+      ["link:api>store", "Overview", "API → Store: writes rows"],
+      [
+        "coverage",
+        "Overview",
+        "115 lines: 80 under a topic, 30 skimmed by rule, 5 not in the guide yet",
+      ],
+      // A box the desk's guide doesn't have: the thread is on the map.
+      ["map", "Overview", undefined],
+    ],
+  );
+});
+
+test("an open change request on a link goes in the result with the Overview as its topic, first", async () => {
+  const live = state({ guide: mapGuide() });
+  await save(live, 0, [
+    sent("on-topic", "t1", "title"),
+    sent("on-link", "overview", "link:store>ui", {
+      comments: [message({ body: "Reads should go through a cache." })],
+    }),
+  ]);
+  assert.deepEqual(buildReviewResult(live, { resultJson: "r", sessionDir: "d" }).topicChangeRequests, [
+    {
+      id: "on-link",
+      topic: "overview",
+      part: "link:store>ui",
+      quote: "Store → UI: serves reads",
+      body: "Reads should go through a cache.",
+    },
+    { id: "on-topic", topic: "t1", part: "title", quote: "Title of t1", body: "Please change this." },
+  ]);
+});
+
+test("a new guide that drops a link or a box moves its thread to the map, saying what it was on", async () => {
+  const live = state({ guide: mapGuide(), coverage });
+  await save(live, 0, [
+    sent("l", "overview", "link:api>store"),
+    sent("l2", "overview", "link:store>ui"),
+    sent("g", "overview", "group:ui"),
+    sent("s", "overview", "summary"),
+    sent("c", "overview", "coverage"),
+  ]);
+  const next = mapGuide([{ from: "store", to: "ui", label: "serves cached reads" }]);
+  next.overview = "A new summary.";
+  next.stages![1]!.groups = [{ id: "web", title: "Web", topics: [topic("t3")] }];
+  next.links = [{ from: "store", to: "web", label: "serves reads" }];
+  live.guide = next;
+  carryTopicThreads(live);
+  assert.deepEqual(
+    live.topicThreads!.map((t) => [t.id, t.target.part, t.moved, t.quote]),
+    [
+      ["l", "map", true, "API → Store: writes rows"],
+      ["l2", "map", true, "Store → UI: serves reads"],
+      ["g", "map", true, "UI"],
+      ["s", "summary", undefined, "A new summary."],
+      [
+        "c",
+        "coverage",
+        undefined,
+        "115 lines: 80 under a topic, 30 skimmed by rule, 5 not in the guide yet",
+      ],
+    ],
+  );
+  // A link still in the guide keeps its thread, quoting it as it reads now.
+  const again = state({ guide: mapGuide() });
+  await save(again, 0, [sent("l", "overview", "link:api>store")]);
+  again.guide = mapGuide([{ from: "api", to: "store", label: "writes batches" }]);
+  carryTopicThreads(again);
+  assert.deepEqual(
+    again.topicThreads!.map((t) => [t.target.part, t.moved, t.quote]),
+    [["link:api>store", undefined, "API → Store: writes batches"]],
+  );
+});
+
+test("a question on a box reaches the agent naming the Overview, the box and its title", async () => {
+  const live = state({ guide: mapGuide() });
+  await save(live, 0, [
+    sent("q", "overview", "group:api", {
+      intent: "question",
+      comments: [message({ id: "q1", intent: "question", body: "Why is this its own group?" })],
+    }),
+  ]);
+  assert.deepEqual(computeOpenQuestions(live), [
+    {
+      lane: "topic",
+      id: "q",
+      topic: "overview",
+      part: "group:api",
+      quote: "API",
+      body: "Why is this its own group?",
+      mode: "repo",
+      session: "s",
+    },
+  ]);
+});
