@@ -331,9 +331,10 @@ export function layoutMap(
   const heads: MapHead[] = flow.map((s, ci) => ({ label: s.label, x: X(ci), y: 0, w: NW }));
   // A stage nothing flows into or out of takes the lowest run of free rows of the last column with
   // a free row above it for its heading, its groups in the guide's order; or, short of one, rows
-  // of its own under the map.
+  // of its own under the map, dropped by a heading's height below what is above.
   const lastCol = n - 1;
   const used = new Set([...COL.keys()].filter((id) => col(id) === lastCol).map(slot));
+  let drop = 0;
   for (const s of apart) {
     const k = s.groups.length;
     const free = (from: number) =>
@@ -345,13 +346,18 @@ export function layoutMap(
         top = r;
         break;
       }
-    if (top < 0) top = used.has(rows - 1) ? rows + 1 : rows;
+    let y = Y0 + top * ROWP;
+    if (top < 0) {
+      top = rows;
+      drop += 30;
+      y = Y0 + top * ROWP + drop;
+    }
     s.groups.forEach((g, i) => {
-      box.set(g.id, { x: X(lastCol), y: Y0 + (top + i) * ROWP });
+      box.set(g.id, { x: X(lastCol), y: y + i * ROWP });
       used.add(top + i);
     });
     rows = Math.max(rows, top + k);
-    heads.push({ label: s.label, x: X(lastCol), y: Y0 + top * ROWP - 32, w: NW });
+    heads.push({ label: s.label, x: X(lastCol), y: y - 32, w: NW });
   }
 
   const outY = new Map<string, number>();
@@ -694,7 +700,7 @@ export function layoutMap(
   // The map is as big as what it draws: a jog or a label past the last column, a label under the
   // last row, widen or deepen it.
   let W2 = W;
-  let H2 = Y0 + (rows - 1) * ROWP + NH + below;
+  let H2 = Y0 + (rows - 1) * ROWP + NH + below + drop;
   const reach = (r: Rect) => {
     W2 = Math.max(W2, Math.ceil(r.x + r.w + 2));
     H2 = Math.max(H2, Math.ceil(r.y + r.h + 2));
