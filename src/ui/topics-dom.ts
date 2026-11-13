@@ -1,3 +1,4 @@
+import { renderTopicBody } from "./topics-body-dom";
 import { esc } from "./html";
 import { keycapsHtml } from "./keycaps";
 import type { TopicPlace, TopicsNavRow } from "./topics-derive";
@@ -39,7 +40,8 @@ export function renderTopicPage(host: HTMLElement, place: TopicPlace, md: (s: st
   const flag = topic.flag
     ? `<div class="topic-flag"><div class="topic-lab">${glyph("flag", "")}Flagged</div><div class="md">${md(topic.flag)}</div></div>`
     : "";
-  host.innerHTML = `${bar}<article class="topic-page">${meta}<h1 class="topic-title">${esc(topic.title)}</h1><p class="topic-recorded"><b>Recorded:</b> ${esc(topic.recorded)}</p><div class="topic-body md">${md(topic.body)}</div>${flag}</article>`;
+  host.innerHTML = `${bar}<article class="topic-page">${meta}<h1 class="topic-title">${esc(topic.title)}</h1><p class="topic-recorded"><b>Recorded:</b> ${esc(topic.recorded)}</p><div class="topic-body md"></div>${flag}</article>`;
+  void renderTopicBody(host.querySelector<HTMLElement>(".topic-body")!, topic.body, md);
 }
 
 export type TopicsOverview = {

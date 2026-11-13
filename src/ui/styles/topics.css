@@ -251,3 +251,34 @@
     padding: 18px 16px 120px;
   }
 }
+
+.topic-diagram {
+  --pele-bg: var(--canvas);
+  --pele-fg: var(--ink);
+  --pele-muted: var(--ink-3);
+  --pele-line: var(--ink-3);
+  --pele-surface: var(--fill);
+  --pele-surface-alt: var(--fill-2);
+  --pele-border: var(--sep);
+  --pele-accent: var(--ink-2);
+  --pele-font: var(--sans);
+  --pele-font-mono: var(--mono);
+  margin: 14px 0;
+  padding: 18px;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--sep);
+  border-radius: var(--radius-lg);
+  color: var(--ink-3);
+}
+
+.topic-diagram svg.pele {
+  display: block;
+  max-width: none !important;
+  margin: auto;
+}
+
+.topic-diagram-notice {
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}

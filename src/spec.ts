@@ -341,6 +341,8 @@ walkthrough and Decisions mode shows the topics.
       - recorded (required, non-empty) — where the call is written down (an ADR, a ticket, a doc),
         or that only the code records it.
       - body (required, non-empty) — markdown: prose, lists, tables, fenced code.
+        A \`mermaid\` fence draws a diagram in Galley’s colours; what needs a diagram is your call.
+        If it cannot be drawn, the source is shown as code and the page stays usable.
       - concern? — a short label from the reviewer's skill ("Security", "Cost"); shown as is.
       - flag? — flags the topic for closer scrutiny; the text is the note.
       - covers (required, non-empty array) — where the topic lives in the diff, each { path,
