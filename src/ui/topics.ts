@@ -92,7 +92,8 @@ export function renderTopics() {
     );
     decorateTopicPage(page, place.topic);
   } else {
-    renderTopicsOverview(page, overview(page.clientWidth), renderMarkdown);
+    overviewRoom = page.clientWidth;
+    renderTopicsOverview(page, overview(overviewRoom), renderMarkdown);
     decorateTopicsOverview(page);
     lightMap(page, lit);
   }
@@ -132,6 +133,10 @@ function lightMap(page: HTMLElement, part: string | null) {
   if (at && "link" in at) lightMapLinks(page, null, at.link);
   else lightMapLinks(page, at?.group ?? null);
 }
+
+// The page's width the Overview was last laid out for: 0 when it was drawn while Decisions was
+// hidden (a mode switch draws before the page is shown), so it is drawn again once it is.
+let overviewRoom = 0;
 
 // The Overview's map is laid out for the room the page has: wider than the reading column, up to
 // the widest it draws at, and never so narrow it stops being a map (it scrolls sideways instead).
@@ -326,15 +331,16 @@ export function installTopics() {
     lit = null;
     lightMap(page, null);
   });
-  // The map measures its text, so it is laid out again when the room or the font changes.
+  // The map measures its text, so it is laid out again when the room or the font changes. The room
+  // is the page's own width, which changes with the window, the sidebar, and the page being shown.
   const overviewShowing = () => hasTopics() && S.view === "topics" && S.topicAt === null;
   let pending = 0;
-  window.addEventListener("resize", () => {
+  new ResizeObserver(() => {
     cancelAnimationFrame(pending);
     pending = requestAnimationFrame(() => {
-      if (overviewShowing()) renderTopics();
+      if (overviewShowing() && page.clientWidth !== overviewRoom) renderTopics();
     });
-  });
+  }).observe(page);
   document.fonts?.addEventListener("loadingdone", () => {
     if (overviewShowing()) renderTopics();
   });
