@@ -3149,3 +3149,84 @@ test("Send fails when its durable review queue cannot be written", async () => {
     assert.equal((await awaitEvent(handle.url, "?timeout=0.02")).status, 204);
   });
 });
+
+test("a save's answer carries the new save number, and the merged review when the tab was behind", async () => {
+  await withServer(async (handle, _root, st) => {
+    const seen = { token: null, reloadGeneration: 0, baseDiffHash: st.baseDiffHash };
+    const signOff = (path: string) => ({
+      fileSignOffs: { changed: [{ path, hash: "H" }], removed: [] },
+    });
+    // Tab A, on the desk's latest copy (0), signs off a.ts.
+    const a = await post(handle.url, "api/save", { base: 0, changes: signOff("a.ts"), seen });
+    const first = await a.json();
+    assert.equal(first.saveNumber, 1);
+    assert.equal(first.merged, undefined, "nothing landed since A's copy");
+    // Tab B, still on copy 0, signs off b.ts: both land, and B gets the merged review back.
+    const second = await post(handle.url, "api/save", {
+      base: 0,
+      changes: signOff("b.ts"),
+      seen,
+    }).then((r) => r.json());
+    assert.equal(second.saveNumber, 2);
+    assert.deepEqual(second.merged.reviewedFiles, ["a.ts", "b.ts"]);
+    assert.deepEqual(st.reviewedFiles, ["a.ts", "b.ts"]);
+    assert.equal((await getState(handle.url)).saveNumber, 2, "the state the tab reads carries it");
+    // A Send uses the same contract, with its note.
+    const sent = await post(handle.url, "api/send", {
+      base: 1,
+      changes: { fileSignOffs: { changed: [], removed: ["a.ts"] } },
+      seen,
+      overallNote: "Thanks",
+    }).then((r) => r.json());
+    assert.equal(sent.sent, true);
+    assert.equal(sent.saveNumber, 3);
+    assert.deepEqual(sent.merged.reviewedFiles, ["b.ts"]);
+    // An old tab's full copy still lands, and counts.
+    const copy = await post(handle.url, "api/save", { reviewedFiles: ["c.ts"] }).then((r) =>
+      r.json(),
+    );
+    assert.equal(copy.saveNumber, 4);
+    assert.deepEqual(st.reviewedFiles, ["c.ts"]);
+    // A reset is applied too (PR mode: this root has no index for it to restore).
+    st.mode = "pr";
+    const reset = await post(handle.url, "api/reset", {}).then((r) => r.json());
+    assert.equal(reset.state.saveNumber, 5);
+  });
+});
+
+test("a save with changes but no save number is refused, and the desk is untouched", async () => {
+  await withServer(async (handle, _root, st) => {
+    const res = await post(handle.url, "api/save", {
+      changes: { fileSignOffs: { changed: [{ path: "a.ts" }], removed: [] } },
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).code, "INVALID_SAVE");
+    assert.deepEqual(st.reviewedFiles, []);
+    assert.equal(st.saveNumber, undefined);
+  });
+});
+
+test("the save number continues from the stored one after the desk restarts", async () => {
+  await withServer(async (first, root, st) => {
+    const seen = { token: null, reloadGeneration: 0, baseDiffHash: st.baseDiffHash };
+    for (const base of [0, 1])
+      await post(first.url, "api/save", {
+        base,
+        changes: { comments: { changed: [], removed: [] } },
+        seen,
+      });
+    await new Promise<void>((resolve) => first.server.close(() => resolve()));
+    const saved = await loadLatestReview(root, st.session);
+    const second = await startServer({ state: saved!, open: false });
+    try {
+      const answer = await post(second.url, "api/save", {
+        base: 2,
+        changes: { fileSignOffs: { changed: [{ path: "a.ts", hash: "H" }], removed: [] } },
+        seen,
+      }).then((r) => r.json());
+      assert.equal(answer.saveNumber, 3);
+    } finally {
+      second.server.close();
+    }
+  });
+});

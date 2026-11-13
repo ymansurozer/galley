@@ -1064,7 +1064,7 @@ export async function mergeReviewerSave(
   const latest = state.saveNumber ?? 0;
   if (!body || typeof body !== "object") return { unplaced: false, saveNumber: latest };
   const incoming = body as Record<string, unknown>;
-  const changes = "changes" in incoming;
+  const changes = carriesChanges(incoming);
   const unplaced = changes
     ? await applyReviewerChanges(state, incoming, desk, priorDiff)
     : await mergeReviewerCopy(state, incoming, desk, priorDiff);
@@ -1077,6 +1077,14 @@ export async function mergeReviewerSave(
     ...(behind && { merged: structuredClone(reviewerFields(state)) }),
   };
 }
+
+// A save body that carries changes (types.ts, ReviewerDelta), not a full copy. A tab from before
+// 0.6.2 posts its whole ReviewState, whose `changes` is the diff's block list, so only an object
+// counts.
+export const carriesChanges = (body: object) => {
+  const changes = (body as { changes?: unknown }).changes;
+  return !!changes && typeof changes === "object" && !Array.isArray(changes);
+};
 
 type PriorDiff = Pick<ReviewState, "baseDiffHash" | "changes" | "files" | "stagedChangeKeys">;
 
