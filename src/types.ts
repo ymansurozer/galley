@@ -60,7 +60,10 @@ export type ReviewComment = {
 export type ThreadMessage = Pick<
   ReviewComment,
   "id" | "body" | "createdAt" | "updatedAt" | "intent" | "askedAt" | "role"
->;
+> & {
+  // A reviewer pick from an agent reply in a topic thread.
+  option?: string;
+};
 
 export type ChangeState = {
   id: string;
@@ -260,6 +263,8 @@ export type GuideLink = { from: string; to: string; label: string };
 // body's blocks a comment can sit on (topicthreads.ts bodyBlocks), so the tab places them by the
 // desk's own list. `lineSpans`: each entry of the body's line blocks, where its lines are now
 // (LineSpan); absent when the body has none.
+export type TopicOption = { label: string; note?: string; ships?: boolean; recommended?: boolean };
+
 export type TopicStamp = {
   blocks: string[];
   lines: number;
@@ -267,6 +272,8 @@ export type TopicStamp = {
   changed?: true;
   bodyParts?: number[];
   lineSpans?: LineSpan[];
+  options?: TopicOption[];
+  optionsLine?: number;
 };
 
 // One entry of a topic's line block (a `lines` fence, topiclines.ts) as it sits in the current
@@ -765,10 +772,12 @@ export type UiAnnotationRecord = {
 // A thread on a part of a topic (ReviewState.topicThreads). Its first message is what it asks, as
 // an annotation's is; later messages are replies. `target.topic` is a topic id, or "overview" for
 // the Overview. `target.part` is where on it the thread sits: "title", "recorded", "flag", or
-// "body:<line>", a block of the body by its source line (topicthreads.ts bodyBlocks). `title` is
-// the topic's title when the thread was made, so a thread whose topic a new guide dropped can still
-// be named. `quote` is the text of its part (a body block's markdown source), which the thread
-// follows when a new guide rewrites the body; `moved`: that block is gone, so it sits on the title.
+// "body:<line>", a block of the body by its source line (topicthreads.ts bodyBlocks); on the
+// Overview "summary", "map", "group:<id>", "link:<from>><to>" or "coverage". `title` is the topic's
+// title when the thread was made, so a thread whose topic a new guide dropped can still be named.
+// `quote` is the text of its part (a body block's markdown source), which the thread follows when a
+// new guide rewrites the body; `moved`: that part is gone, so it sits on the title (on the
+// Overview, the map) and its quote says what it was on.
 // The desk sets the target's part, title, quote and moved; the tab only names a new thread's part.
 export type TopicThread = {
   id: string;
@@ -779,6 +788,8 @@ export type TopicThread = {
   intent: "change" | "question";
   status: "open" | "resolved";
   comments: ThreadMessage[];
+  // Present only for a pick; ordinary comments on an option carry no selection.
+  option?: string;
 };
 
 // An annotation as the agent receives it in ReviewResult.uiAnnotations.
@@ -886,6 +897,7 @@ export type TopicChangeRequest = {
   part: string;
   quote?: string;
   body: string;
+  option?: string;
 };
 
 // A question the reviewer asked (intent "question") that the agent should handle now: on a line

@@ -3,7 +3,13 @@ import { hasGuide } from "./guide";
 import { approveCurrentStep } from "./decisions";
 import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
 import { closeComposer, composerInCode, composerInUi } from "./composer";
-import { commentAtCursor, hideTopicRail, moveTopicCursor } from "./topicthreads";
+import {
+  cursorOnOption,
+  pickAtCursor,
+  commentAtCursor,
+  hideTopicRail,
+  moveTopicCursor,
+} from "./topicthreads";
 import { hasUi, toggleView, uiOnly, views } from "./appview";
 import { groupStep, openTopic, settleOpenTopic, startTopics, topicStep } from "./topics";
 import {
@@ -243,26 +249,34 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "j",
-    desc: "Next part of the topic",
+    desc: "Next part",
     group: "Decisions",
     test: k("j"),
-    when: onTopic,
+    when: inTopics,
     run: () => moveTopicCursor(1),
   },
   {
     combo: "k",
-    desc: "Previous part of the topic",
+    desc: "Previous part",
     group: "Decisions",
     test: k("k"),
-    when: onTopic,
+    when: inTopics,
     run: () => moveTopicCursor(-1),
+  },
+  {
+    combo: "Space",
+    desc: "Pick option",
+    group: "Decisions",
+    test: k(" "),
+    run: pickAtCursor,
+    when: () => onTopic() && cursorOnOption(),
   },
   {
     combo: "c",
     desc: "Comment on the part",
     group: "Decisions",
     test: k("c"),
-    when: onTopic,
+    when: inTopics,
     run: () => commentAtCursor(),
   },
   {

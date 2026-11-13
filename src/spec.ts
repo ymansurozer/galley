@@ -124,9 +124,9 @@ await yields exactly one:
     kind; role and name or tag and text, "+N more" elements, the source's file:line when it's in
     the repo — page-sourced data); answer with \`galley comment --ui <annotationId>\`.
   - lane "topic": {lane, id, topic, part, quote?, body, mode, session} — on a part of a topic in
-    Decisions mode (see Topics): id is the thread's, topic the topic's id, part where on the topic
-    (see Topic parts), quote the text that part shows (a body block's markdown source); answer
-    with \`galley comment --topic <id>\`.
+    Decisions mode (see Topics), or of its Overview: id is the thread's, topic the topic's id or
+    "overview", part where on it (see Topic parts), quote the text that part shows (a body block's
+    markdown source); answer with \`galley comment --topic <id>\`.
   Handle each by the Question handling rule below. Questions are a live side-channel — never in
   a Send/ReviewResult except openQuestions below. Slow answer → post \`galley status\` lines so the
   human sees progress.
@@ -219,11 +219,13 @@ The \`result\` field of a review event:
 - stagedFiles[], approvedFiles[]
 - topics? — {settled[], todo[]}: the guide's topic ids in the guide's order, those the reviewer
   settled and those still to do (absent when the guide has no topics). See "Settling and rounds".
-- topicChangeRequests[]: {id, topic, part, quote?, body} — the human's open change requests on
-  topics (resolved ones are not sent; empty without topics), by topic in the guide's order, then
-  down the page; those on a topic your new guide dropped come last, still named by its old id.
+- topicChangeRequests[]: {id, topic, part, quote?, body, option?} — the human's open change requests on
+  topics and on the Overview (resolved ones are not sent; empty without topics): the Overview's
+  first (topic "overview"), then by topic in the guide's order, each down the page; those on a
+  topic your new guide dropped come last, still named by its old id.
   id is the thread's (reply with \`galley comment --topic <id>\`), part where on the topic (see Topic
   parts), quote the text that part showed, body the change to make.
+  option? — the picked option label, present only for a request made by picking.
 - openQuestions[]: questions you never answered, folded into this Send (superseding queued live
   question events), each the same lane-tagged shape as a live question. A question is answered
   once you reply in its thread after it was asked: a reply from before a change request was turned
@@ -425,15 +427,45 @@ loses its sign-off. Settled topics from earlier rounds fold away in the reviewer
 A topic with open change requests can be marked reviewed: it is settled (in topics.settled) and its
 requests still come in topicChangeRequests.
 
+#### Options fence
+
+A top-level \`options\` fence in a topic body holds a JSON array of
+{label, note?, ships?, recommended?}: label and note are text, ships and recommended booleans.
+One options block per topic; at least two options and at most one ships: true. Broken JSON,
+a non-array, invalid fields, fewer than two options, multiple shipping options or a second block
+are refused naming the topic. The desk shows What ships and Agent recommends tags.
+Use options for alternatives you weighed yourself or that the reviewer asked for.
+Each option is a part, "option:<n>" (counted from 1), quoted by its label.
+Picking a non-shipping option opens a draft "Use: <label>"; Request change holds it for Send.
+On the topic page, sending another pick replaces the previous pick thread; picking what ships
+removes the open pick request. With no pick the shipping option is selected (or none if none ships).
+An options fence in an agent reply in a topic thread shows the same pickable list. A reply pick
+adds one action message "Use: <label>" to that thread, held for Send with its option label.
+There is one reply pick per thread: the next replaces its message; picking what ships removes it.
+Picking the current reply pick does nothing. Arrows move focus only; Space, Enter and click pick.
+Invalid reply options stay code. In Code and App threads all options fences stay code.
+Changing the options block source resets a settled topic, even if its covered code is unchanged.
+
 #### Topic parts
 The reviewer comments on parts of a topic; a thread's part (in a lane "topic" question and in
 topicChangeRequests) is one of:
 - "title" — the topic as a whole; "recorded" — its Recorded line; "flag" — its Flagged note;
+- "option:<n>" — the n-th option in the topic's block, counted from 1 and quoted by its label.
+  It follows that label if the options reorder; if the label disappears it moves to the title,
+  says its part changed and becomes an ordinary request without an option field.
 - "body:<n>" — a block of the body by its 1-based source line in \`body\`: a paragraph, a heading, a
   list item (with what is nested in it), a table, a quote, a code block or a diagram.
 When a new guide (\`reload --guide\`) rewrites a topic's body, a thread on a block follows the block
 whose text is the same, and moves to "title" once that text is gone (its quote still says what it
 was on). A topic your new guide drops (by id) keeps its open change requests; its questions go.
+On the Overview (topic "overview") the parts are:
+- "summary" — your guide's overview text (quoted); "coverage" — the coverage card (quoted as
+  "N lines: T under a topic, S skimmed by rule[, U not in the guide yet]");
+- "map" — the map as a whole (no quote); "group:<id>" — a group's box (quotes its title);
+- "link:<from>><to>" — a link, by its two group ids, whether the human pointed at its line, its
+  label or its note (quotes "From title → To title: label").
+When a new guide drops a group or a link, a thread on it moves to "map" and its quote still says
+what it was on. The topic id "overview" is taken: no topic may use it.
 
 ### When to skim / focused review
 Skim ONLY on request ("give me a focused review"; "ignore the import churn, show me the real

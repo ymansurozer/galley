@@ -28,7 +28,8 @@ export async function renderTopicBody(
   // md returns sanitised HTML; only then replace the source-stamped fence elements.
   host.innerHTML = md(body);
   for (const block of parseTopicBody(body)) {
-    if (block.kind === "markdown") continue;
+    // An options block is drawn by its topic's page (topicthreads.ts).
+    if (block.kind !== "mermaid" && block.kind !== "lines") continue;
     const fence = host.querySelector(`pre[data-line="${block.line}"]`);
     // The markdown highlighter may not be ready yet; its ready callback redraws the page.
     if (!fence) continue;

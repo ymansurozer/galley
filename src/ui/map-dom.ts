@@ -110,16 +110,22 @@ export function mapListHtml(stages: MapStage[], links: GuideLink[]) {
     .join("")}</div>`;
 }
 
-// Light the links into and out of a group (null puts every link back), dimming the rest. A lit
-// line is raised over the others, so a run it shares with a dimmed one shows lit.
-export function lightMapLinks(host: ParentNode, group: string | null) {
+// Light the links into and out of a group (null puts every link back), dimming the rest; or, given
+// `link` (its two ends), that link alone. A lit line is raised over the others, so a run it shares
+// with a dimmed one shows lit. The narrow list's row and lines light the same way.
+export function lightMapLinks(host: ParentNode, group: string | null, link?: [string, string]) {
   const map = host.querySelector(".map");
   if (!map) return;
   const touches = (el: Element) => {
-    if (group === null) return false;
+    if (group === null && !link) return false;
     const { links, from, to } = (el as HTMLElement | SVGElement).dataset;
     const ends: unknown = links ? JSON.parse(links) : [[from, to]];
-    return Array.isArray(ends) && ends.some((e) => Array.isArray(e) && e.includes(group));
+    if (!Array.isArray(ends)) return false;
+    return ends.some(
+      (e) =>
+        Array.isArray(e) &&
+        (link ? e[0] === link[0] && e[1] === link[1] : group !== null && e.includes(group)),
+    );
   };
   const parts = map.querySelectorAll(".map-link, .map-label, .map-cross, .map-note");
   const any = [...parts].some(touches);
@@ -127,8 +133,10 @@ export function lightMapLinks(host: ParentNode, group: string | null) {
   for (const el of parts) el.classList.toggle("map-hot", any && touches(el));
   const layer = map.querySelector(".map-links");
   if (layer) for (const el of layer.querySelectorAll(".map-link.map-hot")) layer.append(el);
-  for (const el of map.querySelectorAll<HTMLElement>(".map-box"))
-    el.classList.toggle("map-hot", any && el.dataset.group === group);
+  for (const el of host.querySelectorAll<HTMLElement>(".map-box, .map-list-row"))
+    el.classList.toggle("map-hot", group !== null && el.dataset.group === group);
+  for (const el of host.querySelectorAll(".map-list-feed"))
+    el.classList.toggle("map-hot", !!link && touches(el));
 }
 
 // The browser's measurer: canvas text widths in the map's own faces, read from the page's sans font.

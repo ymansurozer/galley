@@ -23,7 +23,7 @@ import {
   type TopicAt,
 } from "./topics-derive";
 import { decorateTopicPage, decorateTopicsOverview } from "./topicthreads";
-import { isOpenChange, topicBlockers } from "./topicthreads-derive";
+import { groupPart, isOpenChange, mapTarget, topicBlockers } from "./topicthreads-derive";
 import {
   renderTopicPage,
   renderTopicsNav,
@@ -56,6 +56,10 @@ const earlierOpen = new Set<string>();
 // to the Overview.
 export function renderTopics() {
   if (!hasTopics()) return;
+  // A save or poll can redraw the list after a pick too; keep keyboard focus in that reply.
+  const active = document.activeElement as HTMLElement | null;
+  const replyOptions = active?.closest<HTMLElement>("[data-reply-options]")?.dataset.replyOptions;
+  const optionPart = active?.closest<HTMLElement>("[data-option-part]")?.dataset.optionPart;
   if (!placeOf(stages(), S.topicAt)) S.topicAt = null;
   const nav = $("topicsNav");
   const threads = S.state.topicThreads ?? [];
@@ -90,7 +94,7 @@ export function renderTopics() {
   } else {
     renderTopicsOverview(page, overview(page.clientWidth), renderMarkdown);
     decorateTopicsOverview(page);
-    lightMapLinks(page, lit);
+    lightMap(page, lit);
   }
   const points = page.querySelector<HTMLDetailsElement>(".topic-points");
   if (points) {
@@ -112,10 +116,22 @@ export function renderTopics() {
   }
   drawn = S.topicAt;
   updateProgress();
+  if (replyOptions && optionPart)
+    page
+      .querySelector<HTMLElement>(
+        `[data-reply-options="${CSS.escape(replyOptions)}"] [data-option-part="${CSS.escape(optionPart)}"] .topic-option`,
+      )
+      ?.focus({ preventScroll: true });
 }
 
-// The group the pointer is on in the Overview's map, so a redraw keeps its links lit.
+// The box or link the pointer names on the Overview, as a part (a box, or a link or a thread on
+// one), so a redraw keeps it lit.
 let lit: string | null = null;
+function lightMap(page: HTMLElement, part: string | null) {
+  const at = part === null ? null : mapTarget(part, S.state.guide?.links ?? []);
+  if (at && "link" in at) lightMapLinks(page, null, at.link);
+  else lightMapLinks(page, at?.group ?? null);
+}
 
 // The Overview's map is laid out for the room the page has: wider than the reading column, up to
 // the widest it draws at, and never so narrow it stops being a map (it scrolls sideways instead).
@@ -275,29 +291,40 @@ export function installTopics() {
       reset(S.topicAt);
       renderTopics();
     }
-    // A box on the Overview's map opens its group.
+    // A box on the Overview's map opens its group; ⇧ click and its comment button comment on it
+    // (topicthreads.ts).
     const box = target.closest<HTMLElement>(".topics-map [data-group]");
-    if (box?.dataset.group) openGroup(box.dataset.group);
+    if (box?.dataset.group && !e.shiftKey && !target.closest("[data-gut]"))
+      openGroup(box.dataset.group);
   });
-  // ↵ or space on a focused box opens it, ahead of the Overview's own ↵ (Start Review).
+  // ↵ or space on a focused box opens it, ahead of the Overview's own ↵ (Start Review). On its
+  // comment button they press the button.
   page.addEventListener("keydown", (e) => {
-    const box = (e.target as Element).closest<HTMLElement>(".topics-map [data-group]");
+    const target = e.target as Element;
+    const box = target.closest<HTMLElement>(".topics-map [data-group]");
     if (!box?.dataset.group || (e.key !== "Enter" && e.key !== " ")) return;
+    if (target.closest("[data-gut]")) return;
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     e.preventDefault();
     e.stopPropagation();
     openGroup(box.dataset.group);
   });
-  // Pointing at a box lights its links.
+  // Pointing at a box lights its links; at a link, or a thread under the map (its chip), lights
+  // the box or the link it names.
   page.addEventListener("mouseover", (e) => {
-    const group = (e.target as Element).closest<HTMLElement>(".map-box")?.dataset.group ?? null;
-    if (group === lit) return;
-    lit = group;
-    lightMapLinks(page, lit);
+    const target = e.target as Element;
+    const group = target.closest<HTMLElement>(".map-box")?.dataset.group;
+    const named =
+      target.closest<HTMLElement>("[data-map-part]")?.dataset.mapPart ??
+      target.closest<HTMLElement>('.topics-map [data-gut^="link:"]')?.dataset.gut;
+    const part = group !== undefined ? groupPart(group) : (named ?? null);
+    if (part === lit) return;
+    lit = part;
+    lightMap(page, lit);
   });
   page.addEventListener("mouseleave", () => {
     lit = null;
-    lightMapLinks(page, null);
+    lightMap(page, null);
   });
   // The map measures its text, so it is laid out again when the room or the font changes.
   const overviewShowing = () => hasTopics() && S.view === "topics" && S.topicAt === null;

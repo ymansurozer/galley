@@ -2,8 +2,12 @@ import MarkdownIt from "markdown-it";
 
 // A `lines` fence is drawn from the desk's stamp of where its lines are now (TopicStamp lineSpans),
 // not from its text, so only its place is read here.
-export type TopicBodyBlock = { kind: "markdown" | "mermaid" | "lines"; text: string; line: number };
-const FENCES = new Set(["mermaid", "lines"]);
+export type TopicBodyBlock = {
+  kind: "markdown" | "mermaid" | "options" | "lines";
+  text: string;
+  line: number;
+};
+const FENCES = new Set(["mermaid", "options", "lines"]);
 const parser = new MarkdownIt({ html: false });
 
 // Use markdown's own fence rules so examples inside longer fences, lists and quotes stay prose.
@@ -21,7 +25,7 @@ export function parseTopicBody(body: string): TopicBodyBlock[] {
     const closing = lines[end - 1]?.trim() ?? "";
     const closed = new RegExp(`^${token.markup[0]}{${token.markup.length},}$`).test(closing);
     blocks.push({
-      kind: token.info.trim() as "mermaid" | "lines", // one of FENCES
+      kind: token.info.trim() as "mermaid" | "options" | "lines", // one of FENCES
       text: lines.slice(start + 1, closed ? end - 1 : end).join(""),
       line: start + 1,
     });

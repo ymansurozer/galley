@@ -49,6 +49,7 @@ import {
 } from "./topicthreads.js";
 import { entryLabel, lineBlocks } from "./topiclines.js";
 import { shotDir } from "./uishots.js";
+import { optionBlocks } from "./topicoptions.js";
 
 export function nowIso() {
   return new Date().toISOString();
@@ -807,11 +808,13 @@ function writeTopicStamps(
       const change = byKey.get(u.key);
       if (change) change.topics = [...(change.topics ?? []), topic.id];
     }
+    const options = optionBlocks(topic.body)[0];
     stamps[topic.id] = {
       blocks: mine.map((u) => u.key),
       lines: mine.reduce((n, u) => n + u.lines, 0),
-      coverHash: hash(mine.map((u) => u.hash).join("\n")),
+      coverHash: hash(mine.map((u) => u.hash).join("\n") + (options ? "\n" + options.source : "")),
       bodyParts: bodyBlocks(topic.body).map((b) => b.line),
+      ...(options?.options && { options: options.options, optionsLine: options.line }),
     };
     const lineSpans = spans.get(topic.id);
     if (lineSpans?.length) stamps[topic.id]!.lineSpans = lineSpans;
@@ -1660,7 +1663,8 @@ async function mergeReviewerCopy(
     state.annotations = annotations;
   }
   const threads = readTopicThreads(incoming.topicThreads);
-  if (threads) state.topicThreads = takeTopicThreads(threads, state.topicThreads, state.guide);
+  if (threads)
+    state.topicThreads = takeTopicThreads(threads, state.topicThreads, state.guide, state.coverage);
   raiseAnnotationMark(state, incoming.lastAnnotationNumber);
   return unplaced;
 }
@@ -1919,12 +1923,8 @@ async function applyReviewerChanges(
   // A topic thread sits where the desk placed it, on its guide, whichever diff or guide the tab
   // was on (takeTopicThread).
   if (c.topicThreads) {
-    const changed = takeTopicThreads(c.topicThreads.changed, state.topicThreads, state.guide);
-    state.topicThreads = applyKeyed(
-      state.topicThreads ?? [],
-      { ...c.topicThreads, changed },
-      (t) => t.id,
-    );
+    const next = applyKeyed(state.topicThreads ?? [], c.topicThreads, (t) => t.id);
+    state.topicThreads = takeTopicThreads(next, state.topicThreads, state.guide, state.coverage);
   }
   raiseAnnotationMark(state, c.lastAnnotationNumber);
   return unplaced;

@@ -8,6 +8,7 @@ import type {
   GuideTopic,
 } from "./types.js";
 import { lineBlocks } from "./topiclines.js";
+import { optionBlocks } from "./topicoptions.js";
 
 export type GuideValidation = { ok: true; guide: Guide } | { ok: false; reason: string };
 
@@ -91,6 +92,9 @@ function topic(
   const e = entry(raw, at, ["title", "recorded", "body"]);
   if (!e.ok) return e;
   const r = e.raw;
+  // A topic thread's target names a topic by id, or the Overview by this one.
+  if (r.id === "overview")
+    return { ok: false, reason: `${e.at}.id "overview" is taken: it names the Overview` };
   const lines = lineBlocks(r.body as string);
   if (!lines.ok)
     return {
@@ -110,6 +114,12 @@ function topic(
     body: r.body as string,
     covers: c.covers,
   };
+  const options = optionBlocks(t.body);
+  if (options.length > 1 || options.some((b) => !b.options))
+    return {
+      ok: false,
+      reason: `${e.at} topic ${t.id}: options must be one JSON array of at least two labelled options, at most one ships; note must be text and ships/recommended booleans`,
+    };
   if (text(r.concern)) t.concern = r.concern as string;
   if (text(r.flag)) t.flag = r.flag as string;
   if (r.pages !== undefined) {

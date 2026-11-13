@@ -20,8 +20,14 @@ const asks = (c: ReviewComment) =>
 // lists them, and the files they sit on; the threads whose open question no agent reply answers
 // yet (they go as openQuestions); and the per-change verdicts set to rejected (`rejected`), which
 // go whether or not the desk shows per-change verdicts. What doesn't: resolved threads, and
-// threads whose questions were all answered that request no change.
-export function codeSendSummary(comments: readonly ReviewComment[], rejected: number) {
+// threads whose questions were all answered that request no change. `topics`: the topic threads'
+// own words (topicthreads-derive topicSendParts), on a desk whose receipt has no lanes, so it
+// never reads "No change requests" while topic requests go.
+export function codeSendSummary(
+  comments: readonly ReviewComment[],
+  rejected: number,
+  topics: readonly string[] = [],
+) {
   const threads = codeThreads(comments);
   const requests = threads.filter((t) => t.some(asksChange));
   const files = new Set(requests.flat().map((c) => c.path)).size;
@@ -40,6 +46,7 @@ export function codeSendSummary(comments: readonly ReviewComment[], rejected: nu
         requests.length ? `${n(requests.length, "change request")} in ${n(files, "file")}` : "",
         waiting ? n(waiting, "open question") : "",
         rejected ? n(rejected, "rejected change") : "",
+        ...topics,
       ]
         .filter(Boolean)
         .join(" · ") || "No change requests",

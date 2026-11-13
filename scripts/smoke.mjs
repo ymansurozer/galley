@@ -708,8 +708,10 @@ try {
       session: ID,
     },
   ]);
+  const replyOptions =
+    'Nowhere yet.\n\n```options\n[{"label":"Write it down"},{"label":"Keep in code"}]\n```';
   const topicReply = JSON.parse(
-    cli("comment", "--repo", tmp, "--session", ID, "--topic", "topic-q1", "--body", "Nowhere yet."),
+    cli("comment", "--repo", tmp, "--session", ID, "--topic", "topic-q1", "--body", replyOptions),
   );
   assert.ok(topicReply.ok && topicReply.live, "the reply went to the live desk");
   const topicThread = (await getJson("/api/poll")).topicThreads.find((t) => t.id === "topic-q1");
@@ -717,7 +719,7 @@ try {
     topicThread.comments.map((m) => [m.role, m.body]),
     [
       ["user", "Where is this written down?"],
-      ["agent", "Nowhere yet."],
+      ["agent", replyOptions],
     ],
     "the answer is in the thread the tab polls",
   );
@@ -729,6 +731,63 @@ try {
   assert.equal(noThread.status, 1, "a thread id the review doesn't have exits non-zero");
   console.log(
     "✓ topic question → await yields lane topic with the part and its quote; comment --topic answers in the thread",
+  );
+
+  // A question on a group's box on the Overview: the event names the Overview and the box, quoting
+  // its title, and `galley comment --topic` answers it like any topic thread.
+  const boxAsked = new Date().toISOString();
+  await post("/api/save", {
+    topicThreads: [
+      ...(await getJson("/api/poll")).topicThreads,
+      {
+        id: "overview-q1",
+        target: { topic: "overview", part: "group:edits" },
+        title: "",
+        intent: "question",
+        status: "open",
+        comments: [
+          {
+            id: "overview-q1-m1",
+            role: "user",
+            intent: "question",
+            body: "Why is this one group?",
+            createdAt: boxAsked,
+            updatedAt: boxAsked,
+          },
+        ],
+      },
+    ],
+  });
+  await post("/api/ask", { topicThreadId: "overview-q1", messageId: "overview-q1-m1" });
+  const evBox = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  assert.equal(evBox.kind, "question");
+  assert.deepEqual(evBox.questions, [
+    {
+      lane: "topic",
+      id: "overview-q1",
+      topic: "overview",
+      part: "group:edits",
+      quote: "Edits",
+      body: "Why is this one group?",
+      mode: "repo",
+      session: ID,
+    },
+  ]);
+  const boxReply = JSON.parse(
+    cli("comment", "--repo", tmp, "--session", ID, "--topic", "overview-q1", "--body", "One file."),
+  );
+  assert.ok(boxReply.ok && boxReply.live, "the reply went to the live desk");
+  assert.deepEqual(
+    (await getJson("/api/poll")).topicThreads
+      .find((t) => t.id === "overview-q1")
+      .comments.map((m) => [m.role, m.body]),
+    [
+      ["user", "Why is this one group?"],
+      ["agent", "One file."],
+    ],
+  );
+  console.log(
+    "✓ Overview question on a box → await names the Overview and the group; comment --topic answers it",
   );
 
   // human asks a question → `galley await` yields a question event
