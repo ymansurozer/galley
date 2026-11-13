@@ -23,6 +23,7 @@ import type {
   DiffFile,
   DiffHunk,
   Guide,
+  GuideTopic,
   QuestionPayload,
   ReviewComment,
   ReviewFile,
@@ -596,7 +597,7 @@ export function resolveTopics(
     if (!r.ok) return { ok: false, reason: `guide topic ${JSON.stringify(topic.id)}: ${r.reason}` };
     claimed.set(topic.id, r.keys);
   }
-  writeTopicStamps(review, guide, index, claimed);
+  writeTopicStamps(review, topics, index, claimed);
   return { ok: true };
 }
 
@@ -613,45 +614,47 @@ export function stampTopics(review: Pick<ReviewState, "files" | "changes" | "gui
     return;
   }
   const index = coverIndex(review);
-  const claimed = new Map(topics.map((t) => [t.id, new Set<string>()]));
+  const claimed = new Map<string, Set<string>>();
   for (const c of review.changes)
-    for (const id of c.topics ?? []) claimed.get(id)?.add(`${c.path}:${c.stableKey}`);
-  for (const topic of topics)
+    for (const id of c.topics ?? [])
+      claimed.set(id, (claimed.get(id) ?? new Set()).add(`${c.path}:${c.stableKey}`));
+  for (const topic of topics) {
+    const keys = claimed.get(topic.id) ?? new Set<string>();
     for (const cover of topic.covers) {
       const whole = index.get(cover.path)?.every((u) => u.key.endsWith(":file"));
       const r = resolveCovers(cover.lines && !whole ? [] : [{ path: cover.path }], index);
-      if (r.ok) for (const key of r.keys) claimed.get(topic.id)!.add(key);
+      if (r.ok) for (const key of r.keys) keys.add(key);
     }
-  writeTopicStamps(review, review.guide!, index, claimed);
+    claimed.set(topic.id, keys);
+  }
+  writeTopicStamps(review, topics, index, claimed);
 }
 
 // Each block's `topics` and each topic's TopicStamp, from the unit keys each topic claimed.
 function writeTopicStamps(
   review: Pick<ReviewState, "changes" | "topics">,
-  guide: Guide,
+  topics: GuideTopic[],
   index: CoverIndex,
   claimed: Map<string, Set<string>>,
 ) {
   const byKey = new Map(review.changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
   for (const c of review.changes) delete c.topics;
   const units = [...index.values()].flat();
-  const topics: Record<string, TopicStamp> = {};
-  const all = guideTopics(guide);
-  if (!all.length) return;
-  for (const topic of all) {
+  const stamps: Record<string, TopicStamp> = {};
+  for (const topic of topics) {
     const keys = claimed.get(topic.id) ?? new Set<string>();
     const mine = units.filter((u) => keys.has(u.key));
     for (const u of mine) {
       const change = byKey.get(u.key);
       if (change) change.topics = [...(change.topics ?? []), topic.id];
     }
-    topics[topic.id] = {
+    stamps[topic.id] = {
       blocks: mine.map((u) => u.key),
       lines: mine.reduce((n, u) => n + u.lines, 0),
       coverHash: hash(mine.map((u) => u.hash).join("\n")),
     };
   }
-  review.topics = topics;
+  review.topics = stamps;
 }
 
 export type MovedResolution = { ok: true } | { ok: false; reason: string };
@@ -2259,9 +2262,11 @@ export async function mergeReviewState(
     guide: saved.guide
       ? {
           ...saved.guide,
-          files: saved.guide.files?.map((g) =>
-            renameMap.has(g.path) ? { ...g, path: migratePath(g.path) } : g,
-          ),
+          ...(saved.guide.files && {
+            files: saved.guide.files.map((g) =>
+              renameMap.has(g.path) ? { ...g, path: migratePath(g.path) } : g,
+            ),
+          }),
         }
       : base.guide,
     // Same for the UI target; a `--ui` at restart replaces it after the merge (runDesk).
