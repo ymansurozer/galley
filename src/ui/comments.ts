@@ -3,6 +3,34 @@ import { toDisplayLine } from "./changes";
 import { render } from "./render";
 import { updateAwaitingDom } from "./annotations";
 import { askStamp, turnInto, turnsInto } from "./uilane-derive";
+import { uuid } from "./uuid";
+import type { Side } from "./types";
+
+// A new line comment by the reviewer, wherever it was made: on a line of Code mode's diff, or on a
+// line of a line block on a topic page (topics-lines.ts). Either is the same ReviewComment on the
+// file's own path, side and raw line, so the thread is one thread in both places. `anchorText` is
+// the anchored line's text, which a reload re-anchors the thread by (reanchorComments). A question
+// is asked of the agent at once.
+export function addLineComment(
+  at: { path: string; side: Side; lineNumber: number; endLine?: number; anchorText?: string },
+  body: string,
+  intent: "question" | "action",
+) {
+  const now = new Date().toISOString();
+  const c = {
+    id: uuid(),
+    ...at,
+    createdAt: now,
+    updatedAt: now,
+    status: "open" as const,
+    role: "user" as const,
+    body,
+    intent,
+  };
+  S.state.comments.push(c);
+  persist();
+  if (intent === "question") void askComment(c.id);
+}
 
 // Edit & delete the reviewer's own comments. Agent replies (role "agent") are
 // read-only and never get edit/delete affordances, but we guard here too.

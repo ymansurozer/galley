@@ -25,12 +25,14 @@ import {
 import { validateGuide } from "./guide.js";
 import { createSerializer } from "./mutex.js";
 import { parseUiTarget, startUiProxy, tryListen } from "./proxy.js";
+import { carryTopicThreads, replyToTopicThread, topicQuestionPayload } from "./topicthreads.js";
 import type { UiProxy } from "./proxy.js";
 import {
   addPostedComment,
   anchorTextFor,
   buildReviewResult,
   buildReviewState,
+  carryTopicSignOffs,
   hash,
   inPortRange,
   carriesChanges,
@@ -48,6 +50,7 @@ import {
   resolveGuide,
   reviewDir,
   reviewerFields,
+  roundOf,
   syncGitState,
   uiQuestionPayload,
   unvisitedAnnotations,
@@ -313,7 +316,7 @@ async function firstExisting(...candidates: string[]) {
 }
 
 // The UI bundle esbuild emits: ui.js and, beside it, the ui.css its stylesheet import produces.
-async function uiBundlePath(file: "ui.js" | "ui.css") {
+async function uiBundlePath(file: "ui.js" | "ui.css" | "diagrams.js") {
   return firstExisting(path.join(__dirname, file), path.join(process.cwd(), "dist", file));
 }
 
@@ -526,7 +529,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     else eventQueue.push(ev);
   };
   // The reviewer's open questions, by message id: a code comment, or a message in an open UI
-  // annotation's thread. /api/ask builds each question event from the stored copy.
+  // annotation's or topic thread. /api/ask builds each question event from the stored copy.
   const isAsked = (m: ThreadMessage) => m.role !== "agent" && m.intent === "question";
   const codeQuestion = (id: unknown) =>
     state.comments.find((c) => c.id === id && c.status === "open" && isAsked(c));
@@ -534,6 +537,11 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
     const a = state.annotations?.find((x) => x.id === annotationId && x.status === "open");
     const m = a?.comments.find((x) => x.id === id && isAsked(x));
     return a && m ? { a, m } : undefined;
+  };
+  const topicQuestion = (threadId: unknown, id: unknown) => {
+    const t = state.topicThreads?.find((x) => x.id === threadId && x.status === "open");
+    const m = t?.comments.find((x) => x.id === id && isAsked(x));
+    return t && m ? { t, m } : undefined;
   };
   // The message each question was asked in. A queued question the reviewer takes back (its message
   // turned into a change request, resolved or deleted by a save or a reset) has nothing left to
@@ -544,7 +552,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   const stillAsked = (q: QuestionPayload) => {
     const id = askedIn.get(q);
     if (id === undefined) return true;
-    return q.lane === "code" ? !!codeQuestion(id) : !!uiQuestion(q.annotationId, id);
+    if (q.lane === "code") return !!codeQuestion(id);
+    return q.lane === "ui" ? !!uiQuestion(q.annotationId, id) : !!topicQuestion(q.id, id);
   };
   // Taken just before the reviewer's change: withdrawQuestions drops the ones it took back.
   const askedQuestions = () =>
@@ -709,8 +718,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         res.end(await html());
         return;
       }
-      if (req.method === "GET" && (url.pathname === "/ui.js" || url.pathname === "/ui.css")) {
-        const name = url.pathname === "/ui.js" ? "ui.js" : "ui.css";
+      if (req.method === "GET" && ["/ui.js", "/ui.css", "/diagrams.js"].includes(url.pathname)) {
+        const name = url.pathname.slice(1) as "ui.js" | "ui.css" | "diagrams.js";
         const file = await uiBundlePath(name);
         const stat = await fs.stat(file).catch(() => null);
         const etag = stat ? `"${stat.size}-${Math.round(stat.mtimeMs)}"` : "";
@@ -721,7 +730,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         }
         const body = await fs.readFile(file, "utf8").catch(() => "");
         res.writeHead(200, {
-          "content-type": `${name === "ui.js" ? "text/javascript" : "text/css"}; charset=utf-8`,
+          "content-type": `${name === "ui.css" ? "text/css" : "text/javascript"}; charset=utf-8`,
           ...(etag ? { etag, "cache-control": "no-cache" } : {}),
         });
         res.end(body);
@@ -745,8 +754,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           comments: state.comments,
           ui: state.ui,
           annotations: state.annotations,
+          topicThreads: state.topicThreads,
           project: state.project,
           branch: state.branch,
+          round: state.round,
           saveNumber: state.saveNumber ?? 0,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
@@ -944,15 +955,26 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             priorDiff,
           );
           await syncGitState(state);
-          const file = await persistReview(state);
-          const sessionDir = path.dirname(file);
+          const sessionDir = await reviewDir(state.root, state.session);
           await pruneScreenshots(sessionDir);
           const resultJson = path.join(sessionDir, `${state.id}-result.json`);
           const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
-          await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
+          // The Send ends the round: what the reviewer settles from here is settled in the next.
+          // A Send that fails before its review is queued for the agent ended nothing, so the
+          // round goes back, on disk too, and a retry sends the same round.
+          const round = state.round;
+          state.round = roundOf(state) + 1;
           const event: ReviewEvent = { kind: "review", result: payload };
           const pending = [...undelivered, event];
-          await writeUndelivered(pending);
+          try {
+            await persistReview(state);
+            await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
+            await writeUndelivered(pending);
+          } catch (error) {
+            state.round = round;
+            await persistReview(state).catch(() => {});
+            throw error;
+          }
           undelivered = pending;
           // The review goes to the agent once the tab's answer is over, written or not: a tab
           // that closed, dropped or gave up before it never sees "finish", only "close", and
@@ -969,7 +991,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             emitEvent(event);
           };
           res.once("close", handOver);
-          const answer: SaveAnswer = { ok: true, sent: true, resultJson, saveNumber };
+          const answer: SaveAnswer = {
+            ok: true,
+            sent: true,
+            resultJson,
+            saveNumber,
+            round: state.round,
+          };
           if (unplaced) answer.unplaced = true;
           if (merged) answer.merged = merged;
           json(res, 200, answer);
@@ -986,13 +1014,27 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           side?: string;
           body?: string;
           annotationId?: string;
+          topicThreadId?: string;
           messageId?: string;
         };
         let question: QuestionPayload;
         let asked: string | undefined;
-        // A question the tab saved first names its message (a code comment, or a UI annotation and
-        // a message in its thread): the event is built from the stored copy, as openQuestions is.
-        if (b.annotationId !== undefined) {
+        // A question the tab saved first names its message (a code comment, or a UI annotation or a
+        // topic thread and a message in it): the event is built from the stored copy, as
+        // openQuestions is.
+        if (b.topicThreadId !== undefined) {
+          const found = topicQuestion(b.topicThreadId, b.messageId);
+          if (!found)
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `No question "${b.messageId}" in topic thread "${b.topicThreadId}" in this review.`,
+              "Save the thread before asking.",
+            );
+          question = topicQuestionPayload(state, found.t, found.m);
+          asked = found.m.id;
+        } else if (b.annotationId !== undefined) {
           const found = uiQuestion(b.annotationId, b.messageId);
           if (!found)
             return fail(
@@ -1223,6 +1265,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
                 `Invalid guide: ${resolved.reason}.`,
                 "Run `galley spec` for the guided-review schema.",
               );
+            // Topic sign-offs are judged by this guide's stamps, not the old guide's, and topic
+            // threads follow their parts onto it.
+            carryTopicSignOffs(merged, state);
+            carryTopicThreads(merged);
             // The carry source's stamps index the old guide's entries: never carry them under this one.
             stampSource = undefined;
           }
@@ -1466,6 +1512,37 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           return json(res, 200, { ok: true, commentId: reply.id });
         });
       }
+      if (req.method === "POST" && url.pathname === "/api/topic-comment") {
+        // `galley comment --topic <id>`: the agent's reply in a topic thread. The tab adds it to its
+        // copy on the next poll, and a save from a tab that hasn't yet keeps it (takeTopicThread).
+        return await serialize(async () => {
+          const body = JSON.parse(await readBody(req)) as { threadId?: unknown; body?: unknown };
+          const id = typeof body.threadId === "string" ? body.threadId : "";
+          const text = typeof body.body === "string" ? body.body.trim() : "";
+          if (!text)
+            return fail(
+              res,
+              422,
+              "INVALID_COMMENT",
+              "comment --topic requires a body",
+              "Send { threadId, body } as JSON.",
+            );
+          const reply = replyToTopicThread(state, id, text, nowIso());
+          if (!reply)
+            return fail(
+              res,
+              404,
+              "NOT_FOUND",
+              `No topic thread "${id}" in this review.`,
+              "Reply with a topic question's id, or an id from topicChangeRequests[].",
+            );
+          // As with a code reply: the answer has landed, so the "doing X now" line is obsolete.
+          agentActivity = null;
+          markAgentRequest(req);
+          await persistReview(state);
+          return json(res, 200, { ok: true, commentId: reply.id });
+        });
+      }
       if (req.method === "POST" && url.pathname === "/api/status") {
         // Ephemeral agent activity (`galley status`): a one-line "what I'm doing
         // now" while the agent works on a question or review. Never persisted.
@@ -1497,11 +1574,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           const asked = askedQuestions();
           state.comments = [];
           state.annotations = [];
+          state.topicThreads = [];
           withdrawQuestions(asked);
           state.lastAnnotationNumber = 0;
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
           state.signedOffBlocks = {};
+          state.settledTopics = {};
           state.stagedFiles = [];
           state.stagedChangeKeys = [];
           state.decisionFiles = [];

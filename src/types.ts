@@ -60,7 +60,10 @@ export type ReviewComment = {
 export type ThreadMessage = Pick<
   ReviewComment,
   "id" | "body" | "createdAt" | "updatedAt" | "intent" | "askedAt" | "role"
->;
+> & {
+  // A reviewer pick from an agent reply in a topic thread.
+  option?: string;
+};
 
 export type ChangeState = {
   id: string;
@@ -101,6 +104,12 @@ export type ChangeState = {
   // step). Resolved from the guide's spans on attach, then carried by content across every reload
   // or restart that keeps the guide (state.ts carryGuideStamps). Never rides /api/save.
   part?: number;
+  // Server-stamped: the ids of the guide topics whose covers claim this block. Resolved from the
+  // covers on attach, then carried by content like `skim` (state.ts carryGuideStamps). Never rides
+  // /api/save.
+  topics?: string[];
+  // Coverage-only skims; independent of Code mode folding.
+  coverageSkims?: number[];
 };
 
 // An explicit, durable record of a user's accept/reject on a change block, keyed
@@ -197,6 +206,95 @@ export type GuideFile = {
   part?: { title: string; lines: Array<[number, number] | number> };
 };
 
+// What a topic points at in the diff: a file, a folder (a path ending in "/"), or new-side line
+// spans of a file. Resolved when the guide is attached to the change blocks it claims, with the rule
+// skimBlocks and part.lines use: a span claims every block it touches, a file all its blocks, a
+// folder every changed file under it (state.ts resolveCovers).
+export type Cover = { path: string; lines?: Array<number | [number, number]> };
+
+// One thing the reviewer must settle, on its own page in Decisions mode. `id` is the agent's, and
+// stays the same from one guide to the next, so what the reviewer did on a topic finds it again.
+export type GuideTopic = {
+  id: string;
+  title: string;
+  // Where the call is written down, or that only the code records it.
+  recorded: string;
+  // Markdown.
+  body: string;
+  // A free label from the reviewer's skill; the desk only shows it.
+  concern?: string;
+  // Present → the topic is flagged for closer scrutiny, and this is the note.
+  flag?: string;
+  covers: Cover[];
+  // App paths to look at.
+  pages?: string[];
+};
+// An agent explains why these changes need no topic and may cite the reviewer’s rule.
+// Coverage-only: these claims never fold Code mode, whose skims live on files entries.
+export type GuideSkim = { reason: string; rule?: string; covers: Cover[] };
+// Server-owned coverage, rebuilt on every guide attach and diff reload. Counts are added plus
+// removed lines of whole change blocks, never literal span lengths.
+export type TopicCoverage = {
+  // Exclusive union of topic claims: a topic wins any overlap with a skim.
+  topicLines: number;
+  // Claimed by a skim and no topic; overlapping skims assign their lines to the first source.
+  skimmedLines: number;
+  // All changed lines: topicLines + skimmedLines + uncoveredLines equals this total.
+  totalLines: number;
+  // Neither claimed nor skimmed: zero on attach, possible after a retained guide reloads.
+  uncoveredLines: number;
+  // Per-source exclusive counts add up to skimmedLines, including zero-line sources.
+  skims: Array<{ reason: string; rule?: string; lines: number }>;
+};
+
+export type GuideGroup = { id: string; title: string; summary?: string; topics: GuideTopic[] };
+// Where a group sits in the system. Stages are columns, in the guide's order.
+export type GuideStage = { id: string; label: string; groups: GuideGroup[] };
+// What one group hands another, by group id, with a short label. Galley draws the Overview's map
+// from the stages, groups and links; the agent writes no diagram.
+export type GuideLink = { from: string; to: string; label: string };
+
+// The desk's resolution of one topic's covers against the diff, stamped on attach and kept current
+// on every reload (state.ts stampTopics). `blocks` are the change blocks it claims, `path:stableKey`
+// in diff order; `lines` is their added plus removed lines; `coverHash` hashes the blocks' content in
+// order and no line number, so it holds while lines shift above them and moves when one is edited.
+// `changed`: the reviewer's sign-off on it was dropped because its cover hash moved (state.ts
+// carryTopicSignOffs); kept until the topic is settled again. `bodyParts`: the body's blocks a
+// comment can sit on, each by its source line with its text (topicthreads.ts bodyBlocks), so the tab
+// places parts by the desk's own list and a new thread sends the text the desk quotes. `lineSpans`:
+// each entry of the body's line blocks, where its lines are now (LineSpan); absent when the body has
+// none.
+export type TopicOption = { label: string; note?: string; ships?: boolean; recommended?: boolean };
+
+export type TopicStamp = {
+  blocks: string[];
+  lines: number;
+  coverHash: string;
+  changed?: true;
+  bodyParts?: Array<{ line: number; text: string }>;
+  lineSpans?: LineSpan[];
+  options?: TopicOption[];
+  optionsLine?: number;
+};
+
+// One entry of a topic's line block (a `lines` fence, topiclines.ts) as it sits in the current
+// diff: `fence` is the block's source line in the body, `blocks` the change blocks the entry
+// touches (`path:stableKey`), `start`/`end` the new-side lines to draw. Stamped from the entry's text
+// when the guide is attached, then restamped on every re-diff from the blocks it touched (state.ts
+// stampTopics): a block whose content holds moves the range with it, a rewritten one is drawn whole,
+// and once none is left in the diff `blocks` is empty and there is no range.
+export type LineSpan = {
+  fence: number;
+  path: string;
+  blocks: string[];
+  start?: number;
+  end?: number;
+};
+
+// A settled topic (ReviewState.settledTopics): its cover hash when the reviewer settled it, and the
+// round it was settled in. Settled while `hash` is the topic's current coverHash (topicSettled).
+export type TopicSignOff = { hash: string; round: number };
+
 // The guided review the coding agent attaches (the desk renders it, runs no model).
 // Absent on a ReviewState → no guide surfaces render and the desk works as today.
 export type Guide = {
@@ -205,7 +303,14 @@ export type Guide = {
   title?: string;
   overview: string;
   prDescription?: string;
-  files: GuideFile[];
+  // The file walkthrough Code mode guides through. A guide carries `files`, `stages`, or both.
+  files?: GuideFile[];
+  // The topics Decisions mode opens: stages hold groups, groups hold topics.
+  stages?: GuideStage[];
+  // How the groups relate, drawn as the Overview's map. Only with stages.
+  links?: GuideLink[];
+  // Requires stages: explains the changes left outside the topic narrative, for coverage only.
+  skims?: GuideSkim[];
   // A focused review (issue 04): the reviewer asked for churn to be de-emphasized, so the agent
   // shaped attention (whole-file/block skims, movedFrom merges). Display-only — the overview page
   // badges the review so the human knows churn was deliberately skimmed. A plain guide omits it.
@@ -264,6 +369,22 @@ export type ReviewState = {
   // Agent-generated guided review (overview + per-file orientation/order/category).
   // Optional: absent → no guide surfaces render.
   guide?: Guide;
+  // Each guide topic's resolution against this diff, by topic id (TopicStamp). Server-owned and
+  // rebuilt whenever the guide is attached or the diff is rebuilt; absent when the guide has no topics.
+  topics?: Record<string, TopicStamp>;
+  // Server-owned split rebuilt on attach/reload; absent without stages. The tab displays it
+  // rather than resolving possibly stale guide spans itself (TopicCoverage records the partition).
+  coverage?: TopicCoverage;
+  // The topics the reviewer settled, by topic id (TopicSignOff). Reviewer-owned, like
+  // signedOffBlocks: carried across a reload or restart only while the topic is in the guide and
+  // its cover hash is unchanged.
+  settledTopics?: Record<string, TopicSignOff>;
+  // The reviewer's threads on the parts of topics (TopicThread). Reviewer-owned, like annotations,
+  // and apart from `comments`, whose rows need a file in the diff.
+  topicThreads?: TopicThread[];
+  // The review's round: one more than the number of Sends. Absent: 1. Raised by each Send, kept
+  // across reloads, restarts and a reset.
+  round?: number;
   // The running app under review (`--ui <url>` / `galley ui <url>`): a loopback http:// URL the
   // desk reverse-proxies into its UI view. Agent-owned like `target` — set by the CLI, carried
   // across reload/restart by mergeReviewState, never posted back by the tab. Absent → no UI lane.
@@ -298,9 +419,11 @@ export type ReviewerSave = Pick<
   | "reviewedFiles"
   | "reviewedFileHashes"
   | "signedOffBlocks"
+  | "settledTopics"
   | "decisionFiles"
   | "annotations"
   | "lastAnnotationNumber"
+  | "topicThreads"
 >;
 
 // A path's index entry as /api/unstage found it (a file's Reset), handed back to /api/restage by
@@ -324,11 +447,13 @@ export type SaveStamp = { token: string | null; reloadGeneration: number; baseDi
 // `saveNumber`: the desk's number once it applied this save (ReviewState.saveNumber). `merged`: the
 // desk's reviewer-owned fields after the merge, when the save's `base` was not the desk's latest
 // number, so other saves landed since the tab's copy, and the tab is on the desk's current diff.
-// A tab on an older diff gets none: they're keyed to a diff it doesn't have.
+// A tab on an older diff gets none: they're keyed to a diff it doesn't have. `round`: on a Send, the
+// round it started (ReviewState.round).
 export type SaveAnswer = {
   ok: true;
   file?: string;
   sent?: true;
+  round?: number;
   resultJson?: string;
   unplaced?: true;
   saveNumber?: number;
@@ -350,16 +475,19 @@ export type AnnotationReport = {
 
 // What a tab changed since the copy of the reviewer-owned fields the desk last confirmed. A
 // collection the tab didn't touch is left out. Keys: a decision's `key`, a comment's and an
-// annotation's `id`, a block sign-off's `path:stableKey`, a file sign-off's and a decided file's
-// path. A file sign-off is reviewedFiles and its reviewedFileHashes entry as one record.
+// annotation's and a topic thread's `id`, a block sign-off's `path:stableKey`, a file sign-off's and
+// a decided file's path, a settled topic's id. A file sign-off is reviewedFiles and its reviewedFileHashes entry as
+// one record.
 export type ReviewerChanges = {
   decisions?: KeyedChanges<Decision>;
   comments?: KeyedChanges<ReviewComment>;
   fileSignOffs?: KeyedChanges<{ path: string; hash?: string }>;
   signedOffBlocks?: KeyedChanges<{ key: string; hash: string }>;
+  settledTopics?: KeyedChanges<{ id: string } & TopicSignOff>;
   decisionFiles?: KeyedChanges<string>;
   annotations?: KeyedChanges<UiAnnotationRecord>;
   annotationReports?: AnnotationReport[];
+  topicThreads?: KeyedChanges<TopicThread>;
   // Only goes up: the desk keeps the highest it has seen.
   lastAnnotationNumber?: number;
 };
@@ -642,6 +770,31 @@ export type UiAnnotationRecord = {
   // alone does not prove a capture is still running after a reload. Stored images take precedence.
   screenshotCapture?: "omitted" | "requested" | "failed";
 };
+// A thread on a part of a topic (ReviewState.topicThreads). Its first message is what it asks, as
+// an annotation's is; later messages are replies. `target.topic` is a topic id, or "overview" for
+// the Overview. `target.part` is where on it the thread sits: "title", "recorded", "flag", or
+// "body:<line>", a block of the body by its source line (topicthreads.ts bodyBlocks); on the
+// Overview "summary", "map", "group:<id>", "link:<from>><to>" or "coverage". `title` is the topic's
+// title when the thread was made, so a thread whose topic a new guide dropped can still be named.
+// `quote` is the text of its part (a body block's markdown source), which the thread follows when a
+// new guide rewrites the body; `moved`: that part is gone, so it sits on the title (on the
+// Overview, the map) and its quote says what it was on.
+// The desk sets the target's part, title, quote and moved. The tab names a new thread's part, with
+// the text it showed there as its quote, which the desk checks against its own guide
+// (topicthreads.ts takeTopicThread).
+export type TopicThread = {
+  id: string;
+  target: { topic: string; part: string };
+  title: string;
+  quote?: string;
+  moved?: true;
+  intent: "change" | "question";
+  status: "open" | "resolved";
+  comments: ThreadMessage[];
+  // Present only for a pick; ordinary comments on an option carry no selection.
+  option?: string;
+};
+
 // An annotation as the agent receives it in ReviewResult.uiAnnotations.
 export type UiAnnotation = {
   id: string;
@@ -681,7 +834,15 @@ export type FileContentsPayload = {
 // tab's save landed, and an idle tab reads the review it brought from /api/review (ReviewRead).
 export type PollPayload = Pick<
   ReviewState,
-  "baseDiffHash" | "guide" | "comments" | "ui" | "annotations" | "project" | "branch"
+  | "baseDiffHash"
+  | "guide"
+  | "comments"
+  | "ui"
+  | "annotations"
+  | "topicThreads"
+  | "project"
+  | "branch"
+  | "round"
 > & { saveNumber: number };
 
 // The desk's reviewer-owned fields, the save number they're at, and the diff they're keyed to
@@ -715,6 +876,12 @@ export type ReviewResult = {
   // Files the reviewer signed off as-is (no rejected hunks, no open requested-change
   // comments, approval still current): the agent should leave these unchanged.
   approvedFiles: string[];
+  // The guide's topic ids, in the guide's order: those the reviewer settled (their lines unchanged
+  // since) and those still to do. Absent when the guide has no topics.
+  topics?: { settled: string[]; todo: string[] };
+  // The open change requests on parts of topics (resolved ones are not sent): those on topics in
+  // the guide in its order, then those on topics a new guide dropped.
+  topicChangeRequests: TopicChangeRequest[];
   // Questions still unanswered when the reviewer hit Send — folded into the round so an
   // agent that missed the live await still owes an answer. Every open question message
   // (intent "question", no later agent reply in its thread), code comments and UI annotation
@@ -724,9 +891,22 @@ export type ReviewResult = {
   artifacts: { resultJson: string; sessionDir: string };
 };
 
+// A change request on a part of a topic, as the agent receives it. `id` is the thread's (answer in
+// it with `galley comment --topic <id>`), `part` says where on the topic it sits (TopicThread) and
+// `quote` the text there.
+export type TopicChangeRequest = {
+  id: string;
+  topic: string;
+  part: string;
+  quote?: string;
+  body: string;
+  option?: string;
+};
+
 // A question the reviewer asked (intent "question") that the agent should handle now: on a line
-// of the diff (lane "code"), or in a UI annotation's thread (lane "ui").
-export type QuestionPayload = CodeQuestion | UiQuestion;
+// of the diff (lane "code"), in a UI annotation's thread (lane "ui"), or on a part of a topic (lane
+// "topic").
+export type QuestionPayload = CodeQuestion | UiQuestion | TopicQuestion;
 export type CodeQuestion = {
   lane: "code";
   path: string;
@@ -747,6 +927,19 @@ export type UiQuestion = {
   route: string;
   body: string;
   target: string;
+  mode: ReviewMode;
+  session: string;
+};
+
+// Answered with `galley comment --topic <id>`, `id` being the thread's. `topic` is the topic's id,
+// `part` where on it the question sits (TopicThread), and `quote` the text there.
+export type TopicQuestion = {
+  lane: "topic";
+  id: string;
+  topic: string;
+  part: string;
+  quote?: string;
+  body: string;
   mode: ReviewMode;
   session: string;
 };

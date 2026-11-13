@@ -1,0 +1,364 @@
+/* ── Comments on a topic's parts (topicthreads.ts) ──
+   A part takes a comment as a line does in Code: a gutter button in the margin while the pointer
+   is on it, and the keyboard's cursor rail (j / k), which a click never leaves behind. A part with
+   an open thread keeps its button in view. Threads sit under their part. */
+.topic-part {
+  position: relative;
+  border-radius: var(--radius-sm);
+  scroll-margin: 64px 0 96px;
+}
+
+.topic-part::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: -14px;
+  width: 3px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.topic-kb .topic-part.topic-cur::before {
+  background: var(--blue);
+}
+
+.topic-gut {
+  position: absolute;
+  top: 0;
+  left: -44px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s var(--ease),
+    background-color 0.12s var(--ease);
+}
+
+/* A list item sits inside its list's indent: its rail and button line up with the others. */
+li.topic-part::before {
+  left: -32px;
+}
+
+li.topic-part > .topic-gut {
+  left: -62px;
+}
+
+.topic-gut .ic {
+  width: 13px;
+  height: 13px;
+}
+
+.topic-part:hover > .topic-gut,
+.topic-kb .topic-part.topic-cur > .topic-gut,
+.topic-gut:focus-visible {
+  opacity: 1;
+}
+
+.topic-gut:hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+
+.topic-part.topic-has > .topic-gut {
+  opacity: 1;
+  color: var(--ink-2);
+}
+
+/* ⇧ held: a click comments on the part under the pointer, and only its comment icon says so. */
+.topic-shift .topic-part:hover {
+  cursor: pointer;
+}
+
+.topic-shift .topic-part:hover > .topic-gut {
+  opacity: 1;
+  color: var(--blue-ink);
+}
+
+/* The threads under a part, in the page's sans, a little smaller than the body. */
+.topic-threads {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 14px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+li > .topic-threads {
+  margin: 6px 0 8px;
+}
+
+.topic-threads .thread-card .md :is(p, ul, ol, blockquote) {
+  margin: 6px 0;
+}
+
+.topic-threads .thread-card .md > :first-child {
+  margin-top: 0;
+}
+
+.topic-threads .thread-card .md > :last-child {
+  margin-bottom: 0;
+}
+
+/* The bar's blockers list hangs from its chip, as in Code mode's file bar. */
+.topics-bar .fb-actions {
+  position: relative;
+}
+
+@media (max-width: 760px) {
+  .topic-gut {
+    left: -30px;
+  }
+
+  li.topic-part > .topic-gut {
+    left: -48px;
+  }
+
+  .topic-part::before {
+    left: -8px;
+  }
+
+  li.topic-part::before {
+    left: -26px;
+  }
+}
+
+/* A topic's change request in the sidebar's list: its topic's title, in the page's face, gives way
+   to the request's own words. */
+.cr-row.topic .ic {
+  color: var(--ink-2);
+}
+
+/* The title keeps its width up to its share, so a short one ("Overview") is never cut. */
+.cr-row.topic .cr-loc {
+  flex: 0 0 auto;
+  max-width: 45%;
+  overflow: hidden;
+  font-family: var(--sans);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The Overview's section of requests on topics a new guide dropped, each under its old title. */
+.topics-overview .topics-dropped {
+  margin-top: 30px;
+  padding-top: 22px;
+  box-shadow: 0 -1px 0 var(--sep);
+}
+
+.topics-dropped-head {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.topics-dropped-topic h3 {
+  margin: 14px 0 6px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* ── Comments on the Overview (topicthreads.ts decorateTopicsOverview) ──
+   The summary, the map and coverage are parts as a topic's are, and every box and link on the map
+   takes a comment of its own. The map's threads sit under it, in the reading column. */
+.topics-overview > .topic-part,
+.topics-overview > .topic-threads {
+  max-width: 660px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+/* The map's part hugs the drawing, which is wider than the reading column, so its rail and button
+   sit beside it, in the page's padding. */
+.topics-overview > .topic-part[data-part="map"] {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.topics-overview > .topic-part[data-part="map"] > .topic-gut {
+  left: -32px;
+}
+
+.topics-overview > .topic-part[data-part="map"]::before {
+  left: -6px;
+}
+
+/* A box's and a list row's comment button: in the corner while the pointer is on it, and kept in
+   view while the box has an open thread. */
+.map-cm {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  color: var(--ink-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s var(--ease);
+}
+
+.map-cm .ic {
+  width: 12px;
+  height: 12px;
+}
+
+:is(.map-box, .map-list-row):is(:hover, :focus-within) > .map-cm,
+:is(.map-ask, .map-change) > .map-cm,
+.map-cm:focus-visible {
+  opacity: 1;
+}
+
+.map-cm:hover {
+  background: var(--fill-3);
+  color: var(--ink);
+}
+
+.topic-shift :is(.map-box, .map-list-row):hover > .map-cm {
+  opacity: 1;
+  color: var(--blue-ink);
+}
+
+/* ⇧ over a box or a link comments on it, not on the map: the map's own icon stays as it was. */
+.topic-shift
+  .topic-part:has(:is(.map-box, .map-list-row, .topics-map [data-gut]):hover)
+  > .topic-gut {
+  color: var(--ink-3);
+}
+
+.map-list-row {
+  position: relative;
+  padding-right: 30px;
+}
+
+.map-list-row > .map-cm {
+  top: 5px;
+  right: 4px;
+  background: transparent;
+}
+
+/* A link is pointed at along a wide invisible line, or by its label, note or list line. */
+.map-link .map-hit {
+  stroke-width: 14px;
+  opacity: 0;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.map-link:hover path:not(.map-hit) {
+  stroke: var(--ink);
+}
+
+.map-label[data-gut],
+.map-note[data-gut] {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.map-label[data-gut]:hover {
+  fill: var(--ink);
+}
+
+.map-note[data-gut]:hover,
+.map-list-feed[data-gut]:hover,
+.map-list-feed.map-hot {
+  color: var(--ink);
+}
+
+.map-list-feed[data-gut] {
+  cursor: pointer;
+}
+
+.map-list-row.map-hot {
+  background: var(--fill);
+}
+
+/* An open thread tints what it is on: blue for a question, orange for a change request. */
+.map-box.map-ask {
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+
+.map-box.map-change {
+  box-shadow: inset 0 0 0 1px var(--orange);
+}
+
+.map-box.map-ask.map-hot {
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+.map-box.map-change.map-hot {
+  box-shadow: inset 0 0 0 2px var(--orange);
+}
+
+.map-ask > .map-cm {
+  color: var(--blue-ink);
+}
+
+.map-change > .map-cm {
+  color: var(--orange-ink);
+}
+
+.map-link.map-ask path:not(.map-hit),
+.map-cross.map-ask {
+  stroke: var(--blue);
+}
+
+.map-link.map-change path:not(.map-hit),
+.map-cross.map-change {
+  stroke: var(--orange);
+}
+
+.map-label.map-ask {
+  fill: var(--blue-ink);
+}
+
+.map-label.map-change {
+  fill: var(--orange-ink);
+}
+
+:is(.map-note, .map-list-feed).map-ask,
+.map-list-feed.map-ask .map-list-label,
+.map-list-row.map-ask > .map-list-title {
+  color: var(--blue-ink);
+}
+
+:is(.map-note, .map-list-feed).map-change,
+.map-list-feed.map-change .map-list-label,
+.map-list-row.map-change > .map-list-title {
+  color: var(--orange-ink);
+}
+
+/* What a thread under the map is about: the box, or the link's two groups. */
+.topic-anchor {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 7px;
+  border-radius: var(--radius-sm);
+  background: var(--fill-2);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topic-thread[data-map-part]:hover .topic-anchor {
+  background: var(--fill-3);
+}

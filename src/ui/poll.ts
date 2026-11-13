@@ -5,6 +5,7 @@ import {
   api,
   confirmDesk,
   confirmedMoved,
+  confirmedReview,
   confirmedNumber,
   noteAnswer,
   postsOut,
@@ -21,8 +22,10 @@ import { currentPartTitle, reseatStep } from "./guide";
 import { refreshBaseTitle, updateProgress } from "./progress";
 import { updateAwaitingDom } from "./annotations";
 import { adoptUiStatus, adoptUiTarget, applyPendingUiRefresh, syncView } from "./appview";
+import { renderTopics } from "./topics";
 import { renderUiLane } from "./uilane";
 import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
+import { keepUnsavedThreads } from "./topicthreads-derive";
 import { recordActivity } from "./thread-derive";
 import type { DeskStatus, PollPayload, ReviewRead, ReviewState } from "./types";
 
@@ -195,6 +198,7 @@ async function pollOnce() {
     const ids = new Set(server.comments.map((c) => c.id));
     server.comments.push(...lite.comments.filter((c) => !ids.has(c.id)));
     mergeAgentReplies(server.annotations ?? [], lite.annotations ?? []);
+    mergeAgentReplies(server.topicThreads ?? [], lite.topicThreads ?? []);
     // The desk's review is the tab's confirmed copy from here: the tab's own placements, kept
     // over it below, are reports of the tab's (keepPlacements).
     confirmDesk(server);
@@ -215,8 +219,10 @@ async function pollOnce() {
     else if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
     reseatStep(remapped >= 0 ? S.stepPart : undefined, curTitle);
     S.awaitingAgent = false;
-    // A diff that appeared (or emptied) makes a UI-only desk combined (or back).
+    // A diff that appeared (or emptied) makes a UI-only desk combined (or back); a guide that lost
+    // its topics takes Decisions mode with it.
     syncView();
+    if (S.view === "topics") renderTopics();
     // The diff changed (e.g. a reload added files) — refresh the project listing too so
     // the tree reflects newly tracked files, not the listing fetched at startup.
     api<{ files?: string[] }>("/api/tree")
@@ -232,20 +238,42 @@ async function pollOnce() {
   // A reload can swap the guide without changing the diff (agent regenerated it) —
   // adopt it even when baseDiffHash is unchanged. Guides are small; the compare is cheap.
   if (guideChanged) {
-    // The new guide restamped which blocks its parts and skims claim, server-side; those stamps
-    // ride the changes, so take them off the full state (fetched only on a swap — the diff is the
-    // same). A diff that moved meanwhile waits for the next tick's full adoption above.
+    // The new guide restamped which blocks its parts, skims and topics claim, server-side; those
+    // stamps ride the changes and the topic stamps, so take them off the full state (fetched only
+    // on a swap — the diff is the same). A diff that moved meanwhile waits for the next tick's full
+    // adoption above.
     if (!server?.changes || server.baseDiffHash !== S.lastBaseDiffHash) return;
     const title = currentPartTitle();
     const stamped = new Map(server.changes.map((c) => [c.id, c]));
     for (const c of S.state.changes) {
       c.part = stamped.get(c.id)?.part;
       c.skim = stamped.get(c.id)?.skim;
+      c.topics = stamped.get(c.id)?.topics;
     }
     S.state.guide = server.guide;
+    S.state.topics = server.topics;
+    S.state.coverage = server.coverage;
+    // The new guide moved topic threads onto its parts and dropped some, none of it the reviewer's:
+    // the confirmed copy takes the desk's, and the tab too, with any agent reply since and what the
+    // tab holds and hasn't saved (keepUnsavedThreads), which its next save sends.
+    const desk = server.topicThreads ?? [];
+    mergeAgentReplies(desk, lite.topicThreads ?? []);
+    S.state.topicThreads = keepUnsavedThreads(
+      desk,
+      S.state.topicThreads ?? [],
+      confirmedReview().topicThreads ?? [],
+    );
+    takenFromDesk((review) => (review.topicThreads = copyOf(desk)));
     reseatStep(S.stepPart, title);
+    syncView();
     render();
+    if (S.view === "topics") renderTopics();
     toast("Guide updated");
+  }
+  // A Send from another tab starts the next round: what is settled from then on is settled in it.
+  if ((lite.round ?? 1) !== (S.state.round ?? 1)) {
+    S.state.round = lite.round;
+    if (S.view === "topics") renderTopics();
   }
   // A branch switch can leave the diff unchanged too (`git checkout -b` keeps the working tree), so
   // the names the header and tab title show ride the lite poll.
@@ -269,18 +297,23 @@ async function pollOnce() {
   S.state.comments.push(...incoming);
   // The agent's replies in UI annotation threads (`galley comment --ui`) join the same way; a save
   // from this tab before they arrive keeps them on the server (mergeReviewerSave).
-  const uiReplies = !behind && mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
+  const uiReplies =
+    !behind &&
+    mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []) +
+      mergeAgentReplies(S.state.topicThreads ?? [], lite.topicThreads ?? []);
   // Both came from the desk, not the reviewer: no save sends them back as the tab's changes.
   if (incoming.length || uiReplies)
     takenFromDesk((review) => {
       const have = new Set(review.comments.map((c) => c.id));
       review.comments.push(...copyOf(incoming.filter((c) => !have.has(c.id))));
       mergeAgentReplies(review.annotations ?? [], copyOf(lite.annotations ?? []));
+      mergeAgentReplies(review.topicThreads ?? [], copyOf(lite.topicThreads ?? []));
     });
   if (uiReplies || incoming.some((c) => c.role === "agent")) S.awaitingAgent = false;
-  // render() redraws the UI lane too.
+  // render() redraws the UI lane too; Decisions mode draws its own page.
   if (incoming.length) render();
   else if (uiReplies) renderUiLane();
+  if (uiReplies && S.view === "topics") renderTopics();
   await pullReview(lite.saveNumber);
 }
 

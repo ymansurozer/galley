@@ -6,6 +6,7 @@ import { cursorOn, cursorSelection } from "./cursor";
 import { attributeComment, placeBlocks, type PlacedBlock } from "./flow-index";
 import { currentStep, hasGuide, reviewSteps } from "./guide";
 import { selectAnnotation } from "./uilane";
+import { openTopicRequest, topicRequests, topicWalkPlace } from "./topicthreads";
 import { setView } from "./appview";
 import {
   openRequestList,
@@ -67,6 +68,7 @@ function requestList(place = placer()) {
       return f ? isUnanchored(c, f) : c.unanchored === true;
     },
     S.state.annotations ?? [],
+    topicRequests(),
   );
 }
 
@@ -84,13 +86,15 @@ const inOverview = () => !!S.overviewOpen && hasGuide();
 // the file on screen: the last request in this file while the cursor is off the diff or still on
 // that request's row, else the cursor, else the file's top. A context row holds the cursor at its
 // new-side number, which can differ from a deleted-side request's own. A part or Rest view stands
-// in its own step wherever the cursor is; the whole file, in the step of the cursor's line. On the
-// Overview: nowhere, so the walk starts at its ends.
+// in its own step wherever the cursor is; the whole file, in the step of the cursor's line. In
+// Decisions mode, on the open topic (topicWalkPlace). On an Overview: nowhere, so the walk starts at
+// its ends.
 function here(place: ReturnType<typeof placer>): RequestPlace | null {
   if (S.view === "ui") {
     const a = S.state.annotations?.find((x) => x.id === S.selectedAnnotation);
     return { kind: "app", number: a?.number ?? 0 };
   }
+  if (S.view === "topics") return topicWalkPlace(last?.kind === "topic" ? last : null);
   const file = currentFile();
   if (!file || inOverview()) return null;
   const sel = cursorSelection();
@@ -135,16 +139,18 @@ export function stepOpenRequest(dir: 1 | -1) {
 }
 
 // Go to a request, from the walk or its sidebar row: an app one selects its annotation in the App
-// view; a code one opens its step in the code view and lands on its thread.
+// view; a topic one opens its topic in Decisions mode at its thread; a code one opens its step in
+// the code view and lands on its thread.
 export function openRequest(r: OpenRequest) {
   last = r;
+  if (r.kind === "topic") return openTopicRequest(r);
   if (r.kind === "app") {
     S.treeDrawerOpen = false;
     if (S.view !== "ui") setView("ui");
     selectAnnotation(r.id);
     return;
   }
-  void land(r, S.view === "ui" ? setView("code") : undefined);
+  void land(r, S.view === "code" ? undefined : setView("code"));
 }
 
 // Open the request's step (its part, its file's Rest, or the file; a file outside the review as a

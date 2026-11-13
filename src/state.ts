@@ -18,10 +18,12 @@ import {
 } from "./git.js";
 import type {
   ChangeState,
+  Cover,
   Decision,
   DiffFile,
   DiffHunk,
   Guide,
+  GuideTopic,
   QuestionPayload,
   ReviewComment,
   ReviewFile,
@@ -31,10 +33,23 @@ import type {
   ReviewerSave,
   SaveStamp,
   ThreadMessage,
+  TopicSignOff,
+  TopicStamp,
+  LineSpan,
   UiAnnotationRecord,
 } from "./types.js";
 import { questionTarget, readUiAnnotations, uiAnnotationsForAgent } from "./uiannotations.js";
+import {
+  bodyBlocks,
+  readTopicThreads,
+  replyToTopicThread,
+  takeTopicThreads,
+  topicChangeRequests,
+  topicQuestionPayload,
+} from "./topicthreads.js";
+import { entryLabel, lineBlocks } from "./topiclines.js";
 import { shotDir } from "./uishots.js";
+import { optionBlocks } from "./topicoptions.js";
 
 export function nowIso() {
   return new Date().toISOString();
@@ -309,7 +324,14 @@ function skimRangesForHunk(h: DiffHunk): BlockRange[] {
     const lo = newLines.length ? Math.min(...newLines) : prevNew;
     const hi = newLines.length ? Math.max(...newLines) : prevNew;
     const grows = newLines.length - (block.length - newLines.length);
-    out.push({ stableKey: changeStableKeyFromBlock(block), lo, hi, base: prevOld, grows });
+    out.push({
+      stableKey: changeStableKeyFromBlock(block),
+      lo,
+      hi,
+      base: prevOld,
+      grows,
+      lines: block.length,
+    });
     block = [];
   };
   for (const line of h.lines) {
@@ -324,7 +346,15 @@ function skimRangesForHunk(h: DiffHunk): BlockRange[] {
   return out;
 }
 
-type BlockRange = { stableKey: string; lo: number; hi: number; base: number; grows: number };
+// `lines`: the block's added plus removed lines.
+type BlockRange = {
+  stableKey: string;
+  lo: number;
+  hi: number;
+  base: number;
+  grows: number;
+  lines: number;
+};
 
 // Every change block's new-side range, by path — what a guide's line spans (skimBlocks, part
 // lines) resolve against.
@@ -369,7 +399,8 @@ export function resolveSkim(
   for (const c of changes) delete c.skim;
   const rangesByPath = blockRangesByPath(preparsed ?? parseUnifiedDiff(rawDiff));
   const changeByKey = new Map(changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
-  for (const [gi, file] of guide.files.entries()) {
+  const entries = guide.files ?? [];
+  for (const [gi, file] of entries.entries()) {
     if (!file.skimBlocks?.length) continue;
     const ranges = rangesByPath.get(file.path);
     for (const span of file.skimBlocks) {
@@ -383,7 +414,7 @@ export function resolveSkim(
       for (const r of matched) {
         const change = changeByKey.get(`${file.path}:${r.stableKey}`);
         if (!change) continue;
-        const owner = change.part === undefined ? undefined : guide.files[change.part]?.part;
+        const owner = change.part === undefined ? undefined : entries[change.part]?.part;
         if (file.part && owner && change.part !== gi)
           return {
             ok: false,
@@ -417,7 +448,8 @@ export function resolveParts(
   const added = new Set(review.files.filter((f) => f.changeKind === "added").map((f) => f.path));
   // Which entry claimed each block (by change key) — to name both sides of an overlap.
   const owner = new Map<string, number>();
-  for (const [gi, file] of guide.files.entries()) {
+  const entries = guide.files ?? [];
+  for (const [gi, file] of entries.entries()) {
     if (!file.part) continue;
     const ranges = rangesByPath.get(file.path);
     if (!ranges && added.has(file.path))
@@ -442,7 +474,7 @@ export function resolveParts(
           return {
             ok: false,
             // `owner` only ever records entries that carry a part.
-            reason: `guide parts "${guide.files[prior]!.part!.title}" and "${file.part.title}" on "${file.path}" both claim the change at ${blockLines(r)}`,
+            reason: `guide parts "${entries[prior]!.part!.title}" and "${file.part.title}" on "${file.path}" both claim the change at ${blockLines(r)}`,
           };
         owner.set(key, gi);
         const change = changeByKey.get(key);
@@ -461,16 +493,422 @@ type GuideDiff = {
 };
 
 // Every diff-aware check of a NEW guide that stamps change blocks — parts, then skims (which must
-// know each block's part) — over one parse, strictly. The attach paths call this rather than each
-// resolver. A carried-forward guide keeps the stamps the merge carried (carryGuideStamps).
+// know each block's part), then topics — over one parse, strictly. The attach paths call this
+// rather than each resolver. A carried-forward guide keeps the stamps the merge carried
+// (carryGuideStamps, stampTopics).
 export function resolveGuide(
-  review: GuideDiff,
+  review: GuideDiff & Pick<ReviewState, "files" | "topics" | "coverage">,
   guide: Guide,
   preparsed?: DiffFile[],
 ): SkimResolution {
   const parsed = preparsed ?? parseUnifiedDiff(review.rawDiff);
   const parts = resolveParts(review, guide, parsed);
-  return parts.ok ? resolveSkim(review.rawDiff, review.changes, guide, parsed) : parts;
+  if (!parts.ok) return parts;
+  const skims = resolveSkim(review.rawDiff, review.changes, guide, parsed);
+  if (!skims.ok) return skims;
+  const topics = resolveTopics(review, guide);
+  return topics.ok ? stampCoverage(review, guide, true) : topics;
+}
+
+// What a cover can claim: a change block, or the whole of a file the diff shows without hunks (an
+// untracked add), which is one change with no block of its own and is keyed `path:file`. `lo`/`hi`
+// are the new-side lines a span must touch to claim it; `lines` its added plus removed lines; `base`
+// the last line of the diff's base before it (BlockRange), where a rewrite of it is found again.
+type CoverUnit = { key: string; lo: number; hi: number; lines: number; hash: string; base: number };
+// Every unit of a diff, by path, in the diff's file order and each file's line order.
+export type CoverIndex = Map<string, CoverUnit[]>;
+
+export function coverIndex(review: Pick<ReviewState, "files" | "changes">): CoverIndex {
+  const hashAt = new Map(review.changes.map((c) => [`${c.path}:${c.stableKey}`, c.contentHash]));
+  const index: CoverIndex = new Map();
+  for (const f of review.files) {
+    const units = f.hunks.flatMap(skimRangesForHunk).map((r) => {
+      const key = `${f.path}:${r.stableKey}`;
+      return {
+        key,
+        lo: r.lo,
+        hi: r.hi,
+        lines: r.lines,
+        hash: hashAt.get(key) ?? "",
+        base: r.base,
+      };
+    });
+    // A hunk-less file with changed lines (an untracked add) is one unit. One with none (a pure
+    // rename) is in the diff but has nothing to claim.
+    const added = f.added ?? 0;
+    const lines = added + (f.removed ?? 0);
+    if (!units.length && lines > 0)
+      units.push({
+        key: `${f.path}:file`,
+        lo: 1,
+        hi: Math.max(added, 1),
+        lines,
+        hash: f.contentHash,
+        base: 0,
+      });
+    index.set(f.path, units);
+  }
+  return index;
+}
+
+export type CoverResolution = { ok: true; keys: Set<string> } | { ok: false; reason: string };
+
+// The units `covers` claim, with the rule skimBlocks and part.lines use: a span claims every unit it
+// touches, a file all its units, a folder (a path ending in "/") every changed file under it. Refuses
+// a file not in the diff, a folder with no changed file under it, and a span that touches no change,
+// naming the cover; the caller names whose covers they are. Pure over the index, so any guide entry
+// with covers resolves through it.
+export function resolveCovers(covers: Cover[], index: CoverIndex): CoverResolution {
+  const keys = new Set<string>();
+  const claim = (units: CoverUnit[]) => units.forEach((u) => keys.add(u.key));
+  for (const cover of covers) {
+    const named = `cover ${JSON.stringify(cover.path)}`;
+    if (cover.path.endsWith("/")) {
+      const under = [...index].filter(([p]) => p.startsWith(cover.path));
+      if (!under.length)
+        return { ok: false, reason: `${named} names a folder with no changed file under it` };
+      for (const [, units] of under) claim(units);
+      continue;
+    }
+    const units = index.get(cover.path);
+    if (!units) {
+      const folder = [...index.keys()].some((p) => p.startsWith(`${cover.path}/`));
+      return {
+        ok: false,
+        reason: folder
+          ? `${named} names a folder — end it with "/"`
+          : `${named} names a file that is not in the diff`,
+      };
+    }
+    if (!cover.lines) {
+      claim(units);
+      continue;
+    }
+    for (const span of cover.lines) {
+      const [a, b] = typeof span === "number" ? [span, span] : span;
+      const touched = units.filter((u) => a <= u.hi && b >= u.lo);
+      if (!touched.length) {
+        const where = typeof span === "number" ? `line ${span}` : `span [${a}, ${b}]`;
+        return { ok: false, reason: `${named} ${where} matches no change in the diff` };
+      }
+      claim(touched);
+    }
+  }
+  return { ok: true, keys };
+}
+
+// Every topic of a guide, in the guide's order.
+export const guideTopics = (guide: Guide | undefined) =>
+  guide?.stages?.flatMap((s) => s.groups.flatMap((g) => g.topics)) ?? [];
+
+// The review's round: one more than the number of Sends.
+export const roundOf = (state: Pick<ReviewState, "round">) => state.round ?? 1;
+
+// Whether a topic is settled: the reviewer's sign-off names the cover hash the topic has now. The
+// one rule the result, and the carry below, judge a sign-off by (the tab's: topics-derive.ts).
+export const topicSettled = (
+  state: Pick<ReviewState, "topics" | "settledTopics">,
+  id: string,
+): boolean => {
+  const hash = state.topics?.[id]?.coverHash;
+  return hash !== undefined && state.settledTopics?.[id]?.hash === hash;
+};
+
+// The topics' sign-offs carried onto a rebuilt diff or a new guide, from the review they were made
+// on (`saved`), against the topic stamps `state` holds now: kept only while the topic is in the
+// guide and its cover hash is unchanged, so lines shifting above it or rewritten prose keep it. One
+// whose cover hash moved is dropped and its topic stamped `changed`; one whose topic is gone is
+// dropped. A topic still to do keeps the `changed` stamp it had. Reads only `saved`'s sign-offs and
+// stamps, so running it again after a new guide is resolved judges by that guide's stamps alone.
+export function carryTopicSignOffs(
+  state: Pick<ReviewState, "topics" | "settledTopics">,
+  saved: Pick<ReviewState, "topics" | "settledTopics">,
+) {
+  const settled: Record<string, TopicSignOff> = {};
+  for (const [id, signOff] of Object.entries(saved.settledTopics ?? {})) {
+    const stamp = state.topics?.[id];
+    if (!stamp) continue;
+    if (stamp.coverHash === signOff.hash) settled[id] = signOff;
+    else if (saved.topics?.[id]?.coverHash === signOff.hash) stamp.changed = true;
+  }
+  for (const [id, stamp] of Object.entries(state.topics ?? {})) {
+    if (settled[id]) delete stamp.changed;
+    else if (saved.topics?.[id]?.changed) stamp.changed = true;
+  }
+  state.settledTopics = settled;
+}
+
+// Resolve a NEW guide's topic covers (launch with --guide, reload --guide) and stamp the result:
+// each change block's `topics`, and each topic's TopicStamp. Refuses the first cover that resolves
+// to nothing, naming the topic and the cover. Two topics may claim the same block. A guide carried
+// across a reload or restart never comes here (stampTopics). Idempotent — clears prior stamps first.
+export function resolveTopics(
+  review: Pick<ReviewState, "files" | "changes" | "topics">,
+  guide: Guide,
+): SkimResolution {
+  for (const c of review.changes) delete c.topics;
+  delete review.topics;
+  const topics = guideTopics(guide);
+  if (!topics.length) return { ok: true };
+  const index = coverIndex(review);
+  const claimed = new Map<string, Set<string>>();
+  const spans = new Map<string, LineSpan[]>();
+  for (const topic of topics) {
+    const named = `guide topic ${JSON.stringify(topic.id)}`;
+    const r = resolveCovers(topic.covers, index);
+    if (!r.ok) return { ok: false, reason: `${named}: ${r.reason}` };
+    // Each entry of a line block claims what a span cover of its range would (validateGuide has
+    // already refused one that doesn't parse).
+    const lines = lineBlocks(topic.body);
+    const mine: LineSpan[] = [];
+    for (const block of lines.ok ? lines.blocks : [])
+      for (const entry of block.entries) {
+        const at = `${named}: lines entry ${JSON.stringify(entryLabel(entry))}`;
+        if (!index.has(entry.path))
+          return { ok: false, reason: `${at} names a file that is not in the diff` };
+        const e = resolveCovers([{ path: entry.path, lines: [[entry.start, entry.end]] }], index);
+        if (!e.ok) return { ok: false, reason: `${at} touches no change in the diff` };
+        for (const key of e.keys) r.keys.add(key);
+        const { path, start, end } = entry;
+        mine.push({ fence: block.line, path, blocks: [...e.keys], start, end });
+      }
+    claimed.set(topic.id, r.keys);
+    spans.set(topic.id, mine);
+  }
+  writeTopicStamps(review, topics, index, claimed, spans);
+  return { ok: true };
+}
+
+// Re-stamp the topics of a guide carried across a reload or restart, after carryGuideStamps carried
+// each block's topics by content. A file or folder cover claims what is under its path now, new
+// blocks included, and a span cover the whole of a hunk-less file it names; a span cover's other
+// blocks are the carried ones, since its lines may have moved. A cover that resolves to nothing now
+// claims nothing: an old guide is never refused. Each line block entry follows the blocks it touched
+// in `before`, the review the stamps were made on (followLineSpans).
+export function stampTopics(
+  review: Pick<ReviewState, "files" | "changes" | "guide" | "topics">,
+  before?: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys" | "topics">,
+) {
+  delete review.topics;
+  const topics = guideTopics(review.guide);
+  if (!topics.length) {
+    for (const c of review.changes) delete c.topics;
+    return;
+  }
+  const index = coverIndex(review);
+  const claimed = new Map<string, Set<string>>();
+  for (const c of review.changes)
+    for (const id of c.topics ?? [])
+      claimed.set(id, (claimed.get(id) ?? new Set()).add(`${c.path}:${c.stableKey}`));
+  for (const topic of topics) {
+    const keys = claimed.get(topic.id) ?? new Set<string>();
+    for (const cover of topic.covers) {
+      const whole = index.get(cover.path)?.every((u) => u.key.endsWith(":file"));
+      const r = resolveCovers(cover.lines && !whole ? [] : [{ path: cover.path }], index);
+      if (r.ok) for (const key of r.keys) keys.add(key);
+    }
+    claimed.set(topic.id, keys);
+  }
+  const spans = before ? followLineSpans(review, before, index) : new Map<string, LineSpan[]>();
+  for (const [id, mine] of spans)
+    for (const span of mine) for (const key of span.blocks) claimed.get(id)?.add(key);
+  writeTopicStamps(review, topics, index, claimed, spans);
+}
+
+// Where each topic's line block entries sit on a rebuilt diff, from where they sat in `before`. An
+// entry follows the blocks it touched there (recordBlocks): one whose content holds carries the
+// range with it, however lines shifted above it; one the agent rewrote is found again at the same
+// place in the diff's base and drawn whole, since the old range says nothing of the new lines (and
+// its topic comes back changed, its cover hash moved). An entry none of whose blocks is left keeps
+// no range: the tab says its lines are gone.
+function followLineSpans(
+  review: Pick<ReviewState, "files" | "changes">,
+  before: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys" | "topics">,
+  index: CoverIndex,
+) {
+  const renames = renamesIn(review.files);
+  const moved = (key: string) => {
+    for (const [from, to] of renames)
+      if (key.startsWith(`${from}:`)) return `${to}:${key.slice(from.length + 1)}`;
+    return key;
+  };
+  const was = new Map<string, CoverUnit>();
+  for (const units of coverIndex(before).values()) for (const u of units) was.set(moved(u.key), u);
+  const prior = Object.entries(before.topics ?? {}).map(([id, stamp]) => ({
+    id,
+    spans: (stamp.lineSpans ?? []).map((s) => ({ ...s, blocks: s.blocks.map(moved) })),
+  }));
+  const records = prior.flatMap((t) =>
+    t.spans.flatMap((s) => s.blocks.map((key) => ({ key, hash: was.get(key)?.hash }))),
+  );
+  const homes = recordBlocks(review, records, priorBlocks(before, renames));
+  const now = new Map([...index.values()].flat().map((u) => [u.key, u]));
+  const held = new Set(homes.values());
+  const out = new Map<string, LineSpan[]>();
+  for (const { id, spans } of prior) {
+    const mine: LineSpan[] = [];
+    for (const span of spans) {
+      const path = renames.get(span.path) ?? span.path;
+      const units = index.get(path) ?? [];
+      const shifts: number[] = [];
+      const rewritten: CoverUnit[] = [];
+      for (const key of span.blocks) {
+        const old = was.get(key);
+        if (!old) continue;
+        // A hunk-less file's one unit keeps its key; any other unit is found by recordBlocks.
+        const home = key.endsWith(":file") ? (now.has(key) ? key : undefined) : homes.get(key);
+        const at = home === undefined ? undefined : now.get(home);
+        if (at && at.hash === old.hash) shifts.push(at.lo - old.lo);
+        else {
+          const again =
+            at ??
+            units.find((u) => !held.has(u.key) && u.base === old.base && !u.key.endsWith(":file"));
+          if (again) rewritten.push(again);
+        }
+      }
+      const blocks = new Set<string>();
+      let lo = Infinity;
+      let hi = -Infinity;
+      if (shifts.length && span.start !== undefined && span.end !== undefined) {
+        lo = span.start + shifts[0]!;
+        hi = span.end + shifts.at(-1)!;
+      }
+      for (const u of rewritten) {
+        lo = Math.min(lo, u.lo);
+        hi = Math.max(hi, u.hi);
+      }
+      for (const u of units) if (u.lo <= hi && u.hi >= lo) blocks.add(u.key);
+      mine.push(
+        blocks.size
+          ? { fence: span.fence, path, blocks: [...blocks], start: lo, end: hi }
+          : { fence: span.fence, path, blocks: [] },
+      );
+    }
+    out.set(id, mine);
+  }
+  return out;
+}
+
+// Each block's `topics` and each topic's TopicStamp, from the unit keys each topic claimed.
+function writeTopicStamps(
+  review: Pick<ReviewState, "changes" | "topics">,
+  topics: GuideTopic[],
+  index: CoverIndex,
+  claimed: Map<string, Set<string>>,
+  spans: Map<string, LineSpan[]>,
+) {
+  const byKey = new Map(review.changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
+  for (const c of review.changes) delete c.topics;
+  const units = [...index.values()].flat();
+  const stamps: Record<string, TopicStamp> = {};
+  for (const topic of topics) {
+    const keys = claimed.get(topic.id) ?? new Set<string>();
+    const mine = units.filter((u) => keys.has(u.key));
+    for (const u of mine) {
+      const change = byKey.get(u.key);
+      if (change) change.topics = [...(change.topics ?? []), topic.id];
+    }
+    const options = optionBlocks(topic.body)[0];
+    stamps[topic.id] = {
+      blocks: mine.map((u) => u.key),
+      lines: mine.reduce((n, u) => n + u.lines, 0),
+      coverHash: hash(mine.map((u) => u.hash).join("\n") + (options ? "\n" + options.source : "")),
+      bodyParts: bodyBlocks(topic.body),
+      ...(options?.options && { options: options.options, optionsLine: options.line }),
+    };
+    const lineSpans = spans.get(topic.id);
+    if (lineSpans?.length) stamps[topic.id]!.lineSpans = lineSpans;
+  }
+  review.topics = stamps;
+}
+
+// Coverage is server-owned. Span skims travel with content on retained guides, just as topic
+// spans do; whole-file/folder skims claim their current units. Topics always win an overlap.
+function stampCoverage(
+  review: Pick<ReviewState, "files" | "changes" | "topics" | "coverage">,
+  guide: Guide | undefined,
+  attaching = false,
+): SkimResolution {
+  delete review.coverage;
+  if (attaching || !guide?.stages) for (const c of review.changes) delete c.coverageSkims;
+  if (!guide?.stages) return { ok: true };
+  const index = coverIndex(review);
+  const byKey = new Map(review.changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
+  const topicKeys = new Set(Object.values(review.topics ?? {}).flatMap((t) => t.blocks));
+  const skimKeys = new Set<string>();
+  const rows: NonNullable<ReviewState["coverage"]>["skims"] = [];
+  const add = (reason: string, rule: string | undefined, keys: Set<string>) => {
+    let lines = 0;
+    for (const units of index.values())
+      for (const u of units) {
+        if (!keys.has(u.key) || topicKeys.has(u.key) || skimKeys.has(u.key)) continue;
+        skimKeys.add(u.key);
+        lines += u.lines;
+      }
+    rows.push({ reason, ...(rule === undefined ? {} : { rule }), lines });
+  };
+  // Give each block skim its own source even when two reasons read alike. These indices stay
+  // stable while the same guide is retained, and new attaches clear the old stamps.
+  const skims = [
+    ...(guide.skims ?? []),
+    ...(guide.files ?? []).flatMap((f) =>
+      (f.skimBlocks ?? []).map((span) => ({
+        reason: span.reason ?? "Skimmed change block",
+        covers: [{ path: f.path, lines: [span.lines] }],
+      })),
+    ),
+  ];
+  for (const [i, skim] of skims.entries()) {
+    const keys = new Set<string>();
+    for (const c of review.changes)
+      if (!attaching && c.coverageSkims?.includes(i)) keys.add(`${c.path}:${c.stableKey}`);
+    for (const cover of skim.covers) {
+      const whole = index.get(cover.path)?.every((u) => u.key.endsWith(":file"));
+      if (!attaching && cover.lines && !whole) continue;
+      const r = resolveCovers([cover], index);
+      if (!r.ok) {
+        if (attaching) return { ok: false, reason: `guide skims[${i}]: ${r.reason}` };
+      } else for (const key of r.keys) keys.add(key);
+    }
+    for (const key of keys) {
+      const c = byKey.get(key);
+      if (c && !c.coverageSkims?.includes(i)) c.coverageSkims = [...(c.coverageSkims ?? []), i];
+    }
+    add(skim.reason, "rule" in skim ? skim.rule : undefined, keys);
+  }
+  for (const f of guide.files ?? []) {
+    if (f.skim)
+      add(
+        f.skimReason ?? "Whole-file skim",
+        undefined,
+        new Set((index.get(f.path) ?? []).map((u) => u.key)),
+      );
+  }
+  const coverage = {
+    topicLines: 0,
+    skimmedLines: 0,
+    totalLines: 0,
+    uncoveredLines: 0,
+    skims: rows,
+  };
+  const gaps: string[] = [];
+  for (const [path, units] of index)
+    for (const u of units) {
+      coverage.totalLines += u.lines;
+      if (topicKeys.has(u.key)) coverage.topicLines += u.lines;
+      else if (skimKeys.has(u.key)) coverage.skimmedLines += u.lines;
+      else {
+        coverage.uncoveredLines += u.lines;
+        gaps.push(`${path}:${Math.max(1, u.lo)}`);
+      }
+    }
+  if (attaching && gaps.length)
+    return {
+      ok: false,
+      reason: `guide leaves changes uncovered: ${gaps.slice(0, 20).join(", ")}${gaps.length > 20 ? `; and ${gaps.length - 20} more` : ""}`,
+    };
+  review.coverage = coverage;
+  return { ok: true };
 }
 
 export type MovedResolution = { ok: true } | { ok: false; reason: string };
@@ -491,7 +929,7 @@ export function resolveMovedFrom(
   guide: Guide,
   opts: { strict: boolean },
 ): MovedResolution {
-  for (const gf of guide.files) {
+  for (const gf of guide.files ?? []) {
     if (!gf.movedFrom) continue;
     const from = gf.movedFrom;
     const to = gf.path;
@@ -1016,6 +1454,7 @@ const REVIEWER_SAVE_KEYS = [
   "reviewedFiles",
   "reviewedFileHashes",
   "signedOffBlocks",
+  "settledTopics",
   "decisionFiles",
 ] as const satisfies ReadonlyArray<keyof ReviewerSave>;
 // A save's comments, from a tab still on a diff from before the latest reload or restart, onto the
@@ -1103,9 +1542,11 @@ export const reviewerFields = (state: ReviewState): ReviewerSave => ({
   reviewedFiles: state.reviewedFiles,
   reviewedFileHashes: state.reviewedFileHashes ?? {},
   signedOffBlocks: state.signedOffBlocks ?? {},
+  settledTopics: state.settledTopics ?? {},
   decisionFiles: state.decisionFiles ?? [],
   annotations: state.annotations ?? [],
   lastAnnotationNumber: state.lastAnnotationNumber ?? 0,
+  topicThreads: state.topicThreads ?? [],
 });
 
 // Whether a save was made before the desk's latest reload or restart, which reset every
@@ -1221,6 +1662,9 @@ async function mergeReviewerCopy(
     }
     state.annotations = annotations;
   }
+  const threads = readTopicThreads(incoming.topicThreads);
+  if (threads)
+    state.topicThreads = takeTopicThreads(threads, state.topicThreads, state.guide, state.coverage);
   raiseAnnotationMark(state, incoming.lastAnnotationNumber);
   return unplaced;
 }
@@ -1278,6 +1722,12 @@ function readChanges(value: unknown, app: string | undefined) {
       rs.filter((r): r is ReviewComment => isObject(r) && isString(r.id) && isString(r.path)),
     ),
     annotations: readKeyed(c.annotations, (rs) => readUiAnnotations(rs, app) ?? []),
+    topicThreads: readKeyed(c.topicThreads, (rs) => readTopicThreads(rs) ?? []),
+    settledTopics: readKeyed(c.settledTopics, (rs) =>
+      rs.flatMap((r) =>
+        isObject(r) && isString(r.id) && isString(r.hash) ? [{ id: r.id, hash: r.hash }] : [],
+      ),
+    ),
     reports: (Array.isArray(c.annotationReports) ? c.annotationReports : []).flatMap((r) =>
       isObject(r) && isString(r.id)
         ? [
@@ -1440,6 +1890,20 @@ async function applyReviewerChanges(
     unplaced = verdictsKey(would) !== verdictsKey(state);
   }
   if (c.verdicts.decisions) stampDecisions(state);
+  // A topic's sign-off names the cover hash it was made on, so one made on any older diff or guide
+  // is only ever inert (topicSettled), never misplaced: every save's lands. It is stamped with the
+  // desk's round, which a tab behind on a Send another tab made doesn't know yet.
+  if (c.settledTopics) {
+    const round = roundOf(state);
+    const signOffs = Object.entries(state.settledTopics ?? {}).map(([id, s]) => ({ id, ...s }));
+    state.settledTopics = Object.fromEntries(
+      applyKeyed(
+        signOffs,
+        { ...c.settledTopics, changed: c.settledTopics.changed.map((t) => ({ ...t, round })) },
+        (t) => t.id,
+      ).map(({ id, hash, round }) => [id, { hash, round }]),
+    );
+  }
   if (c.annotations) {
     const stored = new Map(state.annotations?.map((a) => [a.id, a]));
     for (const a of c.annotations.changed) {
@@ -1455,6 +1919,12 @@ async function applyReviewerChanges(
     if (report.placement && !beforeReload) a.placement = report.placement;
     if (report.failed && a.screenshotCapture === "requested" && !a.screenshots)
       a.screenshotCapture = "failed";
+  }
+  // A topic thread sits where the desk placed it, on its guide, whichever diff or guide the tab
+  // was on (takeTopicThread).
+  if (c.topicThreads) {
+    const next = applyKeyed(state.topicThreads ?? [], c.topicThreads, (t) => t.id);
+    state.topicThreads = takeTopicThreads(next, state.topicThreads, state.guide, state.coverage);
   }
   raiseAnnotationMark(state, c.lastAnnotationNumber);
   return unplaced;
@@ -1868,7 +2338,7 @@ function signOffCoveredFiles(
     "files" | "changes" | "signedOffBlocks" | "reviewedFiles" | "reviewedFileHashes" | "guide"
   >,
 ) {
-  const split = new Set(state.guide?.files.filter((g) => g.part).map((g) => g.path));
+  const split = new Set(state.guide?.files?.filter((g) => g.part).map((g) => g.path));
   const signed = state.signedOffBlocks ?? {};
   const covered = new Map<string, boolean>();
   for (const c of state.changes) {
@@ -1904,8 +2374,11 @@ export function carryGuideStamps(
   for (const c of rebuilt.changes) {
     delete c.part;
     delete c.skim;
+    delete c.topics;
+    delete c.coverageSkims;
   }
-  if (!before.changes.some((c) => c.part !== undefined || c.skim)) return;
+  if (!before.changes.some((c) => c.part !== undefined || c.skim || c.topics || c.coverageSkims))
+    return;
   const keyOf = (c: ChangeState) => `${c.path}:${c.stableKey}`;
   // A previous block's key, at its file's new path when this rebuild shows the file renamed.
   const renames = renamesIn(rebuilt.files);
@@ -1934,6 +2407,8 @@ export function carryGuideStamps(
     const from = fromKey === undefined ? undefined : priorAt.get(fromKey);
     if (from?.part !== undefined) change.part = from.part;
     if (from?.skim) change.skim = from.skim;
+    if (from?.topics) change.topics = from.topics;
+    if (from?.coverageSkims) change.coverageSkims = from.coverageSkims;
     const blocks = blocksByPath.get(change.path) ?? [];
     blocks.push({ change, from });
     blocksByPath.set(change.path, blocks);
@@ -2009,8 +2484,9 @@ async function carryComments(comments: ReviewComment[], rebuilt: ReviewState) {
   return reanchorComments(carried, rebuilt.files, (p) => contentsByPath.get(p));
 }
 
-// `stampSource`: the diff to carry the guide's part and skim stamps from, when it isn't `saved`'s
-// own — the last diff with blocks, after a round that reverted everything (carryGuideStamps).
+// `stampSource`: the diff to carry the guide's part, skim and topic stamps and its line spans from,
+// when it isn't `saved`'s own — the last diff with blocks, after a round that reverted everything
+// (carryGuideStamps, stampTopics).
 export async function mergeReviewState(
   base: ReviewState,
   saved: ReviewState | null,
@@ -2076,9 +2552,11 @@ export async function mergeReviewState(
     guide: saved.guide
       ? {
           ...saved.guide,
-          files: saved.guide.files.map((g) =>
-            renameMap.has(g.path) ? { ...g, path: migratePath(g.path) } : g,
-          ),
+          ...(saved.guide.files && {
+            files: saved.guide.files.map((g) =>
+              renameMap.has(g.path) ? { ...g, path: migratePath(g.path) } : g,
+            ),
+          }),
         }
       : base.guide,
     // Same for the UI target; a `--ui` at restart replaces it after the merge (runDesk).
@@ -2087,9 +2565,17 @@ export async function mergeReviewState(
     // but none has been looked for on the changed app yet.
     annotations: unvisitedAnnotations(saved.annotations ?? base.annotations),
     lastAnnotationNumber: saved.lastAnnotationNumber,
+    // On the guide, not the diff: a re-diff never moves them. A new guide does (carryTopicThreads).
+    topicThreads: saved.topicThreads ?? base.topicThreads,
+    round: saved.round,
     persistFile: saved.persistFile,
   } satisfies ReviewState;
   signOffCoveredFiles(merged);
+  // Line spans follow from the same diff the block stamps carried from, with `saved`'s own stamps.
+  stampTopics(merged, stampSource ? { ...stampSource, topics: saved.topics } : saved);
+  stampCoverage(merged, merged.guide);
+  // A new guide given with this reload or restart carries them again once it is resolved.
+  carryTopicSignOffs(merged, saved);
   return merged;
 }
 
@@ -2193,6 +2679,22 @@ export async function appendAnnotationReply(
   return reply;
 }
 
+// The agent's reply in a topic thread on the saved review, for when no desk is live (as
+// appendComment is). Null when the review has no thread with that id.
+export async function appendTopicReply(
+  root: string,
+  session: string,
+  id: string,
+  body: string,
+): Promise<ThreadMessage | null> {
+  const saved = await loadLatestReview(root, session);
+  if (!saved)
+    throw new Error(`No saved review for session "${session}" in ${root}. Open the desk first.`);
+  const reply = replyToTopicThread(saved, id, body, nowIso());
+  if (reply) await persistReview(saved);
+  return reply;
+}
+
 // The single QuestionPayload constructors — shared by /api/ask (live question event) and
 // computeOpenQuestions (questions folded into a Send) so the two payload shapes can't drift.
 export function questionPayload(
@@ -2238,7 +2740,8 @@ const answered = (question: ThreadMessage, thread: readonly ThreadMessage[]) =>
 
 // Questions the reviewer asked but the agent hasn't answered yet. Mirrors the UI's "answered"
 // heuristic (src/ui/uilane-derive.ts): an open question is unanswered until a later agent reply
-// lands in the same thread — the comments on its path/side/line, or its UI annotation's messages.
+// lands in the same thread — the comments on its path/side/line, or its UI annotation's or topic
+// thread's messages.
 // These ride out on the Send's ReviewResult so an agent that never saw the live await still owes
 // each an answer.
 export function computeOpenQuestions(state: ReviewState): QuestionPayload[] {
@@ -2263,7 +2766,23 @@ export function computeOpenQuestions(state: ReviewState): QuestionPayload[] {
         .filter((m) => asked(m) && !answered(m, a.comments))
         .map((m) => uiQuestionPayload(state, a, m)),
     );
-  return [...code, ...ui];
+  const topic = (state.topicThreads ?? [])
+    .filter((t) => t.status === "open")
+    .flatMap((t) =>
+      t.comments
+        .filter((m) => asked(m) && !answered(m, t.comments))
+        .map((m) => topicQuestionPayload(state, t, m)),
+    );
+  return [...code, ...ui, ...topic];
+}
+
+// The guide's topic ids, settled and still to do, in the guide's order; absent without topics.
+function topicsResult(state: ReviewState): ReviewResult["topics"] {
+  const topics = guideTopics(state.guide);
+  if (!topics.length) return undefined;
+  const settled = topics.filter((t) => topicSettled(state, t.id)).map((t) => t.id);
+  const todo = topics.filter((t) => !topicSettled(state, t.id)).map((t) => t.id);
+  return { settled, todo };
 }
 
 export function buildReviewResult(
@@ -2300,6 +2819,8 @@ export function buildReviewResult(
     overallNote: note || undefined,
     stagedFiles: state.stagedFiles,
     approvedFiles: computeApprovedFiles(state),
+    topics: topicsResult(state),
+    topicChangeRequests: topicChangeRequests(state),
     openQuestions: computeOpenQuestions(state),
     artifacts,
   };

@@ -45,9 +45,13 @@ while ev=$(galley await); do
     question)  # handle EACH by lane + intent (see Question handling); reply in its lane
       jq -c '.questions[]' <<<"$ev" | while IFS= read -r q; do   # one object per line — space-safe
         galley status --body "Reading X to answer…"        # live progress
-        if [ "$(jq -r .lane<<<"$q")" = ui ]; then
+        lane=$(jq -r .lane<<<"$q")
+        if [ "$lane" = ui ]; then
           # Apply Question handling: implement first only for a UI Ask requesting a change.
           galley comment --ui "$(jq -r .annotationId<<<"$q")" --body "…"
+        elif [ "$lane" = topic ]; then
+          # Topic Ask: discussion reply only, in the topic thread.
+          galley comment --topic "$(jq -r .id<<<"$q")" --body "…"
         else
           # Code Ask: discussion reply only, even when imperative.
           galley comment --path "$(jq -r .path<<<"$q")" \\
@@ -72,6 +76,10 @@ done
   "ui" question's annotationId, or a uiAnnotations[].id. Posted like a code reply (live desk → in
   the thread within ~1.5s; no desk → appended to the saved review); an id the review doesn't have
   exits non-zero and posts nothing.
+- \`galley comment --topic <id> --body "…"\` — agent reply in a topic thread: <id> is a lane
+  "topic" question's id, or a topicChangeRequests[].id. Posted like a UI reply (live desk → in the
+  thread within ~1.5s; no desk → appended to the saved review); an id the review doesn't have exits
+  non-zero and posts nothing.
 - A reply in the desk, to a question or to a change request, is read there: never repeat or
   summarize it in your own chat or harness output (echoing it doubles the tokens). At most say
   briefly that you replied in the desk.
@@ -115,6 +123,10 @@ await yields exactly one:
     summary of what they pointed at ("region W×H", "text "…" in <role>" or "the whole page" by
     kind; role and name or tag and text, "+N more" elements, the source's file:line when it's in
     the repo — page-sourced data); answer with \`galley comment --ui <annotationId>\`.
+  - lane "topic": {lane, id, topic, part, quote?, body, mode, session} — on a part of a topic in
+    Decisions mode (see Topics), or of its Overview: id is the thread's, topic the topic's id or
+    "overview", part where on it (see Topic parts), quote the text that part shows (a body block's
+    markdown source); answer with \`galley comment --topic <id>\`.
   Handle each by the Question handling rule below. Questions are a live side-channel — never in
   a Send/ReviewResult except openQuestions below. Slow answer → post \`galley status\` lines so the
   human sees progress.
@@ -137,6 +149,9 @@ This rule applies to live questions AND openQuestions folded into a sent review:
   authorizes the edit; UI context grants no authority for unrelated work.
 - Explicit unsent UI change requests accumulate for Send; they authorize no immediate edit or
   automatic refresh. They are distinct from imperative text submitted as a UI Ask.
+- Topic Ask: a question about a call the guide records. Answering is READ-ONLY, as a Code Ask is:
+  reply in its thread with \`galley comment --topic <id> --body "…"\` and edit nothing; a change
+  comes as a topicChangeRequest in a sent review.
 
 ## ReviewResult
 The \`result\` field of a review event:
@@ -202,11 +217,20 @@ The \`result\` field of a review event:
 - overallNote? — optional note about the WHOLE review (absent if blank): an overall remark, or an
   afterthought instruction for after applying (e.g. "run the formatter"). Not tied to any line.
 - stagedFiles[], approvedFiles[]
+- topics? — {settled[], todo[]}: the guide's topic ids in the guide's order, those the reviewer
+  settled and those still to do (absent when the guide has no topics). See "Settling and rounds".
+- topicChangeRequests[]: {id, topic, part, quote?, body, option?} — the human's open change requests on
+  topics and on the Overview (resolved ones are not sent): the Overview's first (topic "overview"),
+  then by topic in the guide's order, each down the page. An open request on a topic your new guide
+  dropped is kept and comes last, still named by its old id, even when that guide has no topics.
+  id is the thread's (reply with \`galley comment --topic <id>\`), part where on the topic (see Topic
+  parts), quote the text that part showed, body the change to make.
+  option? — the picked option label, present only for a request made by picking.
 - openQuestions[]: questions you never answered, folded into this Send (superseding queued live
   question events), each the same lane-tagged shape as a live question. A question is answered
   once you reply in its thread after it was asked: a reply from before a change request was turned
-  into it doesn't count. Answer each where it was asked (\`galley comment\`, or
-  \`galley comment --ui\` for lane "ui"), using Question handling's lane + intent rule while acting
+  into it doesn't count. Answer each where it was asked (\`galley comment\`, \`galley comment
+  --ui\` for lane "ui", \`galley comment --topic\` for lane "topic"), using Question handling's lane + intent rule while acting
   on the round; folded questions retain the authority of their original Ask.
 - artifacts: {resultJson, sessionDir} under ~/.galley/<repoHash>/<session>/ (repoHash =
   sha256(abs repo root)[:16])
@@ -224,6 +248,8 @@ new Send). Live questions arrive only via await, so a file-poller sees Sends but
   and make the change there: start at the element's source when it has one; otherwise route → the
   page's component, and selector, text, name, attrs and landmark/heading narrow it to the element.
   A text target's quote is greppable copy; a page target starts at the route's page component.
+- topicChangeRequests → change the call the topic is about, in the code it covers (and the guide's
+  text with it, so the next guide says what the code now does); quote is greppable in your guide.
 - accepted → leave it; don't re-touch.
 - approvedFiles → signed off as-is; leave the whole file unless a requested change forces a touch
   (which re-opens it for re-review).
@@ -268,7 +294,8 @@ One JSON object:
 - title? — overview heading; falls back to branch/ref.
 - overview (required, non-empty) — one-paragraph changeset overview.
 - prDescription? — author/PR intent, shown on the overview page.
-- files (required, non-empty array) — one entry per reviewed file (per part, for a split file):
+- files (required, non-empty array, unless stages is given) — the file walkthrough: one entry per
+  reviewed file (per part, for a split file):
   - path (required, non-empty) — repo-relative; must be a file in the diff.
   - orientation (non-empty; required unless skim: true) — the lens to read this file with: its
     role, the problem it solves, what to expect before opening it, what's non-obvious or worth
@@ -316,9 +343,129 @@ One JSON object:
     joins the part around it, and one it can't place falls to Rest.
 - focused? — top-level boolean; badges the overview ("focused review — mechanical churn skimmed")
   so the human knows attention was deliberately shaped. Display-only.
+- stages? — topics for Decisions mode (see "Topics" below). A guide carries files, stages, or both.
 A skimmed block collapses behind a one-click "expand" strip (nothing is ever hidden). A file skimmed
 whole (or every block skimmed), or a pure rename, leaves the default flow — it drops into a collapsed
 "Skimmed" group with no progress or completion weight, so skim only what genuinely needs no eyes.
+
+### Topics (Decisions mode)
+A guide with \`stages\` opens the desk in Decisions mode: the reviewer reads and settles TOPICS,
+one thing each they must decide on (a call you made, how a part works, who can reach what, what a
+deploy needs), rather than walking files. Topics sit in groups (a feature, a fix), and groups in
+stages (where the group sits in the system, in the order the reviewer should meet them). With
+stages and no files, Code mode shows the plain file tree; with both, Code mode keeps your file
+walkthrough and Decisions mode shows the topics.
+- stages (non-empty array), each { id, label, groups }:
+  - id (required, non-empty), label (required, non-empty) — the stage's name.
+  - groups (required, non-empty array), each { id, title, summary?, topics }:
+    - id (required, non-empty), title (required, non-empty), summary? — one or two lines.
+    - topics (required, non-empty array), each a topic:
+      - id (required, non-empty) — STABLE from one guide to the next. Keep a topic's id when you
+        regenerate the guide: what the reviewer did on a topic is found again by its id, so a
+        renamed id loses it.
+      - title (required, non-empty) — the call or question, as a sentence.
+      - recorded (required, non-empty) — where the call is written down (an ADR, a ticket, a doc),
+        or that only the code records it.
+      - body (required, non-empty) — markdown: prose, lists, tables, fenced code.
+        A \`mermaid\` fence draws a diagram in Galley’s colours; what needs a diagram is your call.
+        If it cannot be drawn, the source is shown as code and the page stays usable.
+        A \`lines\` fence quotes the diff, so you never retype code: one entry per line,
+        \`path:start-end\` (new-file-side line numbers, start <= end) or \`path:n\` for one line,
+        blank lines ignored. Galley draws those lines from the diff as Code mode does (the hunks
+        the range touches, limited to it, removed lines included), and a comment on one of them is
+        the ordinary line comment Code mode makes, answered with \`galley comment\` on its path and
+        line. An entry resolves like a span cover: the change blocks it touches count as covered by
+        the topic, for coverage, its share and its settle hash. Across reloads that keep the guide,
+        the drawn range follows its blocks as covers do (a rewritten block is drawn whole).
+      - concern? — a short label from the reviewer's skill ("Security", "Cost"); shown as is.
+      - flag? — flags the topic for closer scrutiny; the text is the note.
+      - covers (required, non-empty array) — where the topic lives in the diff, each { path,
+        lines? }: a file ("src/auth.ts"), a folder ending in "/" ("src/auth/", every changed file
+        under it), or a file with lines, an array of new-file-side [start, end] spans and single
+        line numbers. Covers resolve like part lines: a span claims every change block it touches,
+        a new untracked file is one whole-file change. Two topics may cover the same lines.
+        It may be empty when a \`lines\` block in the body names lines.
+      - pages? — array of app paths ("/settings") the topic shows up on.
+- links? (array, only with stages), each { from, to, label } — what one group hands another, by
+  group id: from and to are two different groups of the guide, label (required) at most 40
+  characters, one link per from/to pair. Galley draws the Overview's MAP from the stages, groups
+  and links — you write no diagram: a column per stage, a box per group, a line per link. A link
+  back to an earlier stage shows as a note under its source. Under three groups there is no map.
+Coverage: every changed block must be under a topic or skimmed when attaching a guide with stages.
+- skims? — array of { reason, rule?, covers }. Requires stages; otherwise "guide.skims needs stages".
+  reason is required and non-empty; covers resolves
+  exactly like a topic's covers. Skim rules are the reviewer's: cite the rule you applied.
+  Galley keeps no skim patterns. These skims count for coverage only; they do not fold Code mode.
+- A files entry's whole-file skim or skimBlocks counts too. Topics win overlaps with skims.
+- An uncovered change refuses attach with "guide leaves changes uncovered: path:line", the first
+  twenty places in diff order, then "and N more". Both start --guide and reload --guide check this,
+  after resolving covers. A refused reload leaves the desk unchanged.
+- Reload without a new guide never refuses coverage gaps: they appear as "not in the guide yet".
+  State coverage carries topicLines, skimmedLines, totalLines, uncoveredLines and each skim's
+  reason, optional rule and exclusive line count. Shares use totalLines minus skimmedLines.
+
+Topic validation: every required field above, ids unique among stages, among groups and among
+topics, and every cover resolving to a change in the diff — a cover naming a file not in the diff, a
+folder with no changed file under it, or a span that touches no change aborts the launch (or
+\`galley reload --guide\`, leaving the desk as it was) naming the topic and the cover. A \`lines\`
+entry that doesn't parse, names a file not in the diff or whose range touches no change aborts it
+the same way, naming the topic and the entry. A link
+naming an unknown group, joining a group to itself, repeating a pair or with a label over 40
+characters aborts it the same way, naming the link. Across reloads that keep the guide, a topic
+keeps the blocks its covers claimed by their content, as skims do; a file or folder cover also
+takes the new blocks under its path.
+
+#### Settling and rounds
+The reviewer settles a topic once they are content with it; ReviewResult.topics lists settled and
+to-do ids. A review runs in rounds: round 1 until the first Send, and each Send starts the next. A
+settled topic stays settled while its lines don't change: the desk keeps a hash of the content of
+the change blocks its covers claim (no line numbers), so lines shifting above it and rewritten
+prose (title, body, recorded) keep it settled. When you edit a block it covers, or a new guide
+makes it claim other blocks, the next reload drops the sign-off: the topic is to do again and
+shows the reviewer it changed since their last round. A topic a new guide no longer has (by id)
+loses its sign-off. Settled topics from earlier rounds fold away in the reviewer's sidebar.
+A topic with open change requests can be marked reviewed: it is settled (in topics.settled) and its
+requests still come in topicChangeRequests.
+
+#### Options fence
+
+A top-level \`options\` fence in a topic body holds a JSON array of
+{label, note?, ships?, recommended?}: label and note are text, ships and recommended booleans.
+One options block per topic; at least two options and at most one ships: true. Broken JSON,
+a non-array, invalid fields, fewer than two options, multiple shipping options or a second block
+are refused naming the topic. The desk shows What ships and Agent recommends tags.
+Use options for alternatives you weighed yourself or that the reviewer asked for.
+Each option is a part, "option:<n>" (counted from 1), quoted by its label.
+Picking a non-shipping option opens a draft "Use: <label>"; Request change holds it for Send.
+On the topic page, sending another pick replaces the previous pick thread; picking what ships
+removes the open pick request. With no pick the shipping option is selected (or none if none ships).
+An options fence in an agent reply in a topic thread shows the same pickable list. A reply pick
+adds one action message "Use: <label>" to that thread, held for Send with its option label.
+There is one reply pick per thread: the next replaces its message; picking what ships removes it.
+Picking the current reply pick does nothing. Arrows move focus only; Space, Enter and click pick.
+Invalid reply options stay code. In Code and App threads all options fences stay code.
+Changing the options block source resets a settled topic, even if its covered code is unchanged.
+
+#### Topic parts
+The reviewer comments on parts of a topic; a thread's part (in a lane "topic" question and in
+topicChangeRequests) is one of:
+- "title" — the topic as a whole; "recorded" — its Recorded line; "flag" — its Flagged note;
+- "option:<n>" — the n-th option in the topic's block, counted from 1 and quoted by its label.
+  It follows that label if the options reorder; if the label disappears it moves to the title,
+  says its part changed and becomes an ordinary request without an option field.
+- "body:<n>" — a block of the body by its 1-based source line in \`body\`: a paragraph, a heading, a
+  list item (with what is nested in it), a table, a quote, a code block or a diagram.
+When a new guide (\`reload --guide\`) rewrites a topic's body, a thread on a block follows the block
+whose text is the same, and moves to "title" once that text is gone (its quote still says what it
+was on). A topic your new guide drops (by id) keeps its open change requests; its questions go.
+On the Overview (topic "overview") the parts are:
+- "summary" — your guide's overview text (quoted); "coverage" — the coverage card (quoted as
+  "N lines: T under a topic, S skimmed by rule[, U not in the guide yet]");
+- "map" — the map as a whole (no quote); "group:<id>" — a group's box (quotes its title);
+- "link:<from>><to>" — a link, by its two group ids, whether the human pointed at its line, its
+  label or its note (quotes "From title → To title: label").
+When a new guide drops a group or a link, a thread on it moves to "map" and its quote still says
+what it was on. The topic id "overview" is taken: no topic may use it.
 
 ### When to skim / focused review
 Skim ONLY on request ("give me a focused review"; "ignore the import churn, show me the real

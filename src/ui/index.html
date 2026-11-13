@@ -15,7 +15,7 @@
 </head>
 
 <body>
-  <div class="app booting" x-data :class="{booting: !$store.g.ready, 'view-ui': $store.g.view==='ui', 'ui-only': $store.g.uiOnly(), 'side-collapsed': $store.g.sidebarCollapsed}">
+  <div class="app booting" x-data :class="{booting: !$store.g.ready, 'view-ui': $store.g.view==='ui', 'view-topics': $store.g.view==='topics', 'ui-only': $store.g.uiOnly(), 'side-collapsed': $store.g.sidebarCollapsed}">
     <header class="top" :class="{done: $store.g.reviewDone}">
       <!-- What is under review: the branch (or file) and "project · mode" (topbar-derive.ts). The
            logo shows only where no sidebar carries the brand. -->
@@ -24,13 +24,17 @@
           class="top-name"><b x-text="$store.g.deskTitle()" :title="$store.g.deskTitle()"></b><span
             x-text="$store.g.deskSubtitle()" :title="$store.g.deskSubtitle()"></span></div></div>
       <div class="toggles">
-        <!-- Code / App lane switch, centred on the bar: only when the desk has a UI target and a diff.
-             A single-lane desk shows no lane label. -->
-        <div class="seg lane-switch" x-cloak x-show="$store.g.hasUi() && !$store.g.uiOnly()" data-tip="Code / App" data-tip-keys="⇧U"><button
-            :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg><span>Code</span><kbd
-              x-keys x-show="$store.g.view!=='code'">⇧U</kbd></button><button
-            :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg><span>App</span><kbd
-              x-keys x-show="$store.g.view==='code'">⇧U</kbd></button></div>
+        <!-- The mode switch, centred on the bar: Code while there's a diff, App with a UI target,
+             Decisions with a guide that has topics (appview.ts views). A desk with one mode shows no
+             switch. ⇧U's keycaps sit on the mode it goes to next. -->
+        <div class="seg lane-switch" x-cloak x-show="$store.g.views().length > 1"
+          :data-tip="$store.g.views().map((v) => ({ code: 'Code', ui: 'App', topics: 'Decisions' })[v]).join(' / ')" data-tip-keys="⇧U"><button
+            x-show="$store.g.views().includes('code')" :class="{active: $store.g.view==='code'}" @click="$store.g.setView('code')"><svg class="ic"><use href="#gly-code"></use></svg><span>Code</span><kbd
+              x-keys x-show="$store.g.nextView()==='code'">⇧U</kbd></button><button
+            x-show="$store.g.views().includes('ui')" :class="{active: $store.g.view==='ui'}" @click="$store.g.setView('ui')"><svg class="ic"><use href="#gly-app"></use></svg><span>App</span><kbd
+              x-keys x-show="$store.g.nextView()==='ui'">⇧U</kbd></button><button
+            x-show="$store.g.views().includes('topics')" :class="{active: $store.g.view==='topics'}" @click="$store.g.setView('topics')"><svg class="ic"><use href="#gly-check"></use></svg><span>Decisions</span><kbd
+              x-keys x-show="$store.g.nextView()==='topics'">⇧U</kbd></button></div>
       </div>
       <div class="actions"><button class="btn icon top-settings" data-tip="Settings" data-tip-keys="⇧," @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg></button>
         <!-- The agent's presence (topbar-derive.ts): only while it has something in flight. -->
@@ -57,9 +61,9 @@
         <!-- Collapsed (wide screens only): the sidebar is a rail of icons. Change requests opens it on
              its list; Review and Files open it on their tab. -->
         <nav class="side-rail" aria-label="Sidebar">
-          <button type="button" class="rail-btn" x-show="$store.g.hasGuide && $store.g.hasGuide()" x-cloak
-            :class="{active: $store.g.overviewOpen && $store.g.view==='code'}" aria-label="Overview" data-tip="Overview"
-            :data-tip-keys="$store.g.view==='code' ? 'o' : null" data-tip-align="right" @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg></button>
+          <button type="button" class="rail-btn" x-show="($store.g.hasGuide && $store.g.hasGuide()) || $store.g.view==='topics'" x-cloak
+            :class="{active: ($store.g.overviewOpen && $store.g.view==='code') || ($store.g.view==='topics' && $store.g.topicAt===null)}" aria-label="Overview" data-tip="Overview"
+            :data-tip-keys="$store.g.view==='code' || $store.g.view==='topics' ? 'o' : null" data-tip-align="right" @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg></button>
           <button type="button" class="rail-btn" aria-label="Change requests"
             data-tip="Change requests" data-tip-keys="]" data-tip-align="right"
             @click="$store.g.requestsOpen = true; $store.g.sidebarCollapsed = false"><svg class="ic flag"><use href="#gly-flag"></use></svg><span
@@ -82,7 +86,10 @@
              change requests (always, even with none open, so the reviewer knows where they'll land). -->
         <div class="side-nav">
           <!-- "active" while the Overview shows, patched like the file rows' (applyActiveRow). -->
-          <div class="node overview-row" data-key="overview" x-show="$store.g.hasGuide && $store.g.hasGuide()"
+          <div class="node overview-row" data-key="overview" x-show="$store.g.hasGuide && $store.g.hasGuide() && ($store.g.view==='code' || $store.g.view==='ui')"
+            @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg><span class="nm">Overview</span><kbd x-keys>o</kbd></div>
+          <!-- Decisions mode's Overview; "active" is patched by topics.ts as it draws. -->
+          <div class="node overview-row" data-key="topics-overview" x-show="$store.g.view==='topics'" x-cloak
             @click="$store.g.openOverview()"><svg class="ic"><use href="#gly-home"></use></svg><span class="nm">Overview</span><kbd x-keys>o</kbd></div>
           <div class="node cr-head" role="button" tabindex="0" :aria-expanded="$store.g.requestsOpen"
             @click="$store.g.requestsOpen = !$store.g.requestsOpen" @keydown.enter.stop.prevent="$store.g.requestsOpen = !$store.g.requestsOpen"
@@ -92,9 +99,10 @@
           <div class="cr-list" x-show="$store.g.requestsOpen" x-cloak>
             <div class="node cr-empty" x-show="!$store.g.requests.length">No open change requests</div>
             <template x-for="r in $store.g.requests" :key="r.key">
-              <div class="node cr-row" :class="{app: r.kind==='app'}" :title="r.loc + ' — ' + r.text" @click="$store.g.openRequest(r)">
+              <div class="node cr-row" :class="{app: r.kind==='app', topic: r.kind==='topic'}" :title="r.loc + ' — ' + r.text" @click="$store.g.openRequest(r)">
                 <svg class="ic" x-show="r.kind==='code'"><use href="#gly-flag"></use></svg>
                 <svg class="ic" x-show="r.kind==='app'"><use href="#gly-app"></use></svg>
+                <svg class="ic" x-show="r.kind==='topic'"><use href="#gly-message"></use></svg>
                 <span class="cr-loc" x-text="r.loc"></span>
                 <span class="nm" x-text="r.text"></span>
               </div>
@@ -164,6 +172,8 @@
             </div>
           </template>
         </div>
+        <!-- Decisions mode's stages, groups and the open group's topics (topics.ts draws them). -->
+        <div id="topicsNav" x-ignore></div>
         <div class="side-foot"><button class="tree-settings" :data-tip="$store.g.sidebarCollapsed ? 'Settings' : null"
             :data-tip-keys="$store.g.sidebarCollapsed ? '⇧,' : null" data-tip-align="right" @click="$store.g.openSettings()"><svg class="ic"><use href="#gly-settings"></use></svg><span>Settings</span><kbd x-keys>⇧,</kbd></button></div>
       </aside>
@@ -185,6 +195,8 @@
           <div class="ovr" id="ovr" x-ignore></div>
           <div class="diff-rendering" x-show="$store.g.rendering" x-cloak><span>Rendering…</span></div>
         </div>
+        <!-- Decisions mode: its Overview or the open topic's page (topics.ts draws it). -->
+        <div id="topics" class="topics-view" x-ignore></div>
         <!-- The UI view: the proxied app under a browser-chrome bar. The
              iframe is created by appview.ts inside #appFrame and stays alive across view switches;
              the code view keeps it laid out, unseen and inert, once it has loaded. -->
@@ -391,6 +403,7 @@
         <div class="modal send">
           <p x-text="$store.g.sendMsg"></p>
           <div class="sub" x-show="$store.g.sendNotSent" x-text="$store.g.sendNotSent"></div>
+          <div class="sub" x-show="$store.g.sendTopics" x-text="$store.g.sendTopics"></div>
           <div class="lanes" x-show="$store.g.sendLanes">
             <div class="lane" x-show="$store.g.sendLanes?.code"><b>Code</b><div><span x-text="$store.g.sendLanes?.code"></span><div class="sub"
                   x-show="$store.g.sendLanes?.codeNotSent" x-text="$store.g.sendLanes?.codeNotSent"></div></div></div>

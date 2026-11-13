@@ -9,6 +9,7 @@ import type {
   UiElement,
   UiPage,
   UiSource,
+  View,
 } from "./types";
 
 // Pure helpers for the UI view's traffic with the bridge and the desk's UI status (kept free of the
@@ -140,17 +141,22 @@ export const reloadRan = (
   polled: { token: string | undefined; generation: number },
 ) => adopted.token === polled.token && polled.generation > adopted.generation;
 
-// Whether to load the app in the background while the code view shows, so the first switch to the
-// UI view finds it loaded: there's an app (a target, the proxy up), nothing has loaded it yet, and
-// the desk's first diff render has finished, so warming never slows opening the desk. The UI view
-// loads the app itself on the way in, so a UI-only desk never warms.
+// Whether to load the app in the background while the code view or Decisions shows, so the first
+// switch to the UI view finds it loaded: there's an app (a target, the proxy up), nothing has
+// loaded it yet, and the desk's first diff render has finished, so warming never slows opening the
+// desk. The UI view loads the app itself on the way in, so a UI-only desk never warms.
 export const shouldWarm = (desk: {
   rendered: boolean;
   proxy: boolean;
   target: boolean;
-  view: "code" | "ui";
+  view: View;
   loaded: boolean;
-}) => desk.rendered && desk.proxy && desk.target && desk.view === "code" && !desk.loaded;
+}) =>
+  desk.rendered &&
+  desk.proxy &&
+  desk.target &&
+  (desk.view === "code" || desk.view === "topics") &&
+  !desk.loaded;
 
 // Whether a key passed up from the app runs: ⌥A always; the rest only while annotating, since in
 // Interact mode the app's keys are its own (Esc included).

@@ -305,6 +305,8 @@ export interface Store {
   sendMsg: string;
   // What the receipt holds back ("Not sent: …"), under sendMsg when there are no lanes; "" for none.
   sendNotSent: string;
+  // With topics: how many are settled and how many are still to do; "" without.
+  sendTopics: string;
   sendNote: string;
   // Send was confirmed and waits on new annotations' screenshots (capped): the dialog says so.
   sendFinishing: boolean;
@@ -345,9 +347,14 @@ export interface Store {
   // a file renders its real diff for the rest of the session instead of the summary card. Per-
   // session and never persisted — the oversized stamp is server-owned and re-derived on reload.
   loadedOversized: Set<string>;
-  // Which lane the centre shows: the diff ("code") or the proxied app ("ui"). Only "code" without
-  // a UI target; only "ui" on a UI-only desk (a target and no diff).
-  view: "code" | "ui";
+  // Which mode the centre shows: the diff ("code"), the proxied app ("ui"), or the guide's topics
+  // ("topics", labelled Decisions). Only the modes the desk has (appview.ts views): no "ui" without
+  // a UI target, only "ui" on a UI-only desk (a target and no diff), "topics" with a guide that
+  // has topics.
+  view: View;
+  // Where Decisions mode is: the Overview (null) or the open topic's id. Not persisted: a tab load
+  // opens on the Overview.
+  topicAt: string | null;
   // The first state is in and the view fits the desk's lanes. Until then the lane chrome stays
   // hidden, so a UI-only desk doesn't flash the code lane on load (or the reverse).
   ready: boolean;
@@ -378,6 +385,12 @@ export interface Store {
   // The annotation whose thread holds the open composer (a reply, or an edit of one of its
   // messages). Null for the code lane's composers and the floating one.
   composerAnnotation: string | null;
+  // The part of a topic the composer for a new topic thread is open on, with the text it showed
+  // when the composer opened (a new guide may arrive before the thread is made), and the topic
+  // thread whose card holds the open composer (a reply, or an edit of one of its messages). Both
+  // null for the other lanes' composers.
+  topicDraft: { topic: string; part: string; option?: string; quote?: string } | null;
+  composerTopic: string | null;
   // The Send dialog's receipt split by lane, when the desk has a UI lane (code is null on a
   // UI-only desk), each lane's line with what it holds back under it. Null without a UI lane: the
   // dialog reads the code line inline in sendMsg, with sendNotSent under it.
@@ -445,7 +458,10 @@ export interface Store {
   // The UI lane (appview.ts): the Code/UI switch, and the chrome bar's controls over the iframe.
   hasUi?: () => boolean;
   uiOnly?: () => boolean;
-  setView?: (view: "code" | "ui") => void;
+  setView?: (view: View) => void;
+  // The modes the desk has, in the switch's order, and the one ⇧U goes to next.
+  views?: () => View[];
+  nextView?: () => View;
   appHost?: () => string;
   appBack?: () => void;
   appForward?: () => void;
@@ -461,6 +477,9 @@ export interface Store {
   shotSrc?: () => string;
   shotTitle?: () => string;
 }
+
+// The centre's modes (Store.view).
+export type View = "code" | "ui" | "topics";
 
 // A picked target awaiting its first message: the page and target the annotation will record,
 // and where the target sits now in the app's viewport (the floating composer stays beside it).

@@ -44,6 +44,24 @@ const ANCHORS = [
   "overallNote",
   // unanswered questions fold into the Send (issue 05)
   "openQuestions",
+  // topic threads: the question lane, the reply form, the result field and the parts
+  'lane "topic": {lane, id, topic, part, quote?, body, mode, session}',
+  'galley comment --topic <id> --body "…"',
+  "topicChangeRequests[]: {id, topic, part, quote?, body, option?}",
+  // a request on a topic a new guide dropped is still sent, even when that guide has no topics
+  "still named by its old id, even when that guide has no topics",
+  '"body:<n>" — a block of the body',
+  // the Overview's parts, as a question event and the result name them
+  'On the Overview (topic "overview") the parts are:',
+  '"link:<from>><to>" — a link, by its two group ids',
+  '"group:<id>" — a group\'s box',
+  "Topic Ask:",
+  "#### Options fence",
+  "option? — the picked option label",
+  "One options block per topic",
+  '"option:<n>" — the n-th option',
+  "There is one reply pick per thread",
+  "Arrows move focus only; Space, Enter and click pick.",
   "How to act on a review",
   // the human can turn a change request into a question and back between rounds
   "change kind between rounds",
@@ -51,7 +69,7 @@ const ANCHORS = [
   // guided review schema (folded in from the old guide-spec)
   "Guide JSON schema",
   "one-paragraph changeset overview",
-  "files (required, non-empty array)",
+  "files (required, non-empty array, unless stages is given)",
   "repo-relative; must be a file in the diff",
   "Orientation, not a changelog",
   // a whole-file skim needs no orientation; everything else, skimBlocks-only included, does
@@ -86,6 +104,40 @@ const ANCHORS = [
   "move code from one part to another",
   "places blocks by content",
   "for a part, its path, title and span",
+  "guide.skims needs stages",
+  "skims? — array of { reason, rule?, covers }",
+  "guide leaves changes uncovered: path:line",
+  "Skim rules are the reviewer's",
+  // topics guide (Decisions mode): the schema, stable ids, covers and the refusals
+  "### Topics (Decisions mode)",
+  "stages (non-empty array), each { id, label, groups }",
+  "groups (required, non-empty array), each { id, title, summary?, topics }",
+  "STABLE from one guide to the next",
+  "recorded (required, non-empty)",
+  "A `mermaid` fence draws a diagram",
+  "what needs a diagram is your call",
+  "covers (required, non-empty array)",
+  'a folder ending in "/"',
+  "Two topics may cover the same lines",
+  // settling topics across rounds: the result's ids, the round and how a sign-off carries
+  "topics? — {settled[], todo[]}",
+  "#### Settling and rounds",
+  "each Send starts the next",
+  "the next reload drops the sign-off",
+  "loses its sign-off",
+  "ids unique among stages, among groups and among\ntopics",
+  "a cover naming a file not in the diff, a\nfolder with no changed file under it, or a span that touches no change",
+  "naming the topic and the cover",
+  // line blocks: the fence, its grammar, its refusals and that it quotes the diff
+  "A `lines` fence quotes the diff, so you never retype code",
+  "`path:start-end` (new-file-side line numbers, start <= end) or `path:n` for one line",
+  "the ordinary line comment Code mode makes",
+  "It may be empty when a `lines` block in the body names lines",
+  "A `lines`\nentry that doesn't parse, names a file not in the diff or whose range touches no change aborts it\nthe same way, naming the topic and the entry",
+  "links? (array, only with stages), each { from, to, label }",
+  "at most 40\n  characters",
+  "Galley draws the Overview's MAP from the stages, groups\n  and links — you write no diagram",
+  "with a label over 40\ncharacters aborts it the same way, naming the link",
   // The running app: loopback target and explicit refresh signal.
   "--ui <url>",
   "galley ui <url>",
@@ -186,6 +238,11 @@ test("SPEC uses only the renamed codeChangeRequests field (issue 04)", () => {
     !SPEC.includes("requestedChanges"),
     "requestedChanges was renamed to codeChangeRequests",
   );
+});
+
+test("SPEC never says topic change requests are empty without topics", () => {
+  // Open requests on topics a new guide dropped are kept and sent (topicthreads.ts carryTopicThreads).
+  assert.ok(!SPEC.includes("empty without topics"));
 });
 
 test("SPEC has no dangling references to the old skill/command", () => {
