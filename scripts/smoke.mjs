@@ -586,6 +586,19 @@ try {
     "the error names the topic and the cover",
   );
   checkTopics(await getJson("/api/state"), "after a refused reload");
+  // A link to a group the guide doesn't have fails the reload the same way, naming the link.
+  writeFileSync(
+    topicsPath,
+    JSON.stringify({ ...goodTopics, links: [{ from: "edits", to: "ghost", label: "feeds" }] }),
+  );
+  const badLink = spawnSync(
+    "node",
+    [CLI, "reload", "--repo", tmp, "--session", ID, "--guide", topicsPath],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.equal(badLink.status, 1, "a link to an unknown group exits non-zero");
+  assert.match(badLink.stderr, /guide\.links\[0\] \(edits → ghost\): "ghost" is not a group id/);
+  checkTopics(await getJson("/api/state"), "after a refused link");
   const incomplete = structuredClone(goodTopics);
   incomplete.stages[0].groups[0].topics.pop();
   writeFileSync(topicsPath, JSON.stringify(incomplete));
@@ -613,7 +626,7 @@ try {
   checkTopics(await getJson("/api/state"), "after coverage refusal scenario");
   rmSync(topicsDir, { recursive: true, force: true });
   console.log(
-    "✓ topics guide → attached on start and by reload --guide; a bad cover exits 1 naming the topic, desk kept",
+    "✓ topics guide → attached on start and by reload --guide; a bad cover or link exits 1 naming it, desk kept",
   );
 
   // human asks a question → `galley await` yields a question event

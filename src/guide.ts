@@ -1,4 +1,12 @@
-import type { Cover, Guide, GuideFile, GuideGroup, GuideStage, GuideTopic } from "./types.js";
+import type {
+  Cover,
+  Guide,
+  GuideFile,
+  GuideGroup,
+  GuideLink,
+  GuideStage,
+  GuideTopic,
+} from "./types.js";
 
 export type GuideValidation = { ok: true; guide: Guide } | { ok: false; reason: string };
 
@@ -147,6 +155,52 @@ function stages(raw: unknown): { ok: true; stages: GuideStage[] } | { ok: false;
   return { ok: true, stages: out };
 }
 
+// The longest a link's label may be. The map gives a label a short run between two boxes; this is
+// the only limit Galley puts on the map's data (stage and group counts are the skill's guidance).
+export const LINK_LABEL_MAX = 40;
+
+// The guide's links: each joins two different groups of the guide, once, with a short label.
+function links(
+  raw: unknown,
+  stageList: GuideStage[],
+): { ok: true; links: GuideLink[] } | { ok: false; reason: string } {
+  if (!Array.isArray(raw)) return { ok: false, reason: "guide.links must be an array" };
+  const groups = new Set(stageList.flatMap((s) => s.groups.map((g) => g.id)));
+  const out: GuideLink[] = [];
+  const seen = new Set<string>();
+  for (const [i, l] of raw.entries()) {
+    const at = `guide.links[${i}]`;
+    if (!l || typeof l !== "object" || Array.isArray(l))
+      return { ok: false, reason: `${at} must be an object` };
+    const r = l as Record<string, unknown>;
+    for (const field of ["from", "to"])
+      if (!text(r[field]))
+        return { ok: false, reason: `${at}.${field} must be a non-empty string` };
+    const link = { from: r.from as string, to: r.to as string };
+    const named = `${at} (${link.from} → ${link.to})`;
+    if (!text(r.label)) return { ok: false, reason: `${named}.label must be a non-empty string` };
+    const label = r.label as string;
+    for (const id of [link.from, link.to])
+      if (!groups.has(id))
+        return { ok: false, reason: `${named}: ${JSON.stringify(id)} is not a group id` };
+    if (link.from === link.to) return { ok: false, reason: `${named} joins a group to itself` };
+    // Counted in characters as the reader sees them, not UTF-16 units.
+    const length = [...label].length;
+    if (length > LINK_LABEL_MAX)
+      return {
+        ok: false,
+        reason: `${named}: the label is ${length} characters; the limit is ${LINK_LABEL_MAX}`,
+      };
+    // A link is found again by its two ends (a comment on it, its line on the map), so a pair
+    // joins once; say both things in one label.
+    const key = `${link.from}>${link.to}`;
+    if (seen.has(key)) return { ok: false, reason: `${named} repeats a link` };
+    seen.add(key);
+    out.push({ ...link, label });
+  }
+  return { ok: true, links: out };
+}
+
 // Validate + normalize an agent-supplied guide. Required: a non-empty `overview`, and `files`,
 // `stages` or both. `stages` (stages → groups → topics) is shape-checked by stages() above. A
 // `files` array, when given, is non-empty, and its every entry has a `path` and (unless
@@ -166,6 +220,13 @@ export function validateGuide(input: unknown): GuideValidation {
     const s = stages(g.stages);
     if (!s.ok) return s;
     topicStages = s.stages;
+  }
+  let topicLinks: GuideLink[] | undefined;
+  if (g.links !== undefined) {
+    if (!topicStages) return { ok: false, reason: "guide.links needs stages" };
+    const l = links(g.links, topicStages);
+    if (!l.ok) return l;
+    topicLinks = l.links;
   }
   if (g.skims !== undefined && !topicStages)
     return { ok: false, reason: "guide.skims needs stages" };
@@ -332,6 +393,7 @@ export function validateGuide(input: unknown): GuideValidation {
   const guide: Guide = { overview: g.overview };
   if (files.length) guide.files = files;
   if (topicStages) guide.stages = topicStages;
+  if (topicLinks?.length) guide.links = topicLinks;
   if (g.skims !== undefined) guide.skims = skims;
   // Focused-review flag (issue 04) — display-only, badges the overview. A boolean or absent;
   // any other type is a schema violation (consistent with the field-shape checks above).

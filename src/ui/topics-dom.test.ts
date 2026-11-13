@@ -7,6 +7,8 @@ import {
   renderTopicsOverview,
   type TopicsOverview,
 } from "./topics-dom";
+import { estimateMeasure } from "./map-check";
+import { layoutMap } from "./map-derive";
 import { topicPlaces, topicsNavRows } from "./topics-derive";
 import type { GuideStage } from "../types";
 
@@ -115,6 +117,38 @@ test("a topic without a concern or a flag shows neither", () => {
   renderTopicPage(page, topicPlaces(STAGES)[0]!, (s) => s);
   assert.equal(page.querySelector(".topic-meta"), null);
   assert.equal(page.querySelector(".topic-flag"), null);
+});
+
+const OVERVIEW = {
+  title: "Rate limiting",
+  facts: ["working", "main"],
+  added: 3,
+  removed: 1,
+  summary: "Adds limits.",
+  stale: false,
+  way: "start" as const,
+};
+
+test("the Overview shows the map, and its narrow list, between the summary and the way in", () => {
+  const page = host();
+  const links = [{ from: "limits", to: "flags", label: "limits" }];
+  const layout = layoutMap(STAGES, links, estimateMeasure())!;
+  renderTopicsOverview(page, { ...OVERVIEW, map: { layout, stages: STAGES, links } }, (s) => s);
+  const sections = [...page.querySelectorAll(".topics-overview > *")].map((el) => el.className);
+  assert.deepEqual(sections, ["go-card", "topics-map", "go-card topics-end"]);
+  const map = page.querySelector(".topics-map")!;
+  assert.deepEqual(
+    [...map.querySelectorAll<HTMLElement>(".map-box")].map((b) => b.dataset.group),
+    ["limits", "store", "flags"],
+  );
+  assert.equal(map.querySelectorAll(".map-link").length, 1);
+  assert.equal(map.querySelectorAll(".map-list-row").length, 3);
+});
+
+test("the Overview has no map without one", () => {
+  const page = host();
+  renderTopicsOverview(page, OVERVIEW, (s) => s);
+  assert.equal(page.querySelector(".topics-map"), null);
 });
 
 // t1 settled in round 2 (the current one), t3 and t4 in round 1.

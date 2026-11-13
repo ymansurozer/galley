@@ -110,6 +110,10 @@ const ANCHORS = [
   "ids unique among stages, among groups and among\ntopics",
   "a cover naming a file not in the diff, a\nfolder with no changed file under it, or a span that touches no change",
   "naming the topic and the cover",
+  "links? (array, only with stages), each { from, to, label }",
+  "at most 40\n  characters",
+  "Galley draws the Overview's MAP from the stages, groups\n  and links — you write no diagram",
+  "with a label over 40\ncharacters aborts it the same way, naming the link",
   // The running app: loopback target and explicit refresh signal.
   "--ui <url>",
   "galley ui <url>",

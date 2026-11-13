@@ -1,0 +1,239 @@
+/* ── The Overview's map (map-dom.ts): HTML boxes over an SVG of lines ──
+   Sizes here are the ones map-derive.ts lays text out by (MAP_TEXT); change them together. The
+   map shows no topic state: boxes are the groups, lines what flows between them. */
+.map {
+  position: relative;
+  flex: none;
+}
+
+.map-lines {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* Lines are drawn in a solid colour mixed toward the page, not with opacity, so where links share
+   a run (a fan's trunk, an exit two links leave by) it shows once, no heavier than a single line. */
+.map-link path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--ink-3) 55%, var(--canvas));
+  stroke-width: 1;
+  transition: stroke 0.12s var(--ease);
+}
+
+.map-link .map-arrow {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-label {
+  font: 400 10px var(--sans);
+  fill: var(--ink-3);
+  transition: opacity 0.12s var(--ease);
+}
+
+/* A link's stretch inside a box it crosses: light dots over the box. */
+.map-cross {
+  fill: none;
+  stroke: var(--map-cross);
+  stroke-width: 1;
+  stroke-dasharray: 2 5;
+  transition: opacity 0.12s var(--ease);
+}
+
+/* Pointing at a box: its links stand out, the others step back. */
+.map-focus .map-link path {
+  stroke: color-mix(in srgb, var(--ink-3) 18%, var(--canvas));
+}
+
+.map-focus .map-cross {
+  opacity: 0.3;
+}
+
+.map-focus :is(.map-label, .map-note) {
+  opacity: 0.3;
+}
+
+.map-focus .map-link.map-hot path {
+  stroke: var(--ink);
+}
+
+.map-focus .map-cross.map-hot {
+  opacity: 1;
+  stroke: var(--ink);
+}
+
+.map-focus .map-label.map-hot {
+  opacity: 1;
+  fill: var(--ink);
+}
+
+.map-focus .map-note.map-hot {
+  opacity: 1;
+  color: var(--ink);
+}
+
+.map-head {
+  position: absolute;
+  height: 22px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--sep-strong);
+  color: var(--ink-2);
+  font: 600 var(--text-2xs) / 22px var(--sans);
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* A box: its title alone sits in the middle; a card starts at the top with its summary under. */
+.map-box {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--sep-strong);
+  cursor: pointer;
+  transition: box-shadow 0.12s var(--ease);
+}
+
+.map-cards .map-box {
+  justify-content: flex-start;
+  padding-top: 10px;
+}
+
+.map-box:hover,
+.map-box.map-hot {
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+}
+
+.map-box:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.map-box > span > span {
+  display: block;
+  white-space: nowrap;
+}
+
+.map-title {
+  color: var(--ink);
+  font: 500 var(--text-md) / 16px var(--sans);
+}
+
+.map-sum {
+  margin-top: 4px;
+  color: var(--ink-3);
+  font: 400 11.5px / 15px var(--sans);
+}
+
+/* A link back to an earlier stage: a note under its source. */
+.map-note {
+  position: absolute;
+  color: var(--ink-3);
+  font: 400 10px / 12px var(--sans);
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 0.12s var(--ease);
+}
+
+/* ── Narrow windows: no drawing; each group under its stage, with what it feeds ── */
+.map-list {
+  display: grid;
+}
+
+.map-list-stage {
+  margin: 16px 0 4px;
+  color: var(--ink-3);
+  font: 600 var(--text-2xs) / 14px var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.map-list-stage:first-child {
+  margin-top: 0;
+}
+
+.map-list-row {
+  display: grid;
+  gap: 2px;
+  margin: 0 -8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 -1px 0 var(--sep);
+  cursor: pointer;
+}
+
+.map-list-row:hover {
+  background: var(--fill);
+}
+
+.map-list-row:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+.map-list-title {
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+
+.map-list-feeds {
+  display: grid;
+  gap: 2px;
+}
+
+.map-list-feed {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/* What a feed carries, set apart from where it goes: muted, in the map's label face. */
+.map-list-label {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.map-list-sep {
+  white-space: pre;
+}
+
+.map-list-arrow {
+  color: var(--ink-3);
+}
+
+/* ── On the Overview: wider than the reading column, scrolling sideways inside its own area ── */
+.topics-map {
+  margin: 30px 0 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.topics-map .map {
+  margin: 0 auto;
+}
+
+.topics-map .map-list {
+  display: none;
+  max-width: 660px;
+  margin: 0 auto;
+}
+
+@media (max-width: 760px) {
+  .topics-map .map {
+    display: none;
+  }
+
+  .topics-map .map-list {
+    display: grid;
+  }
+}

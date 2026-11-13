@@ -28,6 +28,8 @@ import {
   renderTopicsOverview,
   type TopicsOverview,
 } from "./topics-dom";
+import { layoutMap, MAP_WIDTH } from "./map-derive";
+import { canvasMeasure, lightMapLinks } from "./map-dom";
 
 // Decisions mode: the guide's topics, read one page at a time. It draws into its own sidebar list
 // (#topicsNav) and centre (#topics); Code mode's diff and lists stand aside while it shows
@@ -79,7 +81,10 @@ export function renderTopics() {
         points: renderPoints(topicPoints(place.topic, S.state), lines, hasUi(), pointsCount),
       },
     );
-  } else renderTopicsOverview(page, overview(), renderMarkdown);
+  } else {
+    renderTopicsOverview(page, overview(page.clientWidth), renderMarkdown);
+    lightMapLinks(page, lit);
+  }
   const points = page.querySelector<HTMLDetailsElement>(".topic-points");
   if (points) {
     points.open = pointsOpen;
@@ -102,9 +107,17 @@ export function renderTopics() {
   updateProgress();
 }
 
-function overview() {
+// The group the pointer is on in the Overview's map, so a redraw keeps its links lit.
+let lit: string | null = null;
+
+// The Overview's map is laid out for the room the page has: wider than the reading column, up to
+// the widest it draws at, and never so narrow it stops being a map (it scrolls sideways instead).
+function overview(room: number) {
   const st = S.state;
   const g = st.guide!;
+  const links = g.links ?? [];
+  const width = Math.max(720, Math.min(MAP_WIDTH, room - 76));
+  const layout = layoutMap(stages(), links, canvasMeasure(), width);
   const groups = stages().reduce((n, s) => n + s.groups.length, 0);
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const totals = lineTotals(st.files);
@@ -125,6 +138,7 @@ function overview() {
     summary: g.overview,
     stale: isGuideBaseStale(st.baseDiffHash, g.baseDiffHash),
     way: wayIn(),
+    ...(layout ? { map: { layout, stages: stages(), links } } : {}),
   };
 }
 
@@ -229,7 +243,8 @@ export function installTopics() {
       renderTopics();
     }
   });
-  $("topics").addEventListener("click", (e) => {
+  const page = $("topics");
+  page.addEventListener("click", (e) => {
     const target = e.target as Element;
     const code = target.closest<HTMLElement>("[data-topic-code]");
     if (code) void openTopicCode(code.dataset.topicCode!, Number(code.dataset.line));
@@ -249,6 +264,41 @@ export function installTopics() {
       reset(S.topicAt);
       renderTopics();
     }
+    // A box on the Overview's map opens its group.
+    const box = target.closest<HTMLElement>(".topics-map [data-group]");
+    if (box?.dataset.group) openGroup(box.dataset.group);
+  });
+  // ↵ or space on a focused box opens it, ahead of the Overview's own ↵ (Start Review).
+  page.addEventListener("keydown", (e) => {
+    const box = (e.target as Element).closest<HTMLElement>(".topics-map [data-group]");
+    if (!box?.dataset.group || (e.key !== "Enter" && e.key !== " ")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openGroup(box.dataset.group);
+  });
+  // Pointing at a box lights its links.
+  page.addEventListener("mouseover", (e) => {
+    const group = (e.target as Element).closest<HTMLElement>(".map-box")?.dataset.group ?? null;
+    if (group === lit) return;
+    lit = group;
+    lightMapLinks(page, lit);
+  });
+  page.addEventListener("mouseleave", () => {
+    lit = null;
+    lightMapLinks(page, null);
+  });
+  // The map measures its text, so it is laid out again when the room or the font changes.
+  const overviewShowing = () => hasTopics() && S.view === "topics" && S.topicAt === null;
+  let pending = 0;
+  window.addEventListener("resize", () => {
+    cancelAnimationFrame(pending);
+    pending = requestAnimationFrame(() => {
+      if (overviewShowing()) renderTopics();
+    });
+  });
+  document.fonts?.addEventListener("loadingdone", () => {
+    if (overviewShowing()) renderTopics();
   });
 }
 

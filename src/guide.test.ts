@@ -518,6 +518,63 @@ test("validateGuide refuses malformed optional topic fields", () => {
   assert.match(refusal(s), /guide\.stages must be a non-empty array/);
 });
 
+// Links join two groups with a short label; Galley draws the map from them.
+const withLinks = (links: unknown) => ({ ...topicsInput(), links });
+
+test("validateGuide keeps a guide's links, a 40-character label included", () => {
+  const label = "x".repeat(40);
+  const r = validateGuide(withLinks([{ from: "limits", to: "store", label }]));
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.deepEqual(r.guide.links, [{ from: "limits", to: "store", label }]);
+});
+
+test("validateGuide refuses a link to an unknown group, a self link and a long label, naming the link", () => {
+  assert.match(
+    refusal(withLinks([{ from: "limits", to: "ghost", label: "counts" }])),
+    /guide\.links\[0\] \(limits → ghost\): "ghost" is not a group id/,
+  );
+  assert.match(
+    refusal(withLinks([{ from: "store", to: "store", label: "counts" }])),
+    /guide\.links\[0\] \(store → store\) joins a group to itself/,
+  );
+  assert.match(
+    refusal(
+      withLinks([
+        { from: "limits", to: "store", label: "ok" },
+        { from: "store", to: "limits", label: "y".repeat(41) },
+      ]),
+    ),
+    /guide\.links\[1\] \(store → limits\): the label is 41 characters; the limit is 40/,
+  );
+});
+
+test("validateGuide refuses malformed links, a repeated link and links without stages", () => {
+  assert.match(refusal(withLinks({})), /guide\.links must be an array/);
+  assert.match(refusal(withLinks(["a"])), /guide\.links\[0\] must be an object/);
+  assert.match(
+    refusal(withLinks([{ from: "limits", label: "x" }])),
+    /guide\.links\[0\]\.to must be a non-empty string/,
+  );
+  assert.match(
+    refusal(withLinks([{ from: "limits", to: "store" }])),
+    /guide\.links\[0\] \(limits → store\)\.label must be a non-empty string/,
+  );
+  assert.match(
+    refusal(
+      withLinks([
+        { from: "limits", to: "store", label: "a" },
+        { from: "limits", to: "store", label: "b" },
+      ]),
+    ),
+    /guide\.links\[1\] \(limits → store\) repeats a link/,
+  );
+  assert.match(
+    refusal({ ...validInput(), links: [{ from: "a", to: "b", label: "x" }] }),
+    /guide\.links needs stages/,
+  );
+});
+
 test("skims require a reason and normalize covers with optional reviewer rule", () => {
   assert.deepEqual(validateGuide({ ...topicsInput(), skims: [{ covers: [{ path: "a" }] }] }), {
     ok: false,

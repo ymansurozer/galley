@@ -247,6 +247,9 @@ export type TopicCoverage = {
 export type GuideGroup = { id: string; title: string; summary?: string; topics: GuideTopic[] };
 // Where a group sits in the system. Stages are columns, in the guide's order.
 export type GuideStage = { id: string; label: string; groups: GuideGroup[] };
+// What one group hands another, by group id, with a short label. Galley draws the Overview's map
+// from the stages, groups and links; the agent writes no diagram.
+export type GuideLink = { from: string; to: string; label: string };
 
 // The desk's resolution of one topic's covers against the diff, stamped on attach and kept current
 // on every reload (state.ts stampTopics). `blocks` are the change blocks it claims, `path:stableKey`
@@ -272,6 +275,8 @@ export type Guide = {
   files?: GuideFile[];
   // The topics Decisions mode opens: stages hold groups, groups hold topics.
   stages?: GuideStage[];
+  // How the groups relate, drawn as the Overview's map. Only with stages.
+  links?: GuideLink[];
   // Requires stages: explains the changes left outside the topic narrative, for coverage only.
   skims?: GuideSkim[];
   // A focused review (issue 04): the reviewer asked for churn to be de-emphasized, so the agent
