@@ -68,14 +68,14 @@ async function page(body: string, flag?: string) {
 
 test("the page's parts are the desk's body blocks: list items not lists, one each for a table, code and a diagram", async () => {
   const host = await page(BODY, "Careful");
-  const lines = bodyBlocks(BODY).map((b) => b.line);
+  const blocks = bodyBlocks(BODY);
   const parts = topicParts(
     { id: "t", title: "T", recorded: "R", body: BODY, covers: [], flag: "x" },
     {
       blocks: [],
       lines: 0,
       coverHash: "h",
-      bodyParts: lines,
+      bodyParts: blocks,
     },
   );
   const marked = markParts(host, parts, null, new Set());
@@ -111,7 +111,7 @@ test("the page's parts are the desk's body blocks: list items not lists, one eac
   });
   assert.deepEqual(
     stamped.map((el) => Number(el.dataset.line)),
-    lines,
+    blocks.map((b) => b.line),
   );
 });
 

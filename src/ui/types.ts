@@ -385,10 +385,11 @@ export interface Store {
   // The annotation whose thread holds the open composer (a reply, or an edit of one of its
   // messages). Null for the code lane's composers and the floating one.
   composerAnnotation: string | null;
-  // The part of a topic the composer for a new topic thread is open on, and the topic thread whose
-  // card holds the open composer (a reply, or an edit of one of its messages). Both null for the
-  // other lanes' composers.
-  topicDraft: { topic: string; part: string; option?: string } | null;
+  // The part of a topic the composer for a new topic thread is open on, with the text it showed
+  // when the composer opened (a new guide may arrive before the thread is made), and the topic
+  // thread whose card holds the open composer (a reply, or an edit of one of its messages). Both
+  // null for the other lanes' composers.
+  topicDraft: { topic: string; part: string; option?: string; quote?: string } | null;
   composerTopic: string | null;
   // The Send dialog's receipt split by lane, when the desk has a UI lane (code is null on a
   // UI-only desk), each lane's line with what it holds back under it. Null without a UI lane: the

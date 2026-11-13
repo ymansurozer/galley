@@ -813,7 +813,7 @@ function writeTopicStamps(
       blocks: mine.map((u) => u.key),
       lines: mine.reduce((n, u) => n + u.lines, 0),
       coverHash: hash(mine.map((u) => u.hash).join("\n") + (options ? "\n" + options.source : "")),
-      bodyParts: bodyBlocks(topic.body).map((b) => b.line),
+      bodyParts: bodyBlocks(topic.body),
       ...(options?.options && { options: options.options, optionsLine: options.line }),
     };
     const lineSpans = spans.get(topic.id);

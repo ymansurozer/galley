@@ -19,7 +19,7 @@ export function topicParts(
   lines: ReadonlyArray<{ fence: number; parts: readonly string[] }> = [],
 ): string[] {
   const body = [
-    ...(stamp?.bodyParts ?? []).map((line) => ({ parts: [`body:${line}`], line })),
+    ...(stamp?.bodyParts ?? []).map(({ line }) => ({ parts: [`body:${line}`], line })),
     ...(stamp?.options?.length
       ? [
           {
@@ -120,6 +120,15 @@ export const bodyLine = (part: string) => {
   const m = /^body:(\d+)$/.exec(part);
   return m ? Number(m[1]) : undefined;
 };
+
+// The text a part of `topic` shows, as the desk quotes it (topicthreads.ts partText): a body
+// block's from the desk's own list, Recorded's, the title's and the flag's their field. Undefined for
+// any other part.
+export function partQuote(topic: GuideTopic, stamp: TopicStamp | undefined, part: string) {
+  if (part === "title" || part === "recorded" || part === "flag") return topic[part];
+  const line = bodyLine(part);
+  return line === undefined ? undefined : stamp?.bodyParts?.find((b) => b.line === line)?.text;
+}
 
 // Where a part's threads sit: under the part itself, except the title's, which sit under the
 // Recorded line with Recorded's own, so the heading stays one block.

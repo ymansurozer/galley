@@ -259,10 +259,11 @@ export type GuideLink = { from: string; to: string; label: string };
 // in diff order; `lines` is their added plus removed lines; `coverHash` hashes the blocks' content in
 // order and no line number, so it holds while lines shift above them and moves when one is edited.
 // `changed`: the reviewer's sign-off on it was dropped because its cover hash moved (state.ts
-// carryTopicSignOffs); kept until the topic is settled again. `bodyParts`: the source lines of the
-// body's blocks a comment can sit on (topicthreads.ts bodyBlocks), so the tab places them by the
-// desk's own list. `lineSpans`: each entry of the body's line blocks, where its lines are now
-// (LineSpan); absent when the body has none.
+// carryTopicSignOffs); kept until the topic is settled again. `bodyParts`: the body's blocks a
+// comment can sit on, each by its source line with its text (topicthreads.ts bodyBlocks), so the tab
+// places parts by the desk's own list and a new thread sends the text the desk quotes. `lineSpans`:
+// each entry of the body's line blocks, where its lines are now (LineSpan); absent when the body has
+// none.
 export type TopicOption = { label: string; note?: string; ships?: boolean; recommended?: boolean };
 
 export type TopicStamp = {
@@ -270,7 +271,7 @@ export type TopicStamp = {
   lines: number;
   coverHash: string;
   changed?: true;
-  bodyParts?: number[];
+  bodyParts?: Array<{ line: number; text: string }>;
   lineSpans?: LineSpan[];
   options?: TopicOption[];
   optionsLine?: number;
@@ -778,7 +779,9 @@ export type UiAnnotationRecord = {
 // `quote` is the text of its part (a body block's markdown source), which the thread follows when a
 // new guide rewrites the body; `moved`: that part is gone, so it sits on the title (on the
 // Overview, the map) and its quote says what it was on.
-// The desk sets the target's part, title, quote and moved; the tab only names a new thread's part.
+// The desk sets the target's part, title, quote and moved. The tab names a new thread's part, with
+// the text it showed there as its quote, which the desk checks against its own guide
+// (topicthreads.ts takeTopicThread).
 export type TopicThread = {
   id: string;
   target: { topic: string; part: string };

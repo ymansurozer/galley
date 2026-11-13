@@ -247,7 +247,8 @@ export function readTopicThreads(value: unknown): TopicThread[] | undefined {
 // A thread a save sends whole, onto the desk's copy of it (`prev`), or as the desk first takes it.
 // Where it sits, its title and its quote are the desk's: a new guide moved them, and a tab that
 // hasn't caught up still sends the old ones. A new thread is placed on the desk's guide: its title
-// and quote from the topic, on the title when the part it names isn't there. An agent reply (`galley
+// and quote from the topic, on the title when the part it names isn't there; one whose part holds
+// other text than the tab saw there follows that text (follow). An agent reply (`galley
 // comment --topic`) lands between the tab's polls, so a save from a tab that hasn't seen it yet
 // lacks it; the tab can't delete an agent message, so every one the save lacks is kept. A new thread
 // on the Overview quotes its part (overviewQuote), and sits on the map when the desk's guide lacks
@@ -298,6 +299,11 @@ export function takeTopicThread(
     return { ...placed, target: { ...t.target, part: "title" }, quote: t.option, moved: true };
   }
   const quote = partText(topic, t.target.part);
+  // The tab sends the text it saw on the part. Where the desk's guide holds other text there, the
+  // tab was on an older guide: the thread follows that text as it would have, had the save landed
+  // before the new guide (follow).
+  if (t.quote !== undefined && t.quote !== quote)
+    return follow({ ...placed, quote: t.quote }, topic);
   if (quote !== undefined) return { ...placed, quote };
   return { ...placed, target: { ...t.target, part: "title" }, quote: topic.title };
 }

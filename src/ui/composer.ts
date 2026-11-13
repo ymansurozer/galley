@@ -134,7 +134,7 @@ export function openComposer(
 // Open a fresh composer on a topic's page: a new thread on `draft`'s part, or a reply in topic
 // thread `thread` (an edit of its message `editing`, opening with its `body`).
 export function openTopicComposer(
-  draft: { topic: string; part: string; option?: string } | null,
+  draft: { topic: string; part: string; option?: string; quote?: string } | null,
   thread: string | null = null,
   body = "",
   editing: string | null = null,

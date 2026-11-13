@@ -203,6 +203,36 @@ test("a thread on a body block follows it down; once the block is gone it moves 
   assert.deepEqual(live.topicThreads![1]!.target, { topic: "t1", part: "body:5" });
 });
 
+test("a new thread from a tab on an older guide lands where it would had the save come first", async () => {
+  const before = ["Para one.", "", "Para two.", "", "Keep the cache."].join("\n");
+  const after = ["Para one.", "", "New para.", "", "Para two.", "", "Keep the cache."].join("\n");
+  const oldGuide = guideOf(topic("t1", { body: before, flag: "Risky." }));
+  const newGuide = guideOf(topic("t1", { body: after, title: "Renamed" }));
+  // What the tab sends: the part on the guide it showed, with the text it saw there.
+  const threads = () => [
+    sent("p", "t1", "body:3", { quote: "Para two." }),
+    sent("f", "t1", "flag", { quote: "Risky." }),
+    sent("t", "t1", "title", { quote: "Title of t1" }),
+  ];
+  const placed = (live: ReviewState) =>
+    live.topicThreads!.map((t) => [t.target.part, t.quote, t.moved]);
+  // The save lands first, then the reload with the new guide.
+  const first = state({ guide: oldGuide });
+  await save(first, 0, threads());
+  first.guide = newGuide;
+  carryTopicThreads(first);
+  // The reload lands first; the tab's save still names the parts of the guide it showed.
+  const late = state({ guide: newGuide });
+  await save(late, 0, threads());
+  const expected = [
+    ["body:5", "Para two.", undefined],
+    ["title", "Risky.", true],
+    ["title", "Renamed", undefined],
+  ];
+  assert.deepEqual(placed(first), expected);
+  assert.deepEqual(placed(late), expected);
+});
+
 test("a new guide that drops a topic keeps its open change request and drops its question", async () => {
   const live = state({ guide: guideOf(topic("t1"), topic("gone")) });
   await save(live, 0, [

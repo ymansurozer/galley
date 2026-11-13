@@ -4375,7 +4375,7 @@ test("a topic whose only claim is a line block passes the coverage check and cou
       { fence: 3, path: "src/app.ts", blocks: ["src/app.ts:additions:10:1:2"], start: 9, end: 11 },
     ]);
     // The fence is drawn by the tab, so it is no part of the body's blocks.
-    assert.deepEqual(st.topics?.lines?.bodyParts, [1]);
+    assert.deepEqual(st.topics?.lines?.bodyParts, [{ line: 1, text: "Why it reads so." }]);
   });
 });
 
