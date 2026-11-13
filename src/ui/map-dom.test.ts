@@ -64,7 +64,9 @@ test("the map's markup has a box per group, a line per drawn link and dots per b
     [["d", "a", "↩ Alpha <one> · feedback"]],
   );
   const labels = [...host.querySelectorAll<HTMLElement>(".map-label")];
-  assert.ok(labels.some((l) => l.textContent === "raw & ready" && l.dataset.links === "a>d"));
+  assert.ok(
+    labels.some((l) => l.textContent === "raw & ready" && l.dataset.links === '[["a","d"]]'),
+  );
   assert.deepEqual(
     [...host.querySelectorAll(".map-head")].map((h) => h.textContent),
     ["Sources", "Middle", "Out"],
@@ -122,6 +124,35 @@ test("the list joins the links leaving a group with one label into one line", ()
   const feeds = [...host.querySelectorAll<HTMLElement>(".map-list-feed")];
   assert.deepEqual(
     feeds.map((f) => [f.textContent, f.dataset.links]),
-    [["→ Beta, Gamma rows", "a>b a>c"]],
+    [["→ Beta, Gamma rows", '[["a","b"],["a","c"]]']],
   );
+});
+
+test("lighting finds a group's links whatever its id holds", () => {
+  const stages: MapStage[] = [
+    {
+      id: "s1",
+      label: "One",
+      groups: [
+        { id: "x", title: "X" },
+        { id: "x y", title: "X Y" },
+      ],
+    },
+    { id: "s2", label: "Two", groups: [{ id: "y>z", title: "YZ" }] },
+  ];
+  const links: GuideLink[] = [
+    { from: "x", to: "y>z", label: "rows" },
+    { from: "x y", to: "y>z", label: "rows" },
+  ];
+  const host = mount(mapHtml(layoutMap(stages, links, estimateMeasure())!));
+  const hot = () =>
+    [...host.querySelectorAll<HTMLElement>(".map-link.map-hot, .map-label.map-hot")].map(
+      (e) => `${e.dataset.from} → ${e.dataset.to}`,
+    );
+  lightMapLinks(host, "x");
+  assert.deepEqual(hot(), ["x → y>z", "x → y>z"]);
+  lightMapLinks(host, "x y");
+  assert.deepEqual(hot(), ["x y → y>z", "x y → y>z"]);
+  lightMapLinks(host, "y");
+  assert.equal(host.querySelectorAll(".map-hot").length, 0);
 });

@@ -92,6 +92,15 @@ body {
   color: var(--red-ink);
 }
 
+.mg-known {
+  background: var(--orange-wash);
+  color: var(--orange-ink);
+}
+
+.mg-problems .mg-known-item {
+  color: var(--orange-ink);
+}
+
 .mg-problems {
   margin: 4px 0;
   color: var(--red-ink);

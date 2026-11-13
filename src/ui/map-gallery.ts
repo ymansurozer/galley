@@ -63,14 +63,16 @@ function draw(sections: HTMLElement[]) {
         continue;
       }
       pane.innerHTML = `<div class="mg-badge"></div><div class="mg-scroll">${mapHtml(layout)}</div><ul class="mg-problems"></ul><details><summary>Narrow window list</summary>${mapListHtml(shape.stages, shape.links)}</details>`;
-      const problems = [
-        ...mapProblems(layout, shape.links, measure),
-        ...drawnProblems(pane, layout),
-      ];
+      const all = [...mapProblems(layout, shape.links, measure), ...drawnProblems(pane, layout)];
+      const known = all.filter((p) => shape.known?.problems.includes(p));
+      const problems = all.filter((p) => !known.includes(p));
       const badge = pane.querySelector<HTMLElement>(".mg-badge")!;
-      badge.classList.add(problems.length ? "mg-fail" : "mg-pass");
-      badge.textContent = `${scheme} · ${problems.length ? `FAIL · ${problems.length}` : "pass"}`;
-      pane.querySelector("ul")!.innerHTML = problems.map((p) => `<li>${esc(p)}</li>`).join("");
+      badge.classList.add(problems.length ? "mg-fail" : known.length ? "mg-known" : "mg-pass");
+      badge.textContent = `${scheme} · ${problems.length ? `FAIL · ${problems.length}` : known.length ? `pass · ${known.length} known` : "pass"}`;
+      pane.querySelector("ul")!.innerHTML =
+        problems.map((p) => `<li>${esc(p)}</li>`).join("") +
+        known.map((p) => `<li class="mg-known-item">known: ${esc(p)}</li>`).join("") +
+        (known.length ? `<li class="mg-known-item">why: ${esc(shape.known!.why)}</li>` : "");
       if (problems.length) failing++;
     }
   });

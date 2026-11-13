@@ -14,14 +14,13 @@
   pointer-events: none;
 }
 
+/* Lines are drawn in a solid colour mixed toward the page, not with opacity, so where links share
+   a run (a fan's trunk, an exit two links leave by) it shows once, no heavier than a single line. */
 .map-link path {
   fill: none;
-  stroke: var(--ink-3);
+  stroke: color-mix(in srgb, var(--ink-3) 55%, var(--canvas));
   stroke-width: 1;
-  opacity: 0.55;
-  transition:
-    opacity 0.12s var(--ease),
-    stroke 0.12s var(--ease);
+  transition: stroke 0.12s var(--ease);
 }
 
 .map-link .map-arrow {
@@ -46,7 +45,11 @@
 }
 
 /* Pointing at a box: its links stand out, the others step back. */
-.map-focus :is(.map-link path, .map-cross) {
+.map-focus .map-link path {
+  stroke: color-mix(in srgb, var(--ink-3) 18%, var(--canvas));
+}
+
+.map-focus .map-cross {
   opacity: 0.14;
 }
 
@@ -55,7 +58,6 @@
 }
 
 .map-focus .map-link.map-hot path {
-  opacity: 1;
   stroke: var(--ink);
 }
 

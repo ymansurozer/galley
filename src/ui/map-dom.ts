@@ -5,7 +5,9 @@ import {
   MAP_TEXT,
   roundedPath,
   type MapFont,
+  type MapLabel,
   type MapLayout,
+  type MapLink,
   type MapStage,
   type Measure,
 } from "./map-derive";
@@ -17,11 +19,15 @@ import {
 
 // Link ends as data attributes.
 const ends = (from: string, to: string) => `data-from="${esc(from)}" data-to="${esc(to)}"`;
+// The ends of every link a label or a list line speaks for, as JSON, so any group id survives.
+const pairs = (ls: Array<{ from: string; to: string }>) =>
+  `data-links="${esc(JSON.stringify(ls.map((l) => [l.from, l.to])))}"`;
 
 export function mapHtml(layout: MapLayout) {
   const { width: W, height: H, boxW, boxH } = layout;
   const svg = (cls: string, body: string) =>
     `<svg class="${cls}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">${body}</svg>`;
+  const byKey = new Map(layout.links.map((l) => [l.key, l]));
   const lines = layout.links
     .filter((l) => l.points)
     .map(
@@ -29,15 +35,19 @@ export function mapHtml(layout: MapLayout) {
         `<g class="map-link" ${ends(l.from, l.to)}><path d="${roundedPath(l.points!)}"/><path class="map-arrow" d="${arrowHead(l.points!)}"/></g>`,
     )
     .join("");
+  // A label near the start of its line, and for a link that crosses two boxes or more, its echo
+  // before the box it reaches.
+  const label = (l: MapLink, c: MapLabel, cls: string) => {
+    const spans = c.lines
+      .map((s, i) => `<tspan x="${c.x}" dy="${i ? MAP_TEXT.labelLine : 0}">${esc(s)}</tspan>`)
+      .join("");
+    return `<text class="${cls}" ${ends(l.from, l.to)} ${pairs(c.links.map((k) => byKey.get(k) ?? l))} x="${c.x}" y="${c.y}">${spans}</text>`;
+  };
   const labels = layout.links
-    .filter((l) => l.caption)
-    .map((l) => {
-      const c = l.caption!;
-      const spans = c.lines
-        .map((s, i) => `<tspan x="${c.x}" dy="${i ? MAP_TEXT.labelLine : 0}">${esc(s)}</tspan>`)
-        .join("");
-      return `<text class="map-label" ${ends(l.from, l.to)} data-links="${esc(c.links.join(" "))}" x="${c.x}" y="${c.y}" text-anchor="${c.anchor}">${spans}</text>`;
-    })
+    .flatMap((l) => [
+      l.caption ? label(l, l.caption, "map-label") : "",
+      l.echo ? label(l, l.echo, "map-label map-echo") : "",
+    ])
     .join("");
   const heads = layout.heads
     .map(
@@ -70,7 +80,7 @@ export function mapHtml(layout: MapLayout) {
         `<div class="map-note" ${ends(l.from, l.to)} style="left:${l.note!.x}px;top:${l.note!.y}px">${l.note!.lines.map(esc).join("<br>")}</div>`,
     )
     .join("");
-  return `<div class="map${layout.cards ? " map-cards" : ""}" style="width:${W}px;height:${H}px">${svg("map-lines", lines + labels)}${heads}${boxes}${dots ? svg("map-lines map-dots", dots) : ""}${notes}</div>`;
+  return `<div class="map${layout.cards ? " map-cards" : ""}" style="width:${W}px;height:${H}px">${svg("map-lines", `<g class="map-links">${lines}</g><g class="map-labels">${labels}</g>`)}${heads}${boxes}${dots ? svg("map-lines map-dots", dots) : ""}${notes}</div>`;
 }
 
 // The narrow window's map: each stage's groups under it, each with what it feeds. Links leaving a
@@ -90,7 +100,7 @@ export function mapListHtml(stages: MapStage[], links: GuideLink[]) {
             const feeds = [...by.values()]
               .map(
                 (ls) =>
-                  `<span class="map-list-feed" ${ends(ls[0]!.from, ls[0]!.to)} data-links="${esc(ls.map((l) => `${l.from}>${l.to}`).join(" "))}"><span class="map-list-arrow" aria-hidden="true">→</span> ${ls.map((l) => esc(title.get(l.to)!)).join(", ")} <i>${esc(ls[0]!.label)}</i></span>`,
+                  `<span class="map-list-feed" ${ends(ls[0]!.from, ls[0]!.to)} ${pairs(ls)}><span class="map-list-arrow" aria-hidden="true">→</span> ${ls.map((l) => esc(title.get(l.to)!)).join(", ")} <i>${esc(ls[0]!.label)}</i></span>`,
               )
               .join("");
             return `<div class="map-list-row" role="button" tabindex="0" data-group="${esc(g.id)}"><span class="map-list-title">${esc(g.title)}</span><span class="map-list-feeds">${feeds}</span></div>`;
@@ -100,20 +110,23 @@ export function mapListHtml(stages: MapStage[], links: GuideLink[]) {
     .join("")}</div>`;
 }
 
-// Light the links into and out of a group (null puts every link back), dimming the rest.
+// Light the links into and out of a group (null puts every link back), dimming the rest. A lit
+// line is raised over the others, so a run it shares with a dimmed one shows lit.
 export function lightMapLinks(host: ParentNode, group: string | null) {
   const map = host.querySelector(".map");
   if (!map) return;
   const touches = (el: Element) => {
-    if (!group) return false;
-    const e = el as HTMLElement | SVGElement;
-    const keys = e.dataset.links?.split(" ") ?? [`${e.dataset.from}>${e.dataset.to}`];
-    return keys.some((k) => k.split(">").includes(group));
+    if (group === null) return false;
+    const { links, from, to } = (el as HTMLElement | SVGElement).dataset;
+    const ends: unknown = links ? JSON.parse(links) : [[from, to]];
+    return Array.isArray(ends) && ends.some((e) => Array.isArray(e) && e.includes(group));
   };
   const parts = map.querySelectorAll(".map-link, .map-label, .map-cross, .map-note");
   const any = [...parts].some(touches);
   map.classList.toggle("map-focus", any);
   for (const el of parts) el.classList.toggle("map-hot", any && touches(el));
+  const layer = map.querySelector(".map-links");
+  if (layer) for (const el of layer.querySelectorAll(".map-link.map-hot")) layer.append(el);
   for (const el of map.querySelectorAll<HTMLElement>(".map-box"))
     el.classList.toggle("map-hot", any && el.dataset.group === group);
 }
