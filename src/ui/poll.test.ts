@@ -72,6 +72,11 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
     await win.happyDOM.waitUntilComplete();
     await win.happyDOM.close();
   });
+  // The tab's clock (the window has its own Date), moved by hand for the three-second rule. It is
+  // fixed before the bundle runs: the store stamps its last answer at load, and a slow setup would
+  // otherwise leave that stamp seconds behind the clock, showing the unreachable banner too early.
+  let clock = Date.now();
+  win.Date.now = () => clock;
   win.document.body.innerHTML = ids.map((id) => `<div id="${id}"></div>`).join("");
   win.eval((await bundle).outputFiles[0]!.text);
   h = (win as any).h;
@@ -254,9 +259,6 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
             ),
     };
   }) as any;
-  // The tab's clock (the window has its own Date), moved by hand for the three-second rule.
-  let clock = Date.now();
-  win.Date.now = () => clock;
   return {
     S,
     h,
