@@ -18,6 +18,7 @@ import {
   topicMark,
   topicParts,
   topicRequestList,
+  topicHeldBack,
   topicSendParts,
 } from "./topicthreads-derive";
 import { topicSettled, topicsDone } from "./topics-derive";
@@ -358,4 +359,28 @@ test("a part's quote is the desk's text of a body block, or the field the part n
   assert.equal(partQuote(t, stamp, "body:2"), undefined);
   assert.equal(partQuote(t, stamp, "option:1"), undefined);
   assert.equal(partQuote(t, undefined, "body:1"), undefined);
+});
+
+test("the Send holds back resolved topic threads and answered questions on a topic or the Overview", () => {
+  const asked = msg({ id: "q", intent: "question", createdAt: "2026-11-13T10:00:00.000Z" });
+  const answer = msg({
+    id: "a",
+    role: "agent",
+    intent: "note",
+    createdAt: "2026-11-13T10:01:00.000Z",
+  });
+  const threads = [
+    thread("answered", "t1", "body:1", { intent: "question", comments: [asked, answer] }),
+    thread("overview", "overview", "summary", { intent: "question", comments: [asked, answer] }),
+    thread("waiting", "t1", "title", { intent: "question", comments: [asked] }),
+    thread("resolved", "t2", "flag", { status: "resolved" }),
+    // A question the reviewer turned into a change request goes, as a request.
+    thread("turned", "t2", "title", {
+      intent: "question",
+      comments: [asked, answer, msg({ id: "c", createdAt: "2026-11-13T10:02:00.000Z" })],
+    }),
+    thread("request", "t1", "recorded"),
+  ];
+  assert.deepEqual(topicHeldBack(threads), { resolved: 1, answered: 2 });
+  assert.deepEqual(topicHeldBack([]), { resolved: 0, answered: 0 });
 });

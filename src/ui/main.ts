@@ -79,7 +79,7 @@ import { installCaptureDebug } from "./capturedebug";
 import { addLineComment } from "./comments";
 import { composerInTopics, composerInUi } from "./composer";
 import { installTopicThreads, submitTopicComposer } from "./topicthreads";
-import { topicSendParts } from "./topicthreads-derive";
+import { topicHeldBack, topicSendParts } from "./topicthreads-derive";
 import {
   annotatePage,
   closeShot,
@@ -452,7 +452,12 @@ const openSendModal = (msg: string, lanes: Store["sendLanes"], notSent = "") => 
 // splits by lane: the code lines (none on a UI-only desk) and the UI ones. Without one, the code
 // line reads inline in the lead, with what it holds back under it.
 const codeSummary = (topics: string[] = []) =>
-  codeSendSummary(S.state?.comments ?? [], reviewStats().rejections, topics);
+  codeSendSummary(
+    S.state?.comments ?? [],
+    reviewStats().rejections,
+    topics,
+    topicHeldBack(S.state?.topicThreads ?? []),
+  );
 const topicParts = () => topicSendParts(S.state?.topicThreads ?? []);
 const openReceipt = (lead: string, question: string) => {
   if (!hasUi()) {
