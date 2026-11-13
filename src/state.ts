@@ -35,6 +35,7 @@ import type {
   ThreadMessage,
   TopicSignOff,
   TopicStamp,
+  LineSpan,
   UiAnnotationRecord,
 } from "./types.js";
 import { questionTarget, readUiAnnotations, uiAnnotationsForAgent } from "./uiannotations.js";
@@ -46,6 +47,7 @@ import {
   topicChangeRequests,
   topicQuestionPayload,
 } from "./topicthreads.js";
+import { entryLabel, lineBlocks } from "./topiclines.js";
 import { shotDir } from "./uishots.js";
 
 export function nowIso() {
@@ -509,8 +511,9 @@ export function resolveGuide(
 
 // What a cover can claim: a change block, or the whole of a file the diff shows without hunks (an
 // untracked add), which is one change with no block of its own and is keyed `path:file`. `lo`/`hi`
-// are the new-side lines a span must touch to claim it; `lines` its added plus removed lines.
-type CoverUnit = { key: string; lo: number; hi: number; lines: number; hash: string };
+// are the new-side lines a span must touch to claim it; `lines` its added plus removed lines; `base`
+// the last line of the diff's base before it (BlockRange), where a rewrite of it is found again.
+type CoverUnit = { key: string; lo: number; hi: number; lines: number; hash: string; base: number };
 // Every unit of a diff, by path, in the diff's file order and each file's line order.
 export type CoverIndex = Map<string, CoverUnit[]>;
 
@@ -520,7 +523,14 @@ export function coverIndex(review: Pick<ReviewState, "files" | "changes">): Cove
   for (const f of review.files) {
     const units = f.hunks.flatMap(skimRangesForHunk).map((r) => {
       const key = `${f.path}:${r.stableKey}`;
-      return { key, lo: r.lo, hi: r.hi, lines: r.lines, hash: hashAt.get(key) ?? "" };
+      return {
+        key,
+        lo: r.lo,
+        hi: r.hi,
+        lines: r.lines,
+        hash: hashAt.get(key) ?? "",
+        base: r.base,
+      };
     });
     // A hunk-less file with changed lines (an untracked add) is one unit. One with none (a pure
     // rename) is in the diff but has nothing to claim.
@@ -533,6 +543,7 @@ export function coverIndex(review: Pick<ReviewState, "files" | "changes">): Cove
         hi: Math.max(added, 1),
         lines,
         hash: f.contentHash,
+        base: 0,
       });
     index.set(f.path, units);
   }
@@ -640,21 +651,44 @@ export function resolveTopics(
   if (!topics.length) return { ok: true };
   const index = coverIndex(review);
   const claimed = new Map<string, Set<string>>();
+  const spans = new Map<string, LineSpan[]>();
   for (const topic of topics) {
+    const named = `guide topic ${JSON.stringify(topic.id)}`;
     const r = resolveCovers(topic.covers, index);
-    if (!r.ok) return { ok: false, reason: `guide topic ${JSON.stringify(topic.id)}: ${r.reason}` };
+    if (!r.ok) return { ok: false, reason: `${named}: ${r.reason}` };
+    // Each entry of a line block claims what a span cover of its range would (validateGuide has
+    // already refused one that doesn't parse).
+    const lines = lineBlocks(topic.body);
+    const mine: LineSpan[] = [];
+    for (const block of lines.ok ? lines.blocks : [])
+      for (const entry of block.entries) {
+        const at = `${named}: lines entry ${JSON.stringify(entryLabel(entry))}`;
+        if (!index.has(entry.path))
+          return { ok: false, reason: `${at} names a file that is not in the diff` };
+        const e = resolveCovers([{ path: entry.path, lines: [[entry.start, entry.end]] }], index);
+        if (!e.ok) return { ok: false, reason: `${at} touches no change in the diff` };
+        for (const key of e.keys) r.keys.add(key);
+        mine.push({ fence: block.line, path: entry.path, blocks: [...e.keys], ...range(entry) });
+      }
     claimed.set(topic.id, r.keys);
+    spans.set(topic.id, mine);
   }
-  writeTopicStamps(review, topics, index, claimed);
+  writeTopicStamps(review, topics, index, claimed, spans);
   return { ok: true };
 }
+
+const range = (r: { start: number; end: number }) => ({ start: r.start, end: r.end });
 
 // Re-stamp the topics of a guide carried across a reload or restart, after carryGuideStamps carried
 // each block's topics by content. A file or folder cover claims what is under its path now, new
 // blocks included, and a span cover the whole of a hunk-less file it names; a span cover's other
 // blocks are the carried ones, since its lines may have moved. A cover that resolves to nothing now
-// claims nothing: an old guide is never refused.
-export function stampTopics(review: Pick<ReviewState, "files" | "changes" | "guide" | "topics">) {
+// claims nothing: an old guide is never refused. Each line block entry follows the blocks it touched
+// in `before`, the review the stamps were made on (followLineSpans).
+export function stampTopics(
+  review: Pick<ReviewState, "files" | "changes" | "guide" | "topics">,
+  before?: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys" | "topics">,
+) {
   delete review.topics;
   const topics = guideTopics(review.guide);
   if (!topics.length) {
@@ -675,7 +709,84 @@ export function stampTopics(review: Pick<ReviewState, "files" | "changes" | "gui
     }
     claimed.set(topic.id, keys);
   }
-  writeTopicStamps(review, topics, index, claimed);
+  const spans = before ? followLineSpans(review, before, index) : new Map<string, LineSpan[]>();
+  for (const [id, mine] of spans)
+    for (const span of mine) for (const key of span.blocks) claimed.get(id)?.add(key);
+  writeTopicStamps(review, topics, index, claimed, spans);
+}
+
+// Where each topic's line block entries sit on a rebuilt diff, from where they sat in `before`. An
+// entry follows the blocks it touched there (recordBlocks): one whose content holds carries the
+// range with it, however lines shifted above it; one the agent rewrote is found again at the same
+// place in the diff's base and drawn whole, since the old range says nothing of the new lines (and
+// its topic comes back changed, its cover hash moved). An entry none of whose blocks is left keeps
+// no range: the tab says its lines are gone.
+function followLineSpans(
+  review: Pick<ReviewState, "files" | "changes">,
+  before: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys" | "topics">,
+  index: CoverIndex,
+) {
+  const renames = renamesIn(review.files);
+  const moved = (key: string) => {
+    for (const [from, to] of renames)
+      if (key.startsWith(`${from}:`)) return `${to}:${key.slice(from.length + 1)}`;
+    return key;
+  };
+  const was = new Map<string, CoverUnit>();
+  for (const units of coverIndex(before).values()) for (const u of units) was.set(moved(u.key), u);
+  const prior = Object.entries(before.topics ?? {}).map(([id, stamp]) => ({
+    id,
+    spans: (stamp.lineSpans ?? []).map((s) => ({ ...s, blocks: s.blocks.map(moved) })),
+  }));
+  const records = prior.flatMap((t) =>
+    t.spans.flatMap((s) => s.blocks.map((key) => ({ key, hash: was.get(key)?.hash }))),
+  );
+  const homes = recordBlocks(review, records, priorBlocks(before, renames));
+  const now = new Map([...index.values()].flat().map((u) => [u.key, u]));
+  const held = new Set(homes.values());
+  const out = new Map<string, LineSpan[]>();
+  for (const { id, spans } of prior) {
+    const mine: LineSpan[] = [];
+    for (const span of spans) {
+      const path = renames.get(span.path) ?? span.path;
+      const units = index.get(path) ?? [];
+      const shifts: number[] = [];
+      const rewritten: CoverUnit[] = [];
+      for (const key of span.blocks) {
+        const old = was.get(key);
+        if (!old) continue;
+        // A hunk-less file's one unit keeps its key; any other unit is found by recordBlocks.
+        const home = key.endsWith(":file") ? (now.has(key) ? key : undefined) : homes.get(key);
+        const at = home === undefined ? undefined : now.get(home);
+        if (at && at.hash === old.hash) shifts.push(at.lo - old.lo);
+        else {
+          const again =
+            at ??
+            units.find((u) => !held.has(u.key) && u.base === old.base && !u.key.endsWith(":file"));
+          if (again) rewritten.push(again);
+        }
+      }
+      const blocks = new Set<string>();
+      let lo = Infinity;
+      let hi = -Infinity;
+      if (shifts.length && span.start !== undefined && span.end !== undefined) {
+        lo = span.start + shifts[0]!;
+        hi = span.end + shifts.at(-1)!;
+      }
+      for (const u of rewritten) {
+        lo = Math.min(lo, u.lo);
+        hi = Math.max(hi, u.hi);
+      }
+      for (const u of units) if (u.lo <= hi && u.hi >= lo) blocks.add(u.key);
+      mine.push(
+        blocks.size
+          ? { fence: span.fence, path, blocks: [...blocks], start: lo, end: hi }
+          : { fence: span.fence, path, blocks: [] },
+      );
+    }
+    out.set(id, mine);
+  }
+  return out;
 }
 
 // Each block's `topics` and each topic's TopicStamp, from the unit keys each topic claimed.
@@ -684,6 +795,7 @@ function writeTopicStamps(
   topics: GuideTopic[],
   index: CoverIndex,
   claimed: Map<string, Set<string>>,
+  spans: Map<string, LineSpan[]>,
 ) {
   const byKey = new Map(review.changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
   for (const c of review.changes) delete c.topics;
@@ -702,6 +814,8 @@ function writeTopicStamps(
       coverHash: hash(mine.map((u) => u.hash).join("\n")),
       bodyParts: bodyBlocks(topic.body).map((b) => b.line),
     };
+    const lineSpans = spans.get(topic.id);
+    if (lineSpans?.length) stamps[topic.id]!.lineSpans = lineSpans;
   }
   review.topics = stamps;
 }
@@ -2457,7 +2571,7 @@ export async function mergeReviewState(
     persistFile: saved.persistFile,
   } satisfies ReviewState;
   signOffCoveredFiles(merged);
-  stampTopics(merged);
+  stampTopics(merged, saved);
   stampCoverage(merged, merged.guide);
   // A new guide given with this reload or restart carries them again once it is resolved.
   carryTopicSignOffs(merged, saved);

@@ -7,6 +7,7 @@ import type {
   GuideStage,
   GuideTopic,
 } from "./types.js";
+import { lineBlocks } from "./topiclines.js";
 
 export type GuideValidation = { ok: true; guide: Guide } | { ok: false; reason: string };
 
@@ -52,12 +53,17 @@ function entry(raw: unknown, at: string, required: string[]): Entry {
 
 // A topic's covers: a non-empty array of { path, lines? }, `lines` shaped as a part's are. Shape
 // only — whether each resolves to a change in the diff is resolveCovers' check, on attach.
+// `mayBeEmpty`: a topic whose body's line blocks name lines claims those, so it needs no covers.
 function covers(
   raw: unknown,
   at: string,
+  mayBeEmpty = false,
 ): { ok: true; covers: Cover[] } | { ok: false; reason: string } {
-  if (!Array.isArray(raw) || raw.length === 0)
-    return { ok: false, reason: `${at}.covers must be a non-empty array` };
+  if (!Array.isArray(raw) || (raw.length === 0 && !mayBeEmpty))
+    return {
+      ok: false,
+      reason: `${at}.covers must be a non-empty array${mayBeEmpty ? "" : " (or empty, when a lines block in the body names lines)"}`,
+    };
   const out: Cover[] = [];
   for (const [i, c] of raw.entries()) {
     const path = c && typeof c === "object" ? text((c as Record<string, unknown>).path) : undefined;
@@ -85,7 +91,17 @@ function topic(
   const e = entry(raw, at, ["title", "recorded", "body"]);
   if (!e.ok) return e;
   const r = e.raw;
-  const c = covers(r.covers, e.at);
+  const lines = lineBlocks(r.body as string);
+  if (!lines.ok)
+    return {
+      ok: false,
+      reason: `${e.at}.body: lines entry ${JSON.stringify(lines.entry)} must be path:start-end (new-side lines, start <= end) or path:line`,
+    };
+  const c = covers(
+    r.covers,
+    e.at,
+    lines.blocks.some((b) => b.entries.length),
+  );
   if (!c.ok) return c;
   const t: GuideTopic = {
     id: r.id as string,

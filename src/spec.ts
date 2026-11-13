@@ -367,6 +367,14 @@ walkthrough and Decisions mode shows the topics.
       - body (required, non-empty) — markdown: prose, lists, tables, fenced code.
         A \`mermaid\` fence draws a diagram in Galley’s colours; what needs a diagram is your call.
         If it cannot be drawn, the source is shown as code and the page stays usable.
+        A \`lines\` fence quotes the diff, so you never retype code: one entry per line,
+        \`path:start-end\` (new-file-side line numbers, start <= end) or \`path:n\` for one line,
+        blank lines ignored. Galley draws those lines from the diff as Code mode does (the hunks
+        the range touches, limited to it, removed lines included), and a comment on one of them is
+        the ordinary line comment Code mode makes, answered with \`galley comment\` on its path and
+        line. An entry resolves like a span cover: the change blocks it touches count as covered by
+        the topic, for coverage, its share and its settle hash. Across reloads that keep the guide,
+        the drawn range follows its blocks as covers do (a rewritten block is drawn whole).
       - concern? — a short label from the reviewer's skill ("Security", "Cost"); shown as is.
       - flag? — flags the topic for closer scrutiny; the text is the note.
       - covers (required, non-empty array) — where the topic lives in the diff, each { path,
@@ -374,6 +382,7 @@ walkthrough and Decisions mode shows the topics.
         under it), or a file with lines, an array of new-file-side [start, end] spans and single
         line numbers. Covers resolve like part lines: a span claims every change block it touches,
         a new untracked file is one whole-file change. Two topics may cover the same lines.
+        It may be empty when a \`lines\` block in the body names lines.
       - pages? — array of app paths ("/settings") the topic shows up on.
 - links? (array, only with stages), each { from, to, label } — what one group hands another, by
   group id: from and to are two different groups of the guide, label (required) at most 40
@@ -396,7 +405,9 @@ Coverage: every changed block must be under a topic or skimmed when attaching a 
 Topic validation: every required field above, ids unique among stages, among groups and among
 topics, and every cover resolving to a change in the diff — a cover naming a file not in the diff, a
 folder with no changed file under it, or a span that touches no change aborts the launch (or
-\`galley reload --guide\`, leaving the desk as it was) naming the topic and the cover. A link
+\`galley reload --guide\`, leaving the desk as it was) naming the topic and the cover. A \`lines\`
+entry that doesn't parse, names a file not in the diff or whose range touches no change aborts it
+the same way, naming the topic and the entry. A link
 naming an unknown group, joining a group to itself, repeating a pair or with a label over 40
 characters aborts it the same way, naming the link. Across reloads that keep the guide, a topic
 keeps the blocks its covers claimed by their content, as skims do; a file or folder cover also

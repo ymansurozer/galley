@@ -497,6 +497,32 @@ test("validateGuide refuses malformed covers, naming the topic and the entry", (
   );
 });
 
+test("a lines block lets a topic's covers be empty, and an entry that doesn't parse is refused", () => {
+  const topicWith = (body: string, covers: unknown[]) => {
+    const g = topicsInput();
+    Object.assign(g.stages[0]!.groups[0]!.topics[0]!, { body, covers });
+    return g;
+  };
+  const lines = (...entries: string[]) => `Why.\n\n\`\`\`lines\n${entries.join("\n")}\n\`\`\`\n`;
+  assert.equal(validateGuide(topicWith(lines("src/a.ts:12-20", "", "src/b.ts:4"), [])).ok, true);
+  // An empty block names nothing, so the covers are still needed.
+  assert.match(
+    refusal(topicWith(lines(), [])),
+    /\("per-key"\)\.covers must be a non-empty array \(or empty, when a lines block in the body names lines\)/,
+  );
+  // A lines fence inside a list is prose, not a block.
+  assert.match(
+    refusal(topicWith("- item\n\n  ```lines\n  src/a.ts:1\n  ```\n", [])),
+    /covers must be a non-empty array/,
+  );
+  for (const entry of ["src/a.ts", "src/a.ts:20-12", "src/a.ts:0", "src/a.ts:3-x", ":4"])
+    assert.equal(
+      refusal(topicWith(lines("src/a.ts:1", entry), [])),
+      `guide.stages[0].groups[0].topics[0] ("per-key").body: lines entry ${JSON.stringify(entry)} must be path:start-end (new-side lines, start <= end) or path:line`,
+      entry,
+    );
+});
+
 test("validateGuide refuses duplicate stage, group and topic ids, naming the id", () => {
   const stage = topicsInput();
   stage.stages[1]!.id = "edge";

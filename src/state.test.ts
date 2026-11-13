@@ -4323,6 +4323,107 @@ test("whole-file skims satisfy topics coverage", async () => {
   });
 });
 
+// A topics guide whose topic "lines" claims only what the line block in its body names, beside a
+// topic covering app.ts's line 3 and the skim of src/lib/.
+function linesGuide(...entries: string[]): Guide {
+  const guide = topicsGuide({ three: [{ path: "src/app.ts", lines: [3] }] });
+  guide.stages![0]!.groups[0]!.topics.push({
+    id: "lines",
+    title: "lines",
+    recorded: "Only the code.",
+    body: `Why it reads so.\n\n\`\`\`lines\n${entries.join("\n")}\n\`\`\`\n`,
+    covers: [],
+  });
+  return guide;
+}
+
+test("a line block naming a file outside the diff, or a range touching no change, is refused naming topic and range", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    const refused = (...entries: string[]) => {
+      const r = resolveGuide(st, linesGuide(...entries));
+      return r.ok ? "" : r.reason;
+    };
+    assert.equal(
+      refused("src/app.ts:10-11", "docs/notes.md:1-2"),
+      'guide topic "lines": lines entry "docs/notes.md:1-2" names a file that is not in the diff',
+    );
+    assert.equal(
+      refused("src/app.ts:6-7"),
+      'guide topic "lines": lines entry "src/app.ts:6-7" touches no change in the diff',
+    );
+    assert.equal(
+      refused("src/app.ts:6"),
+      'guide topic "lines": lines entry "src/app.ts:6" touches no change in the diff',
+    );
+  });
+});
+
+test("a topic whose only claim is a line block passes the coverage check and counts its lines", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    // Without the block, app.ts's change at line 10 would be uncovered.
+    assert.deepEqual(resolveGuide(st, linesGuide("src/app.ts:9-11")), { ok: true });
+    assert.deepEqual(st.topics?.lines?.blocks, ["src/app.ts:additions:10:1:2"]);
+    assert.equal(st.topics?.lines?.lines, 3);
+    assert.equal(st.coverage?.uncoveredLines, 0);
+    assert.equal(st.coverage?.topicLines, 5);
+    const at10 = st.changes.find((c) => c.path === "src/app.ts" && c.lineNumber === 10)!;
+    assert.deepEqual(at10.topics, ["lines"]);
+    // The fence's source line, the block it touched and its range as written.
+    assert.deepEqual(st.topics?.lines?.lineSpans, [
+      { fence: 3, path: "src/app.ts", blocks: ["src/app.ts:additions:10:1:2"], start: 9, end: 11 },
+    ]);
+    // The fence is drawn by the tab, so it is no part of the body's blocks.
+    assert.deepEqual(st.topics?.lines?.bodyParts, [1]);
+  });
+});
+
+test("a line block's range follows its lines across a reload without a new guide", async () => {
+  await withTopicsRepo(async (build) => {
+    const guide = linesGuide("src/app.ts:9-11");
+    const before = await build();
+    before.guide = guide;
+    assert.ok(resolveGuide(before, guide).ok);
+    const span = (st: ReviewState) => st.topics?.lines?.lineSpans?.[0];
+    // Three lines inserted above: the range moves down three, its block and hash with it.
+    const shifted = await mergeReviewState(
+      await build(appLines(topicsTree, ["top1", "top2", "top3"])),
+      before,
+    );
+    assert.deepEqual(span(shifted), {
+      fence: 3,
+      path: "src/app.ts",
+      blocks: ["src/app.ts:additions:13:1:2"],
+      start: 12,
+      end: 14,
+    });
+    assert.equal(shifted.topics?.lines?.coverHash, before.topics?.lines?.coverHash);
+    // Followed again from the shifted review: the stamps carry from round to round.
+    const again = await mergeReviewState(
+      await build(appLines(topicsTree, ["top1", "top2", "top3", "top4"])),
+      shifted,
+    );
+    assert.deepEqual([span(again)?.start, span(again)?.end], [13, 15]);
+    // The block rewritten (now three added lines): drawn whole, and the topic's hash moves.
+    const rewritten = await mergeReviewState(
+      await build(appLines({ 3: ["A"], 10: ["D1", "D2", "D3"] })),
+      before,
+    );
+    assert.deepEqual(span(rewritten), {
+      fence: 3,
+      path: "src/app.ts",
+      blocks: ["src/app.ts:additions:10:1:3"],
+      start: 10,
+      end: 12,
+    });
+    assert.notEqual(rewritten.topics?.lines?.coverHash, before.topics?.lines?.coverHash);
+    // The change reverted: nothing of it is left to draw.
+    const gone = await mergeReviewState(await build(appLines({ 3: ["A"] })), before);
+    assert.deepEqual(span(gone), { fence: 3, path: "src/app.ts", blocks: [] });
+  });
+});
+
 test("coverage refusal lists twenty places and counts the rest", async () => {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-coverage-")));
   const gitq = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
