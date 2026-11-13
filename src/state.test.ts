@@ -4048,3 +4048,50 @@ test("the save number is stored with the review and carried across a restart", a
   const merged = await mergeReviewState(state({ baseDiffHash: "new" }), state({ saveNumber: 9 }));
   assert.equal(merged.saveNumber, 9);
 });
+
+test("a withdrawal made on the previous diff never takes the record of a block rewritten in place", async () => {
+  await withShiftRepo(async (edit) => {
+    const live = await edit(edited({ 8: "L8", 11: "L11" }));
+    const oldDiff = live.baseDiffHash;
+    const [at8, at11] = ["app.ts:additions:8:1:1", "app.ts:additions:11:1:1"];
+    live.decisions = [decide(live, at8, "accepted"), decide(live, at11, "rejected")];
+    live.signedOffBlocks = signedOff(live, at8, at11);
+    const prior = { baseDiffHash: live.baseDiffHash, changes: live.changes, files: live.files };
+    // The agent rewrites the l8 block in place (same line, same size: the same key, new content).
+    Object.assign(live, await mergeReviewState(await edit(edited({ 8: "L8b", 11: "L11" })), live));
+    assert.deepEqual(decided(live), [[at11, "rejected", 11]], "the rewritten block is pending");
+    // Another tab, on the current diff, decides and signs off the new l8 block.
+    await mergeReviewerSave(
+      live,
+      delta(
+        0,
+        {
+          decisions: { changed: [decide(live, at8, "rejected")], removed: [] },
+          signedOffBlocks: {
+            changed: [{ key: at8, hash: signedOff(live, at8)[at8] }],
+            removed: [],
+          },
+        },
+        live.baseDiffHash,
+      ),
+    );
+    const newHash = signedOff(live, at8)[at8];
+    // The old tab withdraws its verdicts on both blocks, made on the diff before.
+    await mergeReviewerSave(
+      live,
+      delta(
+        0,
+        {
+          decisions: { changed: [], removed: [at8, at11] },
+          signedOffBlocks: { changed: [], removed: [at8, at11] },
+        },
+        oldDiff,
+      ),
+      undefined,
+      prior,
+    );
+    assert.deepEqual(decided(live), [[at8, "rejected", 8]], "the new block's decision stays");
+    assert.deepEqual(live.signedOffBlocks, { [at8]: newHash }, "and so does its sign-off");
+    assert.equal(statusOf(live, at11), "pending", "the unchanged block's withdrawal landed");
+  });
+});

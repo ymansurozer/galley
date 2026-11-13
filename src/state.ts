@@ -1336,7 +1336,9 @@ const verdictsKey = (s: VerdictFields) =>
 // Verdict changes made on the diff before the desk's current one (`prior`), carried onto it as a
 // reload carries the desk's own (carryDecisions, carrySignOffs): only the changed records. A
 // removed key goes where its block went, found by content as a record is (recordBlocks), under a
-// renamed file's new path.
+// renamed file's new path. One whose block has no home on the current diff is dropped: whatever
+// sits under its key now (a block rewritten in place, decided since) is not what was withdrawn, as
+// carryDecisions drops a changed record on the same collision.
 function carryVerdicts(state: ReviewState, v: Verdicts, prior: PriorDiff): Verdicts {
   const renames = renamesIn(state.files);
   const movedPath = (p: string) => renames.get(p) ?? p;
@@ -1352,7 +1354,7 @@ function carryVerdicts(state: ReviewState, v: Verdicts, prior: PriorDiff): Verdi
       migrated.map((key) => ({ key, hash: blocksBefore.get(key)?.hash })),
       blocksBefore,
     );
-    return migrated.map((key) => homes.get(key) ?? key);
+    return migrated.flatMap((key) => homes.get(key) ?? []);
   };
   // carryDecisions restamps the blocks it is given; the desk's own are restamped from the merged
   // decisions once they're applied.
