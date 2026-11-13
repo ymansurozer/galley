@@ -94,6 +94,26 @@ test("pointing at a box lights its links and dims the rest; leaving puts them ba
   assert.ok(!host.querySelector(".map")!.classList.contains("map-focus"));
 });
 
+test("pointing at a thread on one link lights that link alone, in the drawing and the list", () => {
+  const host = mount(mapHtml(layout) + mapListHtml(STAGES, LINKS));
+  lightMapLinks(host, null, ["a", "d"]);
+  const hot = [...host.querySelectorAll<HTMLElement>(".map-hot")].map(
+    (e) => `${e.className.replace(" map-hot", "")} ${e.dataset.from ?? e.dataset.group}>${e.dataset.to ?? ""}`,
+  );
+  assert.deepEqual(hot, [
+    "map-link a>d",
+    "map-label a>d",
+    "map-cross a>d",
+    "map-list-feed a>d",
+  ]);
+  // A box's thread lights the box, in the drawing and as its list row.
+  lightMapLinks(host, "b");
+  assert.ok(host.querySelector('.map-box[data-group="b"]')!.classList.contains("map-hot"));
+  assert.ok(host.querySelector('.map-list-row[data-group="b"]')!.classList.contains("map-hot"));
+  lightMapLinks(host, null);
+  assert.equal(host.querySelectorAll(".map-hot").length, 0);
+});
+
 test("the narrow list has each group under its stage, with what it feeds", () => {
   const host = mount(mapListHtml(STAGES, LINKS));
   assert.deepEqual(

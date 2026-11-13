@@ -3,6 +3,13 @@ import assert from "node:assert/strict";
 import {
   droppedThreads,
   isOpenChange,
+  mapTarget,
+  overviewChip,
+  overviewParts,
+  overviewPlace,
+  overviewSlot,
+  overviewStops,
+  overviewTints,
   signOffStand,
   threadPlace,
   threadSlot,
@@ -152,5 +159,110 @@ test("the threads on topics the guide no longer has are the Overview's to show",
   assert.deepEqual(
     droppedThreads(threads, STAGES).map((t) => t.id),
     ["b"],
+  );
+});
+
+// ── The Overview ─────────────────────────────────────────────────────────────────────────────────
+
+const MAP_STAGES: GuideStage[] = [
+  {
+    id: "back",
+    label: "Back",
+    groups: [
+      { id: "api", title: "API", topics: [topic("t1")] },
+      { id: "a>b", title: "Odd id", topics: [topic("t2")] },
+    ],
+  },
+  { id: "front", label: "Front", groups: [{ id: "ui", title: "UI", topics: [topic("t3")] }] },
+];
+const LINKS = [
+  { from: "api", to: "a>b", label: "writes" },
+  { from: "a>b", to: "ui", label: "serves" },
+];
+
+test("the Overview's parts are the summary, the map, each box and link, and coverage; j / k stop at three", () => {
+  const parts = overviewParts(MAP_STAGES, LINKS, { map: true, coverage: true });
+  assert.deepEqual(parts, [
+    "summary",
+    "map",
+    "group:api",
+    "group:a>b",
+    "group:ui",
+    "link:api>a>b",
+    "link:a>b>ui",
+    "coverage",
+  ]);
+  assert.deepEqual(overviewStops(parts), ["summary", "map", "coverage"]);
+  // No map drawn (under three groups), no boxes or links to point at; no coverage card, no stop.
+  assert.deepEqual(overviewParts(MAP_STAGES, LINKS, { map: false, coverage: false }), ["summary"]);
+});
+
+test("threads on the map, a box or a link sit under the map, each chip naming the box or the link's groups", () => {
+  assert.equal(overviewSlot("summary"), "summary");
+  assert.equal(overviewSlot("coverage"), "coverage");
+  assert.equal(overviewSlot("map"), "map");
+  assert.equal(overviewSlot("group:api"), "map");
+  assert.equal(overviewSlot("link:api>a>b"), "map");
+  const chip = (part: string, over: Partial<TopicThread> = {}) =>
+    overviewChip(thread("x", "overview", part, over), MAP_STAGES, LINKS);
+  assert.equal(chip("summary"), null);
+  assert.equal(chip("coverage"), null);
+  assert.equal(chip("map"), "The map");
+  assert.equal(chip("group:a>b"), "Odd id");
+  assert.equal(chip("link:a>b>ui"), "Odd id → UI");
+  // A part the tab's guide no longer has is named by what the thread quoted.
+  assert.equal(chip("group:gone", { quote: "Gone" }), "Gone");
+  // One a new guide moved to the map says what it was on.
+  const moved = thread("x", "overview", "map", { moved: true, quote: "API → Store: writes" });
+  assert.equal(overviewPlace(moved), "was on API → Store: writes");
+  assert.equal(overviewPlace(thread("x", "overview", "group:api")), null);
+});
+
+test("a box or a link is found from its part whatever its ids hold", () => {
+  assert.deepEqual(mapTarget("group:a>b", LINKS), { group: "a>b" });
+  assert.deepEqual(mapTarget("link:a>b>ui", LINKS), { link: ["a>b", "ui"] });
+  assert.deepEqual(mapTarget("link:api>a>b", LINKS), { link: ["api", "a>b"] });
+  assert.equal(mapTarget("link:nope>ui", LINKS), null);
+  assert.equal(mapTarget("map", LINKS), null);
+});
+
+test("an open thread tints its part: blue for a question, orange for a change request, which wins", () => {
+  const ask = { intent: "question" as const, comments: [msg({ intent: "question" })] };
+  const tints = overviewTints([
+    thread("q", "overview", "group:api", ask),
+    thread("c", "overview", "group:ui"),
+    thread("both-q", "overview", "link:api>a>b", ask),
+    thread("both-c", "overview", "link:api>a>b"),
+    thread("done", "overview", "group:a>b", { status: "resolved" }),
+    thread("topic", "t1", "title"),
+  ]);
+  assert.deepEqual(
+    [...tints],
+    [
+      ["group:api", "question"],
+      ["group:ui", "change"],
+      ["link:api>a>b", "change"],
+    ],
+  );
+});
+
+test("Overview requests come first, named Overview, summary then the map then coverage", () => {
+  const list = topicRequestList(
+    [
+      thread("t1-title", "t1", "title"),
+      thread("cov", "overview", "coverage", { title: "Overview" }),
+      thread("box", "overview", "group:g", { title: "Overview" }),
+      thread("sum", "overview", "summary", { title: "Overview" }),
+    ],
+    STAGES,
+  );
+  assert.deepEqual(
+    list.map((r) => [r.id, r.title]),
+    [
+      ["sum", "Overview"],
+      ["box", "Overview"],
+      ["cov", "Overview"],
+      ["t1-title", "Title t1"],
+    ],
   );
 });
