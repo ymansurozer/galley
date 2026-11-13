@@ -4602,3 +4602,24 @@ test("a topic sign-off made on an older diff lands, but settles nothing its hash
   });
   assert.equal(topicSettled(live, "a"), false);
 });
+
+test("changing only topic options resets its sign-off, while topics without options keep their hash", async () => {
+  await withTopicsRepo(async (build) => {
+    const before = await attachTopics(build);
+    const guide = structuredClone(settleGuide);
+    const topic = guide.stages![0]!.groups[0]!.topics[0]!;
+    topic.body += '\n\n```options\n[{"label":"A","ships":true},{"label":"B"}]\n```';
+    const withOptions = await reloadWithGuide(await build(), before, guide);
+    assert.equal(withOptions.topics!.other!.coverHash, before.topics!.other!.coverHash);
+    assert.deepEqual(withOptions.topics!.span!.options, [
+      { label: "A", ships: true },
+      { label: "B" },
+    ]);
+    settleTopic(withOptions, "span");
+    const changed = structuredClone(guide);
+    changed.stages![0]!.groups[0]!.topics[0]!.body = topic.body.replace('"B"', '"C"');
+    const after = await reloadWithGuide(await build(), withOptions, changed);
+    assert.equal(topicSettled(after, "span"), false);
+    assert.equal(after.topics!.span!.changed, true);
+  });
+});

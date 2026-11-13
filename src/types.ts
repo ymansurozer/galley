@@ -60,7 +60,7 @@ export type ReviewComment = {
 export type ThreadMessage = Pick<
   ReviewComment,
   "id" | "body" | "createdAt" | "updatedAt" | "intent" | "askedAt" | "role"
->;
+> & { option?: string };
 
 export type ChangeState = {
   id: string;
@@ -259,12 +259,16 @@ export type GuideLink = { from: string; to: string; label: string };
 // carryTopicSignOffs); kept until the topic is settled again. `bodyParts`: the source lines of the
 // body's blocks a comment can sit on (topicthreads.ts bodyBlocks), so the tab places them by the
 // desk's own list.
+export type TopicOption = { label: string; note?: string; ships?: boolean; recommended?: boolean };
+
 export type TopicStamp = {
   blocks: string[];
   lines: number;
   coverHash: string;
   changed?: true;
   bodyParts?: number[];
+  options?: TopicOption[];
+  optionsLine?: number;
 };
 
 // A settled topic (ReviewState.settledTopics): its cover hash when the reviewer settled it, and the
@@ -763,6 +767,8 @@ export type TopicThread = {
   intent: "change" | "question";
   status: "open" | "resolved";
   comments: ThreadMessage[];
+  // Present only for a pick; ordinary comments on an option carry no selection.
+  option?: string;
 };
 
 // An annotation as the agent receives it in ReviewResult.uiAnnotations.
@@ -870,6 +876,7 @@ export type TopicChangeRequest = {
   part: string;
   quote?: string;
   body: string;
+  option?: string;
 };
 
 // A question the reviewer asked (intent "question") that the agent should handle now: on a line

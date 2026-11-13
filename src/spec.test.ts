@@ -47,9 +47,12 @@ const ANCHORS = [
   // topic threads: the question lane, the reply form, the result field and the parts
   'lane "topic": {lane, id, topic, part, quote?, body, mode, session}',
   'galley comment --topic <id> --body "…"',
-  "topicChangeRequests[]: {id, topic, part, quote?, body}",
+  "topicChangeRequests[]: {id, topic, part, quote?, body, option?}",
   '"body:<n>" — a block of the body',
   "Topic Ask:",
+  "#### Options fence",
+  "option? — the picked option label",
+  "One options block per topic",
   "How to act on a review",
   // the human can turn a change request into a question and back between rounds
   "change kind between rounds",

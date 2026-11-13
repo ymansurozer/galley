@@ -16,6 +16,7 @@ export function topicParts(topic: GuideTopic, stamp: TopicStamp | undefined): st
     "title",
     "recorded",
     ...(stamp?.bodyParts ?? []).map((line) => `body:${line}`),
+    ...(stamp?.options ?? []).map((_, i) => `option:${i + 1}`),
     ...(topic.flag ? ["flag"] : []),
   ];
 }
@@ -62,7 +63,11 @@ export const topicBlockers = (threads: readonly TopicThread[], topic: string) =>
 
 // The message that asks for a thread's change: its first Request change, else its opening one.
 export const askOf = (t: TopicThread) =>
-  t.comments.find((m) => m.role !== "agent" && m.intent === "action") ?? t.comments[0];
+  [...t.comments]
+    .reverse()
+    .find((m) => m.role !== "agent" && m.intent === "action" && m.option !== undefined) ??
+  t.comments.find((m) => m.role !== "agent" && m.intent === "action") ??
+  t.comments[0];
 
 // What the topic's bar offers and says. To do: Settle Topic, or Mark Reviewed while it has open
 // change requests. Settled (a sign-off by either button): Settled, or "Reviewed with requests"
@@ -98,6 +103,7 @@ export type TopicRequest = {
 
 // A part's place on its topic's page, top to bottom (topicParts).
 export function partRank(part: string): number {
+  if (part.startsWith("option:")) return 3 + Number(part.slice(7)) / 1e7;
   const line = bodyLine(part);
   if (line !== undefined) return 2 + line / 1e7;
   return ({ title: 0, recorded: 1, flag: 3 } as Record<string, number>)[part] ?? 4;

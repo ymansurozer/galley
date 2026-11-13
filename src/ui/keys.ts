@@ -3,7 +3,7 @@ import { hasGuide } from "./guide";
 import { approveCurrentStep } from "./decisions";
 import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
 import { closeComposer, composerInCode, composerInUi } from "./composer";
-import { commentAtCursor, hideTopicRail, moveTopicCursor } from "./topicthreads";
+import { pickAtCursor, commentAtCursor, hideTopicRail, moveTopicCursor } from "./topicthreads";
 import { hasUi, toggleView, uiOnly, views } from "./appview";
 import { groupStep, openTopic, settleOpenTopic, startTopics, topicStep } from "./topics";
 import {
@@ -256,6 +256,14 @@ const HOTKEYS: Hotkey[] = [
     test: k("k"),
     when: onTopic,
     run: () => moveTopicCursor(-1),
+  },
+  {
+    combo: "Space",
+    desc: "Pick option",
+    group: "Decisions",
+    test: k(" "),
+    run: pickAtCursor,
+    when: onTopic,
   },
   {
     combo: "c",

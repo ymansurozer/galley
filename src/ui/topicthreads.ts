@@ -1,3 +1,6 @@
+import { optionsList } from "./topics-options-dom";
+import { isPick, parseOptions, replacePick, selectedOption } from "./topics-options-derive";
+import { parseTopicBody } from "./topics-body-derive";
 import { S, $, persist, saver, toast } from "./store";
 import {
   buildCommentThread,
@@ -53,6 +56,19 @@ const partsOf = (topic: GuideTopic) => topicParts(topic, S.state.topics?.[topic.
 export function decorateTopicPage(host: HTMLElement, topic: GuideTopic) {
   const page = host.querySelector<HTMLElement>(".topic-page");
   if (!page) return;
+  const stamp = S.state.topics?.[topic.id];
+  if (stamp?.options) {
+    const selected = selectedOption(stamp.options, threads(), topic.id);
+    page.querySelector(`.topic-body pre[data-line="${stamp.optionsLine}"]`)?.replaceWith(
+      optionsList(
+        page.ownerDocument,
+        stamp.options,
+        selected,
+        threads().some((t) => isPick(t, topic.id)),
+        (index) => pickOption(index),
+      ),
+    );
+  }
   const parts = partsOf(topic);
   const mine = threadsOf(threads(), topic.id);
   const has = new Set(mine.filter((t) => t.status === "open").map((t) => t.target.part));
@@ -145,6 +161,40 @@ function threadCard(t: TopicThread): HTMLElement {
           held: requestsChange(t),
         };
   wrap.append(buildCommentThread({ ...t, head }, controls(t), "chrome"));
+  for (const message of t.comments.filter((m) => m.role === "agent")) {
+    for (const block of parseTopicBody(message.body).filter((b) => b.kind === "options")) {
+      const options = parseOptions(block.text);
+      if (!options) continue;
+      const picked = [...t.comments]
+        .reverse()
+        .find((m) => m.role !== "agent" && m.option !== undefined);
+      const selected = picked
+        ? options.findIndex((o) => o.label === picked.option)
+        : options.findIndex((o) => o.ships);
+      const fence = wrap.querySelector(
+        `.msg[data-id="${CSS.escape(message.id)}"] pre[data-line="${block.line}"]`,
+      );
+      fence?.replaceWith(
+        optionsList(document, options, selected, t.status === "open" && !!picked, (index) => {
+          const option = options[index];
+          if (!option) return;
+          const now = new Date().toISOString();
+          t.comments.push({
+            id: uuid(),
+            role: "user",
+            intent: "action",
+            body: `Use: ${option.label}`,
+            option: option.label,
+            createdAt: now,
+            updatedAt: now,
+          });
+          t.status = "open";
+          renderTopics();
+          persist();
+        }),
+      );
+    }
+  }
   return wrap;
 }
 
@@ -242,8 +292,11 @@ export function submitTopicComposer(intent: "action" | "question") {
       intent: intent === "question" ? "question" : "change",
       status: "open",
       comments: [message],
+      ...(intent === "action" && draft.option !== undefined && { option: draft.option }),
     };
-    (S.state.topicThreads ??= []).push(created);
+    if (created.option !== undefined)
+      S.state.topicThreads = replacePick(threads(), draft.topic, created);
+    else (S.state.topicThreads ??= []).push(created);
     if (intent === "question") asked = { thread: created.id, message: message.id };
   } else if (t) {
     t.comments.push(message);
@@ -260,6 +313,30 @@ export function commentOn(part: string) {
   if (S.topicAt === null) return;
   cursorAt.set(S.topicAt, part);
   openTopicComposer({ topic: S.topicAt, part });
+}
+
+// Picks remain drafts until Request change; cancelling a draft preserves the previous pick.
+export function pickOption(index: number) {
+  const topic = openTopicPlace();
+  if (!topic) return;
+  const option = S.state.topics?.[topic.id]?.options?.[index];
+  if (!option) return;
+  if (option.ships) {
+    S.state.topicThreads = replacePick(threads(), topic.id);
+    closeComposer();
+    persist();
+    toast("Option change request removed — what ships is selected");
+    return;
+  }
+  openTopicComposer(
+    { topic: topic.id, part: `option:${index + 1}`, option: option.label },
+    null,
+    `Use: ${option.label}`,
+  );
+}
+export function pickAtCursor() {
+  const part = S.topicAt && cursorAt.get(S.topicAt);
+  if (part?.startsWith("option:")) pickOption(Number(part.slice(7)) - 1);
 }
 
 // c and ↵ on a topic page: comment on the part under the cursor (the title before j or k moved it).
@@ -318,6 +395,14 @@ export function installTopicThreads() {
     const gut = target.closest<HTMLElement>("[data-gut]");
     if (gut?.dataset.gut) return commentOn(gut.dataset.gut);
     const part = target.closest<HTMLElement>(".topic-part");
+    if (
+      e.shiftKey &&
+      part?.dataset.part?.startsWith("option:") &&
+      target.closest(".topic-option")
+    ) {
+      e.preventDefault();
+      return commentOn(part.dataset.part);
+    }
     if (!part?.dataset.part || inThread(target)) return;
     if (e.shiftKey) {
       e.preventDefault();

@@ -1,3 +1,4 @@
+import { optionBlocks } from "./topicoptions.js";
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -696,11 +697,13 @@ function writeTopicStamps(
       const change = byKey.get(u.key);
       if (change) change.topics = [...(change.topics ?? []), topic.id];
     }
+    const options = optionBlocks(topic.body)[0];
     stamps[topic.id] = {
       blocks: mine.map((u) => u.key),
       lines: mine.reduce((n, u) => n + u.lines, 0),
-      coverHash: hash(mine.map((u) => u.hash).join("\n")),
+      coverHash: hash(mine.map((u) => u.hash).join("\n") + (options ? "\n" + options.source : "")),
       bodyParts: bodyBlocks(topic.body).map((b) => b.line),
+      ...(options?.options && { options: options.options, optionsLine: options.line }),
     };
   }
   review.topics = stamps;

@@ -219,11 +219,12 @@ The \`result\` field of a review event:
 - stagedFiles[], approvedFiles[]
 - topics? — {settled[], todo[]}: the guide's topic ids in the guide's order, those the reviewer
   settled and those still to do (absent when the guide has no topics). See "Settling and rounds".
-- topicChangeRequests[]: {id, topic, part, quote?, body} — the human's open change requests on
+- topicChangeRequests[]: {id, topic, part, quote?, body, option?} — the human's open change requests on
   topics (resolved ones are not sent; empty without topics), by topic in the guide's order, then
   down the page; those on a topic your new guide dropped come last, still named by its old id.
   id is the thread's (reply with \`galley comment --topic <id>\`), part where on the topic (see Topic
   parts), quote the text that part showed, body the change to make.
+  option? — the picked option label, present only for a request made by picking.
 - openQuestions[]: questions you never answered, folded into this Send (superseding queued live
   question events), each the same lane-tagged shape as a live question. A question is answered
   once you reply in its thread after it was asked: a reply from before a change request was turned
@@ -413,6 +414,23 @@ shows the reviewer it changed since their last round. A topic a new guide no lon
 loses its sign-off. Settled topics from earlier rounds fold away in the reviewer's sidebar.
 A topic with open change requests can be marked reviewed: it is settled (in topics.settled) and its
 requests still come in topicChangeRequests.
+
+#### Options fence
+
+A top-level \`options\` fence in a topic body holds a JSON array of
+{label, note?, ships?, recommended?}: label and note are text, ships and recommended booleans.
+One options block per topic; at least two options and at most one ships: true. Broken JSON,
+a non-array, invalid fields, fewer than two options, multiple shipping options or a second block
+are refused naming the topic. The desk shows What ships and Agent recommends tags.
+Use options for alternatives you weighed yourself or that the reviewer asked for.
+Each option is a part, "option:<n>" (counted from 1), quoted by its label.
+Picking a non-shipping option opens a draft "Use: <label>"; Request change holds it for Send.
+Sending another pick replaces the previous pick; picking what ships removes open pick requests.
+With no pick the shipping option is selected (or none if no option ships).
+An options fence in an agent reply in a topic thread shows the same pickable list; picking adds
+an action message "Use: <label>" to that thread, held for Send with its option label.
+Invalid reply options stay code. In Code and App threads all options fences stay code.
+Changing the options block source resets a settled topic, even if its covered code is unchanged.
 
 #### Topic parts
 The reviewer comments on parts of a topic; a thread's part (in a lane "topic" question and in

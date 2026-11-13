@@ -14,6 +14,7 @@ export function partElement(page: ParentNode, part: string): HTMLElement | null 
   if (part === "title") return page.querySelector(".topic-title");
   if (part === "recorded") return page.querySelector(".topic-recorded");
   if (part === "flag") return page.querySelector(".topic-flag");
+  if (/^option:[1-9]\d*$/.test(part)) return page.querySelector(`[data-option-part="${part}"]`);
   const line = String(bodyLine(part));
   const body = page.querySelector(".topic-body");
   for (const child of body?.children ?? []) {

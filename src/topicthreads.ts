@@ -1,3 +1,4 @@
+import { optionBlocks } from "./topicoptions.js";
 import MarkdownIt from "markdown-it";
 import footnote from "markdown-it-footnote";
 
@@ -52,9 +53,14 @@ export function bodyBlocks(body: string): BodyBlock[] {
 
 // A part as a thread names it: one of the topic's fields, or a body block by its source line.
 // Other kinds join here.
-type Part = { kind: "title" | "recorded" | "flag" } | { kind: "body"; line: number };
+type Part =
+  | { kind: "option"; line: number }
+  | { kind: "title" | "recorded" | "flag" }
+  | { kind: "body"; line: number };
 function readPart(part: string): Part | null {
   if (part === "title" || part === "recorded" || part === "flag") return { kind: part };
+  const option = /^option:([1-9]\d{0,6})$/.exec(part);
+  if (option) return { kind: "option", line: Number(option[1]) };
   const body = /^body:([1-9]\d{0,6})$/.exec(part);
   return body ? { kind: "body", line: Number(body[1]) } : null;
 }
@@ -64,6 +70,7 @@ export const bodyPart = (line: number) => `body:${line}`;
 export function partText(topic: GuideTopic, part: string): string | undefined {
   const p = readPart(part);
   if (!p) return undefined;
+  if (p.kind === "option") return optionBlocks(topic.body)[0]?.options?.[p.line - 1]?.label;
   if (p.kind === "body") return bodyBlocks(topic.body).find((b) => b.line === p.line)?.text;
   return { title: topic.title, recorded: topic.recorded, flag: topic.flag }[p.kind];
 }
@@ -83,6 +90,12 @@ function follow(t: TopicThread, topic: GuideTopic): TopicThread {
   const p = readPart(t.target.part);
   const moved = { ...t, target: { ...t.target, part: "title" }, moved: true as const };
   if (t.moved || !p) return { ...t, title: topic.title };
+  if (p.kind === "option") {
+    const index = optionBlocks(topic.body)[0]?.options?.findIndex((o) => o.label === t.quote) ?? -1;
+    return index < 0
+      ? { ...moved, title: topic.title }
+      : { ...t, title: topic.title, target: { ...t.target, part: `option:${index + 1}` } };
+  }
   if (p.kind !== "body") {
     const text = partText(topic, t.target.part);
     return text === undefined
@@ -132,6 +145,7 @@ function readMessage(v: unknown): ThreadMessage | null {
   };
   if (INTENTS.has(v.intent)) m.intent = v.intent as ThreadMessage["intent"];
   if (ROLES.has(v.role)) m.role = v.role as ThreadMessage["role"];
+  if (isString(v.option)) m.option = v.option;
   if (isString(v.askedAt)) m.askedAt = v.askedAt;
   return m;
 }
@@ -153,6 +167,7 @@ function readThread(v: unknown): TopicThread | null {
     status: v.status,
     comments,
   };
+  if (isString(v.option)) t.option = v.option;
   if (isString(v.quote)) t.quote = v.quote;
   if (v.moved === true) t.moved = true;
   return t;
@@ -268,6 +283,7 @@ export function topicQuestionPayload(
 function partRank(part: string): number {
   const p = readPart(part);
   if (!p) return 4;
+  if (p.kind === "option") return 3 + p.line / 1e7;
   if (p.kind === "body") return 2 + p.line / 1e7;
   return { title: 0, recorded: 1, flag: 3 }[p.kind];
 }
@@ -290,13 +306,18 @@ export function topicChangeRequests(
     )
     .map(({ t }) => {
       const ask =
-        t.comments.find((m) => m.role !== "agent" && m.intent === "action") ?? t.comments[0];
+        [...t.comments]
+          .reverse()
+          .find((m) => m.role !== "agent" && m.intent === "action" && m.option !== undefined) ??
+        t.comments.find((m) => m.role !== "agent" && m.intent === "action") ??
+        t.comments[0];
       return {
         id: t.id,
         topic: t.target.topic,
         part: t.target.part,
         ...(t.quote !== undefined && { quote: t.quote }),
         body: ask?.body ?? "",
+        ...((ask?.option ?? t.option) !== undefined && { option: ask?.option ?? t.option }),
       };
     });
 }

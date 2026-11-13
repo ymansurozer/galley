@@ -668,8 +668,10 @@ try {
       session: ID,
     },
   ]);
+  const replyOptions =
+    'Nowhere yet.\n\n```options\n[{"label":"Write it down"},{"label":"Keep in code"}]\n```';
   const topicReply = JSON.parse(
-    cli("comment", "--repo", tmp, "--session", ID, "--topic", "topic-q1", "--body", "Nowhere yet."),
+    cli("comment", "--repo", tmp, "--session", ID, "--topic", "topic-q1", "--body", replyOptions),
   );
   assert.ok(topicReply.ok && topicReply.live, "the reply went to the live desk");
   const topicThread = (await getJson("/api/poll")).topicThreads.find((t) => t.id === "topic-q1");
@@ -677,7 +679,7 @@ try {
     topicThread.comments.map((m) => [m.role, m.body]),
     [
       ["user", "Where is this written down?"],
-      ["agent", "Nowhere yet."],
+      ["agent", replyOptions],
     ],
     "the answer is in the thread the tab polls",
   );

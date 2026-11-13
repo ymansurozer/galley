@@ -272,3 +272,53 @@ test("the result carries open topic change requests with their part and quote; q
   replyToTopicThread(live, "ask", "Because.", "2026-11-13T12:00:00.000Z");
   assert.deepEqual(computeOpenQuestions(live), []);
 });
+
+test("option picks survive saves, follow labels and reach the result with their label", async () => {
+  const body = '```options\n[{"label":"A","ships":true},{"label":"B"}]\n```';
+  const live = state({ guide: guideOf(topic("t1", { body })) });
+  await save(live, 0, [
+    sent("pick", "t1", "option:2", { option: "B", comments: [message({ body: "Use: B" })] }),
+  ]);
+  assert.equal(live.topicThreads![0]!.quote, "B");
+  assert.deepEqual(
+    buildReviewResult(live, { resultJson: "r", sessionDir: "d" }).topicChangeRequests,
+    [{ id: "pick", topic: "t1", part: "option:2", quote: "B", body: "Use: B", option: "B" }],
+  );
+  live.guide = guideOf(
+    topic("t1", {
+      body: body.replace(
+        '[{"label":"A","ships":true},{"label":"B"}]',
+        '[{"label":"B"},{"label":"A","ships":true}]',
+      ),
+    }),
+  );
+  carryTopicThreads(live);
+  assert.equal(live.topicThreads![0]!.target.part, "option:1");
+  live.guide = guideOf(topic("t1"));
+  carryTopicThreads(live);
+  assert.equal(live.topicThreads![0]!.target.part, "title");
+  assert.equal(live.topicThreads![0]!.moved, true);
+});
+
+test("a reply pick carries the latest picked option through save and result", async () => {
+  const live = state({ guide: guideOf(topic("t1")) });
+  await save(live, 0, [
+    sent("reply-pick", "t1", "title", {
+      intent: "question",
+      comments: [
+        message({ intent: "question", body: "Alternatives?" }),
+        message({
+          id: "agent",
+          role: "agent",
+          intent: "note",
+          body: '```options\n[{"label":"A"},{"label":"B"}]\n```',
+        }),
+        message({ id: "pickA", option: "A", body: "Use: A" }),
+        message({ id: "pickB", option: "B", body: "Use: B" }),
+      ],
+    }),
+  ]);
+  const result = buildReviewResult(live, { resultJson: "r", sessionDir: "d" });
+  assert.equal(result.topicChangeRequests[0]!.option, "B");
+  assert.equal(result.topicChangeRequests[0]!.body, "Use: B");
+});
