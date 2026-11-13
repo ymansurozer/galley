@@ -92,3 +92,14 @@ test("a failed bundle import retries on the next load and caches success", async
   assert.equal(await load(), diagrams);
   assert.equal(attempts, 2);
 });
+
+test("a lines fence becomes the block's place, with its source line and no code of its own", async () => {
+  const { host, md } = fixture();
+  await renderTopicBody(host, "Why.\n\n```lines\nsrc/a.ts:1-4\n```\n", md, () => {
+    throw new Error("no diagram to load");
+  });
+  const place = host.querySelector<HTMLElement>(".topic-lines")!;
+  assert.equal(place.dataset.line, "3");
+  assert.equal(place.textContent, "");
+  assert.equal(host.querySelector("pre"), null);
+});

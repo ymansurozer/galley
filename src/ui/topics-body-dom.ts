@@ -28,10 +28,19 @@ export async function renderTopicBody(
   // md returns sanitised HTML; only then replace the source-stamped fence elements.
   host.innerHTML = md(body);
   for (const block of parseTopicBody(body)) {
-    if (block.kind !== "mermaid") continue;
+    // An options block is drawn by its topic's page (topicthreads.ts).
+    if (block.kind !== "mermaid" && block.kind !== "lines") continue;
     const fence = host.querySelector(`pre[data-line="${block.line}"]`);
     // The markdown highlighter may not be ready yet; its ready callback redraws the page.
     if (!fence) continue;
+    // A line block's place, which topics-lines.ts fills with the diff.
+    if (block.kind === "lines") {
+      const el = doc.createElement("div");
+      el.className = "topic-lines";
+      el.dataset.line = String(block.line);
+      fence.replaceWith(el);
+      continue;
+    }
     const el = doc.createElement("div");
     el.className = "topic-diagram";
     el.dataset.line = String(block.line);

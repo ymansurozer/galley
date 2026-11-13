@@ -45,6 +45,8 @@ import {
   underPart,
 } from "./topicthreads-dom";
 import { uuid } from "./uuid";
+import { lineParts, mountLineBlocks, showLineCursor, submitLineComposer } from "./topics-lines";
+import { readLinePart } from "./topics-lines-derive";
 import type { GuideTopic, TopicThread } from "../types";
 import { optionsList } from "./topics-options-dom";
 import {
@@ -72,7 +74,8 @@ const links = () => S.state?.guide?.links ?? [];
 const cursorAt = new Map<string, string>();
 let railShown = false;
 
-const partsOf = (topic: GuideTopic) => topicParts(topic, S.state.topics?.[topic.id]);
+const partsOf = (topic: GuideTopic) =>
+  topicParts(topic, S.state.topics?.[topic.id], lineParts(topic));
 
 // What the page in Decisions mode is: the open topic, or the Overview.
 const here = () => S.topicAt ?? OVERVIEW;
@@ -119,7 +122,8 @@ export function decorateTopicPage(host: HTMLElement, topic: GuideTopic) {
     if (at) underPart(at).append(threadCard(t));
   }
   const draft = S.composerOpen && !S.composerTopic ? S.topicDraft : null;
-  if (draft?.topic === topic.id) {
+  // A draft on a line of a line block opens there (mountLineBlocks).
+  if (draft?.topic === topic.id && !readLinePart(draft.part)) {
     const at = holder(draft.part);
     const card = document.createElement("div");
     card.className = "annotation topic-thread";
@@ -138,6 +142,10 @@ export function decorateTopicPage(host: HTMLElement, topic: GuideTopic) {
     host.querySelector(".topics-bar .fb-actions")?.prepend(chip);
     wireChip(chip);
   }
+  mountLineBlocks(page, topic, railShown ? cursor : null, {
+    comment: commentOn,
+    point: (part) => cursorAt.set(topic.id, part),
+  });
   if (composerInTopics()) restoreComposerFocus();
 }
 
@@ -348,6 +356,8 @@ export function submitTopicComposer(intent: "action" | "question") {
   if (!body) return;
   const now = new Date().toISOString();
   const draft = S.topicDraft;
+  // A line of a line block takes a line comment, as Code mode makes it.
+  if (draft && readLinePart(draft.part)) return submitLineComposer(draft.part, body, intent);
   const t = find(S.composerTopic);
   const message = {
     id: uuid(),
@@ -459,13 +469,16 @@ export function moveTopicCursor(dir: 1 | -1) {
   const el = page.querySelector<HTMLElement>(`.topic-part[data-part="${part}"]`);
   el?.classList.add("topic-cur");
   el?.scrollIntoView({ block: "nearest" });
+  showLineCursor(page, part);
 }
 
 // Esc's lowest layer on a topic page or the Overview: hide the rail. False when it isn't showing.
 export function hideTopicRail(): boolean {
   if (!railShown) return false;
   railShown = false;
-  shownPage()?.classList.remove("topic-kb");
+  const page = shownPage();
+  page?.classList.remove("topic-kb");
+  if (page) showLineCursor(page, "");
   return true;
 }
 

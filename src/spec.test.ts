@@ -126,6 +126,12 @@ const ANCHORS = [
   "ids unique among stages, among groups and among\ntopics",
   "a cover naming a file not in the diff, a\nfolder with no changed file under it, or a span that touches no change",
   "naming the topic and the cover",
+  // line blocks: the fence, its grammar, its refusals and that it quotes the diff
+  "A `lines` fence quotes the diff, so you never retype code",
+  "`path:start-end` (new-file-side line numbers, start <= end) or `path:n` for one line",
+  "the ordinary line comment Code mode makes",
+  "It may be empty when a `lines` block in the body names lines",
+  "A `lines`\nentry that doesn't parse, names a file not in the diff or whose range touches no change aborts it\nthe same way, naming the topic and the entry",
   "links? (array, only with stages), each { from, to, label }",
   "at most 40\n  characters",
   "Galley draws the Overview's MAP from the stages, groups\n  and links — you write no diagram",

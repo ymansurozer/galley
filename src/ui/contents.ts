@@ -36,7 +36,7 @@ export function peekContents(f: ReviewFile): Contents | null {
   return cache.get(cacheKey(f)) ?? null;
 }
 
-async function fetchContents(f: ReviewFile): Promise<Contents> {
+export async function fetchContents(f: ReviewFile): Promise<Contents> {
   const key = cacheKey(f);
   const hit = cache.get(key);
   if (hit) {

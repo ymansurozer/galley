@@ -261,7 +261,8 @@ export type GuideLink = { from: string; to: string; label: string };
 // `changed`: the reviewer's sign-off on it was dropped because its cover hash moved (state.ts
 // carryTopicSignOffs); kept until the topic is settled again. `bodyParts`: the source lines of the
 // body's blocks a comment can sit on (topicthreads.ts bodyBlocks), so the tab places them by the
-// desk's own list.
+// desk's own list. `lineSpans`: each entry of the body's line blocks, where its lines are now
+// (LineSpan); absent when the body has none.
 export type TopicOption = { label: string; note?: string; ships?: boolean; recommended?: boolean };
 
 export type TopicStamp = {
@@ -270,8 +271,23 @@ export type TopicStamp = {
   coverHash: string;
   changed?: true;
   bodyParts?: number[];
+  lineSpans?: LineSpan[];
   options?: TopicOption[];
   optionsLine?: number;
+};
+
+// One entry of a topic's line block (a `lines` fence, topiclines.ts) as it sits in the current
+// diff: `fence` is the block's source line in the body, `blocks` the change blocks the entry
+// touches (`path:stableKey`), `start`/`end` the new-side lines to draw. Stamped from the entry's text
+// when the guide is attached, then restamped on every re-diff from the blocks it touched (state.ts
+// stampTopics): a block whose content holds moves the range with it, a rewritten one is drawn whole,
+// and once none is left in the diff `blocks` is empty and there is no range.
+export type LineSpan = {
+  fence: number;
+  path: string;
+  blocks: string[];
+  start?: number;
+  end?: number;
 };
 
 // A settled topic (ReviewState.settledTopics): its cover hash when the reviewer settled it, and the

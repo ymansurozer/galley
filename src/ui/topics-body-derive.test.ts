@@ -13,14 +13,25 @@ test("prose and Mermaid source stay in order, with source untouched", () => {
   );
 });
 
-test("options get source lines while ordinary fences and nested examples stay markdown", () => {
+test("options and lines get source lines while ordinary fences and nested examples stay markdown", () => {
   const body =
     "```lines\na.ts:1-4\n```\n```options\n[]\n```\n````text\n```mermaid\nA --> B\n```\n````\n";
   assert.deepEqual(parseTopicBody(body), [
-    { kind: "markdown", text: "```lines\na.ts:1-4\n```\n", line: 1 },
+    { kind: "lines", text: "a.ts:1-4\n", line: 1 },
     { kind: "options", text: "[]\n", line: 4 },
     { kind: "markdown", text: "````text\n```mermaid\nA --> B\n```\n````\n", line: 7 },
   ]);
+});
+
+test("a top-level lines fence is a block of its own at its source line", () => {
+  assert.deepEqual(
+    parseTopicBody("Why.\n\n```lines\na.ts:1-4\n```\nAfter.\n\n- ```lines\n  b.ts:2\n  ```\n"),
+    [
+      { kind: "markdown", text: "Why.\n\n", line: 1 },
+      { kind: "lines", text: "a.ts:1-4\n", line: 3 },
+      { kind: "markdown", text: "After.\n\n- ```lines\n  b.ts:2\n  ```\n", line: 6 },
+    ],
+  );
 });
 
 test("tilde and unclosed Mermaid fences follow markdown fence rules", () => {

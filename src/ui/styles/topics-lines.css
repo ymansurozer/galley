@@ -1,0 +1,52 @@
+/* A topic's line blocks (topics-lines.ts): each entry a card in the body's flow, its header naming
+   the path and the range with Open in Code, then the real lines drawn by the diff component in the
+   code theme's scheme (data-scheme on .topic-lines-code), or one line saying why there are none. */
+.topic-lines {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.topic-lines-card {
+  border-radius: var(--radius-lg);
+  box-shadow: inset 0 0 0 1px var(--sep-strong);
+  overflow: hidden;
+}
+
+.topic-lines-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  background: var(--note);
+  border-bottom: 1px solid var(--sep);
+}
+
+.topic-lines-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 500 12px/1.3 var(--mono);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topic-lines-code {
+  background: var(--canvas);
+  /* The diff's gutter comment button (topics-lines.ts), quiet like a part's, blue under ⇧. */
+  --topic-gut-bg: var(--fill-3);
+  --topic-gut-fg: var(--ink);
+}
+
+.topic-shift .topic-lines-code {
+  --topic-gut-bg: var(--blue);
+  --topic-gut-fg: #fff;
+}
+
+.topic-body .topic-lines-note {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}
