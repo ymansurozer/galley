@@ -31,10 +31,12 @@ export const bodyLine = (part: string) => {
 export const threadSlot = (part: string) => (part === "title" ? "recorded" : part);
 
 // What a thread's card says of where it sits, when its place doesn't say it: one on Recorded says
-// so (it shares its slot with the title's), and one whose part a new guide took away says it moved.
+// so, as one on the title does (they share the slot under Recorded), and one whose part a new
+// guide took away says it moved.
 // The composer for a new thread says what its thread will.
 export function threadPlace(t: Pick<TopicThread, "target" | "moved">): string | null {
   if (t.moved) return "its part changed";
+  if (t.target.part === "title") return "on the title";
   return t.target.part === "recorded" ? "on Recorded" : null;
 }
 
@@ -141,4 +143,39 @@ export function topicThreadsSendLine(threads: readonly TopicThread[]) {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+// The topic threads a tab takes with a new guide: the desk's (`desk`), which the guide moved onto its
+// parts or dropped, keeping what the tab holds and hasn't saved. A thread the tab changed since its
+// confirmed copy (`confirmed`) keeps the tab's messages and status where the desk put it, with any
+// agent reply the tab lacks; one the tab made that neither the desk nor the confirmed copy has
+// stays; one the tab deleted stays deleted. One the confirmed copy has and the desk's list lacks
+// was dropped by the guide, and stays dropped.
+export function keepUnsavedThreads(
+  desk: readonly TopicThread[],
+  local: readonly TopicThread[],
+  confirmed: readonly TopicThread[],
+): TopicThread[] {
+  const before = new Map(confirmed.map((t) => [t.id, JSON.stringify(t)]));
+  const mine = new Map(local.map((t) => [t.id, t]));
+  const onDesk = new Set(desk.map((t) => t.id));
+  const kept = desk.flatMap((d) => {
+    const l = mine.get(d.id);
+    if (!l) return before.has(d.id) ? [] : [d];
+    if (before.get(d.id) === JSON.stringify(l)) return [d];
+    const have = new Set(l.comments.map((m) => m.id));
+    const replies = d.comments.filter((m) => m.role === "agent" && !have.has(m.id));
+    const { quote: _quote, moved: _moved, ...own } = l;
+    return [
+      {
+        ...own,
+        target: d.target,
+        title: d.title,
+        ...(d.quote !== undefined && { quote: d.quote }),
+        ...(d.moved && { moved: d.moved }),
+        comments: [...l.comments, ...replies],
+      },
+    ];
+  });
+  return [...kept, ...local.filter((t) => !onDesk.has(t.id) && !before.has(t.id))];
 }

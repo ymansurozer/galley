@@ -257,6 +257,8 @@ const confirm = (next: Confirmed) => {
   confirmedMoves++;
 };
 export const confirmedMoved = () => confirmedMoves;
+// The confirmed copy's reviewer-owned fields: what the desk had of the tab's work when it last said.
+export const confirmedReview = (): ReviewerSave => confirmed.review;
 // The tab took the desk's review whole: at boot, a new diff's, a reset's.
 export function confirmDesk(state: ReviewState) {
   doubtful.clear();

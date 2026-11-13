@@ -236,6 +236,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
                       "comments",
                       "ui",
                       "annotations",
+                      "topicThreads",
                       "project",
                       "branch",
                       "uiProxy",
@@ -1588,5 +1589,75 @@ test("a Reset the desk answers with an error leaves the review as it is, and say
   assert.deepEqual(
     f.S.state.comments.map((c: { id: string }) => c.id),
     ["kept"],
+  );
+});
+
+test("a guide swap keeps the topic threads the tab hasn't saved, and drops what the guide dropped", async (t) => {
+  const f = await fixture(t);
+  const message = (id: string, body: string) => ({
+    id,
+    role: "user",
+    intent: "action",
+    body,
+    createdAt: "2026-11-13T10:00:00Z",
+    updatedAt: "2026-11-13T10:00:00Z",
+  });
+  const thread = (id: string, topic: string, part: string) => ({
+    id,
+    target: { topic, part },
+    title: `Title ${topic}`,
+    intent: "change",
+    status: "open",
+    comments: [message(`${id}-m`, `Change ${id}`)],
+  });
+  // Saved: a request on a body block of t1, and a question on t2, which the next guide drops.
+  f.S.state.topicThreads = [
+    thread("kept", "t1", "body:1"),
+    { ...thread("gone", "t2", "title"), intent: "question" },
+  ];
+  f.update({ topicThreads: JSON.parse(JSON.stringify(f.S.state.topicThreads)) });
+  f.confirm();
+  // The tab makes a thread and replies in the kept one; their save hasn't reached the desk.
+  let land!: () => void;
+  f.desk.holdSave = new Promise<void>((resolve) => (land = resolve));
+  f.S.state.topicThreads.push(thread("fresh", "t1", "recorded"));
+  f.S.state.topicThreads[0].comments.push(message("reply", "And the docs."));
+  f.h.persist();
+  // Meanwhile the agent attaches a new guide: t1's block moved down two lines, t2 is gone.
+  f.update({
+    ...updateFor("guide", "swapped"),
+    topicThreads: [{ ...thread("kept", "t1", "body:3"), quote: "Para." }],
+  });
+  const owner = f.poll();
+  await until(() => f.pending.length === 1);
+  f.pending[0]!.release();
+  // The poll goes on to wait for the held save before it reads anything more.
+  await until(() => f.S.state.guide?.title === "swapped");
+  // Out of the tab's realm, as plain data.
+  const threads = JSON.parse(JSON.stringify(f.S.state.topicThreads));
+  land();
+  await owner;
+  assert.deepEqual(
+    threads.map((x: any) => [x.id, x.target.part]),
+    [
+      ["kept", "body:3"],
+      ["fresh", "recorded"],
+    ],
+  );
+  assert.deepEqual(
+    threads[0].comments.map((m: any) => m.body),
+    ["Change kept", "And the docs."],
+    "the unsaved reply stays, on the thread where the guide put it",
+  );
+  await f.h.saver.settled();
+  // The next save carries what was unsaved: the desk ends with both, and nothing it dropped.
+  f.h.persist();
+  await f.h.saver.settled();
+  assert.deepEqual(
+    f.server().topicThreads.map((x: any) => [x.id, x.target.part, x.comments.length]),
+    [
+      ["kept", "body:3", 2],
+      ["fresh", "recorded", 1],
+    ],
   );
 });

@@ -149,6 +149,10 @@ function settle(id: string) {
   return true;
 }
 
+// What settling a topic says: Mark Reviewed, while it holds open change requests, marks it reviewed.
+const settledWord = (id: string) =>
+  topicBlockers(S.state.topicThreads ?? [], id).length ? "Marked reviewed" : "Topic settled";
+
 // Settle the open topic and open the next one still to do; with none left, the Overview, which
 // says so.
 export function settleOpenTopic() {
@@ -156,7 +160,7 @@ export function settleOpenTopic() {
   if (id === null || topicSettled(S.state, id) || !settle(id)) return;
   const next = nextTodo(stages(), S.state, id);
   if (next) {
-    toast("Topic settled");
+    toast(settledWord(id));
     openTopic(next);
   } else {
     openTopic(null);
@@ -176,7 +180,7 @@ function reset(id: string) {
 // A topic's mark in the sidebar settles it or resets it, and the page stays where it is.
 function toggleTopic(id: string) {
   if (topicSettled(S.state, id)) reset(id);
-  else if (settle(id)) toast("Topic settled");
+  else if (settle(id)) toast(settledWord(id));
   renderTopics();
 }
 

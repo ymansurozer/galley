@@ -67,7 +67,7 @@ test("threads on the title sit under Recorded with Recorded's own, and one on Re
   assert.equal(threadSlot("recorded"), "recorded");
   assert.equal(threadSlot("body:3"), "body:3");
   assert.equal(threadPlace(thread("a", "t1", "recorded")), "on Recorded");
-  assert.equal(threadPlace(thread("a", "t1", "title")), null);
+  assert.equal(threadPlace(thread("a", "t1", "title")), "on the title");
   assert.equal(threadPlace(thread("a", "t1", "title", { moved: true })), "its part changed");
 });
 

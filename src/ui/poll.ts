@@ -5,6 +5,7 @@ import {
   api,
   confirmDesk,
   confirmedMoved,
+  confirmedReview,
   confirmedNumber,
   noteAnswer,
   postsOut,
@@ -24,6 +25,7 @@ import { adoptUiStatus, adoptUiTarget, applyPendingUiRefresh, syncView } from ".
 import { renderTopics } from "./topics";
 import { renderUiLane } from "./uilane";
 import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
+import { keepUnsavedThreads } from "./topicthreads-derive";
 import { recordActivity } from "./thread-derive";
 import type { DeskStatus, PollPayload, ReviewRead, ReviewState } from "./types";
 
@@ -250,12 +252,17 @@ async function pollOnce() {
     }
     S.state.guide = server.guide;
     S.state.topics = server.topics;
-    // The new guide moved topic threads onto its parts, dropped some, and none of it was the
-    // reviewer's: the tab and its confirmed copy take the desk's, with any agent reply since.
-    const threads = server.topicThreads ?? [];
-    mergeAgentReplies(threads, lite.topicThreads ?? []);
-    S.state.topicThreads = threads;
-    takenFromDesk((review) => (review.topicThreads = copyOf(threads)));
+    // The new guide moved topic threads onto its parts and dropped some, none of it the reviewer's:
+    // the confirmed copy takes the desk's, and the tab too, with any agent reply since and what the
+    // tab holds and hasn't saved (keepUnsavedThreads), which its next save sends.
+    const desk = server.topicThreads ?? [];
+    mergeAgentReplies(desk, lite.topicThreads ?? []);
+    S.state.topicThreads = keepUnsavedThreads(
+      desk,
+      S.state.topicThreads ?? [],
+      confirmedReview().topicThreads ?? [],
+    );
+    takenFromDesk((review) => (review.topicThreads = copyOf(desk)));
     reseatStep(S.stepPart, title);
     syncView();
     render();
