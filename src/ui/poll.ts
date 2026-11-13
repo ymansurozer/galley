@@ -249,6 +249,7 @@ async function pollOnce() {
     }
     S.state.guide = server.guide;
     S.state.topics = server.topics;
+    S.state.coverage = server.coverage;
     reseatStep(S.stepPart, title);
     syncView();
     render();

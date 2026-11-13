@@ -1,3 +1,5 @@
+import { renderCoverage } from "./topics-coverage-dom";
+import type { TopicCoverage } from "../types";
 import { renderTopicBody } from "./topics-body-dom";
 import { esc } from "./html";
 import { keycapsHtml } from "./keycaps";
@@ -55,10 +57,11 @@ export function renderTopicPage(
   place: TopicPlace,
   md: (s: string) => string,
   stand: TopicStand = { settled: false, changed: false },
+  extras = { share: "", points: "" },
 ) {
   const { topic, group, stage } = place;
   const where = `${stage.label} / ${group.title}`;
-  const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span><span class="fb-grow"></span><span class="fb-actions">${barActions(stand.settled)}</span></div>`;
+  const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span>${extras.share}<span class="fb-grow"></span><span class="fb-actions">${barActions(stand.settled)}</span></div>`;
   const tags = [
     topic.concern ? `<span class="topic-concern">${esc(topic.concern)}</span>` : "",
     stand.changed ? `<span class="topic-changed">Changed since your last round</span>` : "",
@@ -67,7 +70,7 @@ export function renderTopicPage(
   const flag = topic.flag
     ? `<div class="topic-flag"><div class="topic-lab">${glyph("flag", "")}Flagged</div><div class="md">${md(topic.flag)}</div></div>`
     : "";
-  host.innerHTML = `${bar}<article class="topic-page">${meta}<h1 class="topic-title">${esc(topic.title)}</h1><p class="topic-recorded"><b>Recorded:</b> ${esc(topic.recorded)}</p><div class="topic-body md"></div>${flag}</article>`;
+  host.innerHTML = `${bar}<article class="topic-page">${meta}<h1 class="topic-title">${esc(topic.title)}</h1><p class="topic-recorded"><b>Recorded:</b> ${esc(topic.recorded)}</p><div class="topic-body md"></div>${flag}${extras.points}</article>`;
   void renderTopicBody(host.querySelector<HTMLElement>(".topic-body")!, topic.body, md);
 }
 
@@ -79,6 +82,7 @@ export type TopicsOverview = {
   removed: number;
   summary: string;
   stale: boolean;
+  coverage?: TopicCoverage;
   // The way in at the end: Start Review, Continue Review, or Send Review once every topic is
   // settled.
   way: "start" | "continue" | "send";
@@ -104,5 +108,5 @@ export function renderTopicsOverview(
     <div class="go-sub">${o.facts.map(esc).join(" · ")} · <span class="add">+${o.added}</span> <span class="del">−${o.removed}</span></div>
     ${stale}
     <div class="go-overview md">${md(o.summary)}</div>
-  </div><div class="go-card topics-end"><div class="go-actions">${wayIn(o.way)}</div></div></div>`;
+  </div>${renderCoverage(o.coverage)}<div class="go-card topics-end"><div class="go-actions">${wayIn(o.way)}</div></div></div>`;
 }

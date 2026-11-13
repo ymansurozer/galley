@@ -86,6 +86,10 @@ const ANCHORS = [
   "move code from one part to another",
   "places blocks by content",
   "for a part, its path, title and span",
+  "guide.skims needs stages",
+  "skims? — array of { reason, rule?, covers }",
+  "guide leaves changes uncovered: path:line",
+  "Skim rules are the reviewer's",
   // topics guide (Decisions mode): the schema, stable ids, covers and the refusals
   "### Topics (Decisions mode)",
   "stages (non-empty array), each { id, label, groups }",

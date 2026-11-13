@@ -522,6 +522,18 @@ try {
     "a-line": [{ path: "a.txt" }],
     "b-top": [{ path: "b.txt", lines: [[3, 6]] }],
   });
+  const currentFiles = (await getJson("/api/state")).files;
+  goodTopics.skims = currentFiles
+    .filter((f) => !["a.txt", "b.txt"].includes(f.path))
+    .map((f) => ({
+      reason: "Other fixture changes",
+      covers: [{ path: f.path }],
+    }));
+  // The earlier reload scenario also left an insertion and the bottom edit in b.txt.
+  goodTopics.skims.push({
+    reason: "Earlier round fixture edits",
+    covers: [{ path: "b.txt", lines: [16, 27] }],
+  });
   writeFileSync(topicsPath, JSON.stringify(goodTopics));
   const checkTopics = (st, where) => {
     assert.deepEqual(
@@ -574,6 +586,31 @@ try {
     "the error names the topic and the cover",
   );
   checkTopics(await getJson("/api/state"), "after a refused reload");
+  const incomplete = structuredClone(goodTopics);
+  incomplete.stages[0].groups[0].topics.pop();
+  writeFileSync(topicsPath, JSON.stringify(incomplete));
+  const uncovered = spawnSync(
+    "node",
+    [CLI, "reload", "--repo", tmp, "--session", ID, "--guide", topicsPath],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.equal(uncovered.status, 1);
+  assert.match(uncovered.stderr, /guide leaves changes uncovered: b\.txt:3/);
+  incomplete.skims.push({
+    reason: "Mechanical fixture edits",
+    rule: "Fixture churn",
+    covers: [{ path: "b.txt" }],
+  });
+  writeFileSync(topicsPath, JSON.stringify(incomplete));
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", topicsPath)).ok);
+  const coverage = (await getJson("/api/state")).coverage;
+  assert.equal(coverage.topicLines, 2);
+  assert.equal(coverage.skimmedLines, coverage.totalLines - 2);
+  assert.equal(coverage.uncoveredLines, 0);
+  // Later Send assertions settle one topic and leave the other to do.
+  writeFileSync(topicsPath, JSON.stringify(goodTopics));
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", topicsPath)).ok);
+  checkTopics(await getJson("/api/state"), "after coverage refusal scenario");
   rmSync(topicsDir, { recursive: true, force: true });
   console.log(
     "✓ topics guide → attached on start and by reload --guide; a bad cover exits 1 naming the topic, desk kept",

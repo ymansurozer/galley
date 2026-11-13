@@ -4144,6 +4144,7 @@ function topicsGuide(
 ): Guide {
   return {
     overview: "o",
+    skims: [{ reason: "Library scaffolding", covers: [{ path: "src/lib/" }] }],
     stages: [
       {
         id: "s",
@@ -4285,6 +4286,133 @@ test("a guide without stages leaves no topic stamps", async () => {
   });
 });
 
+test("topics coverage refuses gaps, accepts reasoned skims and gives topics precedence", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    const guide = topicsGuide({ app: [{ path: "src/app.ts", lines: [3] }] });
+    guide.skims = [
+      { reason: "Library scaffolding", rule: "Generated", covers: [{ path: "src/lib/" }] },
+    ];
+    const gap = resolveGuide(st, guide);
+    assert.equal(gap.ok, false);
+    if (!gap.ok) assert.match(gap.reason, /src\/app.ts:10/);
+    guide.skims.push({ reason: "Mechanical", covers: [{ path: "src/app.ts", lines: [3, 10] }] });
+    assert.deepEqual(resolveGuide(st, guide), { ok: true });
+    assert.equal(st.coverage?.topicLines, 2);
+    assert.equal(st.coverage?.skimmedLines, 9);
+    assert.equal(st.coverage?.totalLines, 11);
+    st.guide = guide;
+    const after = await mergeReviewState(await build(appLines(topicsTree, ["top"])), st);
+    assert.equal(after.coverage?.uncoveredLines, 1);
+    assert.equal(after.coverage?.skimmedLines, 9);
+  });
+});
+
+test("whole-file skims satisfy topics coverage", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    const guide = topicsGuide({ app: [{ path: "src/app.ts" }] });
+    guide.files = ["src/lib/util.ts", "src/lib/new.ts"].map((path) => ({
+      path,
+      order: 0,
+      category: "C",
+      skim: true,
+    }));
+    assert.deepEqual(resolveGuide(st, guide), { ok: true });
+    assert.equal(st.coverage?.skimmedLines, 6);
+  });
+});
+
+test("coverage refusal lists twenty places and counts the rest", async () => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-coverage-")));
+  const gitq = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    const lines = Array.from({ length: 260 }, (_, i) => `line ${i + 1}`);
+    await fs.writeFile(path.join(dir, "a.txt"), lines.join("\n") + "\n");
+    gitq("add", ".");
+    gitq("commit", "-qm", "init");
+    await fs.writeFile(
+      path.join(dir, "a.txt"),
+      lines.map((l, i) => (i % 10 === 0 ? `edit ${l}` : l)).join("\n") + "\n",
+    );
+    const st = (await buildReviewState(dir, { session: "s" }))!;
+    const guide = topicsGuide({ first: [{ path: "a.txt", lines: [1] }] });
+    delete guide.skims;
+    const r = resolveGuide(st, guide);
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.match(r.reason, /a.txt:11/);
+      assert.match(r.reason, /a.txt:201; and 5 more$/);
+      assert.equal((r.reason.match(/a.txt:/g) ?? []).length, 20);
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("coverage lists each files-entry block skim separately even with identical reasons", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    const guide = topicsGuide({ library: [{ path: "src/lib/" }] });
+    guide.files = [
+      {
+        path: "src/app.ts",
+        order: 0,
+        category: "C",
+        orientation: "o",
+        skimBlocks: [
+          { lines: [3, 3], reason: "Mechanical" },
+          { lines: [10, 10], reason: "Mechanical" },
+        ],
+      },
+    ];
+    assert.deepEqual(resolveGuide(st, guide), { ok: true });
+    assert.deepEqual(
+      st.coverage?.skims.map((s) => s.lines),
+      [0, 2, 3],
+    );
+    st.guide = guide;
+    const shifted = await mergeReviewState(await build(appLines(topicsTree, ["top"])), st);
+    assert.deepEqual(
+      shifted.coverage?.skims.map((s) => s.lines),
+      [0, 2, 3],
+    );
+    assert.equal(shifted.coverage?.uncoveredLines, 1);
+  });
+});
+
+test("coverage refusals use navigable lines for deleted files and top-of-file deletions", async () => {
+  const dir = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "galley-coverage-deletions-")),
+  );
+  const gitq = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "deleted.txt"), "removed\n");
+    await fs.writeFile(path.join(dir, "top.txt"), "removed\nkept\n");
+    await fs.writeFile(path.join(dir, "covered.txt"), "old\n");
+    gitq("add", ".");
+    gitq("commit", "-qm", "init");
+    await fs.rm(path.join(dir, "deleted.txt"));
+    await fs.writeFile(path.join(dir, "top.txt"), "kept\n");
+    await fs.writeFile(path.join(dir, "covered.txt"), "new\n");
+    const st = (await buildReviewState(dir, { session: "s" }))!;
+    const guide = topicsGuide({ covered: [{ path: "covered.txt" }] });
+    delete guide.skims;
+    const result = resolveGuide(st, guide);
+    assert.equal(result.ok, false);
+    if (!result.ok)
+      assert.equal(result.reason, "guide leaves changes uncovered: deleted.txt:1, top.txt:1");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 // ── Settling topics across rounds ─────────────────────────────────────────────
 // The tab's sign-off on a topic: its cover hash now, and the round.
 const settleTopic = (st: ReviewState, id: string, round = 1) => {
@@ -4304,6 +4432,10 @@ const reloadWithGuide = async (base: ReviewState, saved: ReviewState, guide: Gui
 const settleGuide = topicsGuide({
   span: [{ path: "src/app.ts", lines: [10] }],
   other: [{ path: "src/lib/" }],
+});
+settleGuide.skims!.push({
+  reason: "Other fixture edit",
+  covers: [{ path: "src/app.ts", lines: [3] }],
 });
 async function attachTopics(build: (app?: string[]) => Promise<ReviewState>, app?: string[]) {
   const st = await build(app);
@@ -4367,6 +4499,10 @@ test("a new guide that only rewrites a topic's prose keeps it settled; one witho
     assert.deepEqual(settledIds(kept), ["span"]);
     const without: Guide = structuredClone(settleGuide);
     without.stages![0]!.groups[0]!.topics.shift();
+    without.skims!.push({
+      reason: "Removed topic fixture",
+      covers: [{ path: "src/app.ts", lines: [10] }],
+    });
     const gone = await reloadWithGuide(await build(), kept, without);
     assert.deepEqual(gone.settledTopics, {});
     assert.equal(gone.topics?.span, undefined);
@@ -4383,6 +4519,10 @@ test("a new guide is judged by its own stamps, not the old guide's on the rebuil
     // The agent adds a line at the top: the old guide's file cover claims that new block too, while
     // the new guide names only the two settled blocks at their shifted lines.
     const narrow = topicsGuide({ t: [{ path: "src/app.ts", lines: [4, 11] }] });
+    narrow.skims!.push({
+      reason: "Inserted fixture line",
+      covers: [{ path: "src/app.ts", lines: [1] }],
+    });
     const after = await reloadWithGuide(await build(appLines(topicsTree, ["top"])), before, narrow);
     assert.deepEqual(settledIds(after), ["t"]);
     assert.equal(after.topics?.t?.changed, undefined);
