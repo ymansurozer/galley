@@ -4349,3 +4349,34 @@ test("coverage refusal lists twenty places and counts the rest", async () => {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("coverage lists each files-entry block skim separately even with identical reasons", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    const guide = topicsGuide({ library: [{ path: "src/lib/" }] });
+    guide.files = [
+      {
+        path: "src/app.ts",
+        order: 0,
+        category: "C",
+        orientation: "o",
+        skimBlocks: [
+          { lines: [3, 3], reason: "Mechanical" },
+          { lines: [10, 10], reason: "Mechanical" },
+        ],
+      },
+    ];
+    assert.deepEqual(resolveGuide(st, guide), { ok: true });
+    assert.deepEqual(
+      st.coverage?.skims.map((s) => s.lines),
+      [0, 2, 3],
+    );
+    st.guide = guide;
+    const shifted = await mergeReviewState(await build(appLines(topicsTree, ["top"])), st);
+    assert.deepEqual(
+      shifted.coverage?.skims.map((s) => s.lines),
+      [0, 2, 3],
+    );
+    assert.equal(shifted.coverage?.uncoveredLines, 1);
+  });
+});

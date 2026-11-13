@@ -608,9 +608,7 @@ export function resolveTopics(
 // blocks included, and a span cover the whole of a hunk-less file it names; a span cover's other
 // blocks are the carried ones, since its lines may have moved. A cover that resolves to nothing now
 // claims nothing: an old guide is never refused.
-export function stampTopics(
-  review: Pick<ReviewState, "files" | "changes" | "guide" | "topics">,
-) {
+export function stampTopics(review: Pick<ReviewState, "files" | "changes" | "guide" | "topics">) {
   delete review.topics;
   const topics = guideTopics(review.guide);
   if (!topics.length) {
@@ -686,7 +684,18 @@ function stampCoverage(
       }
     rows.push({ reason, ...(rule === undefined ? {} : { rule }), lines });
   };
-  for (const [i, skim] of (guide.skims ?? []).entries()) {
+  // Give each block skim its own source even when two reasons read alike. These indices stay
+  // stable while the same guide is retained, and new attaches clear the old stamps.
+  const skims = [
+    ...(guide.skims ?? []),
+    ...(guide.files ?? []).flatMap((f) =>
+      (f.skimBlocks ?? []).map((span) => ({
+        reason: span.reason ?? "Skimmed change block",
+        covers: [{ path: f.path, lines: [span.lines] }],
+      })),
+    ),
+  ];
+  for (const [i, skim] of skims.entries()) {
     const keys = new Set<string>();
     for (const c of review.changes)
       if (!attaching && c.coverageSkims?.includes(i)) keys.add(`${c.path}:${c.stableKey}`);
@@ -702,7 +711,7 @@ function stampCoverage(
       const c = byKey.get(key);
       if (c && !c.coverageSkims?.includes(i)) c.coverageSkims = [...(c.coverageSkims ?? []), i];
     }
-    add(skim.reason, skim.rule, keys);
+    add(skim.reason, "rule" in skim ? skim.rule : undefined, keys);
   }
   for (const f of guide.files ?? []) {
     if (f.skim)
@@ -712,13 +721,6 @@ function stampCoverage(
         new Set((index.get(f.path) ?? []).map((u) => u.key)),
       );
   }
-  const reasons = new Map<string, Set<string>>();
-  for (const c of review.changes)
-    if (c.skim) {
-      const reason = c.skim.reason ?? "Skimmed change block";
-      reasons.set(reason, (reasons.get(reason) ?? new Set()).add(`${c.path}:${c.stableKey}`));
-    }
-  for (const [reason, keys] of reasons) add(reason, undefined, keys);
   const coverage = {
     topicLines: 0,
     skimmedLines: 0,
