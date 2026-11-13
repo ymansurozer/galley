@@ -1088,7 +1088,8 @@ export const carriesChanges = (body: object) => {
 
 type PriorDiff = Pick<ReviewState, "baseDiffHash" | "changes" | "files" | "stagedChangeKeys">;
 
-export const reviewerFields = (state: ReviewState): ReviewerSave => ({
+// The reviewer-owned fields as the desk holds them, every one present: what a merged answer carries.
+const reviewerFields = (state: ReviewState): ReviewerSave => ({
   decisions: state.decisions ?? [],
   comments: state.comments,
   reviewedFiles: state.reviewedFiles,
