@@ -39,20 +39,35 @@ import type {
   ThreadMeta,
   ThreadMessage,
   ReviewComment,
+  Side,
 } from "./types";
 import { keycapsHtml } from "./keycaps";
 import { cursorChangeId } from "./cursor";
 import { threadAnnotation, threadKey, threadSlot } from "./rests";
 
-export function annotations(): AnnotationInput[] {
+// The raw lines a diff draws of its file, by side, both ends inclusive: a line block's slice.
+export type LineRange = { additions: [number, number]; deletions: [number, number] };
+
+// The annotations of a diff of `path`: the main diff's (the current file, no range) or a line
+// block's on a topic page (a range of its file). Threads on lines inside the range are both's. The
+// verdict bars, skim strips and the new-comment composer belong to the main diff alone, as does
+// its raw ↔ display line map: a block draws the raw diff, so its lines are the file's own.
+export function annotations(path = currentFile()?.path, range?: LineRange): AnnotationInput[] {
+  const main = !range && path === currentFile()?.path;
+  const inRange = (side: Side, line: number) =>
+    !range || (line >= range[side][0] && line <= range[side][1]);
   const threads: AnnotationInput[] = [];
   const groups = new Map<string, ReviewComment[]>();
-  for (const c of currentComments()) {
+  const comments = main
+    ? currentComments()
+    : S.state.comments.filter((c) => c.path === path && inRange(c.side, c.lineNumber));
+  for (const c of comments) {
     const key = `${c.side}:${c.lineNumber}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(c);
   }
-  const file = currentFile();
+  const file = main ? currentFile() : S.state.files.find((f) => f.path === path);
+  const display = (side: Side, line: number) => (main ? toDisplayLine(side, line) : line);
   for (const comments of groups.values()) {
     comments.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
     const first = comments[0];
@@ -74,8 +89,9 @@ export function annotations(): AnnotationInput[] {
     };
     // The annotation goes to @pierre in DISPLAY coordinates (it matches rendered gutter numbers);
     // the thread keeps its raw line so thread actions filter comments correctly.
-    threads.push({ side: t.side, lineNumber: toDisplayLine(t.side, t.lineNumber), metadata: t });
+    threads.push({ side: t.side, lineNumber: display(t.side, t.lineNumber), metadata: t });
   }
+  if (!main) return threads;
   // A thread showing as its card on the composer's line hosts the reply: an open one (a lost one
   // in the unanchored block too), or the expanded resolved one (a group holds at least one comment).
   const replying =
