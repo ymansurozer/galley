@@ -146,3 +146,18 @@ li > .topic-threads {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The Overview's section of requests on topics a new guide dropped, each under its old title. */
+.topics-dropped-head {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.topics-dropped-topic h3 {
+  margin: 14px 0 6px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}

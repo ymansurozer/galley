@@ -1,5 +1,6 @@
 import { esc } from "./html";
 import { bodyLine } from "./topicthreads-derive";
+import type { TopicThread } from "../types";
 
 // The markup that makes a rendered topic page commentable: each part found on the page, marked
 // with a gutter button, and the place under it where its threads and the composer go. Store-free:
@@ -98,4 +99,31 @@ export function topicBlockersChip(
     .join("");
   wrap.innerHTML = `<button class="blockers-chip" aria-expanded="false" data-tip="Open change requests on this topic">${n} blocker${n === 1 ? "" : "s"}</button><div class="blockers-pop" role="menu"><div class="blockers-head">Change requests on this topic</div>${rows}</div>`;
   return wrap;
+}
+
+// The threads on topics a new guide dropped, as a section at the end of the Overview (`overview`),
+// before its way in: grouped under the title each thread kept, each drawn by `card`. No section
+// without such threads.
+export function placeDroppedThreads(
+  overview: HTMLElement,
+  threads: readonly TopicThread[],
+  card: (t: TopicThread) => HTMLElement,
+) {
+  if (!threads.length) return;
+  const doc = overview.ownerDocument;
+  const section = doc.createElement("section");
+  section.className = "go-card topics-dropped";
+  section.innerHTML = `<h2 class="topics-dropped-head">Requests on topics no longer in the guide</h2>`;
+  const byTitle = new Map<string, TopicThread[]>();
+  for (const t of threads) byTitle.set(t.title, [...(byTitle.get(t.title) ?? []), t]);
+  for (const [title, list] of byTitle) {
+    const topic = doc.createElement("div");
+    topic.className = "topics-dropped-topic";
+    topic.innerHTML = `<h3>${esc(title || "Untitled topic")}</h3><div class="topic-threads"></div>`;
+    topic.querySelector(".topic-threads")!.append(...list.map(card)); // written just above
+    section.append(topic);
+  }
+  const end = overview.querySelector(".topics-end");
+  if (end) end.before(section);
+  else overview.append(section);
 }

@@ -5,7 +5,14 @@ import MarkdownIt from "markdown-it";
 import footnote from "markdown-it-footnote";
 import { sourceLine } from "./markdown-source";
 import { renderTopicBody } from "./topics-body-dom";
-import { markParts, partElement, topicBlockersChip, underPart } from "./topicthreads-dom";
+import {
+  markParts,
+  partElement,
+  placeDroppedThreads,
+  topicBlockersChip,
+  underPart,
+} from "./topicthreads-dom";
+import type { TopicThread } from "../types";
 import { topicParts } from "./topicthreads-derive";
 // The desk's list of a body's parts (what its quotes and threads are keyed by), read here to show
 // the page finds the same blocks.
@@ -127,4 +134,56 @@ test("the blockers chip lists a topic's requests as text", () => {
   assert.equal(chip.querySelector(".blockers-chip")!.textContent, "1 blocker");
   assert.equal(chip.querySelector("img"), null);
   assert.equal((chip.querySelector("[data-thread]") as HTMLElement).dataset.thread, "a1");
+});
+
+test("the Overview shows threads on dropped topics under their kept title, and no section without them", () => {
+  const doc = new Window().document as unknown as Document;
+  const overview = () => {
+    const el = doc.createElement("div");
+    el.innerHTML = `<div class="go-card">Summary</div><div class="go-card topics-end">Start</div>`;
+    return el;
+  };
+  const thread = (id: string, title: string): TopicThread => ({
+    id,
+    target: { topic: `gone-${title}`, part: "title" },
+    title,
+    intent: "change",
+    status: "open",
+    comments: [],
+  });
+  const card = (t: TopicThread) => {
+    const el = doc.createElement("div");
+    el.className = "topic-thread";
+    el.dataset.thread = t.id;
+    return el;
+  };
+  const without = overview();
+  placeDroppedThreads(without, [], card);
+  assert.equal(without.querySelector(".topics-dropped"), null);
+  const withThreads = overview();
+  placeDroppedThreads(
+    withThreads,
+    [thread("a", "Old <b>one</b>"), thread("b", "Old <b>one</b>"), thread("c", "Two")],
+    card,
+  );
+  const section = withThreads.querySelector(".topics-dropped")!;
+  assert.equal(
+    section.querySelector("h2")!.textContent,
+    "Requests on topics no longer in the guide",
+  );
+  assert.deepEqual(
+    [...section.querySelectorAll(".topics-dropped-topic")].map((g) => [
+      g.querySelector("h3")!.textContent,
+      [...g.querySelectorAll("[data-thread]")].map((c) => (c as HTMLElement).dataset.thread),
+    ]),
+    [
+      ["Old <b>one</b>", ["a", "b"]],
+      ["Two", ["c"]],
+    ],
+  );
+  assert.equal(
+    section.nextElementSibling?.classList.contains("topics-end"),
+    true,
+    "the way in stays last",
+  );
 });

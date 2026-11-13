@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  droppedThreads,
   isOpenChange,
   signOffStand,
   threadPlace,
@@ -140,4 +141,16 @@ test("the Send dialog counts topic change requests and questions still waiting",
   ];
   assert.equal(topicThreadsSendLine(threads), "2 topic change requests · 1 open topic question");
   assert.equal(topicThreadsSendLine([]), "");
+});
+
+test("the threads on topics the guide no longer has are the Overview's to show", () => {
+  const threads = [
+    thread("a", "t1", "title"),
+    thread("b", "dropped", "recorded"),
+    thread("c", "overview", "map"),
+  ];
+  assert.deepEqual(
+    droppedThreads(threads, STAGES).map((t) => t.id),
+    ["b"],
+  );
 });

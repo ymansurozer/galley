@@ -17,6 +17,7 @@ import { threadKind } from "./thread-derive";
 import { askStamp, firstLine, turnAnnotationInto, turnsInto } from "./uilane-derive";
 import {
   askOf,
+  droppedThreads,
   partRank,
   requestsChange,
   threadPlace,
@@ -27,7 +28,7 @@ import {
   topicRequestList,
   type TopicRequest,
 } from "./topicthreads-derive";
-import { markParts, topicBlockersChip, underPart } from "./topicthreads-dom";
+import { markParts, placeDroppedThreads, topicBlockersChip, underPart } from "./topicthreads-dom";
 import { uuid } from "./uuid";
 import type { GuideTopic, TopicThread } from "../types";
 
@@ -85,6 +86,15 @@ export function decorateTopicPage(host: HTMLElement, topic: GuideTopic) {
     host.querySelector(".topics-bar .fb-actions")?.prepend(chip);
     wireChip(chip);
   }
+  if (composerInTopics()) restoreComposerFocus();
+}
+
+// The Overview's section of threads on topics the guide dropped: ordinary thread cards, so their
+// change requests can be replied to and resolved.
+export function decorateTopicsOverview(host: HTMLElement) {
+  const overview = host.querySelector<HTMLElement>(".topics-overview");
+  if (!overview) return;
+  placeDroppedThreads(overview, droppedThreads(threads(), stages()), threadCard);
   if (composerInTopics()) restoreComposerFocus();
 }
 
@@ -337,9 +347,10 @@ export function installTopicThreads() {
 export const topicRequests = (): TopicRequest[] => topicRequestList(threads(), stages());
 
 // Where the `]` / `[` walk stands in Decisions mode: on the request it last landed on, while its
-// topic is open, else at the top of the open topic (before its own requests). Null on the Overview.
+// topic is open (or, for a topic the guide dropped, while the Overview is), else at the top of the
+// open topic (before its own requests). Null on the Overview otherwise.
 export function topicWalkPlace(last: TopicRequest | null) {
-  if (S.topicAt === null) return null;
+  if (S.topicAt === null) return last && !inGuide(last.topic) ? last : null;
   if (last && last.topic === S.topicAt) return last;
   const rank = stages()
     .flatMap((s) => s.groups.flatMap((g) => g.topics))
@@ -347,14 +358,15 @@ export function topicWalkPlace(last: TopicRequest | null) {
   return { kind: "topic" as const, rank, partRank: partRank("title") - 1, seq: -1 };
 }
 
-// Go to a topic request, from the walk or its sidebar row: Decisions mode, its topic, its thread.
+const inGuide = (topic: string) =>
+  stages().some((s) => s.groups.some((g) => g.topics.some((t) => t.id === topic)));
+
+// Go to a topic request, from the walk or its sidebar row: Decisions mode, its topic (the Overview,
+// for a topic the guide dropped), its thread.
 export function openTopicRequest(r: TopicRequest) {
   if (S.view !== "topics") void setView("topics");
-  if (!stages().some((s) => s.groups.some((g) => g.topics.some((t) => t.id === r.topic)))) {
-    toast(`"${r.title}" left the guide; its change request still goes with Send`);
-    return;
-  }
-  if (S.topicAt !== r.topic) openTopic(r.topic);
+  const at = inGuide(r.topic) ? r.topic : null;
+  if (S.topicAt !== at) openTopic(at);
   landOnThread(r.id);
 }
 

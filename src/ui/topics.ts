@@ -22,7 +22,7 @@ import {
   topicsNavRows,
   type TopicAt,
 } from "./topics-derive";
-import { decorateTopicPage } from "./topicthreads";
+import { decorateTopicPage, decorateTopicsOverview } from "./topicthreads";
 import { isOpenChange, topicBlockers } from "./topicthreads-derive";
 import {
   renderTopicPage,
@@ -89,6 +89,7 @@ export function renderTopics() {
     decorateTopicPage(page, place.topic);
   } else {
     renderTopicsOverview(page, overview(page.clientWidth), renderMarkdown);
+    decorateTopicsOverview(page);
     lightMapLinks(page, lit);
   }
   const points = page.querySelector<HTMLDetailsElement>(".topic-points");

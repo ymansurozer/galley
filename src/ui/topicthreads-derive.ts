@@ -46,6 +46,12 @@ export const requestsChange = (t: TopicThread) =>
   t.intent === "change" || t.comments.some((m) => m.role !== "agent" && m.intent === "action");
 export const isOpenChange = (t: TopicThread) => t.status === "open" && requestsChange(t);
 
+// The threads on topics the guide no longer has (the Overview's own aside), in the order made.
+export function droppedThreads(threads: readonly TopicThread[], stages: readonly GuideStage[]) {
+  const ids = new Set(stages.flatMap((s) => s.groups.flatMap((g) => g.topics.map((t) => t.id))));
+  return threads.filter((t) => t.target.topic !== "overview" && !ids.has(t.target.topic));
+}
+
 // A topic's threads, in the order they were made.
 export const threadsOf = (threads: readonly TopicThread[], topic: string) =>
   threads.filter((t) => t.target.topic === topic);
