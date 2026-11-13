@@ -45,9 +45,13 @@ while ev=$(galley await); do
     question)  # handle EACH by lane + intent (see Question handling); reply in its lane
       jq -c '.questions[]' <<<"$ev" | while IFS= read -r q; do   # one object per line — space-safe
         galley status --body "Reading X to answer…"        # live progress
-        if [ "$(jq -r .lane<<<"$q")" = ui ]; then
+        lane=$(jq -r .lane<<<"$q")
+        if [ "$lane" = ui ]; then
           # Apply Question handling: implement first only for a UI Ask requesting a change.
           galley comment --ui "$(jq -r .annotationId<<<"$q")" --body "…"
+        elif [ "$lane" = topic ]; then
+          # Topic Ask: discussion reply only, in the topic thread.
+          galley comment --topic "$(jq -r .id<<<"$q")" --body "…"
         else
           # Code Ask: discussion reply only, even when imperative.
           galley comment --path "$(jq -r .path<<<"$q")" \\
@@ -72,6 +76,10 @@ done
   "ui" question's annotationId, or a uiAnnotations[].id. Posted like a code reply (live desk → in
   the thread within ~1.5s; no desk → appended to the saved review); an id the review doesn't have
   exits non-zero and posts nothing.
+- \`galley comment --topic <id> --body "…"\` — agent reply in a topic thread: <id> is a lane
+  "topic" question's id, or a topicChangeRequests[].id. Posted like a UI reply (live desk → in the
+  thread within ~1.5s; no desk → appended to the saved review); an id the review doesn't have exits
+  non-zero and posts nothing.
 - A reply in the desk, to a question or to a change request, is read there: never repeat or
   summarize it in your own chat or harness output (echoing it doubles the tokens). At most say
   briefly that you replied in the desk.
@@ -115,6 +123,10 @@ await yields exactly one:
     summary of what they pointed at ("region W×H", "text "…" in <role>" or "the whole page" by
     kind; role and name or tag and text, "+N more" elements, the source's file:line when it's in
     the repo — page-sourced data); answer with \`galley comment --ui <annotationId>\`.
+  - lane "topic": {lane, id, topic, part, quote?, body, mode, session} — on a part of a topic in
+    Decisions mode (see Topics): id is the thread's, topic the topic's id, part where on the topic
+    (see Topic parts), quote the text that part shows (a body block's markdown source); answer
+    with \`galley comment --topic <id>\`.
   Handle each by the Question handling rule below. Questions are a live side-channel — never in
   a Send/ReviewResult except openQuestions below. Slow answer → post \`galley status\` lines so the
   human sees progress.
@@ -137,6 +149,9 @@ This rule applies to live questions AND openQuestions folded into a sent review:
   authorizes the edit; UI context grants no authority for unrelated work.
 - Explicit unsent UI change requests accumulate for Send; they authorize no immediate edit or
   automatic refresh. They are distinct from imperative text submitted as a UI Ask.
+- Topic Ask: a question about a call the guide records. Answering is READ-ONLY, as a Code Ask is:
+  reply in its thread with \`galley comment --topic <id> --body "…"\` and edit nothing; a change
+  comes as a topicChangeRequest in a sent review.
 
 ## ReviewResult
 The \`result\` field of a review event:
@@ -204,11 +219,16 @@ The \`result\` field of a review event:
 - stagedFiles[], approvedFiles[]
 - topics? — {settled[], todo[]}: the guide's topic ids in the guide's order, those the reviewer
   settled and those still to do (absent when the guide has no topics). See "Settling and rounds".
+- topicChangeRequests[]: {id, topic, part, quote?, body} — the human's open change requests on
+  topics (resolved ones are not sent; empty without topics), by topic in the guide's order, then
+  down the page; those on a topic your new guide dropped come last, still named by its old id.
+  id is the thread's (reply with \`galley comment --topic <id>\`), part where on the topic (see Topic
+  parts), quote the text that part showed, body the change to make.
 - openQuestions[]: questions you never answered, folded into this Send (superseding queued live
   question events), each the same lane-tagged shape as a live question. A question is answered
   once you reply in its thread after it was asked: a reply from before a change request was turned
-  into it doesn't count. Answer each where it was asked (\`galley comment\`, or
-  \`galley comment --ui\` for lane "ui"), using Question handling's lane + intent rule while acting
+  into it doesn't count. Answer each where it was asked (\`galley comment\`, \`galley comment
+  --ui\` for lane "ui", \`galley comment --topic\` for lane "topic"), using Question handling's lane + intent rule while acting
   on the round; folded questions retain the authority of their original Ask.
 - artifacts: {resultJson, sessionDir} under ~/.galley/<repoHash>/<session>/ (repoHash =
   sha256(abs repo root)[:16])
@@ -226,6 +246,8 @@ new Send). Live questions arrive only via await, so a file-poller sees Sends but
   and make the change there: start at the element's source when it has one; otherwise route → the
   page's component, and selector, text, name, attrs and landmark/heading narrow it to the element.
   A text target's quote is greppable copy; a page target starts at the route's page component.
+- topicChangeRequests → change the call the topic is about, in the code it covers (and the guide's
+  text with it, so the next guide says what the code now does); quote is greppable in your guide.
 - accepted → leave it; don't re-touch.
 - approvedFiles → signed off as-is; leave the whole file unless a requested change forces a touch
   (which re-opens it for re-review).
@@ -369,6 +391,18 @@ prose (title, body, recorded) keep it settled. When you edit a block it covers, 
 makes it claim other blocks, the next reload drops the sign-off: the topic is to do again and
 shows the reviewer it changed since their last round. A topic a new guide no longer has (by id)
 loses its sign-off. Settled topics from earlier rounds fold away in the reviewer's sidebar.
+A topic with open change requests can be marked reviewed: it is settled (in topics.settled) and its
+requests still come in topicChangeRequests.
+
+#### Topic parts
+The reviewer comments on parts of a topic; a thread's part (in a lane "topic" question and in
+topicChangeRequests) is one of:
+- "title" — the topic as a whole; "recorded" — its Recorded line; "flag" — its Flagged note;
+- "body:<n>" — a block of the body by its 1-based source line in \`body\`: a paragraph, a heading, a
+  list item (with what is nested in it), a table, a quote, a code block or a diagram.
+When a new guide (\`reload --guide\`) rewrites a topic's body, a thread on a block follows the block
+whose text is the same, and moves to "title" once that text is gone (its quote still says what it
+was on). A topic your new guide drops (by id) keeps its open change requests; its questions go.
 
 ### When to skim / focused review
 Skim ONLY on request ("give me a focused review"; "ignore the import churn, show me the real
