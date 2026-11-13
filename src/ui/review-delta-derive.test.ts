@@ -55,6 +55,7 @@ const review = (over: Partial<ReviewerSave> = {}): ReviewerSave => ({
   reviewedFiles: ["a.ts", "b.ts"],
   reviewedFileHashes: { "a.ts": "A1", "b.ts": "B1" },
   signedOffBlocks: { "a.ts:k1": "h1", "a.ts:k2": "h2" },
+  settledTopics: { t1: { hash: "T1", round: 1 }, t2: { hash: "T2", round: 1 } },
   decisionFiles: ["a.ts"],
   annotations: [annotation("p1"), annotation("p2", { number: 2 })],
   lastAnnotationNumber: 2,
@@ -94,6 +95,7 @@ test("reviewerChanges: each collection's changed, added and removed records, by 
     reviewedFiles: ["a.ts", "c.ts"],
     reviewedFileHashes: { "a.ts": "A2", "c.ts": "C1" },
     signedOffBlocks: { "a.ts:k1": "h1", "c.ts:k9": "h9" },
+    settledTopics: { t1: { hash: "T1", round: 1 }, t3: { hash: "T3", round: 2 } },
     decisionFiles: ["c.ts"],
     annotations: [annotation("p1", { status: "resolved" }), annotation("p3", { number: 3 })],
     lastAnnotationNumber: 3,
@@ -112,6 +114,7 @@ test("reviewerChanges: each collection's changed, added and removed records, by 
       removed: ["b.ts"],
     },
     signedOffBlocks: { changed: [{ key: "c.ts:k9", hash: "h9" }], removed: ["a.ts:k2"] },
+    settledTopics: { changed: [{ id: "t3", hash: "T3", round: 2 }], removed: ["t2"] },
     decisionFiles: { changed: ["c.ts"], removed: ["a.ts"] },
     annotations: {
       changed: [annotation("p1", { status: "resolved" }), annotation("p3", { number: 3 })],
@@ -188,6 +191,7 @@ test("applyReviewerChanges: applying a difference to its base gives the changed 
     reviewedFiles: ["a.ts", "c.ts"],
     reviewedFileHashes: { "a.ts": "A2", "c.ts": "C1" },
     signedOffBlocks: { "a.ts:k1": "h1", "c.ts:k9": "h9" },
+    settledTopics: { t1: { hash: "T1", round: 1 }, t3: { hash: "T3", round: 2 } },
     decisionFiles: ["c.ts"],
     annotations: [
       annotation("p1", { status: "resolved", placement: "placed" }),

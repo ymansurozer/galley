@@ -67,6 +67,10 @@ const fileSignOffs = (s: ReviewerSave): FileSignOff[] =>
   });
 const blockSignOffs = (s: ReviewerSave) =>
   Object.entries(s.signedOffBlocks ?? {}).map(([key, hash]) => ({ key, hash }));
+const topicSignOffs = (s: ReviewerSave) =>
+  Object.entries(s.settledTopics ?? {}).map(([id, t]) => ({ id, ...t }));
+const topicSignOffMap = (list: ReturnType<typeof topicSignOffs>) =>
+  Object.fromEntries(list.map(({ id, hash, round }) => [id, { hash, round }]));
 
 // Whether its screenshots are stored is the desk's to say, never the tab's (types.ts), so it is no
 // change of the tab's. What the page reports by itself (placement, a failed capture) goes as a
@@ -116,6 +120,7 @@ export function reviewerChanges(base: ReviewerSave, now: ReviewerSave): Reviewer
     comments: keyedChanges(base.comments ?? [], now.comments ?? [], (c) => c.id),
     fileSignOffs: keyedChanges(fileSignOffs(base), fileSignOffs(now), (f) => f.path),
     signedOffBlocks: keyedChanges(blockSignOffs(base), blockSignOffs(now), (b) => b.key),
+    settledTopics: keyedChanges(topicSignOffs(base), topicSignOffs(now), (t) => t.id),
     decisionFiles: keyedChanges(base.decisionFiles ?? [], now.decisionFiles ?? [], (p) => p),
     ...annotationChanges(base.annotations ?? [], now.annotations ?? []),
   };
@@ -155,6 +160,7 @@ export function unionChanges(all: readonly ReviewerChanges[]): ReviewerChanges {
     comments: unionKeyed(pick("comments"), (c) => c.id),
     fileSignOffs: unionKeyed(pick("fileSignOffs"), (f) => f.path),
     signedOffBlocks: unionKeyed(pick("signedOffBlocks"), (b) => b.key),
+    settledTopics: unionKeyed(pick("settledTopics"), (t) => t.id),
     decisionFiles: unionKeyed(pick("decisionFiles"), (p) => p),
     annotations,
     annotationReports: reports.size ? [...reports.values()] : undefined,
@@ -185,6 +191,10 @@ export function applyReviewerChanges(copy: ReviewerSave, changes: ReviewerChange
   if (c.signedOffBlocks)
     out.signedOffBlocks = Object.fromEntries(
       applyKeyed(blockSignOffs(out), c.signedOffBlocks, (b) => b.key).map((b) => [b.key, b.hash]),
+    );
+  if (c.settledTopics)
+    out.settledTopics = topicSignOffMap(
+      applyKeyed(topicSignOffs(out), c.settledTopics, (t) => t.id),
     );
   if (c.decisionFiles)
     out.decisionFiles = applyKeyed(out.decisionFiles ?? [], c.decisionFiles, (p) => p);

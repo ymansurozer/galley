@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ReviewComment, UiAnnotationRecord } from "./types";
-import { codeSendSummary } from "./send-derive.js";
+import { codeSendSummary, topicsSendLine } from "./send-derive.js";
 import { openRequestList } from "./requests-derive.js";
 
 // Each comment is a second after the one before, so an agent reply made later answers a question
@@ -152,4 +152,10 @@ test("the change requests counted are the code rows of the sidebar's Change requ
     codeSendSummary(comments, 0).code,
     `${listed.length} change requests in ${files} files · 2 open questions`,
   );
+});
+
+test("topicsSendLine: how many topics are settled and how many are still to do", () => {
+  assert.equal(topicsSendLine(1, 13), "1 topic settled · 12 still to do");
+  assert.equal(topicsSendLine(0, 2), "0 topics settled · 2 still to do");
+  assert.equal(topicsSendLine(3, 3), "3 topics settled · none left to do");
 });
