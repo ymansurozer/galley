@@ -17,7 +17,7 @@ import {
   topicMark,
   topicParts,
   topicRequestList,
-  topicThreadsSendLine,
+  topicSendParts,
 } from "./topicthreads-derive";
 import { topicSettled, topicsDone } from "./topics-derive";
 import type { GuideStage, ThreadMessage, TopicThread } from "../types";
@@ -139,15 +139,32 @@ test("topic requests list by guide order and down the page, with dropped topics 
   );
 });
 
-test("the Send dialog counts topic change requests and questions still waiting", () => {
+test("the Send dialog counts topic change requests and questions still waiting, in the other lanes' words", () => {
   const threads = [
     thread("a", "t1", "title"),
     thread("b", "t1", "recorded"),
     thread("q", "t1", "body:1", { intent: "question", comments: [msg({ intent: "question" })] }),
     thread("r", "t1", "flag", { status: "resolved" }),
   ];
-  assert.equal(topicThreadsSendLine(threads), "2 topic change requests · 1 open topic question");
-  assert.equal(topicThreadsSendLine([]), "");
+  assert.deepEqual(topicSendParts(threads), [
+    "2 change requests on 1 topic",
+    "1 open question on 1 topic",
+  ]);
+  assert.deepEqual(topicSendParts([]), []);
+  // The Overview is named as itself, beside the topics.
+  assert.deepEqual(
+    topicSendParts([
+      thread("o1", "overview", "coverage"),
+      thread("o2", "overview", "group:g"),
+      ...threads,
+      thread("c", "t2", "flag"),
+    ]),
+    ["5 change requests on 2 topics and the Overview", "1 open question on 1 topic"],
+  );
+  assert.deepEqual(
+    topicSendParts([thread("o1", "overview", "coverage"), thread("o2", "overview", "map")]),
+    ["2 change requests on the Overview"],
+  );
 });
 
 test("the threads on topics the guide no longer has are the Overview's to show", () => {

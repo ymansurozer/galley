@@ -236,7 +236,9 @@ li > .topic-threads {
 }
 
 /* ⇧ over a box or a link comments on it, not on the map: the map's own icon stays as it was. */
-.topic-shift .topic-part:has(:is(.map-box, .map-list-row, .topics-map [data-gut]):hover) > .topic-gut {
+.topic-shift
+  .topic-part:has(:is(.map-box, .map-list-row, .topics-map [data-gut]):hover)
+  > .topic-gut {
   color: var(--ink-3);
 }
 

@@ -224,19 +224,24 @@ export const compareTopicRequests = (
   b: Pick<TopicRequest, "rank" | "partRank" | "seq">,
 ) => (a.rank === b.rank ? 0 : a.rank < b.rank ? -1 : 1) || a.partRank - b.partRank || a.seq - b.seq;
 
-// The Send dialog's words for the topic threads: the change requests that go, and the questions
-// still waiting on the agent (they go as openQuestions). Empty with neither.
-export function topicThreadsSendLine(threads: readonly TopicThread[]) {
+// The Send dialog's words for the topic threads, in the code and UI lanes' words: the change
+// requests that go and where they sit, and the questions still waiting on the agent (they go as
+// openQuestions). The Overview is named as itself, beside the topics. Empty with neither.
+export function topicSendParts(threads: readonly TopicThread[]): string[] {
   const open = threads.filter((t) => t.status === "open");
-  const requests = open.filter(requestsChange).length;
-  const waiting = open.filter((t) => t.comments.some((m) => messageWaiting(m, t.comments))).length;
   const n = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
+  const on = (list: readonly TopicThread[]) => {
+    const topics = new Set(list.map((t) => t.target.topic));
+    const overview = topics.delete(OVERVIEW);
+    if (!topics.size) return "on the Overview";
+    return `on ${n(topics.size, "topic")}${overview ? " and the Overview" : ""}`;
+  };
+  const requests = open.filter(requestsChange);
+  const waiting = open.filter((t) => t.comments.some((m) => messageWaiting(m, t.comments)));
   return [
-    requests ? n(requests, "topic change request") : "",
-    waiting ? n(waiting, "open topic question") : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+    requests.length ? `${n(requests.length, "change request")} ${on(requests)}` : "",
+    waiting.length ? `${n(waiting.length, "open question")} ${on(waiting)}` : "",
+  ].filter(Boolean);
 }
 
 // The topic threads a tab takes with a new guide: the desk's (`desk`), which the guide moved onto its
