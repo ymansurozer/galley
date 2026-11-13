@@ -101,6 +101,8 @@
   --ink: rgb(255 255 255 / 0.88);
   --ink-2: rgb(235 235 245 / 0.66);
   --ink-3: rgb(235 235 245 / 0.58);
+  /* The dots of a map link's stretch inside a box it crosses: light, but there. */
+  --map-cross: rgb(235 235 245 / 0.26);
   /* Text on a filled hue (a filled button, a numbered pin). */
   --on-fill: #fff;
 
@@ -187,6 +189,8 @@
   --ink: rgb(0 0 0 / 0.86);
   --ink-2: rgb(0 0 0 / 0.64);
   --ink-3: rgb(0 0 0 / 0.56);
+  /* Dark dots on a light box read fainter than light on dark: they take more ink. */
+  --map-cross: rgb(0 0 0 / 0.46);
 
   --sep: rgb(0 0 0 / 0.09);
   --sep-strong: rgb(0 0 0 / 0.14);

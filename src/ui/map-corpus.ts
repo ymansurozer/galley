@@ -156,59 +156,67 @@ export const MAP_CORPUS: MapShape[] = [
       ["dialogs", "shots", "light and dark"],
     ],
   ),
-  shape(
-    "wide and deep",
-    "Thirteen groups in five stages, twelve links; links skip stages and cross boxes.",
-    [
+  {
+    ...shape(
+      "wide and deep",
+      "Thirteen groups in five stages, twelve links; links skip stages and cross boxes.",
       [
-        "Contract",
         [
-          ["types", "Wire types", "Shapes shared by both sides."],
-          ["docs", "Agent docs", "The contract text."],
+          "Contract",
+          [
+            ["types", "Wire types", "Shapes shared by both sides."],
+            ["docs", "Agent docs", "The contract text."],
+          ],
+        ],
+        [
+          "Server",
+          [
+            ["validate", "Validation", "A bad input is refused."],
+            ["state", "State", "What survives a restart."],
+            ["api", "HTTP API", "The poll and one new route."],
+            ["cli", "Commands", "Two new subcommands."],
+          ],
+        ],
+        [
+          "Browser",
+          [
+            ["store", "Store and poll", "Holds what the views read."],
+            ["home", "Home page", "The way in."],
+            ["page", "Detail page", "One item and its parts."],
+            ["side", "Sidebar", "Items under their headings."],
+          ],
+        ],
+        ["Agent side", [["skill", "Agent notes", "Point agents at the docs."]]],
+        [
+          "Checks",
+          [
+            ["smoke", "End-to-end run", "The contract, start to finish."],
+            ["doctest", "Docs tests", "The docs and the code agree."],
+          ],
         ],
       ],
       [
-        "Server",
-        [
-          ["validate", "Validation", "A bad input is refused."],
-          ["state", "State", "What survives a restart."],
-          ["api", "HTTP API", "The poll and one new route."],
-          ["cli", "Commands", "Two new subcommands."],
-        ],
+        ["types", "validate", "input shapes"],
+        ["types", "store", "type-only import"],
+        ["docs", "skill", "contract text"],
+        ["docs", "doctest", "contract text"],
+        ["validate", "state", "accepted input"],
+        ["state", "api", "saved state"],
+        ["cli", "api", "await, reply"],
+        ["api", "store", "state poll"],
+        ["store", "home", "map, totals"],
+        ["store", "page", "one item"],
+        ["store", "side", "counts"],
+        ["api", "smoke", "agent contract"],
       ],
-      [
-        "Browser",
-        [
-          ["store", "Store and poll", "Holds what the views read."],
-          ["home", "Home page", "The way in."],
-          ["page", "Detail page", "One item and its parts."],
-          ["side", "Sidebar", "Items under their headings."],
-        ],
+    ),
+    known: {
+      problems: [
+        `link ${linkKey("docs", "skill")} crosses 2 boxes and is labelled only at its start`,
       ],
-      ["Agent side", [["skill", "Agent notes", "Point agents at the docs."]]],
-      [
-        "Checks",
-        [
-          ["smoke", "End-to-end run", "The contract, start to finish."],
-          ["doctest", "Docs tests", "The docs and the code agree."],
-        ],
-      ],
-    ],
-    [
-      ["types", "validate", "input shapes"],
-      ["types", "store", "type-only import"],
-      ["docs", "skill", "contract text"],
-      ["docs", "doctest", "contract text"],
-      ["validate", "state", "accepted input"],
-      ["state", "api", "saved state"],
-      ["cli", "api", "await, reply"],
-      ["api", "store", "state poll"],
-      ["store", "home", "map, totals"],
-      ["store", "page", "one item"],
-      ["store", "side", "counts"],
-      ["api", "smoke", "agent contract"],
-    ],
-  ),
+      why: "The gap before Agent notes holds the two jogs round Store and poll's side and the link's own rise; no spot there clears them all, so the label is said once, clear, at its source.",
+    },
+  },
   shape(
     "loop",
     "Six groups in three stages; two links run back to the start and become notes.",

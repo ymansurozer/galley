@@ -63,6 +63,8 @@ test("the map's markup has a box per group, a line per drawn link and dots per b
     notes.map((n) => [n.dataset.from, n.dataset.to, n.textContent]),
     [["d", "a", "↩ Alpha <one> · feedback"]],
   );
+  // A wrapped note's later lines hang under its text, past the "↩".
+  assert.match(notes[0]!.getAttribute("style")!, /padding-left:([\d.]+)px;text-indent:-\1px/);
   const labels = [...host.querySelectorAll<HTMLElement>(".map-label")];
   assert.ok(
     labels.some((l) => l.textContent === "raw & ready" && l.dataset.links === '[["a","d"]]'),
@@ -105,11 +107,11 @@ test("the narrow list has each group under its stage, with what it feeds", () =>
   );
   assert.deepEqual(
     [...rows[0]!.querySelectorAll(".map-list-feed")].map((f) => f.textContent),
-    ["→ Beta rows", "→ Gamma ids", "→ Delta raw & ready"],
+    ["→ Beta · rows", "→ Gamma · ids", "→ Delta · raw & ready"],
   );
   assert.deepEqual(
     [...rows[3]!.querySelectorAll(".map-list-feed")].map((f) => f.textContent),
-    ["→ Alpha <one> feedback"],
+    ["→ Alpha <one> · feedback"],
   );
   assert.equal(rows[2]!.querySelectorAll(".map-list-feed").length, 0);
 });
@@ -124,7 +126,7 @@ test("the list joins the links leaving a group with one label into one line", ()
   const feeds = [...host.querySelectorAll<HTMLElement>(".map-list-feed")];
   assert.deepEqual(
     feeds.map((f) => [f.textContent, f.dataset.links]),
-    [["→ Beta, Gamma rows", '[["a","b"],["a","c"]]']],
+    [["→ Beta, Gamma · rows", '[["a","b"],["a","c"]]']],
   );
 });
 

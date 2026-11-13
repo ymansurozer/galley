@@ -1,5 +1,6 @@
 import type { GuideLink } from "../types";
 import {
+  LANE,
   linkKey,
   MAP_TEXT,
   type MapLabel,
@@ -37,6 +38,8 @@ const ASCENT = 8;
 const DESCENT = 2;
 // Two links' parallel runs closer than this read as one line.
 const TRACK = 5;
+// A label closer than this to an arrowhead crowds it.
+const ARROW_GAP = 4;
 // Two texts closer than this read as one.
 const TEXT_GAP = 4;
 // A box's rounded corner (7 px), which an arrowhead must not land on. A line may leave a little
@@ -94,14 +97,20 @@ export function labelRect(c: MapLabel, measure: Measure): Rect {
 // The rects a map's labels take, each with the links it speaks for, and its notes'.
 export function mapTextRects(layout: MapLayout, measure: Measure) {
   const labels = layout.links.flatMap((l) =>
-    [l.caption, l.echo].flatMap((c) =>
-      c ? [{ name: `label of ${l.key}`, links: c.links, rect: labelRect(c, measure) }] : [],
+    (
+      [
+        [l.caption, "label"],
+        [l.echo, "repeated label"],
+      ] as const
+    ).flatMap(([c, what]) =>
+      c ? [{ name: `${what} of ${l.key}`, links: c.links, rect: labelRect(c, measure) }] : [],
     ),
   );
   const notes = layout.links.flatMap((l) => {
     const n = l.note;
     if (!n) return [];
-    const w = Math.max(...n.lines.map((s) => measure(s, "label")));
+    // Its later lines hang in by the indent.
+    const w = Math.max(...n.lines.map((s, i) => (i ? n.indent : 0) + measure(s, "label")));
     return [
       {
         name: `note for ${l.key}`,
@@ -183,23 +192,31 @@ export function mapProblems(layout: MapLayout, links: GuideLink[], measure: Meas
       );
 
   // Two links never run on one track: their parallel runs stay apart, unless they leave by one
-  // exit.
+  // exit. Their lanes up and down a gap stand at least LANE apart, so they read as two at a
+  // glance. (Level runs leave at the exit heights a box's size sets, so they keep only TRACK.)
+  const beside = (p: Point, q: Point, r: Point, s: Point, flat: boolean, apart: number) => {
+    const [across, along] = flat ? [1, 0] : [0, 1];
+    if (Math.abs(p[across]! - r[across]!) >= apart) return false;
+    const lo = Math.max(Math.min(p[along]!, q[along]!), Math.min(r[along]!, s[along]!));
+    const hi = Math.min(Math.max(p[along]!, q[along]!), Math.max(r[along]!, s[along]!));
+    return hi - lo > 2;
+  };
   for (const [i, a] of drawn.entries())
     for (const b of drawn.slice(i + 1)) {
       if (shareExit(a, b)) continue;
-      const hit = segments(a.points).some(([p, q]) =>
-        segments(b.points).some(([r, s]) => {
-          const flat = p[1] === q[1] && r[1] === s[1];
-          const upright = p[0] === q[0] && r[0] === s[0];
-          if (!flat && !upright) return false;
-          const [across, along] = flat ? [1, 0] : [0, 1];
-          if (Math.abs(p[across]! - r[across]!) >= TRACK) return false;
-          const lo = Math.max(Math.min(p[along]!, q[along]!), Math.min(r[along]!, s[along]!));
-          const hi = Math.min(Math.max(p[along]!, q[along]!), Math.max(r[along]!, s[along]!));
-          return hi - lo > 2;
-        }),
+      const runs = segments(a.points).flatMap(([p, q]) =>
+        segments(b.points).map(([r, s]) => [p, q, r, s] as const),
       );
-      if (hit) out.push(`lines ${a.key} and ${b.key} run on one track`);
+      const flat = runs.filter(([p, q, r, s]) => p[1] === q[1] && r[1] === s[1]);
+      const upright = runs.filter(([p, q, r, s]) => p[0] === q[0] && r[0] === s[0]);
+      if (
+        [...flat.map((r) => [r, true] as const), ...upright.map((r) => [r, false] as const)].some(
+          ([[p, q, r, s], f]) => beside(p, q, r, s, f, TRACK),
+        )
+      )
+        out.push(`lines ${a.key} and ${b.key} run on one track`);
+      else if (upright.some(([p, q, r, s]) => beside(p, q, r, s, false, LANE)))
+        out.push(`the lanes of ${a.key} and ${b.key} stand under ${LANE} px apart`);
     }
 
   // Every line leaves its source and every arrowhead lands on its target on a straight stretch
@@ -232,6 +249,10 @@ export function mapProblems(layout: MapLayout, links: GuideLink[], measure: Meas
   for (const lab of labels) {
     const mine = drawn.filter((l) => lab.links.includes(l.key));
     const own = Math.min(...mine.map((l) => lineGap(lab.rect, l)));
+    // Not even its own line runs through it.
+    for (const l of mine)
+      if (segments(l.points).some(([p, q]) => cuts(p, q, lab.rect)))
+        out.push(`${lab.name} lies on its own line`);
     for (const l of drawn) {
       if (lab.links.includes(l.key) || mine.some((m) => shareExit(m, l) && m.fan)) continue;
       const gap = lineGap(lab.rect, l);
@@ -242,7 +263,7 @@ export function mapProblems(layout: MapLayout, links: GuideLink[], measure: Meas
     for (const b of layout.boxes)
       if (overlap(lab.rect, boxRect(b))) out.push(`${lab.name} lies under box ${b.id}`);
     for (const l of drawn)
-      if (rectGap(lab.rect, arrowRect(l.points!)) < 2)
+      if (rectGap(lab.rect, arrowRect(l.points!)) < ARROW_GAP)
         out.push(`${lab.name} touches the arrowhead of ${l.key}`);
     for (const h of layout.heads)
       if (overlap(lab.rect, { x: h.x, y: h.y, w: h.w, h: 22 }))

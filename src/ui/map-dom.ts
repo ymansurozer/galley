@@ -77,7 +77,7 @@ export function mapHtml(layout: MapLayout) {
     .filter((l) => l.note)
     .map(
       (l) =>
-        `<div class="map-note" ${ends(l.from, l.to)} style="left:${l.note!.x}px;top:${l.note!.y}px">${l.note!.lines.map(esc).join("<br>")}</div>`,
+        `<div class="map-note" ${ends(l.from, l.to)} style="left:${l.note!.x}px;top:${l.note!.y}px;padding-left:${l.note!.indent}px;text-indent:-${l.note!.indent}px">${l.note!.lines.map(esc).join("<br>")}</div>`,
     )
     .join("");
   return `<div class="map${layout.cards ? " map-cards" : ""}" style="width:${W}px;height:${H}px">${svg("map-lines", `<g class="map-links">${lines}</g><g class="map-labels">${labels}</g>`)}${heads}${boxes}${dots ? svg("map-lines map-dots", dots) : ""}${notes}</div>`;
@@ -100,7 +100,7 @@ export function mapListHtml(stages: MapStage[], links: GuideLink[]) {
             const feeds = [...by.values()]
               .map(
                 (ls) =>
-                  `<span class="map-list-feed" ${ends(ls[0]!.from, ls[0]!.to)} ${pairs(ls)}><span class="map-list-arrow" aria-hidden="true">→</span> ${ls.map((l) => esc(title.get(l.to)!)).join(", ")} <i>${esc(ls[0]!.label)}</i></span>`,
+                  `<span class="map-list-feed" ${ends(ls[0]!.from, ls[0]!.to)} ${pairs(ls)}><span class="map-list-arrow" aria-hidden="true">→</span> ${ls.map((l) => esc(title.get(l.to)!)).join(", ")}<span class="map-list-label"><span class="map-list-sep" aria-hidden="true"> · </span>${esc(ls[0]!.label)}</span></span>`,
               )
               .join("");
             return `<div class="map-list-row" role="button" tabindex="0" data-group="${esc(g.id)}"><span class="map-list-title">${esc(g.title)}</span><span class="map-list-feeds">${feeds}</span></div>`;

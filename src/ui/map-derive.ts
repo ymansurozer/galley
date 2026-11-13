@@ -61,7 +61,8 @@ export type MapLabel = {
   links: string[];
 };
 // A note under its source box: its first line's top at y.
-export type MapNote = { x: number; y: number; lines: string[] };
+// A note's lines after the first hang under its text, `indent` in from the "↩" that opens it.
+export type MapNote = { x: number; y: number; lines: string[]; indent: number };
 // A crossing link's stretch inside a box it passes.
 export type MapCrossing = { box: string; x1: number; x2: number; y: number };
 export type MapLinkKind = "forward" | "same" | "back";
@@ -105,16 +106,25 @@ export const MAP_WIDTH = 1084;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 // How far a way into a box stays from its top and bottom: clear of the rounded corners.
 const PORT = 12;
+// Runs of different links this far apart read as two lanes at a glance; closer only where the gap
+// has no room.
+export const LANE = 10;
 // The gap between two notes under one box.
 const NOTE_GAP = 5;
 
 // Words onto lines of at most `w` px; a word wider than the line keeps a line of its own.
-export function wrapText(measure: Measure, text: string, w: number, font: MapFont): string[] {
+export function wrapText(
+  measure: Measure,
+  text: string,
+  w: number,
+  font: MapFont,
+  rest = w,
+): string[] {
   const out: string[] = [];
   let line = "";
   for (const word of text.split(" ")) {
     const next = line ? `${line} ${word}` : word;
-    if (line && measure(next, font) > w) {
+    if (line && measure(next, font) > (out.length ? rest : w)) {
       out.push(line);
       line = word;
     } else line = next;
@@ -156,6 +166,8 @@ export function layoutMap(
   if (ids.length < 3) return null;
   const wrap = (text: string, w: number, font: MapFont = "label") =>
     wrapText(measure, text, w, font);
+  // How far a note's later lines hang in: past the "↩ " that opens its first.
+  const hang = measure("↩ ", "label");
   const titleOf = (id: string) => group.get(id)!.title;
 
   const E: Edge[] = links
@@ -263,7 +275,7 @@ export function layoutMap(
     const nw = shared ? NW / 2 - 6 : NW - 4;
     let at = 0;
     for (const e of nt.edges) {
-      const lines = wrap(`↩ ${titleOf(e.to)} · ${e.label}`, nw);
+      const lines = wrapText(measure, `↩ ${titleOf(e.to)} · ${e.label}`, nw, "label", nw - hang);
       e.note = { at, lines };
       at += lines.length;
     }
@@ -513,10 +525,15 @@ export function layoutMap(
   // neighbours in a stage. Then fans, then links gathering into a box (the one from the furthest
   // source on the lane nearest the box, so they don't cross), then jogs round a stage's side. ──
   const placed: Array<{ e: Edge; p: Point; q: Point }> = [];
+  // A run on another link's track is a clash. One closer than LANE to it is a small cost, so a
+  // lane is taken that close only when the gap has no room further off.
   const clashes = (e: Edge, pts: Point[]) => {
     let n = 0;
     for (const [p, q] of segments(pts))
-      for (const s of placed) if (s.e !== e && !shareExit(s.e, e) && oneTrack(p, q, s.p, s.q)) n++;
+      for (const s of placed)
+        if (s.e === e || shareExit(s.e, e)) continue;
+        else if (oneTrack(p, q, s.p, s.q)) n++;
+        else if (oneTrack(p, q, s.p, s.q, LANE)) n += 0.01;
     return n;
   };
   const lay = (e: Edge, pts: Point[]) => {
@@ -539,7 +556,11 @@ export function layoutMap(
     const lo = X(c - 1) + NW + 16;
     const hi = X(c) - 16;
     const xs: number[] = [];
-    for (let x = from === "right" ? hi : lo; x >= lo && x <= hi; x += from === "right" ? -8 : 8)
+    for (
+      let x = from === "right" ? hi : lo;
+      x >= lo && x <= hi;
+      x += from === "right" ? -LANE : LANE
+    )
       xs.push(x);
     return xs.length ? xs : [Math.round((lo + hi) / 2)];
   };
@@ -687,17 +708,20 @@ export function layoutMap(
         x: a.x + 2,
         y: a.y + NH + 4 + e.note!.at * 12 + i * NOTE_GAP,
         lines: e.note!.lines,
+        indent: hang,
       }),
     );
     if (slot(id) === rows - 1) below = Math.max(below, 8 + noteHeight(nt));
   }
   const textW = (lines: string[]) => Math.max(...lines.map((t) => measure(t, "label")));
+  const noteW = (n: MapNote) =>
+    Math.max(textW(n.lines.slice(0, 1)), n.indent + textW(n.lines.slice(1)));
   const texts: Rect[] = [
     ...heads.map((h) => ({ x: h.x, y: h.y, w: h.w, h: 22 })),
     ...[...notesOut.values()].map((n) => ({
       x: n.x,
       y: n.y,
-      w: textW(n.lines),
+      w: noteW(n),
       h: n.lines.length * 12,
     })),
   ];
@@ -715,13 +739,15 @@ export function layoutMap(
     for (const b of boxRects) if (rectGap(r, b) === 0) bad += 100;
     const mine = Math.min(...own.map((e) => lineGap(r, e)));
     if (mine > 8) bad += 5;
+    // Its own line through it hides the label as surely as another's (a repeat's elbow).
+    if (mine === 0) bad += 40;
     for (const d of others(own)) {
       const g = lineGap(r, d);
       if (g < 3) bad += 40;
       else if (g <= mine + 2) bad += 20;
     }
     for (const t of texts) if (rectGap(r, t) < 6) bad += 30;
-    for (const a of arrows) if (rectGap(r, a) < 3) bad += 20;
+    for (const a of arrows) if (rectGap(r, a) < 4) bad += 20;
     return bad;
   };
   // A spot for a label: its first line's baseline at y ("up" grows upwards, "mid" centres on y);
@@ -773,11 +799,12 @@ export function layoutMap(
     return b.label;
   };
   // Spots along a level run from x0 to x1 at height y: over it, then under it, stepping away from
-  // the line (past strip lines and stacked labels) only when nothing nearer is clear.
-  const alongRun = (x0: number, x1: number, y: number, under = false): Spot[] => {
+  // the line (past strip lines and stacked labels) only when nothing nearer is clear. Over first
+  // for every link, a bottom strip's too, so the labels of a box's exits read on one side.
+  const alongRun = (x0: number, x1: number, y: number): Spot[] => {
     const spots: Spot[] = [];
     for (let k = 0; k < 4; k++)
-      for (const side of under ? ["down", "up"] : ["up", "down"])
+      for (const side of ["up", "down"])
         for (let x = x0 + 10; x === x0 + 10 || x + 30 <= x1 - 4; x += 8)
           spots.push(
             side === "up"
@@ -806,14 +833,7 @@ export function layoutMap(
     for (const [p, q] of segments(pts).reverse()) {
       if (Math.max(p[0], q[0]) <= start) break;
       if (p[1] === q[1])
-        spots.push(
-          ...alongRun(
-            Math.max(start, Math.min(p[0], q[0])),
-            Math.max(p[0], q[0]),
-            p[1],
-            e.strip === "bottom",
-          ),
-        );
+        spots.push(...alongRun(Math.max(start, Math.min(p[0], q[0])), Math.max(p[0], q[0]), p[1]));
       else spots.push(...besideRun(p[0], q[1], p[1], [gap / 2 - 16], true));
     }
     return spots;
@@ -840,14 +860,8 @@ export function layoutMap(
       ]);
     } else if (e.fan && pts.length > 2) {
       const [, , [lx, ly], [nx]] = pts;
-      spots = alongRun(lx!, Math.min(nx!, X(col(e.from) + 1)), ly!, e.strip === "bottom");
-    } else
-      spots = alongRun(
-        p0![0],
-        Math.min(...own.map(firstGapEnd)),
-        p0![1],
-        e.strip === "bottom" && !e.drop,
-      );
+      spots = alongRun(lx!, Math.min(nx!, X(col(e.from) + 1)), ly!);
+    } else spots = alongRun(p0![0], Math.min(...own.map(firstGapEnd)), p0![1]);
     const atSource = settle(e, own, spots);
     // A crossing link whose label cannot be told apart at its source (its strip runs beside
     // another) says it near its target instead. One past two boxes or more says it there as well.
@@ -935,12 +949,12 @@ const rectGap = (a: Rect, b: Rect) =>
   );
 // Whether two runs lie on one track: parallel, closer than a line can be told apart, and side by
 // side for more than a point.
-function oneTrack(p: Point, q: Point, r: Point, s: Point) {
+function oneTrack(p: Point, q: Point, r: Point, s: Point, apart = 6) {
   const flat = p[1] === q[1] && r[1] === s[1];
   const upright = p[0] === q[0] && r[0] === s[0];
   if (!flat && !upright) return false;
   const [across, along] = flat ? [1, 0] : [0, 1];
-  if (Math.abs(p[across]! - r[across]!) >= 6) return false;
+  if (Math.abs(p[across]! - r[across]!) >= apart) return false;
   const lo = Math.max(Math.min(p[along]!, q[along]!), Math.min(r[along]!, s[along]!));
   const hi = Math.min(Math.max(p[along]!, q[along]!), Math.max(r[along]!, s[along]!));
   return hi - lo > 2;
