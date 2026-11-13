@@ -194,19 +194,27 @@ export function resetReview(path: string) {
 // Reset the whole review (Reset Review, ⇧R): the desk clears it, and the tab takes its answer whole.
 // It posts once the tab's saves have landed, and no save goes out until its answer is in: a save
 // of the tab's from before the reset, sent after it, would land on top of it, as another tab's
-// does. A save the desk can't take keeps the reset back, and the reviewer's work with it.
+// does. A save the desk can't take keeps the reset back, and the reviewer's work with it. One
+// Reset at a time: one pressed while another is out does nothing.
+let resetting = false;
 export async function resetWholeReview() {
-  if (!(await saver.settled()))
-    return toast("Couldn't reset the review — the desk hasn't saved your latest changes");
-  await holdSaves(async () => {
-    const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" });
-    if (r.state) {
-      S.state = r.state;
-      confirmDesk(r.state);
-      D.fileDiff = D.rawFileDiff = null;
-      render();
-    }
-  });
+  if (resetting) return;
+  resetting = true;
+  try {
+    if (!(await saver.settled()))
+      return toast("Couldn't reset the review — the desk hasn't saved your latest changes");
+    await holdSaves(async () => {
+      const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" });
+      if (r.state) {
+        S.state = r.state;
+        confirmDesk(r.state);
+        D.fileDiff = D.rawFileDiff = null;
+        render();
+      }
+    });
+  } finally {
+    resetting = false;
+  }
 }
 
 async function undoReset(

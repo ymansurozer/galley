@@ -1475,3 +1475,22 @@ test("a doubtful copy takes a merged answer's records as the desk's, not the rev
   assert.equal(a.server().comments[0].body, "v2", "B's newer edit stands");
   assert.equal(a.S.state.comments[0].body, "v2");
 });
+
+test("a Reset pressed while one is out does nothing, and the first keeps saves held until its answer", async (t) => {
+  const f = await fixture(t);
+  let release!: () => void;
+  f.desk.holdReset = new Promise<void>((resolve) => (release = resolve));
+  const first = f.h.resetWholeReview();
+  await until(() => f.requests.includes("/api/reset"));
+  await f.h.resetWholeReview();
+  assert.equal(f.requests.filter((r) => r === "/api/reset").length, 1, "one reset went out");
+  f.S.state.comments.push({ ...structuredClone(reviewerComment), id: "meanwhile" });
+  f.h.persist();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(f.saves.length, 0, "saves still wait for the first reset's answer");
+  release();
+  await first;
+  assert.equal(await f.h.saver.settled(), true);
+  assert.deepEqual(f.server().comments, []);
+  assert.deepEqual(plain(f.S.state.comments), []);
+});

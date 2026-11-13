@@ -404,13 +404,15 @@ export const postSend = (overallNote: string) =>
 // A reset of the whole review is out (decisions.ts, resetWholeReview): a save due meanwhile waits
 // until the tab has taken its answer, then works out its changes from the review the reset left.
 let resetOut: Promise<void> | undefined;
+// Only the call that set the hold releases it.
 export async function holdSaves(run: () => Promise<void>) {
   const held = run();
-  resetOut = held.catch(() => {});
+  const hold = held.catch(() => {});
+  resetOut = hold;
   try {
     await held;
   } finally {
-    resetOut = undefined;
+    if (resetOut === hold) resetOut = undefined;
   }
 }
 // A save has landed only on a 2xx answer whose body says ok; anything else, no answer included,
