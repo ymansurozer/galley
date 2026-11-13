@@ -402,6 +402,7 @@
         <div class="modal send">
           <p x-text="$store.g.sendMsg"></p>
           <div class="sub" x-show="$store.g.sendNotSent" x-text="$store.g.sendNotSent"></div>
+          <div class="sub" x-show="$store.g.sendTopics" x-text="$store.g.sendTopics"></div>
           <div class="lanes" x-show="$store.g.sendLanes">
             <div class="lane" x-show="$store.g.sendLanes?.code"><b>Code</b><div><span x-text="$store.g.sendLanes?.code"></span><div class="sub"
                   x-show="$store.g.sendLanes?.codeNotSent" x-text="$store.g.sendLanes?.codeNotSent"></div></div></div>

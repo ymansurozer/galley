@@ -562,10 +562,11 @@ test("a Send reports settled and to-do topics and starts the next round; reset c
       changes: {},
       seen,
       overallNote: "",
-    }).then((r) => r.json())) as { resultJson: string };
+    }).then((r) => r.json())) as { resultJson: string; round?: number };
     const result = JSON.parse(await readFile(sent.resultJson, "utf8")) as ReviewResult;
     assert.deepEqual(result.topics, { settled: ["t1"], todo: ["t2"] });
     assert.equal(st.round, 2);
+    assert.equal(sent.round, 2, "the Send's answer names the round it started");
     assert.equal((await poll()).round, 2, "other tabs learn the round from the poll");
     assert.deepEqual(st.settledTopics, { t1: { hash: "H1", round: 1 } });
     await post(handle.url, "api/reset", {});

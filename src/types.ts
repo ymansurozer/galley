@@ -381,11 +381,13 @@ export type SaveStamp = { token: string | null; reloadGeneration: number; baseDi
 // `saveNumber`: the desk's number once it applied this save (ReviewState.saveNumber). `merged`: the
 // desk's reviewer-owned fields after the merge, when the save's `base` was not the desk's latest
 // number, so other saves landed since the tab's copy, and the tab is on the desk's current diff.
-// A tab on an older diff gets none: they're keyed to a diff it doesn't have.
+// A tab on an older diff gets none: they're keyed to a diff it doesn't have. `round`: on a Send, the
+// round it started (ReviewState.round).
 export type SaveAnswer = {
   ok: true;
   file?: string;
   sent?: true;
+  round?: number;
   resultJson?: string;
   unplaced?: true;
   saveNumber?: number;

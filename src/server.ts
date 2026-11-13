@@ -974,7 +974,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             emitEvent(event);
           };
           res.once("close", handOver);
-          const answer: SaveAnswer = { ok: true, sent: true, resultJson, saveNumber };
+          const answer: SaveAnswer = {
+            ok: true,
+            sent: true,
+            resultJson,
+            saveNumber,
+            round: state.round,
+          };
           if (unplaced) answer.unplaced = true;
           if (merged) answer.merged = merged;
           json(res, 200, answer);

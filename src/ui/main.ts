@@ -53,7 +53,8 @@ import {
   walkthroughRows,
 } from "./guide";
 import { refreshBaseTitle, reviewStats } from "./progress";
-import { codeSendSummary } from "./send-derive";
+import { codeSendSummary, topicsSendLine } from "./send-derive";
+import { topicsDone } from "./topics-derive";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import { renderKeycaps } from "./keycaps";
 import { installTooltips } from "./tooltip";
@@ -434,6 +435,8 @@ S.confirmNo = confirmNo;
 const openSendModal = (msg: string, lanes: Store["sendLanes"], notSent = "") => {
   S.sendMsg = msg;
   S.sendNotSent = notSent;
+  const topics = hasTopics() ? topicsDone(S.state.guide?.stages ?? [], S.state) : null;
+  S.sendTopics = topics ? topicsSendLine(topics.done, topics.total) : "";
   S.sendLanes = lanes;
   S.sendNote = "";
   S.sendFailed = false;

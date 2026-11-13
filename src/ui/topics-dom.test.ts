@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { renderTopicPage, renderTopicsNav } from "./topics-dom";
+import {
+  renderTopicPage,
+  renderTopicsNav,
+  renderTopicsOverview,
+  type TopicsOverview,
+} from "./topics-dom";
 import { topicPlaces, topicsNavRows } from "./topics-derive";
 import type { GuideStage } from "../types";
 
@@ -56,7 +61,7 @@ test("the sidebar renders stage headers, group rows and only the current group's
     [...nav.querySelectorAll("[data-group]")].map((el) => (el as HTMLElement).dataset.group),
     ["limits", "store", "flags"],
   );
-  assert.deepEqual(text("[data-group] .topics-n"), ["2", "1", "1"]);
+  assert.deepEqual(text("[data-group] .topics-n"), ["0/2", "0/1", "0/1"]);
   assert.ok(nav.querySelector('[data-group="limits"]')?.classList.contains("current"));
   const topics = [...nav.querySelectorAll<HTMLElement>("[data-topic]")];
   assert.deepEqual(
@@ -110,4 +115,104 @@ test("a topic without a concern or a flag shows neither", () => {
   renderTopicPage(page, topicPlaces(STAGES)[0]!, (s) => s);
   assert.equal(page.querySelector(".topic-meta"), null);
   assert.equal(page.querySelector(".topic-flag"), null);
+});
+
+// t1 settled in round 2 (the current one), t3 and t4 in round 1.
+const SETTLED = {
+  round: 2,
+  topics: Object.fromEntries(
+    ["t1", "t2", "t3", "t4"].map((id) => [id, { blocks: [], lines: 1, coverHash: `H${id}` }]),
+  ),
+  settledTopics: {
+    t1: { hash: "Ht1", round: 2 },
+    t3: { hash: "Ht3", round: 1 },
+    t4: { hash: "Ht4", round: 1 },
+  },
+};
+
+test("each group shows done out of this round's topics and its mark; a topic's mark is a button", () => {
+  const nav = host();
+  renderTopicsNav(nav, topicsNavRows(STAGES, "t2", SETTLED));
+  const text = (sel: string) => [...nav.querySelectorAll(sel)].map((el) => el.textContent?.trim());
+  // Store's and Flags' one topic each was settled in round 1: nothing is left in this round's count.
+  assert.deepEqual(text("[data-group] .topics-n"), ["1/2"]);
+  assert.ok(nav.querySelector('[data-group="limits"] .st.pending'));
+  assert.ok(nav.querySelector('[data-group="store"] .st.approved'));
+  const t1 = nav.querySelector('[data-topic="t1"] button[data-mark="t1"]');
+  assert.equal(t1?.getAttribute("aria-label"), "Reset to do");
+  assert.ok(t1?.querySelector(".st.approved"));
+  const t2 = nav.querySelector('[data-topic="t2"] button[data-mark="t2"]');
+  assert.equal(t2?.getAttribute("aria-label"), "Settle topic");
+  assert.ok(t2?.querySelector(".st.pending"));
+});
+
+test("topics settled in an earlier round fold into one closed row under the group", () => {
+  const nav = host();
+  renderTopicsNav(nav, topicsNavRows(STAGES, "t3", SETTLED));
+  const fold = nav.querySelector<HTMLElement>("[data-earlier]");
+  assert.equal(fold?.dataset.earlier, "store");
+  assert.equal(fold?.textContent?.trim(), "1 settled in round 1");
+  assert.equal(fold?.getAttribute("aria-expanded"), "true", "the open topic is in it");
+  const closed = host();
+  renderTopicsNav(closed, topicsNavRows(STAGES, "t2", { ...SETTLED, round: 3 }));
+  assert.equal(closed.querySelector("[data-earlier]")?.getAttribute("aria-expanded"), "false");
+  assert.deepEqual(
+    [...closed.querySelectorAll<HTMLElement>("[data-topic]")].map((el) => el.dataset.topic),
+    ["t2"],
+    "t1, from round 2, is folded away in round 3",
+  );
+});
+
+test("the bar offers Settle Topic on a topic to do, and Settled with Reset once settled", () => {
+  const page = host();
+  const place = topicPlaces(STAGES)[0]!;
+  renderTopicPage(page, place, (s) => s, { settled: false, changed: false });
+  const settle = page.querySelector('.file-bar [data-act="settle"]');
+  assert.match(settle?.textContent ?? "", /Settle Topic/);
+  assert.equal(page.querySelector('.file-bar [data-act="reset"]'), null);
+  renderTopicPage(page, place, (s) => s, { settled: true, changed: false });
+  assert.equal(page.querySelector('.file-bar [data-act="settle"]'), null);
+  assert.equal(page.querySelector(".file-bar .fb-state")?.textContent, "Settled");
+  assert.equal(page.querySelector('.file-bar [data-act="reset"]')?.textContent, "Reset");
+});
+
+test("a topic whose lines changed since the last round says so above its title", () => {
+  const page = host();
+  renderTopicPage(page, topicPlaces(STAGES)[0]!, (s) => s, { settled: false, changed: true });
+  assert.equal(
+    page.querySelector(".topic-meta .topic-changed")?.textContent,
+    "Changed since your last round",
+  );
+});
+
+test("the Overview's way in reads Start, Continue, or Send once every topic is settled", () => {
+  const overview = (way: TopicsOverview["way"]) => {
+    const page = host();
+    renderTopicsOverview(
+      page,
+      {
+        title: "T",
+        facts: ["repo", "round 2"],
+        added: 1,
+        removed: 0,
+        summary: "s",
+        stale: false,
+        way,
+      },
+      (s) => s,
+    );
+    return page;
+  };
+  assert.match(
+    overview("start").querySelector('[data-act="start"]')?.textContent ?? "",
+    /Start Review/,
+  );
+  assert.match(
+    overview("continue").querySelector('[data-act="start"]')?.textContent ?? "",
+    /Continue Review/,
+  );
+  const done = overview("send");
+  assert.equal(done.querySelector(".topics-all")?.textContent, "Every topic is settled.");
+  assert.match(done.querySelector('[data-act="start"]')?.textContent ?? "", /Send Review/);
+  assert.match(done.querySelector(".go-sub")?.textContent ?? "", /round 2/);
 });
