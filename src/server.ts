@@ -315,7 +315,7 @@ async function firstExisting(...candidates: string[]) {
 }
 
 // The UI bundle esbuild emits: ui.js and, beside it, the ui.css its stylesheet import produces.
-async function uiBundlePath(file: "ui.js" | "ui.css") {
+async function uiBundlePath(file: "ui.js" | "ui.css" | "diagrams.js") {
   return firstExisting(path.join(__dirname, file), path.join(process.cwd(), "dist", file));
 }
 
@@ -711,8 +711,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         res.end(await html());
         return;
       }
-      if (req.method === "GET" && (url.pathname === "/ui.js" || url.pathname === "/ui.css")) {
-        const name = url.pathname === "/ui.js" ? "ui.js" : "ui.css";
+      if (req.method === "GET" && ["/ui.js", "/ui.css", "/diagrams.js"].includes(url.pathname)) {
+        const name = url.pathname.slice(1) as "ui.js" | "ui.css" | "diagrams.js";
         const file = await uiBundlePath(name);
         const stat = await fs.stat(file).catch(() => null);
         const etag = stat ? `"${stat.size}-${Math.round(stat.mtimeMs)}"` : "";
@@ -723,7 +723,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         }
         const body = await fs.readFile(file, "utf8").catch(() => "");
         res.writeHead(200, {
-          "content-type": `${name === "ui.js" ? "text/javascript" : "text/css"}; charset=utf-8`,
+          "content-type": `${name === "ui.css" ? "text/css" : "text/javascript"}; charset=utf-8`,
           ...(etag ? { etag, "cache-control": "no-cache" } : {}),
         });
         res.end(body);
