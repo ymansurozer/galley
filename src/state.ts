@@ -18,6 +18,7 @@ import {
 } from "./git.js";
 import type {
   ChangeState,
+  Cover,
   Decision,
   DiffFile,
   DiffHunk,
@@ -31,6 +32,7 @@ import type {
   ReviewerSave,
   SaveStamp,
   ThreadMessage,
+  TopicStamp,
   UiAnnotationRecord,
 } from "./types.js";
 import { questionTarget, readUiAnnotations, uiAnnotationsForAgent } from "./uiannotations.js";
@@ -309,7 +311,14 @@ function skimRangesForHunk(h: DiffHunk): BlockRange[] {
     const lo = newLines.length ? Math.min(...newLines) : prevNew;
     const hi = newLines.length ? Math.max(...newLines) : prevNew;
     const grows = newLines.length - (block.length - newLines.length);
-    out.push({ stableKey: changeStableKeyFromBlock(block), lo, hi, base: prevOld, grows });
+    out.push({
+      stableKey: changeStableKeyFromBlock(block),
+      lo,
+      hi,
+      base: prevOld,
+      grows,
+      lines: block.length,
+    });
     block = [];
   };
   for (const line of h.lines) {
@@ -324,7 +333,15 @@ function skimRangesForHunk(h: DiffHunk): BlockRange[] {
   return out;
 }
 
-type BlockRange = { stableKey: string; lo: number; hi: number; base: number; grows: number };
+// `lines`: the block's added plus removed lines.
+type BlockRange = {
+  stableKey: string;
+  lo: number;
+  hi: number;
+  base: number;
+  grows: number;
+  lines: number;
+};
 
 // Every change block's new-side range, by path — what a guide's line spans (skimBlocks, part
 // lines) resolve against.
@@ -463,16 +480,178 @@ type GuideDiff = {
 };
 
 // Every diff-aware check of a NEW guide that stamps change blocks — parts, then skims (which must
-// know each block's part) — over one parse, strictly. The attach paths call this rather than each
-// resolver. A carried-forward guide keeps the stamps the merge carried (carryGuideStamps).
+// know each block's part), then topics — over one parse, strictly. The attach paths call this
+// rather than each resolver. A carried-forward guide keeps the stamps the merge carried
+// (carryGuideStamps, stampTopics).
 export function resolveGuide(
-  review: GuideDiff,
+  review: GuideDiff & Pick<ReviewState, "files" | "topics">,
   guide: Guide,
   preparsed?: DiffFile[],
 ): SkimResolution {
   const parsed = preparsed ?? parseUnifiedDiff(review.rawDiff);
   const parts = resolveParts(review, guide, parsed);
-  return parts.ok ? resolveSkim(review.rawDiff, review.changes, guide, parsed) : parts;
+  if (!parts.ok) return parts;
+  const skims = resolveSkim(review.rawDiff, review.changes, guide, parsed);
+  return skims.ok ? resolveTopics(review, guide) : skims;
+}
+
+// What a cover can claim: a change block, or the whole of a file the diff shows without hunks (an
+// untracked add), which is one change with no block of its own and is keyed `path:file`. `lo`/`hi`
+// are the new-side lines a span must touch to claim it; `lines` its added plus removed lines.
+type CoverUnit = { key: string; lo: number; hi: number; lines: number; hash: string };
+// Every unit of a diff, by path, in the diff's file order and each file's line order.
+export type CoverIndex = Map<string, CoverUnit[]>;
+
+export function coverIndex(review: Pick<ReviewState, "files" | "changes">): CoverIndex {
+  const hashAt = new Map(review.changes.map((c) => [`${c.path}:${c.stableKey}`, c.contentHash]));
+  const index: CoverIndex = new Map();
+  for (const f of review.files) {
+    const units = f.hunks.flatMap(skimRangesForHunk).map((r) => {
+      const key = `${f.path}:${r.stableKey}`;
+      return { key, lo: r.lo, hi: r.hi, lines: r.lines, hash: hashAt.get(key) ?? "" };
+    });
+    // A hunk-less file with changed lines (an untracked add) is one unit. One with none (a pure
+    // rename) is in the diff but has nothing to claim.
+    const added = f.added ?? 0;
+    const lines = added + (f.removed ?? 0);
+    if (!units.length && lines > 0)
+      units.push({
+        key: `${f.path}:file`,
+        lo: 1,
+        hi: Math.max(added, 1),
+        lines,
+        hash: f.contentHash,
+      });
+    index.set(f.path, units);
+  }
+  return index;
+}
+
+export type CoverResolution = { ok: true; keys: Set<string> } | { ok: false; reason: string };
+
+// The units `covers` claim, with the rule skimBlocks and part.lines use: a span claims every unit it
+// touches, a file all its units, a folder (a path ending in "/") every changed file under it. Refuses
+// a file not in the diff, a folder with no changed file under it, and a span that touches no change,
+// naming the cover; the caller names whose covers they are. Pure over the index, so any guide entry
+// with covers resolves through it.
+export function resolveCovers(covers: Cover[], index: CoverIndex): CoverResolution {
+  const keys = new Set<string>();
+  const claim = (units: CoverUnit[]) => units.forEach((u) => keys.add(u.key));
+  for (const cover of covers) {
+    const named = `cover ${JSON.stringify(cover.path)}`;
+    if (cover.path.endsWith("/")) {
+      const under = [...index].filter(([p]) => p.startsWith(cover.path));
+      if (!under.length)
+        return { ok: false, reason: `${named} names a folder with no changed file under it` };
+      for (const [, units] of under) claim(units);
+      continue;
+    }
+    const units = index.get(cover.path);
+    if (!units) {
+      const folder = [...index.keys()].some((p) => p.startsWith(`${cover.path}/`));
+      return {
+        ok: false,
+        reason: folder
+          ? `${named} names a folder — end it with "/"`
+          : `${named} names a file that is not in the diff`,
+      };
+    }
+    if (!cover.lines) {
+      claim(units);
+      continue;
+    }
+    for (const span of cover.lines) {
+      const [a, b] = typeof span === "number" ? [span, span] : span;
+      const touched = units.filter((u) => a <= u.hi && b >= u.lo);
+      if (!touched.length) {
+        const where = typeof span === "number" ? `line ${span}` : `span [${a}, ${b}]`;
+        return { ok: false, reason: `${named} ${where} matches no change in the diff` };
+      }
+      claim(touched);
+    }
+  }
+  return { ok: true, keys };
+}
+
+// Every topic of a guide, in the guide's order.
+export const guideTopics = (guide: Guide | undefined) =>
+  guide?.stages?.flatMap((s) => s.groups.flatMap((g) => g.topics)) ?? [];
+
+// Resolve a NEW guide's topic covers (launch with --guide, reload --guide) and stamp the result:
+// each change block's `topics`, and each topic's TopicStamp. Refuses the first cover that resolves
+// to nothing, naming the topic and the cover. Two topics may claim the same block. A guide carried
+// across a reload or restart never comes here (stampTopics). Idempotent — clears prior stamps first.
+export function resolveTopics(
+  review: Pick<ReviewState, "files" | "changes" | "topics">,
+  guide: Guide,
+): SkimResolution {
+  for (const c of review.changes) delete c.topics;
+  delete review.topics;
+  const topics = guideTopics(guide);
+  if (!topics.length) return { ok: true };
+  const index = coverIndex(review);
+  const claimed = new Map<string, Set<string>>();
+  for (const topic of topics) {
+    const r = resolveCovers(topic.covers, index);
+    if (!r.ok) return { ok: false, reason: `guide topic ${JSON.stringify(topic.id)}: ${r.reason}` };
+    claimed.set(topic.id, r.keys);
+  }
+  writeTopicStamps(review, guide, index, claimed);
+  return { ok: true };
+}
+
+// Re-stamp the topics of a guide carried across a reload or restart, after carryGuideStamps carried
+// each block's topics by content. A file or folder cover claims what is under its path now, new
+// blocks included, and a span cover the whole of a hunk-less file it names; a span cover's other
+// blocks are the carried ones, since its lines may have moved. A cover that resolves to nothing now
+// claims nothing: an old guide is never refused.
+export function stampTopics(review: Pick<ReviewState, "files" | "changes" | "guide" | "topics">) {
+  delete review.topics;
+  const topics = guideTopics(review.guide);
+  if (!topics.length) {
+    for (const c of review.changes) delete c.topics;
+    return;
+  }
+  const index = coverIndex(review);
+  const claimed = new Map(topics.map((t) => [t.id, new Set<string>()]));
+  for (const c of review.changes)
+    for (const id of c.topics ?? []) claimed.get(id)?.add(`${c.path}:${c.stableKey}`);
+  for (const topic of topics)
+    for (const cover of topic.covers) {
+      const whole = index.get(cover.path)?.every((u) => u.key.endsWith(":file"));
+      const r = resolveCovers(cover.lines && !whole ? [] : [{ path: cover.path }], index);
+      if (r.ok) for (const key of r.keys) claimed.get(topic.id)!.add(key);
+    }
+  writeTopicStamps(review, review.guide!, index, claimed);
+}
+
+// Each block's `topics` and each topic's TopicStamp, from the unit keys each topic claimed.
+function writeTopicStamps(
+  review: Pick<ReviewState, "changes" | "topics">,
+  guide: Guide,
+  index: CoverIndex,
+  claimed: Map<string, Set<string>>,
+) {
+  const byKey = new Map(review.changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
+  for (const c of review.changes) delete c.topics;
+  const units = [...index.values()].flat();
+  const topics: Record<string, TopicStamp> = {};
+  const all = guideTopics(guide);
+  if (!all.length) return;
+  for (const topic of all) {
+    const keys = claimed.get(topic.id) ?? new Set<string>();
+    const mine = units.filter((u) => keys.has(u.key));
+    for (const u of mine) {
+      const change = byKey.get(u.key);
+      if (change) change.topics = [...(change.topics ?? []), topic.id];
+    }
+    topics[topic.id] = {
+      blocks: mine.map((u) => u.key),
+      lines: mine.reduce((n, u) => n + u.lines, 0),
+      coverHash: hash(mine.map((u) => u.hash).join("\n")),
+    };
+  }
+  review.topics = topics;
 }
 
 export type MovedResolution = { ok: true } | { ok: false; reason: string };
@@ -1906,8 +2085,9 @@ export function carryGuideStamps(
   for (const c of rebuilt.changes) {
     delete c.part;
     delete c.skim;
+    delete c.topics;
   }
-  if (!before.changes.some((c) => c.part !== undefined || c.skim)) return;
+  if (!before.changes.some((c) => c.part !== undefined || c.skim || c.topics)) return;
   const keyOf = (c: ChangeState) => `${c.path}:${c.stableKey}`;
   // A previous block's key, at its file's new path when this rebuild shows the file renamed.
   const renames = renamesIn(rebuilt.files);
@@ -1936,6 +2116,7 @@ export function carryGuideStamps(
     const from = fromKey === undefined ? undefined : priorAt.get(fromKey);
     if (from?.part !== undefined) change.part = from.part;
     if (from?.skim) change.skim = from.skim;
+    if (from?.topics) change.topics = from.topics;
     const blocks = blocksByPath.get(change.path) ?? [];
     blocks.push({ change, from });
     blocksByPath.set(change.path, blocks);
@@ -2092,6 +2273,7 @@ export async function mergeReviewState(
     persistFile: saved.persistFile,
   } satisfies ReviewState;
   signOffCoveredFiles(merged);
+  stampTopics(merged);
   return merged;
 }
 
