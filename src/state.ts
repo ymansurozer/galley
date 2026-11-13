@@ -369,7 +369,8 @@ export function resolveSkim(
   for (const c of changes) delete c.skim;
   const rangesByPath = blockRangesByPath(preparsed ?? parseUnifiedDiff(rawDiff));
   const changeByKey = new Map(changes.map((c) => [`${c.path}:${c.stableKey}`, c]));
-  for (const [gi, file] of guide.files.entries()) {
+  const entries = guide.files ?? [];
+  for (const [gi, file] of entries.entries()) {
     if (!file.skimBlocks?.length) continue;
     const ranges = rangesByPath.get(file.path);
     for (const span of file.skimBlocks) {
@@ -383,7 +384,7 @@ export function resolveSkim(
       for (const r of matched) {
         const change = changeByKey.get(`${file.path}:${r.stableKey}`);
         if (!change) continue;
-        const owner = change.part === undefined ? undefined : guide.files[change.part]?.part;
+        const owner = change.part === undefined ? undefined : entries[change.part]?.part;
         if (file.part && owner && change.part !== gi)
           return {
             ok: false,
@@ -417,7 +418,8 @@ export function resolveParts(
   const added = new Set(review.files.filter((f) => f.changeKind === "added").map((f) => f.path));
   // Which entry claimed each block (by change key) — to name both sides of an overlap.
   const owner = new Map<string, number>();
-  for (const [gi, file] of guide.files.entries()) {
+  const entries = guide.files ?? [];
+  for (const [gi, file] of entries.entries()) {
     if (!file.part) continue;
     const ranges = rangesByPath.get(file.path);
     if (!ranges && added.has(file.path))
@@ -442,7 +444,7 @@ export function resolveParts(
           return {
             ok: false,
             // `owner` only ever records entries that carry a part.
-            reason: `guide parts "${guide.files[prior]!.part!.title}" and "${file.part.title}" on "${file.path}" both claim the change at ${blockLines(r)}`,
+            reason: `guide parts "${entries[prior]!.part!.title}" and "${file.part.title}" on "${file.path}" both claim the change at ${blockLines(r)}`,
           };
         owner.set(key, gi);
         const change = changeByKey.get(key);
@@ -491,7 +493,7 @@ export function resolveMovedFrom(
   guide: Guide,
   opts: { strict: boolean },
 ): MovedResolution {
-  for (const gf of guide.files) {
+  for (const gf of guide.files ?? []) {
     if (!gf.movedFrom) continue;
     const from = gf.movedFrom;
     const to = gf.path;
@@ -1868,7 +1870,7 @@ function signOffCoveredFiles(
     "files" | "changes" | "signedOffBlocks" | "reviewedFiles" | "reviewedFileHashes" | "guide"
   >,
 ) {
-  const split = new Set(state.guide?.files.filter((g) => g.part).map((g) => g.path));
+  const split = new Set(state.guide?.files?.filter((g) => g.part).map((g) => g.path));
   const signed = state.signedOffBlocks ?? {};
   const covered = new Map<string, boolean>();
   for (const c of state.changes) {
@@ -2076,7 +2078,7 @@ export async function mergeReviewState(
     guide: saved.guide
       ? {
           ...saved.guide,
-          files: saved.guide.files.map((g) =>
+          files: saved.guide.files?.map((g) =>
             renameMap.has(g.path) ? { ...g, path: migratePath(g.path) } : g,
           ),
         }

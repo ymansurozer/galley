@@ -25,10 +25,14 @@ import type { WalkGroup, WalkRow } from "./walkthrough";
 import { keycapsHtml } from "./keycaps";
 import type { ChangeState, GuideFile } from "./types";
 
-// Whether the current review carries an agent-attached guide with at least one file.
+// Whether the current review carries an agent-attached guide with at least one file: the file
+// walkthrough Code mode guides through. A guide with topics only has none (see topics.ts).
 export function hasGuide(): boolean {
-  return !!(S.state && S.state.guide && S.state.guide.files && S.state.guide.files.length);
+  return !!S.state?.guide?.files?.length;
 }
+
+// The walkthrough's entries. Callers check hasGuide().
+const guideFiles = () => S.state.guide?.files ?? [];
 
 // The step on screen: the current file, and which part of it (none = the whole file).
 export function currentStep(): Step {
@@ -39,7 +43,7 @@ export function currentStep(): Step {
 
 // The guided review's steps in walkthrough order (see stepPlan). Callers check hasGuide().
 function guidePlan(ix: FlowIndex) {
-  return stepPlan(S.state.guide!.files, S.state.files, (p) => ix.changesByPath.get(p) ?? []);
+  return stepPlan(guideFiles(), S.state.files, (p) => ix.changesByPath.get(p) ?? []);
 }
 
 // What navigation needs from one flow-index pass (per-candidate rescans froze big desks — see
@@ -177,7 +181,7 @@ export function prevWrapStep(): Step | null {
 // The title of the part on screen (undefined off a part step) — what a reload re-finds it by.
 export function currentPartTitle(): string | undefined {
   return typeof S.stepPart === "number"
-    ? S.state?.guide?.files[S.stepPart]?.part?.title
+    ? S.state?.guide?.files?.[S.stepPart]?.part?.title
     : undefined;
 }
 
@@ -243,7 +247,7 @@ export function walkGroups(): WalkGroup[] {
   // One flow-index pass backs every lookup for the whole group derivation.
   const ix = flowIndex();
   return walkthroughGroups(
-    S.state.guide!.files,
+    guideFiles(),
     S.state.files ?? [],
     (slot) => ix.stepState(slot),
     (p) => ix.outOfFlow.has(p),
@@ -311,7 +315,7 @@ export function currentGuideEntry(): GuideFile | null {
   if (!hasGuide()) return null;
   const f = S.state.files[S.fileIndex];
   if (!f) return null;
-  return stepEntry(S.state.guide!.files, f.path, S.stepPart);
+  return stepEntry(guideFiles(), f.path, S.stepPart);
 }
 
 // The titles of the current file's parts, in guide order — empty unless the guide splits it.
@@ -341,7 +345,7 @@ export function renderOverview() {
     <h1>${esc(title)}</h1>
     <div class="go-sub">${esc(S.state.mode)} · ${esc(S.state.session)} · ${S.state.files.length} files · <span class="add">+${totals.added}</span> <span class="del">−${totals.removed}</span></div>
     ${g.focused ? `<div class="go-focused"><svg class="ic"><use href="#gly-collapse-all"></use></svg> Focused review — mechanical churn skimmed</div>` : ""}
-    ${guideStale() ? `<div class="go-stale"><svg class="ic"><use href="#gly-warn"></use></svg> This guide was generated for an earlier version of the diff. Regenerate it and restart the desk with <code>--guide</code> to refresh.</div>` : ""}
+    ${guideStale() ? `<div class="go-stale"><svg class="ic"><use href="#gly-warn"></use></svg> This guide was generated for an earlier version of the diff. Regenerate it and attach it with <code>galley reload --guide &lt;file&gt;</code> to refresh.</div>` : ""}
     <div class="go-overview md">${renderMarkdown(g.overview)}</div>
     ${g.prDescription ? `<div class="go-pr"><b>PR description</b><div class="md">${renderMarkdown(g.prDescription)}</div></div>` : ""}
     <div class="go-actions"><button class="btn primary" id="guideStart">Start Review ${keycapsHtml("↵")}</button></div>

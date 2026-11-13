@@ -101,6 +101,10 @@ export type ChangeState = {
   // step). Resolved from the guide's spans on attach, then carried by content across every reload
   // or restart that keeps the guide (state.ts carryGuideStamps). Never rides /api/save.
   part?: number;
+  // Server-stamped: the ids of the guide topics whose covers claim this block. Resolved from the
+  // covers on attach, then carried by content like `skim` (state.ts carryGuideStamps). Never rides
+  // /api/save.
+  topics?: string[];
 };
 
 // An explicit, durable record of a user's accept/reject on a change block, keyed
@@ -197,6 +201,39 @@ export type GuideFile = {
   part?: { title: string; lines: Array<[number, number] | number> };
 };
 
+// What a topic points at in the diff: a file, a folder (a path ending in "/"), or new-side line
+// spans of a file. Resolved when the guide is attached to the change blocks it claims, with the rule
+// skimBlocks and part.lines use: a span claims every block it touches, a file all its blocks, a
+// folder every changed file under it (state.ts resolveCovers).
+export type Cover = { path: string; lines?: Array<number | [number, number]> };
+
+// One thing the reviewer must settle, on its own page in Decisions mode. `id` is the agent's, and
+// stays the same from one guide to the next, so what the reviewer did on a topic finds it again.
+export type GuideTopic = {
+  id: string;
+  title: string;
+  // Where the call is written down, or that only the code records it.
+  recorded: string;
+  // Markdown.
+  body: string;
+  // A free label from the reviewer's skill; the desk only shows it.
+  concern?: string;
+  // Present → the topic is flagged for closer scrutiny, and this is the note.
+  flag?: string;
+  covers: Cover[];
+  // App paths to look at.
+  pages?: string[];
+};
+export type GuideGroup = { id: string; title: string; summary?: string; topics: GuideTopic[] };
+// Where a group sits in the system. Stages are columns, in the guide's order.
+export type GuideStage = { id: string; label: string; groups: GuideGroup[] };
+
+// The desk's resolution of one topic's covers against the diff, stamped on attach and kept current
+// on every reload (state.ts stampTopics). `blocks` are the change blocks it claims, `path:stableKey`
+// in diff order; `lines` is their added plus removed lines; `coverHash` hashes the blocks' content in
+// order and no line number, so it holds while lines shift above them and moves when one is edited.
+export type TopicStamp = { blocks: string[]; lines: number; coverHash: string };
+
 // The guided review the coding agent attaches (the desk renders it, runs no model).
 // Absent on a ReviewState → no guide surfaces render and the desk works as today.
 export type Guide = {
@@ -205,7 +242,10 @@ export type Guide = {
   title?: string;
   overview: string;
   prDescription?: string;
-  files: GuideFile[];
+  // The file walkthrough Code mode guides through. A guide carries `files`, `stages`, or both.
+  files?: GuideFile[];
+  // The topics Decisions mode opens: stages hold groups, groups hold topics.
+  stages?: GuideStage[];
   // A focused review (issue 04): the reviewer asked for churn to be de-emphasized, so the agent
   // shaped attention (whole-file/block skims, movedFrom merges). Display-only — the overview page
   // badges the review so the human knows churn was deliberately skimmed. A plain guide omits it.
@@ -264,6 +304,9 @@ export type ReviewState = {
   // Agent-generated guided review (overview + per-file orientation/order/category).
   // Optional: absent → no guide surfaces render.
   guide?: Guide;
+  // Each guide topic's resolution against this diff, by topic id (TopicStamp). Server-owned and
+  // rebuilt whenever the guide is attached or the diff is rebuilt; absent when the guide has no topics.
+  topics?: Record<string, TopicStamp>;
   // The running app under review (`--ui <url>` / `galley ui <url>`): a loopback http:// URL the
   // desk reverse-proxies into its UI view. Agent-owned like `target` — set by the CLI, carried
   // across reload/restart by mergeReviewState, never posted back by the tab. Absent → no UI lane.

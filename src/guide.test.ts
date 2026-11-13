@@ -323,3 +323,197 @@ test("mergeReviewState leaves guide undefined when none was attached", async () 
   const merged = await mergeReviewState(state({}), state({}));
   assert.equal(merged.guide, undefined);
 });
+
+// A topics guide: stages hold groups, groups hold topics, each topic covers part of the diff.
+const topicsInput = () => ({
+  title: "Rate limiting",
+  overview: "Adds rate limiting.",
+  stages: [
+    {
+      id: "edge",
+      label: "Edge",
+      groups: [
+        {
+          id: "limits",
+          title: "Limits",
+          summary: "Where the limit is enforced.",
+          topics: [
+            {
+              id: "per-key",
+              title: "Limit per API key",
+              recorded: "Only the code records this call.",
+              body: "The limiter keys on the API key.",
+              concern: "Behaviour",
+              flag: "Shared keys hit the limit together.",
+              covers: [{ path: "src/limit.ts" }, { path: "src/config/", lines: [3, [9, 7]] }],
+              pages: ["/settings"],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "data",
+      label: "Data",
+      groups: [
+        {
+          id: "store",
+          title: "Store",
+          topics: [
+            {
+              id: "redis",
+              title: "Counters in Redis",
+              recorded: "ADR 12",
+              body: "Counters live in Redis.",
+              covers: [{ path: "src/store.ts" }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+});
+
+// The validation's refusal, asserting it was one.
+function refusal(input: unknown) {
+  const r = validateGuide(input);
+  assert.equal(r.ok, false, JSON.stringify(input));
+  return r.ok ? "" : r.reason;
+}
+
+test("validateGuide accepts a guide with stages and no files, keeping its stages in order", () => {
+  const r = validateGuide(topicsInput());
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.guide.files, undefined);
+  assert.deepEqual(
+    r.guide.stages?.map((s) => s.id),
+    ["edge", "data"],
+  );
+  const topic = r.guide.stages![0]!.groups[0]!.topics[0]!;
+  assert.deepEqual(topic, {
+    id: "per-key",
+    title: "Limit per API key",
+    recorded: "Only the code records this call.",
+    body: "The limiter keys on the API key.",
+    concern: "Behaviour",
+    flag: "Shared keys hit the limit together.",
+    covers: [{ path: "src/limit.ts" }, { path: "src/config/", lines: [3, [7, 9]] }],
+    pages: ["/settings"],
+  });
+  assert.equal(r.guide.stages![0]!.groups[0]!.summary, "Where the limit is enforced.");
+  const bare = r.guide.stages![1]!.groups[0]!;
+  assert.equal(bare.summary, undefined);
+  assert.deepEqual(Object.keys(bare.topics[0]!).sort(), [
+    "body",
+    "covers",
+    "id",
+    "recorded",
+    "title",
+  ]);
+});
+
+test("validateGuide accepts a guide with both files and stages", () => {
+  const r = validateGuide({ ...topicsInput(), files: validInput().files });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.guide.files?.length, 2);
+  assert.equal(r.guide.stages?.length, 2);
+});
+
+test("validateGuide refuses a guide with neither files nor stages", () => {
+  assert.match(refusal({ overview: "x" }), /guide needs files or stages/);
+});
+
+test("validateGuide refuses each missing required field on a stage, group and topic, naming it", () => {
+  const cases: Array<[string, (g: ReturnType<typeof topicsInput>) => void, RegExp]> = [
+    [
+      "stage id",
+      (g) => delete (g.stages[0] as Partial<(typeof g.stages)[0]>).id,
+      /guide\.stages\[0\]\.id must be a non-empty string/,
+    ],
+    [
+      "stage label",
+      (g) => delete (g.stages[1] as Partial<(typeof g.stages)[1]>).label,
+      /guide\.stages\[1\] \("data"\)\.label must be a non-empty string/,
+    ],
+    [
+      "stage groups",
+      (g) => delete (g.stages[0] as Partial<(typeof g.stages)[0]>).groups,
+      /guide\.stages\[0\] \("edge"\)\.groups must be a non-empty array/,
+    ],
+    [
+      "group id",
+      (g) => delete (g.stages[0]!.groups[0] as Partial<(typeof g.stages)[0]["groups"][0]>).id,
+      /guide\.stages\[0\]\.groups\[0\]\.id must be a non-empty string/,
+    ],
+    [
+      "group title",
+      (g) => delete (g.stages[0]!.groups[0] as Partial<(typeof g.stages)[0]["groups"][0]>).title,
+      /guide\.stages\[0\]\.groups\[0\] \("limits"\)\.title must be a non-empty string/,
+    ],
+    [
+      "group topics",
+      (g) => delete (g.stages[0]!.groups[0] as Partial<(typeof g.stages)[0]["groups"][0]>).topics,
+      /guide\.stages\[0\]\.groups\[0\] \("limits"\)\.topics must be a non-empty array/,
+    ],
+  ];
+  const topicFields = ["id", "title", "recorded", "body", "covers"] as const;
+  for (const field of topicFields) {
+    const g = topicsInput();
+    delete (g.stages[0]!.groups[0]!.topics[0] as Partial<Record<string, unknown>>)[field];
+    const at =
+      field === "id"
+        ? "guide\\.stages\\[0\\]\\.groups\\[0\\]\\.topics\\[0\\]"
+        : 'guide\\.stages\\[0\\]\\.groups\\[0\\]\\.topics\\[0\\] \\("per-key"\\)';
+    const kind = field === "covers" ? "a non-empty array" : "a non-empty string";
+    assert.match(refusal(g), new RegExp(`${at}\\.${field} must be ${kind}`), field);
+  }
+  for (const [name, mutate, expected] of cases) {
+    const g = topicsInput();
+    mutate(g);
+    assert.match(refusal(g), expected, name);
+  }
+});
+
+test("validateGuide refuses malformed covers, naming the topic and the entry", () => {
+  const withCovers = (covers: unknown) => {
+    const g = topicsInput();
+    (g.stages[0]!.groups[0]!.topics[0] as { covers: unknown }).covers = covers;
+    return g;
+  };
+  assert.match(refusal(withCovers([])), /\("per-key"\)\.covers must be a non-empty array/);
+  assert.match(
+    refusal(withCovers([{ lines: [1] }])),
+    /\("per-key"\)\.covers\[0\]\.path must be a non-empty string/,
+  );
+  assert.match(
+    refusal(withCovers([{ path: "a.ts", lines: [] }])),
+    /\("per-key"\)\.covers\[0\]\.lines \(on "a\.ts"\) must be a non-empty array of line numbers and \[start, end\] pairs/,
+  );
+  assert.match(
+    refusal(withCovers([{ path: "a.ts" }, { path: "b.ts", lines: ["x"] }])),
+    /\("per-key"\)\.covers\[1\]\.lines \(on "b\.ts"\)/,
+  );
+});
+
+test("validateGuide refuses duplicate stage, group and topic ids, naming the id", () => {
+  const stage = topicsInput();
+  stage.stages[1]!.id = "edge";
+  assert.match(refusal(stage), /two stages share the id "edge"/);
+  const group = topicsInput();
+  group.stages[1]!.groups[0]!.id = "limits";
+  assert.match(refusal(group), /two groups share the id "limits"/);
+  const topic = topicsInput();
+  topic.stages[1]!.groups[0]!.topics[0]!.id = "per-key";
+  assert.match(refusal(topic), /two topics share the id "per-key"/);
+});
+
+test("validateGuide refuses malformed optional topic fields", () => {
+  const g = topicsInput();
+  (g.stages[0]!.groups[0]!.topics[0] as { pages: unknown }).pages = "/settings";
+  assert.match(refusal(g), /\("per-key"\)\.pages must be an array of strings/);
+  const s = topicsInput();
+  (s as { stages: unknown }).stages = [];
+  assert.match(refusal(s), /guide\.stages must be a non-empty array/);
+});
