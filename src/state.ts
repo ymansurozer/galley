@@ -736,7 +736,7 @@ function stampCoverage(
       else if (skimKeys.has(u.key)) coverage.skimmedLines += u.lines;
       else {
         coverage.uncoveredLines += u.lines;
-        gaps.push(`${path}:${u.lo}`);
+        gaps.push(`${path}:${Math.max(1, u.lo)}`);
       }
     }
   if (attaching && gaps.length)

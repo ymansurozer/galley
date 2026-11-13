@@ -30,6 +30,7 @@ test("Points to starts folded, lists pages without app controls when unavailable
   assert.equal(host.querySelector("details")?.open, false);
   assert.match(host.textContent, /1 page, 1 place in the code/);
   assert.equal(host.querySelector("[data-topic-app]"), null);
+  assert.match(host.textContent, /a.ts:42/);
   assert.equal(host.querySelector("[data-topic-code]")?.getAttribute("data-line"), "42");
   host.innerHTML = renderPoints(items, 3, true);
   assert.equal(host.querySelector("[data-topic-app]")?.getAttribute("data-topic-app"), "/settings");

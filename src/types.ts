@@ -226,12 +226,21 @@ export type GuideTopic = {
   // App paths to look at.
   pages?: string[];
 };
+// An agent explains why these changes need no topic and may cite the reviewer’s rule.
+// Coverage-only: these claims never fold Code mode, whose skims live on files entries.
 export type GuideSkim = { reason: string; rule?: string; covers: Cover[] };
+// Server-owned coverage, rebuilt on every guide attach and diff reload. Counts are added plus
+// removed lines of whole change blocks, never literal span lengths.
 export type TopicCoverage = {
+  // Exclusive union of topic claims: a topic wins any overlap with a skim.
   topicLines: number;
+  // Claimed by a skim and no topic; overlapping skims assign their lines to the first source.
   skimmedLines: number;
+  // All changed lines: topicLines + skimmedLines + uncoveredLines equals this total.
   totalLines: number;
+  // Neither claimed nor skimmed: zero on attach, possible after a retained guide reloads.
   uncoveredLines: number;
+  // Per-source exclusive counts add up to skimmedLines, including zero-line sources.
   skims: Array<{ reason: string; rule?: string; lines: number }>;
 };
 
@@ -257,6 +266,7 @@ export type Guide = {
   files?: GuideFile[];
   // The topics Decisions mode opens: stages hold groups, groups hold topics.
   stages?: GuideStage[];
+  // Requires stages: explains the changes left outside the topic narrative, for coverage only.
   skims?: GuideSkim[];
   // A focused review (issue 04): the reviewer asked for churn to be de-emphasized, so the agent
   // shaped attention (whole-file/block skims, movedFrom merges). Display-only — the overview page
@@ -319,6 +329,8 @@ export type ReviewState = {
   // Each guide topic's resolution against this diff, by topic id (TopicStamp). Server-owned and
   // rebuilt whenever the guide is attached or the diff is rebuilt; absent when the guide has no topics.
   topics?: Record<string, TopicStamp>;
+  // Server-owned split rebuilt on attach/reload; absent without stages. The tab displays it
+  // rather than resolving possibly stale guide spans itself (TopicCoverage records the partition).
   coverage?: TopicCoverage;
   // The running app under review (`--ui <url>` / `galley ui <url>`): a loopback http:// URL the
   // desk reverse-proxies into its UI view. Agent-owned like `target` — set by the CLI, carried

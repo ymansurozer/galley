@@ -27,10 +27,11 @@ export const hasTopics = () => !!S.state?.guide?.stages?.length;
 
 const stages = () => S.state?.guide?.stages ?? [];
 
-// What the centre showed when it was last drawn, so a redraw of the same page keeps its scroll.
+// Keep evidence expansion across redraws; a different topic starts folded with ten items.
 let pointsCount = 10;
 let pointsOpen = false;
 let coverageOpen = false;
+// What the centre showed when it was last drawn, so a redraw of the same page keeps its scroll.
 let drawn: TopicAt | undefined;
 
 // Draw the sidebar list and the Overview or the open topic. A topic a new guide dropped falls back

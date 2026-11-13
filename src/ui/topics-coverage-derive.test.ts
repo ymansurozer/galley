@@ -6,6 +6,7 @@ test("topic share uses the specified precision", () => {
   assert.equal(formatTopicShare(4, 10000), "<0.1%");
   assert.equal(formatTopicShare(606, 10000), "6.1%");
   assert.equal(formatTopicShare(2340, 10000), "23%");
+  assert.equal(formatTopicShare(996, 10000), "10%");
   assert.equal(formatTopicShare(0, 0), "0%");
 });
 

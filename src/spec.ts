@@ -350,7 +350,8 @@ walkthrough and Decisions mode shows the topics.
         a new untracked file is one whole-file change. Two topics may cover the same lines.
       - pages? — array of app paths ("/settings") the topic shows up on.
 Coverage: every changed block must be under a topic or skimmed when attaching a guide with stages.
-- skims? — array of { reason, rule?, covers }. reason is required and non-empty; covers resolves
+- skims? — array of { reason, rule?, covers }. Requires stages; otherwise "guide.skims needs stages".
+  reason is required and non-empty; covers resolves
   exactly like a topic's covers. Skim rules are the reviewer's: cite the rule you applied.
   Galley keeps no skim patterns. These skims count for coverage only; they do not fold Code mode.
 - A files entry's whole-file skim or skimBlocks counts too. Topics win overlaps with skims.

@@ -2,6 +2,8 @@ import type { TopicCoverage } from "../types";
 import { esc } from "./html";
 import { formatTopicShare, pointsPage, type TopicPoint } from "./topics-coverage-derive";
 
+// Display the server-owned exclusive split; the tab never recomputes coverage from guide spans.
+// Reasons remain inspectable even when another claim leaves a skim with zero exclusive lines.
 export function renderCoverage(c?: TopicCoverage) {
   if (!c) return "";
   const width = (n: number) => (c.totalLines ? (n / c.totalLines) * 100 : 0);
@@ -11,10 +13,13 @@ export function renderCoverage(c?: TopicCoverage) {
     ${c.uncoveredLines ? `<p class="topic-coverage-gap">${c.uncoveredLines} lines not in the guide yet</p>` : ""}</section>`;
 }
 
+// Keep the raw numerator and unskimmed denominator available behind the rounded share.
 export function renderTopicShare(lines: number, unskimmed: number) {
   return `<span class="topic-share" title="${lines} of ${unskimmed} unskimmed lines">${formatTopicShare(lines, unskimmed)} of unskimmed lines</span>`;
 }
 
+// Evidence starts folded so long file lists do not interrupt reading. Pages remain visible
+// without an app, but navigation is offered only where the desk can open the target.
 export function renderPoints(items: TopicPoint[], lines: number, hasApp: boolean, count = 10) {
   const pages = items.filter((p) => p.kind === "page").length;
   const code = items.length - pages;
@@ -36,7 +41,7 @@ export function renderPoints(items: TopicPoint[], lines: number, hasApp: boolean
       const name = code ? p.path.split("/").pop()! : p.path;
       const dir = code ? p.path.slice(0, -name.length) : "";
       const tag = attrs ? "button" : "div";
-      return `<${tag} class="topic-point" ${attrs} title="${esc(p.path)}"><b>${esc(name)}</b><span>${esc(dir)}${code ? ` · ${p.lines} lines` : ""}</span><span>${code ? "Open in Code" : hasApp ? "Open in App" : ""}</span></${tag}>`;
+      return `<${tag} class="topic-point" ${attrs} title="${esc(p.path)}"><b>${esc(name)}${code ? `:${p.line}` : ""}</b><span>${esc(dir)}${code ? ` · ${p.lines} lines` : ""}</span><span>${code ? "Open in Code" : hasApp ? "Open in App" : ""}</span></${tag}>`;
     })
     .join(
       "",

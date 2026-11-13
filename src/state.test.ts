@@ -4380,3 +4380,32 @@ test("coverage lists each files-entry block skim separately even with identical 
     assert.equal(shifted.coverage?.uncoveredLines, 1);
   });
 });
+
+test("coverage refusals use navigable lines for deleted files and top-of-file deletions", async () => {
+  const dir = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "galley-coverage-deletions-")),
+  );
+  const gitq = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "deleted.txt"), "removed\n");
+    await fs.writeFile(path.join(dir, "top.txt"), "removed\nkept\n");
+    await fs.writeFile(path.join(dir, "covered.txt"), "old\n");
+    gitq("add", ".");
+    gitq("commit", "-qm", "init");
+    await fs.rm(path.join(dir, "deleted.txt"));
+    await fs.writeFile(path.join(dir, "top.txt"), "kept\n");
+    await fs.writeFile(path.join(dir, "covered.txt"), "new\n");
+    const st = (await buildReviewState(dir, { session: "s" }))!;
+    const guide = topicsGuide({ covered: [{ path: "covered.txt" }] });
+    delete guide.skims;
+    const result = resolveGuide(st, guide);
+    assert.equal(result.ok, false);
+    if (!result.ok)
+      assert.equal(result.reason, "guide leaves changes uncovered: deleted.txt:1, top.txt:1");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

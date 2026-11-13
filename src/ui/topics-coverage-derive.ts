@@ -1,16 +1,21 @@
 import type { GuideTopic, ReviewState } from "../types";
 import { placeBlocks } from "./flow-index";
 
+// Shares use unskimmed changed lines, not the sum of topic claims: topics may overlap.
+// Pick precision after rounding so a share near ten percent never reads "10.0%".
 export function formatTopicShare(lines: number, unskimmed: number): string {
   const n = unskimmed > 0 ? (lines / unskimmed) * 100 : 0;
   if (n > 0 && n < 0.1) return "<0.1%";
-  return `${n < 10 ? n.toFixed(1).replace(/^0\.0$/, "0") : n.toFixed(0)}%`;
+  const rounded = Math.round(n * 10) / 10;
+  return `${rounded < 10 ? rounded.toFixed(1).replace(/^0\.0$/, "0") : n.toFixed(0)}%`;
 }
 
 export type TopicPoint =
   | { kind: "page"; path: string }
   | { kind: "code"; path: string; line: number; lines: number };
 
+// Pages precede code evidence; each changed file contributes one place in diff order.
+// Derive its first covered line and added-plus-removed count from the server-stamped claims.
 export function topicPoints(topic: GuideTopic, state: ReviewState): TopicPoint[] {
   const keys = new Set(state.topics?.[topic.id]?.blocks ?? []);
   const items: TopicPoint[] = (topic.pages ?? []).map((path) => ({ kind: "page", path }));
@@ -34,6 +39,7 @@ export function topicPoints(topic: GuideTopic, state: ReviewState): TopicPoint[]
   return items;
 }
 
+// Bound each expansion to ten items without changing the pages-first evidence order.
 export function pointsPage(items: TopicPoint[], count = 10) {
   return { items: items.slice(0, count), more: Math.min(10, Math.max(0, items.length - count)) };
 }

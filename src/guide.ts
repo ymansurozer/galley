@@ -167,6 +167,8 @@ export function validateGuide(input: unknown): GuideValidation {
     if (!s.ok) return s;
     topicStages = s.stages;
   }
+  if (g.skims !== undefined && !topicStages)
+    return { ok: false, reason: "guide.skims needs stages" };
   const skims: NonNullable<Guide["skims"]> = [];
   if (g.skims !== undefined) {
     if (!Array.isArray(g.skims)) return { ok: false, reason: "guide.skims must be an array" };
