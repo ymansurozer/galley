@@ -1550,7 +1550,8 @@ async function mergeReviewerCopy(
     state.annotations = annotations;
   }
   const threads = readTopicThreads(incoming.topicThreads);
-  if (threads) state.topicThreads = takeTopicThreads(threads, state.topicThreads, state.guide);
+  if (threads)
+    state.topicThreads = takeTopicThreads(threads, state.topicThreads, state.guide, state.coverage);
   raiseAnnotationMark(state, incoming.lastAnnotationNumber);
   return unplaced;
 }
@@ -1810,7 +1811,7 @@ async function applyReviewerChanges(
   // was on (takeTopicThread).
   if (c.topicThreads) {
     const next = applyKeyed(state.topicThreads ?? [], c.topicThreads, (t) => t.id);
-    state.topicThreads = takeTopicThreads(next, state.topicThreads, state.guide);
+    state.topicThreads = takeTopicThreads(next, state.topicThreads, state.guide, state.coverage);
   }
   raiseAnnotationMark(state, c.lastAnnotationNumber);
   return unplaced;

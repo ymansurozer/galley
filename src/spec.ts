@@ -124,9 +124,9 @@ await yields exactly one:
     kind; role and name or tag and text, "+N more" elements, the source's file:line when it's in
     the repo — page-sourced data); answer with \`galley comment --ui <annotationId>\`.
   - lane "topic": {lane, id, topic, part, quote?, body, mode, session} — on a part of a topic in
-    Decisions mode (see Topics): id is the thread's, topic the topic's id, part where on the topic
-    (see Topic parts), quote the text that part shows (a body block's markdown source); answer
-    with \`galley comment --topic <id>\`.
+    Decisions mode (see Topics), or of its Overview: id is the thread's, topic the topic's id or
+    "overview", part where on it (see Topic parts), quote the text that part shows (a body block's
+    markdown source); answer with \`galley comment --topic <id>\`.
   Handle each by the Question handling rule below. Questions are a live side-channel — never in
   a Send/ReviewResult except openQuestions below. Slow answer → post \`galley status\` lines so the
   human sees progress.
@@ -220,8 +220,9 @@ The \`result\` field of a review event:
 - topics? — {settled[], todo[]}: the guide's topic ids in the guide's order, those the reviewer
   settled and those still to do (absent when the guide has no topics). See "Settling and rounds".
 - topicChangeRequests[]: {id, topic, part, quote?, body, option?} — the human's open change requests on
-  topics (resolved ones are not sent; empty without topics), by topic in the guide's order, then
-  down the page; those on a topic your new guide dropped come last, still named by its old id.
+  topics and on the Overview (resolved ones are not sent; empty without topics): the Overview's
+  first (topic "overview"), then by topic in the guide's order, each down the page; those on a
+  topic your new guide dropped come last, still named by its old id.
   id is the thread's (reply with \`galley comment --topic <id>\`), part where on the topic (see Topic
   parts), quote the text that part showed, body the change to make.
   option? — the picked option label, present only for a request made by picking.
@@ -446,6 +447,14 @@ topicChangeRequests) is one of:
 When a new guide (\`reload --guide\`) rewrites a topic's body, a thread on a block follows the block
 whose text is the same, and moves to "title" once that text is gone (its quote still says what it
 was on). A topic your new guide drops (by id) keeps its open change requests; its questions go.
+On the Overview (topic "overview") the parts are:
+- "summary" — your guide's overview text (quoted); "coverage" — the coverage card (quoted as
+  "N lines: T under a topic, S skimmed by rule[, U not in the guide yet]");
+- "map" — the map as a whole (no quote); "group:<id>" — a group's box (quotes its title);
+- "link:<from>><to>" — a link, by its two group ids, whether the human pointed at its line, its
+  label or its note (quotes "From title → To title: label").
+When a new guide drops a group or a link, a thread on it moves to "map" and its quote still says
+what it was on. The topic id "overview" is taken: no topic may use it.
 
 ### When to skim / focused review
 Skim ONLY on request ("give me a focused review"; "ignore the import churn, show me the real

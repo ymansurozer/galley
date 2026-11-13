@@ -756,10 +756,12 @@ export type UiAnnotationRecord = {
 // A thread on a part of a topic (ReviewState.topicThreads). Its first message is what it asks, as
 // an annotation's is; later messages are replies. `target.topic` is a topic id, or "overview" for
 // the Overview. `target.part` is where on it the thread sits: "title", "recorded", "flag", or
-// "body:<line>", a block of the body by its source line (topicthreads.ts bodyBlocks). `title` is
-// the topic's title when the thread was made, so a thread whose topic a new guide dropped can still
-// be named. `quote` is the text of its part (a body block's markdown source), which the thread
-// follows when a new guide rewrites the body; `moved`: that block is gone, so it sits on the title.
+// "body:<line>", a block of the body by its source line (topicthreads.ts bodyBlocks); on the
+// Overview "summary", "map", "group:<id>", "link:<from>><to>" or "coverage". `title` is the topic's
+// title when the thread was made, so a thread whose topic a new guide dropped can still be named.
+// `quote` is the text of its part (a body block's markdown source), which the thread follows when a
+// new guide rewrites the body; `moved`: that part is gone, so it sits on the title (on the
+// Overview, the map) and its quote says what it was on.
 // The desk sets the target's part, title, quote and moved; the tab only names a new thread's part.
 export type TopicThread = {
   id: string;

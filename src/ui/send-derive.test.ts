@@ -33,6 +33,18 @@ test("no requests reads as none, and nothing is held back", () => {
   assert.deepEqual(codeSendSummary([], 0), { code: "No change requests", codeNotSent: "" });
 });
 
+test("topic change requests count in the receipt when code and the app have none", () => {
+  const two = ["2 change requests on the Overview"];
+  assert.deepEqual(codeSendSummary([], 0, two), {
+    code: "2 change requests on the Overview",
+    codeNotSent: "",
+  });
+  assert.equal(
+    codeSendSummary([comment("a.ts", 3)], 0, two).code,
+    "1 change request in 1 file · 2 change requests on the Overview",
+  );
+});
+
 test("one change request is singular, in one file", () => {
   assert.deepEqual(codeSendSummary([comment("a.ts", 3)], 0), {
     code: "1 change request in 1 file",

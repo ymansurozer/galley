@@ -1,5 +1,5 @@
 import { esc } from "./html";
-import { bodyLine } from "./topicthreads-derive";
+import { bodyLine, groupPart, linkPart, type MapTint } from "./topicthreads-derive";
 import type { TopicThread } from "../types";
 
 // The markup that makes a rendered topic page commentable: each part found on the page, marked
@@ -9,11 +9,19 @@ import type { TopicThread } from "../types";
 // A part's element on a page drawn by renderTopicPage: the title, the Recorded line, the Flagged
 // card, or a block of the body by its source line. A body block is a direct child of the body
 // carrying that line, or an item of a top-level list: a list and its first item share their line,
-// and only the item is a part (topicthreads.ts bodyBlocks, the desk's list).
+// and only the item is a part (topicthreads.ts bodyBlocks, the desk's list). On the Overview
+// (renderTopicsOverview): the summary, the map and the coverage card.
+const OWN_ELEMENT: Record<string, string> = {
+  title: ".topic-title",
+  recorded: ".topic-recorded",
+  flag: ".topic-flag",
+  summary: ".go-overview",
+  map: ".topics-map",
+  coverage: ".topic-coverage",
+};
 export function partElement(page: ParentNode, part: string): HTMLElement | null {
-  if (part === "title") return page.querySelector(".topic-title");
-  if (part === "recorded") return page.querySelector(".topic-recorded");
-  if (part === "flag") return page.querySelector(".topic-flag");
+  const own = OWN_ELEMENT[part];
+  if (own) return page.querySelector(own);
   if (/^option:[1-9]\d*$/.test(part)) return page.querySelector(`[data-option-part="${part}"]`);
   const line = String(bodyLine(part));
   const body = page.querySelector(".topic-body");
@@ -127,4 +135,83 @@ export function placeDroppedThreads(
   const end = overview.querySelector(".topics-end");
   if (end) end.before(section);
   else overview.append(section);
+}
+
+// ── The Overview's map ───────────────────────────────────────────────────────────────────────────
+
+const COMMENT_GLYPH = `<svg class="ic" aria-hidden="true"><use href="#gly-message"></use></svg>`;
+
+// The parts a map element speaks for: its own link, or every link a shared label or list line
+// says (map-dom.ts writes their ends as JSON, so any group id survives).
+function linkParts(el: HTMLElement | SVGElement): string[] {
+  const { links, from, to } = el.dataset;
+  const ends: unknown = links ? JSON.parse(links) : [[from, to]];
+  if (!Array.isArray(ends)) return [];
+  return ends.flatMap((e) =>
+    Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string"
+      ? [linkPart(e[0], e[1])]
+      : [],
+  );
+}
+
+// Make the Overview's map (map-dom.ts's markup, the drawing and the narrow list) commentable: each
+// box and each list row gets a comment button; each drawn link a wide invisible line to point at;
+// and a link's label, note and list line open the composer on it, as its button does (`data-gut`,
+// topicthreads.ts). A box or a link with an open thread is tinted by `tints` (by part); a label or
+// a list line that speaks for several links takes the strongest of theirs.
+export function markMap(host: ParentNode, tints: ReadonlyMap<string, MapTint>) {
+  const doc = (host as Node).ownerDocument!; // a node in a document: the Overview's page
+  const tint = (el: Element, parts: string[]) => {
+    const has = parts.map((p) => tints.get(p));
+    const kind = has.includes("change") ? "change" : has.includes("question") ? "question" : null;
+    el.classList.toggle("map-ask", kind === "question");
+    el.classList.toggle("map-change", kind === "change");
+  };
+  for (const box of host.querySelectorAll<HTMLElement>(".map-box, .map-list-row")) {
+    const part = groupPart(box.dataset.group ?? "");
+    const title = box.title || box.querySelector(".map-list-title")?.textContent || "this group";
+    const button = doc.createElement("button");
+    button.type = "button";
+    button.className = "map-cm";
+    button.dataset.gut = part;
+    button.setAttribute("aria-label", `Comment on ${title}`);
+    button.dataset.tip = "Comment, or ⇧ click the box";
+    button.innerHTML = COMMENT_GLYPH;
+    box.append(button);
+    tint(box, [part]);
+  }
+  for (const link of host.querySelectorAll<SVGGElement>(".map-link")) {
+    const [part] = linkParts(link);
+    const line = link.querySelector("path");
+    if (!part || !line) continue;
+    const hit = line.cloneNode() as SVGPathElement;
+    hit.setAttribute("class", "map-hit");
+    hit.dataset.gut = part;
+    link.append(hit);
+    tint(link, [part]);
+  }
+  for (const el of host.querySelectorAll<HTMLElement | SVGElement>(
+    ".map-label, .map-note, .map-list-feed",
+  )) {
+    const parts = linkParts(el);
+    // The label's own link: the one whose line carries it.
+    const own = el.dataset.from !== undefined && linkPart(el.dataset.from, el.dataset.to ?? "");
+    if (own || parts[0]) el.dataset.gut = own || parts[0];
+    tint(el, parts);
+  }
+  for (const el of host.querySelectorAll<SVGElement>(".map-cross")) tint(el, linkParts(el));
+}
+
+// A thread under the map: a chip after its kind naming the box or the link it is about, and its
+// part on the card, so pointing at it lights that box or link (topics.ts).
+export function chipThread(card: HTMLElement, part: string, label: string) {
+  card.dataset.mapPart = part;
+  const head = card.querySelector(".tc-head, .thread-summary");
+  if (!head) return;
+  const chip = card.ownerDocument.createElement("span");
+  chip.className = "topic-anchor";
+  chip.textContent = label;
+  const kind = head.querySelector(":scope > .tc-kind, :scope > b");
+  if (kind) kind.after(chip);
+  else head.prepend(chip);
 }

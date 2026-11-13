@@ -507,6 +507,10 @@ test("validateGuide refuses duplicate stage, group and topic ids, naming the id"
   const topic = topicsInput();
   topic.stages[1]!.groups[0]!.topics[0]!.id = "per-key";
   assert.match(refusal(topic), /two topics share the id "per-key"/);
+  // A thread on the Overview names it "overview", so no topic may.
+  const overview = topicsInput();
+  overview.stages[1]!.groups[0]!.topics[0]!.id = "overview";
+  assert.match(refusal(overview), /\("overview"\)\.id "overview" is taken: it names the Overview/);
 });
 
 test("validateGuide refuses malformed optional topic fields", () => {

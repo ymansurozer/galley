@@ -1,4 +1,4 @@
-import type { GuideStage, GuideTopic, TopicStamp, TopicThread } from "../types";
+import type { GuideLink, GuideStage, GuideTopic, TopicStamp, TopicThread } from "../types";
 import { firstLine } from "./uilane-derive";
 import { messageWaiting } from "./thread-derive";
 
@@ -20,6 +20,88 @@ export function topicParts(topic: GuideTopic, stamp: TopicStamp | undefined): st
     })),
   ].sort((a, b) => a.line - b.line);
   return ["title", "recorded", ...body.map((b) => b.part), ...(topic.flag ? ["flag"] : [])];
+}
+
+// ── The Overview ─────────────────────────────────────────────────────────────────────────────────
+
+// A thread on the Overview names it as its topic (topicthreads.ts keeps the desk's copy of these
+// names). A link is named by its two group ids; an id may hold ">", so a link part is found among
+// the guide's links by its whole name, which the guide keeps unique.
+export const OVERVIEW = "overview";
+export const groupPart = (id: string) => `group:${id}`;
+export const linkPart = (from: string, to: string) => `link:${from}>${to}`;
+const onMap = (part: string) => /^(group|link):/.test(part);
+
+// The Overview's parts, top to bottom: the summary, the map as a whole with each box and each link
+// on it (when a map is drawn), then coverage (when the card shows).
+export function overviewParts(
+  stages: readonly GuideStage[],
+  links: readonly GuideLink[],
+  shown: { map: boolean; coverage: boolean },
+): string[] {
+  const map = shown.map
+    ? [
+        "map",
+        ...stages.flatMap((s) => s.groups.map((g) => groupPart(g.id))),
+        ...links.map((l) => linkPart(l.from, l.to)),
+      ]
+    : [];
+  return ["summary", ...map, ...(shown.coverage ? ["coverage"] : [])];
+}
+
+// The parts the cursor (j / k) stops at: the summary, the map and coverage. A box and a link are
+// pointed at.
+export const overviewStops = (parts: readonly string[]) => parts.filter((p) => !onMap(p));
+
+// Where a thread on the Overview sits: under the summary or coverage, else under the map.
+export const overviewSlot = (part: string) =>
+  part === "summary" || part === "coverage" ? part : "map";
+
+// The box or the link an Overview part names, by group ids. Null for any other part, and for a link
+// the guide no longer has.
+export function mapTarget(
+  part: string,
+  links: readonly GuideLink[],
+): { group: string } | { link: [string, string] } | null {
+  if (part.startsWith("group:")) return { group: part.slice("group:".length) };
+  const l = links.find((x) => linkPart(x.from, x.to) === part);
+  return l ? { link: [l.from, l.to] } : null;
+}
+
+// The chip on a thread under the map: the box's title, the link's two groups, or the map itself;
+// a box or a link the tab's guide no longer has, by what the thread quoted. Null for the summary's
+// and coverage's, which sit under their own part.
+export function overviewChip(
+  t: Pick<TopicThread, "target" | "quote">,
+  stages: readonly GuideStage[],
+  links: readonly GuideLink[],
+): string | null {
+  const { part } = t.target;
+  if (overviewSlot(part) !== "map") return null;
+  if (part === "map") return "The map";
+  const title = new Map(stages.flatMap((s) => s.groups.map((g) => [g.id, g.title] as const)));
+  const at = mapTarget(part, links);
+  if (at && "group" in at && title.has(at.group)) return title.get(at.group)!;
+  if (at && "link" in at) return `${title.get(at.link[0])} → ${title.get(at.link[1])}`;
+  return t.quote ?? part;
+}
+
+// What a thread on the Overview says of where it sits: one a new guide moved to the map says what it
+// was on.
+export const overviewPlace = (t: Pick<TopicThread, "moved" | "quote">) =>
+  t.moved ? `was on ${t.quote ?? "a part the guide dropped"}` : null;
+
+// The tint of each Overview part with an open thread: a question, or a change request, which wins
+// when it has both.
+export type MapTint = "question" | "change";
+export function overviewTints(threads: readonly TopicThread[]): Map<string, MapTint> {
+  const tints = new Map<string, MapTint>();
+  for (const t of threads) {
+    if (t.target.topic !== OVERVIEW || t.status !== "open") continue;
+    if (requestsChange(t)) tints.set(t.target.part, "change");
+    else if (!tints.has(t.target.part)) tints.set(t.target.part, "question");
+  }
+  return tints;
 }
 
 // A body part's source line, or undefined for any other part.
@@ -86,28 +168,33 @@ export const topicMark = (settled: boolean, requested: boolean): TopicMark =>
   requested ? "change" : settled ? "done" : "todo";
 
 // The open topic change requests for the sidebar's list and the `]` / `[` walk, in the result's
-// order: by topic in the guide's order, then down its page, then as made; those on topics the
-// guide no longer has come last, named by the title their thread kept.
+// order: the Overview's first (it opens the guide), then by topic in the guide's order, each down
+// its page, then as made; those on topics the guide no longer has come last, named by the title
+// their thread kept.
 export type TopicRequest = {
   kind: "topic";
   id: string;
   topic: string;
   title: string;
   part: string;
-  // The topic's place in the guide (Infinity once the guide has dropped it), the part's place on
-  // its page, and the thread's place among them, as the list orders them.
+  // The topic's place in the guide (-1 for the Overview, Infinity once the guide has dropped it),
+  // the part's place on its page, and the thread's place among them, as the list orders them.
   rank: number;
   partRank: number;
   seq: number;
   text: string;
 };
 
-// A part's place on its topic's page, top to bottom (topicParts).
+// A part's place on its topic's page, top to bottom (topicParts). On the Overview: the summary, then
+// everything under the map in the order made, then coverage.
 export function partRank(part: string): number {
   if (part.startsWith("option:")) return 3 + Number(part.slice(7)) / 1e7;
   const line = bodyLine(part);
   if (line !== undefined) return 2 + line / 1e7;
-  return ({ title: 0, recorded: 1, flag: 3 } as Record<string, number>)[part] ?? 4;
+  if (onMap(part)) return 1;
+  const ranks: Record<string, number> = { title: 0, recorded: 1, flag: 3 };
+  const overview: Record<string, number> = { summary: 0, map: 1, coverage: 2 };
+  return ranks[part] ?? overview[part] ?? 4;
 }
 
 export function topicRequestList(
@@ -125,9 +212,10 @@ export function topicRequestList(
               kind: "topic" as const,
               id: t.id,
               topic: t.target.topic,
-              title: title.get(t.target.topic) ?? t.title,
+              title:
+                t.target.topic === OVERVIEW ? "Overview" : (title.get(t.target.topic) ?? t.title),
               part: t.target.part,
-              rank: rank.get(t.target.topic) ?? Infinity,
+              rank: t.target.topic === OVERVIEW ? -1 : (rank.get(t.target.topic) ?? Infinity),
               partRank: partRank(t.target.part),
               seq,
               text: firstLine(askOf(t)?.body ?? ""),
@@ -143,19 +231,24 @@ export const compareTopicRequests = (
   b: Pick<TopicRequest, "rank" | "partRank" | "seq">,
 ) => (a.rank === b.rank ? 0 : a.rank < b.rank ? -1 : 1) || a.partRank - b.partRank || a.seq - b.seq;
 
-// The Send dialog's words for the topic threads: the change requests that go, and the questions
-// still waiting on the agent (they go as openQuestions). Empty with neither.
-export function topicThreadsSendLine(threads: readonly TopicThread[]) {
+// The Send dialog's words for the topic threads, in the code and UI lanes' words: the change
+// requests that go and where they sit, and the questions still waiting on the agent (they go as
+// openQuestions). The Overview is named as itself, beside the topics. Empty with neither.
+export function topicSendParts(threads: readonly TopicThread[]): string[] {
   const open = threads.filter((t) => t.status === "open");
-  const requests = open.filter(requestsChange).length;
-  const waiting = open.filter((t) => t.comments.some((m) => messageWaiting(m, t.comments))).length;
   const n = (c: number, w: string) => `${c} ${w}${c === 1 ? "" : "s"}`;
+  const on = (list: readonly TopicThread[]) => {
+    const topics = new Set(list.map((t) => t.target.topic));
+    const overview = topics.delete(OVERVIEW);
+    if (!topics.size) return "on the Overview";
+    return `on ${n(topics.size, "topic")}${overview ? " and the Overview" : ""}`;
+  };
+  const requests = open.filter(requestsChange);
+  const waiting = open.filter((t) => t.comments.some((m) => messageWaiting(m, t.comments)));
   return [
-    requests ? n(requests, "topic change request") : "",
-    waiting ? n(waiting, "open topic question") : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+    requests.length ? `${n(requests.length, "change request")} ${on(requests)}` : "",
+    waiting.length ? `${n(waiting.length, "open question")} ${on(waiting)}` : "",
+  ].filter(Boolean);
 }
 
 // The topic threads a tab takes with a new guide: the desk's (`desk`), which the guide moved onto its

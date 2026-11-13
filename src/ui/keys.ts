@@ -249,18 +249,18 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "j",
-    desc: "Next part of the topic",
+    desc: "Next part",
     group: "Decisions",
     test: k("j"),
-    when: onTopic,
+    when: inTopics,
     run: () => moveTopicCursor(1),
   },
   {
     combo: "k",
-    desc: "Previous part of the topic",
+    desc: "Previous part",
     group: "Decisions",
     test: k("k"),
-    when: onTopic,
+    when: inTopics,
     run: () => moveTopicCursor(-1),
   },
   {
@@ -276,7 +276,7 @@ const HOTKEYS: Hotkey[] = [
     desc: "Comment on the part",
     group: "Decisions",
     test: k("c"),
-    when: onTopic,
+    when: inTopics,
     run: () => commentAtCursor(),
   },
   {
