@@ -1,0 +1,114 @@
+/* The map gallery's page (scripts/map-gallery.mjs): the desk's tokens and the map's own sheet,
+   and a plain frame round them. A pane's data-scheme picks its appearance. */
+@import "../src/ui/styles/tokens.css";
+@import "../src/ui/styles/map.css";
+
+body {
+  margin: 0;
+  background: var(--window);
+  color: var(--ink);
+  font: 13px/1.5 var(--sans);
+}
+
+.mg-page {
+  padding: 28px 32px 120px;
+}
+
+.mg-page h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+
+.mg-page nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 10px 0 0;
+}
+
+.mg-page a {
+  color: var(--blue-ink);
+}
+
+.mg-shape {
+  margin-top: 36px;
+}
+
+.mg-shape h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.mg-shape > p {
+  margin: 2px 0 10px;
+  color: var(--ink-3);
+}
+
+.mg-panes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.mg-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 14px 18px 18px;
+  border-radius: 10px;
+  background: var(--canvas);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--sep);
+}
+
+.mg-scroll {
+  overflow-x: auto;
+  padding: 6px 0 10px;
+}
+
+.mg-badge,
+.mg-summary {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 1px 8px;
+  border-radius: 5px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.mg-summary {
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.mg-pass {
+  background: var(--green-wash);
+  color: var(--green-ink);
+}
+
+.mg-fail {
+  background: var(--red-wash);
+  color: var(--red-ink);
+}
+
+.mg-problems {
+  margin: 4px 0;
+  color: var(--red-ink);
+}
+
+.mg-none {
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
+
+.mg-pane details {
+  max-width: 520px;
+  margin-top: 6px;
+  color: var(--ink-3);
+}
+
+.mg-pane summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
