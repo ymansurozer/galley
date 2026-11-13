@@ -883,9 +883,10 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && url.pathname === "/api/save") {
-        // Merge only the reviewer-owned slice; the diff, file contents, changes, and desk
-        // metadata stay authoritative here. Pick from whatever body arrives so a stale open
-        // tab still posting the old full-state body keeps working (extra fields ignored).
+        // Merge only the reviewer's changes (or an old tab's full copy of the reviewer-owned
+        // slice); the diff, file contents, changes, and desk metadata stay authoritative here.
+        // A stale open tab still posting the old full-state body keeps working (extra fields
+        // ignored).
         return await serialize(async () => {
           const body: unknown = JSON.parse(await readBody(req));
           if (!saveNumbered(body)) return failUnnumbered(res);
@@ -911,9 +912,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           // overallNote is an ephemeral, per-Send instruction threaded straight into the result —
           // mergeReviewerSave never copies it onto `state`, so it is never persisted.
           const overallNote = typeof body.overallNote === "string" ? body.overallNote.trim() : "";
-          // Merge only the reviewer-owned slice (same contract as /api/save): the UI posts
-          // { ...reviewerSlice, overallNote }, and a stale open tab still posting the old
-          // full ReviewState keeps working because everything else in the body is ignored.
+          // Merge only the reviewer's work (same contract as /api/save): the UI posts its changes
+          // with the note (types.ts, SendBody), and a stale open tab still posting the old full
+          // ReviewState keeps working because everything else in the body is ignored.
           if (!saveNumbered(body)) return failUnnumbered(res);
           const { unplaced, saveNumber, merged } = await mergeReviewerSave(
             state,

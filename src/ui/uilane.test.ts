@@ -144,7 +144,9 @@ test("new UI annotations opt into captures while drafts, replies and Send keep t
     assert.equal(detail(), "No screenshot");
     assert.ok(
       requests.some(
-        (r) => r.url === "/api/save" && r.body.annotations[0].screenshotCapture === "omitted",
+        (r) =>
+          r.url === "/api/save" &&
+          r.body.changes.annotations?.changed[0].screenshotCapture === "omitted",
       ),
     );
     assert.ok(
@@ -199,7 +201,12 @@ test("new UI annotations opt into captures while drafts, replies and Send keep t
     assert.equal(detail(), "capture failed");
     assert.ok(
       requests.some(
-        (r) => r.url === "/api/save" && r.body.annotations.at(-1).screenshotCapture === "failed",
+        // A capture failure is the tab's own report, not the reviewer's edit of the annotation.
+        (r) =>
+          r.url === "/api/save" &&
+          r.body.changes.annotationReports?.some(
+            (a: any) => a.id === failed.id && a.screenshotCapture === "failed",
+          ),
       ),
     );
     open();

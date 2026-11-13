@@ -61,7 +61,7 @@ function applyKeyed<T>(
 
 type FileSignOff = { path: string; hash?: string };
 const fileSignOffs = (s: ReviewerSave): FileSignOff[] =>
-  s.reviewedFiles.map((path) => {
+  (s.reviewedFiles ?? []).map((path) => {
     const hash = s.reviewedFileHashes?.[path];
     return hash === undefined ? { path } : { path, hash };
   });
@@ -113,7 +113,7 @@ function annotationChanges(
 export function reviewerChanges(base: ReviewerSave, now: ReviewerSave): ReviewerChanges {
   const out: ReviewerChanges = {
     decisions: keyedChanges(base.decisions ?? [], now.decisions ?? [], (d) => d.key),
-    comments: keyedChanges(base.comments, now.comments, (c) => c.id),
+    comments: keyedChanges(base.comments ?? [], now.comments ?? [], (c) => c.id),
     fileSignOffs: keyedChanges(fileSignOffs(base), fileSignOffs(now), (f) => f.path),
     signedOffBlocks: keyedChanges(blockSignOffs(base), blockSignOffs(now), (b) => b.key),
     decisionFiles: keyedChanges(base.decisionFiles ?? [], now.decisionFiles ?? [], (p) => p),
@@ -134,7 +134,7 @@ export function applyReviewerChanges(copy: ReviewerSave, changes: ReviewerChange
   const c = copyOf(changes);
   const out: ReviewerSave = { ...copyOf(copy) };
   if (c.decisions) out.decisions = applyKeyed(out.decisions ?? [], c.decisions, (d) => d.key);
-  if (c.comments) out.comments = applyKeyed(out.comments, c.comments, (m) => m.id);
+  if (c.comments) out.comments = applyKeyed(out.comments ?? [], c.comments, (m) => m.id);
   if (c.fileSignOffs) {
     const signed = applyKeyed(fileSignOffs(out), c.fileSignOffs, (f) => f.path);
     const hashes = { ...out.reviewedFileHashes };

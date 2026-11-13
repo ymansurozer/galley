@@ -1,6 +1,18 @@
 import "./styles/index.css";
 import Alpine from "alpinejs";
-import { S, D, $, api, openEditorAt, persist, persistPrefs, runToastAction, toast } from "./store";
+import {
+  S,
+  D,
+  $,
+  api,
+  confirmDesk,
+  onDeskMerge,
+  openEditorAt,
+  persist,
+  persistPrefs,
+  runToastAction,
+  toast,
+} from "./store";
 import { loadDiffLib } from "./difflib";
 import {
   currentFile,
@@ -533,6 +545,7 @@ S.reset = async () => {
   const r = await api<{ state?: ReviewState }>("/api/reset", { method: "POST" });
   if (r.state) {
     S.state = r.state;
+    confirmDesk(r.state);
     D.fileDiff = D.rawFileDiff = null;
     render();
   }
@@ -587,6 +600,9 @@ if (prefs?.diffStyle === "split" || prefs?.diffStyle === "unified") S.diffStyle 
 applyAppearance(S.settings); // font + size before first paint
 setMarkdownTheme(S.settings.theme);
 S.state = adoptDeskStatus(state);
+confirmDesk(S.state);
+// A save's answer that brought another tab's work replaced the reviewer-owned fields (store.ts).
+onDeskMerge(() => void render());
 S.projectFiles = tree.files || [];
 S.lastBaseDiffHash = S.state.baseDiffHash;
 refreshBaseTitle();

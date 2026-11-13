@@ -1,4 +1,15 @@
-import { S, D, api, noteAnswer, toast, saver, unplacedShowing } from "./store";
+import {
+  S,
+  D,
+  api,
+  confirmDesk,
+  noteAnswer,
+  toast,
+  saver,
+  takenFromDesk,
+  unplacedShowing,
+} from "./store";
+import { copyOf } from "./review-delta-derive";
 import { refreshReach } from "./reach";
 import { render } from "./render";
 import { currentPartTitle, reseatStep } from "./guide";
@@ -176,6 +187,9 @@ async function pollOnce() {
     const ids = new Set(server.comments.map((c) => c.id));
     server.comments.push(...lite.comments.filter((c) => !ids.has(c.id)));
     mergeAgentReplies(server.annotations ?? [], lite.annotations ?? []);
+    // The desk's review is the tab's confirmed copy from here: the tab's own placements, kept
+    // over it below, are reports of the tab's (keepPlacements).
+    confirmDesk(server);
     S.lastBaseDiffHash = server.baseDiffHash;
     // Keep the reviewer on the same file across a reload. File order/membership can change (the
     // agent added, removed, or reordered files), so re-find the current path in the new list
@@ -239,6 +253,13 @@ async function pollOnce() {
   // The agent's replies in UI annotation threads (`galley comment --ui`) join the same way; a save
   // from this tab before they arrive keeps them on the server (mergeReviewerSave).
   const uiReplies = mergeAgentReplies(S.state.annotations ?? [], lite.annotations ?? []);
+  // Both came from the desk, not the reviewer: no save sends them back as the tab's changes.
+  if (incoming.length || uiReplies)
+    takenFromDesk((review) => {
+      const have = new Set(review.comments.map((c) => c.id));
+      review.comments.push(...copyOf(incoming.filter((c) => !have.has(c.id))));
+      mergeAgentReplies(review.annotations ?? [], copyOf(lite.annotations ?? []));
+    });
   if (uiReplies || incoming.some((c) => c.role === "agent")) S.awaitingAgent = false;
   // render() redraws the UI lane too.
   if (incoming.length) render();

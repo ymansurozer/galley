@@ -1004,12 +1004,12 @@ function reviewFileName(state: ReviewState) {
   return `${state.createdAt.replace(/[:.]/g, "-")}-${state.id}.json`;
 }
 
-// Merge the reviewer-owned slice posted to /api/save onto the live state. Only these
-// fields are mutated from the browser; everything else (rawDiff, files, changes, guide,
-// desk metadata) stays server-authoritative. We pick each key from whatever body arrives
-// and replace wholesale (snapshot semantics, latest wins) — a key absent from the body is
-// left untouched. Picking (rather than Object.assign) is what lets a stale open tab keep
-// working: it may POST the whole old ReviewState, and we simply ignore everything but these.
+// The reviewer-owned fields a full copy (mergeReviewerCopy) replaces. Only these fields are
+// mutated from the browser; everything else (rawDiff, files, changes, guide, desk metadata) stays
+// server-authoritative. Each key is picked from whatever body arrives and replaced wholesale — a
+// key absent from the body is left untouched. Picking (rather than Object.assign) is what lets a
+// stale open tab keep working: it may POST the whole old ReviewState, and we simply ignore
+// everything but these.
 const REVIEWER_SAVE_KEYS = [
   "decisions",
   "comments",

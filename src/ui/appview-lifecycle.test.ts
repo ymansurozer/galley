@@ -293,7 +293,7 @@ test("capture failures release deferred refresh and save failure without losing 
       f.requests
         .filter((r) => r.url === "/api/save")
         .at(-1)!
-        .body.annotations.some(
+        .body.changes.annotationReports.some(
           (a: any) => a.id === annotation.id && a.screenshotCapture === "failed",
         ),
     );

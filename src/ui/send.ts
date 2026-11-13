@@ -1,5 +1,4 @@
-import { S, noteUnplaced, postToDesk, saveStamp, toast } from "./store";
-import { reviewerSlice } from "./save";
+import { S, noteUnplaced, postSend, toast } from "./store";
 import { screenshotsInFlight, screenshotsSettled } from "./uilane";
 import { updateAwaitingDom } from "./annotations";
 
@@ -46,16 +45,11 @@ export function sendCancel() {
 
 // Resolves to whether the desk took the review.
 export async function send(overallNote = ""): Promise<boolean> {
-  // Post only the reviewer-owned slice — never the whole (multi-MB) ReviewState. Big desks
-  // used to cross the server's body cap on Send and 500 ("Could not send review") while the
-  // slice-only auto-saves kept succeeding; the server merges this slice and builds the
-  // result from its own authoritative state. overallNote is a one-time instruction for the
-  // whole review; the server reads it off the body and never persists it (see /api/send).
-  const reply = await postToDesk("/api/send", {
-    ...reviewerSlice(S.state),
-    seen: saveStamp(),
-    overallNote,
-  });
+  // The same changes a save carries, since the desk's confirmed copy (store.ts): the server merges
+  // them and builds the result from its own authoritative state. overallNote is a one-time
+  // instruction for the whole review; the server reads it off the body and never persists it (see
+  // /api/send).
+  const reply = await postSend(overallNote);
   if (!reply?.ok || !reply.answer?.sent) return false;
   noteUnplaced(reply.answer);
   S.awaitingAgent = true;

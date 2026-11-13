@@ -1,7 +1,22 @@
 import Alpine from "alpinejs";
-import type { DiffHolder, SaveAnswer, SaveStamp, Store } from "./types";
+import type {
+  DiffHolder,
+  ReviewState,
+  ReviewerDelta,
+  ReviewerSave,
+  SaveAnswer,
+  SaveStamp,
+  Store,
+} from "./types";
 import { loadSettings } from "./settings";
 import { createSaver, reviewerSlice } from "./save";
+import {
+  applyReviewerChanges,
+  copyOf,
+  noChanges,
+  reviewerChanges,
+  stampDecisions,
+} from "./review-delta-derive";
 
 // Single reactive source of truth: the imperative diff island mutates it directly,
 // and the Alpine-driven chrome (tree, toolbar, composer, modals, toast) renders from it.
@@ -192,7 +207,7 @@ export function noteUnplaced(answer: Partial<SaveAnswer> | null) {
 // A request can hang with no error (a network gone under a sleeping laptop) until the browser
 // gives it up, minutes later; the saver would sit in flight and send nothing again meanwhile. So
 // an attempt that hasn't answered within ATTEMPT_MS is given up as unanswered. A late duplicate of
-// a save is harmless: each carries the whole reviewer slice, and the last wins.
+// a save is harmless: the desk applies its changes by key, so twice leaves what once does.
 const ATTEMPT_MS = 25_000;
 export async function postToDesk(
   path: "/api/save" | "/api/send",
@@ -216,20 +231,100 @@ export async function postToDesk(
     clearTimeout(limit);
   }
 }
+
+// The reviewer-owned fields as the desk last confirmed them, with their save number and the diff
+// they're keyed to. A save sends what the tab changed since this copy (types.ts, ReviewerChanges),
+// worked out when it is sent, so a save retried after an outage carries everything since. Until
+// the boot sets it, it is empty: a save then sends every record as changed.
+let confirmed: { saveNumber: number; review: ReviewerSave; diff: string } = {
+  saveNumber: 0,
+  review: { comments: [], reviewedFiles: [] },
+  diff: "",
+};
+// The tab took the desk's review whole: at boot, a new diff's, a reset's.
+export function confirmDesk(state: ReviewState) {
+  confirmed = {
+    saveNumber: state.saveNumber ?? 0,
+    review: copyOf(reviewerSlice(state)),
+    diff: state.baseDiffHash,
+  };
+}
+// What a save or Send is out with: the copy its changes were taken from, kept until it answers.
+type Outgoing = { body: ReviewerDelta; sent: ReviewerSave; diff: string };
+const outgoing = new Set<Outgoing>();
+// The tab took records from the desk outside a save's answer (an agent reply off the poll, the
+// placements a reload reset): `take` applies them to the confirmed copy and to every copy a save is
+// out with, as it did to the tab's own. They're the desk's, and no save sends them back as the
+// reviewer's.
+export function takenFromDesk(take: (review: ReviewerSave) => void) {
+  take(confirmed.review);
+  for (const out of outgoing) take(out.sent);
+}
+function dispatch(): Outgoing {
+  const sent = copyOf(reviewerSlice(S.state));
+  const body = {
+    base: confirmed.saveNumber,
+    changes: reviewerChanges(confirmed.review, sent),
+    seen: saveStamp(),
+  };
+  return { body, sent, diff: S.state.baseDiffHash };
+}
+// Set by main.ts: redraw once a save's answer replaced the tab's reviewer-owned fields.
+let redraw = () => {};
+export const onDeskMerge = (run: () => void) => {
+  redraw = run;
+};
+// A save or Send landed: what it sent is what the desk has now confirmed. When other saves landed
+// before it, the answer carries the desk's merged review: the tab takes it and puts back over it
+// whatever the reviewer changed since the save was sent. An answer from before the copy the tab
+// holds (a Send and a save out at once), or for a diff the tab has since left, changes nothing.
+function landed(out: Outgoing, answer: Partial<SaveAnswer>) {
+  const number = answer.saveNumber ?? confirmed.saveNumber;
+  if (S.state.baseDiffHash !== out.diff) return;
+  if (confirmed.diff === out.diff && number < confirmed.saveNumber) return;
+  if (!answer.merged) {
+    confirmed = { saveNumber: number, review: out.sent, diff: out.diff };
+    return;
+  }
+  const since = reviewerChanges(out.sent, reviewerSlice(S.state));
+  confirmed = { saveNumber: number, review: copyOf(answer.merged), diff: out.diff };
+  Object.assign(S.state, applyReviewerChanges(answer.merged, since));
+  stampDecisions(S.state.changes, S.state.decisions ?? []);
+  redraw();
+}
+// Post a save or Send carrying the reviewer's changes: the desk's answer, or null when none came,
+// and the confirmed copy moved on when it landed (`landedIf` says what landing takes).
+async function postChanges(
+  out: Outgoing,
+  path: "/api/save" | "/api/send",
+  extra: Record<string, unknown>,
+  landedIf: (answer: Partial<SaveAnswer>) => boolean,
+) {
+  outgoing.add(out);
+  try {
+    const reply = await postToDesk(path, { ...out.body, ...extra });
+    if (reply?.ok && reply.answer && landedIf(reply.answer)) landed(out, reply.answer);
+    return reply;
+  } finally {
+    outgoing.delete(out);
+  }
+}
+// Send takes the same changes as a save, with the note, and always posts (send.ts).
+export const postSend = (overallNote: string) =>
+  postChanges(dispatch(), "/api/send", { overallNote }, (answer) => answer.sent === true);
 // A save has landed only on a 2xx answer whose body says ok; anything else, no answer included,
-// leaves it unsaved and the saver retries (save.ts).
-async function postSave(payload: unknown): Promise<boolean> {
-  const reply = await postToDesk("/api/save", payload);
+// leaves it unsaved and the saver retries (save.ts). Nothing changed since the confirmed copy
+// sends nothing, and has landed.
+async function postSave(out: Outgoing): Promise<boolean> {
+  if (noChanges(out.body.changes)) return true;
+  const reply = await postChanges(out, "/api/save", {}, (answer) => answer.ok === true);
   if (!reply?.ok || reply.answer?.ok !== true) return false;
   noteUnplaced(reply.answer);
   return true;
 }
-// Post only the reviewer-owned slice (see reviewerSlice in save.ts) — never the whole
-// (multi-MB) ReviewState. Saves coalesce so rapid approvals don't saturate connections.
-export const saver = createSaver(
-  () => ({ ...reviewerSlice(S.state), seen: saveStamp() }),
-  postSave,
-);
+// Saves coalesce so rapid approvals don't saturate connections; each attempt works out its changes
+// as it goes out (save.ts calls dispatch at send time).
+export const saver = createSaver(dispatch, postSave);
 // Instant auto-save: there is no manual Save button, so every state mutation
 // (decision, comment, stage/unstage, approval) MUST call persist() to write the
 // review to ~/.galley/<repoHash>/<session>/. Saves coalesce (see save.ts): at most one

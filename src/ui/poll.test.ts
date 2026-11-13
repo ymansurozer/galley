@@ -11,7 +11,7 @@ import { mergeReviewerSave } from "../state.js";
 const bundle = build({
   stdin: {
     contents:
-      'import {S,saver,persist,persistSoon} from "./store"; import {pollState,adoptDeskStatus} from "./poll"; import {deleteComment,turnComment} from "./comments"; import {acceptChange} from "./decisions"; import {submitUiComposer,placedInApp} from "./uilane"; import {renderMarkdown} from "./markdown"; import {askComment} from "./comments"; import {approveFile} from "./decisions"; import {installCloseWarning,deskReachMessage,deskRestartCommand} from "./reach"; import {send,sendCancel,sendConfirm} from "./send"; window.h={S,saver,persist,persistSoon,pollState,adoptDeskStatus,deleteComment,turnComment,acceptChange,submitUiComposer,placedInApp,renderMarkdown,askComment,approveFile,installCloseWarning,deskReachMessage,deskRestartCommand,send,sendCancel,sendConfirm};',
+      'import {S,saver,persist,persistSoon,confirmDesk} from "./store"; import {pollState,adoptDeskStatus} from "./poll"; import {deleteComment,turnComment} from "./comments"; import {acceptChange} from "./decisions"; import {submitUiComposer,placedInApp} from "./uilane"; import {renderMarkdown} from "./markdown"; import {askComment} from "./comments"; import {approveFile} from "./decisions"; import {installCloseWarning,deskReachMessage,deskRestartCommand} from "./reach"; import {send,sendCancel,sendConfirm} from "./send"; window.h={S,saver,persist,persistSoon,confirmDesk,pollState,adoptDeskStatus,deleteComment,turnComment,acceptChange,submitUiComposer,placedInApp,renderMarkdown,askComment,approveFile,installCloseWarning,deskReachMessage,deskRestartCommand,send,sendCancel,sendConfirm};',
     resolveDir: fileURLToPath(new URL(".", import.meta.url)),
   },
   bundle: true,
@@ -32,20 +32,24 @@ async function until(check: () => unknown) {
   }
 }
 
-async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
+// The desk a fixture's tab talks to: its review, and the diff it held before its latest reload.
+// Two fixtures given one desk are two tabs open on it.
+type Desk = { server: any; priorDiff: any };
+async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?: Desk) {
   const win = new Window({
     url: "http://localhost:41000/",
     settings: { disableIframePageLoading: true },
   });
   const pending: Array<{ snapshot: any; release: (payload?: any) => void; fail: () => void }> = [];
   // The desk's failures: it doesn't answer at all, it answers saves and Sends with an error, or a
-  // save's request hangs with no answer until the tab gives it up. `holdSend` parks the next Send
-  // until the test releases it.
+  // save's request hangs with no answer until the tab gives it up. `holdSend` and `holdSave` park
+  // the next Send or save, before the desk applies it, until the test releases it.
   const desk = {
     down: false,
     failing: false,
     hang: false,
     holdSend: undefined as undefined | Promise<void>,
+    holdSave: undefined as undefined | Promise<void>,
   };
   let h: any;
   const polls: Promise<void>[] = [];
@@ -94,17 +98,20 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
     reviewedFileHashes: {},
     signedOffBlocks: {},
   };
-  const priorDiff = JSON.parse(JSON.stringify(S.state));
   S.lastBaseDiffHash = "base";
-  let server: any = {
-    ...JSON.parse(JSON.stringify(S.state)),
-    uiProxy: { port: 41001, token: "first" },
-    reloadGeneration: 0,
-    uiRefreshGeneration: 0,
-    agentRecentlyActive: false,
-    queuedQuestions: 0,
+  const deskState: Desk = shared ?? {
+    priorDiff: JSON.parse(JSON.stringify(S.state)),
+    server: {
+      ...JSON.parse(JSON.stringify(S.state)),
+      uiProxy: { port: 41001, token: "first" },
+      reloadGeneration: 0,
+      uiRefreshGeneration: 0,
+      agentRecentlyActive: false,
+      queuedQuestions: 0,
+    },
   };
-  h.adoptDeskStatus(server);
+  h.adoptDeskStatus(deskState.server);
+  h.confirmDesk(S.state);
   const saves: any[] = [];
   const asks: any[] = [];
   win.fetch = (async (url: string, options: any) => {
@@ -120,32 +127,41 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
       desk.holdSend = undefined;
       await hold;
     }
+    if (url === "/api/save" && desk.holdSave) {
+      const hold = desk.holdSave;
+      desk.holdSave = undefined;
+      await hold;
+    }
     if (url === "/api/save" || url === "/api/send") {
       const body = JSON.parse(options.body);
       saves.push(body);
-      const { unplaced } = await mergeReviewerSave(
+      const server = deskState.server;
+      const { unplaced, saveNumber, merged } = await mergeReviewerSave(
         server,
         body,
         {
           token: server.uiProxy.token,
           reloadGeneration: server.reloadGeneration,
         },
-        priorDiff,
+        deskState.priorDiff,
       );
-      return {
-        ok: true,
-        json: async () => ({
+      // As the wire carries it: plain JSON, out of the desk's realm.
+      const answer = JSON.parse(
+        JSON.stringify({
           ok: true,
+          saveNumber,
           ...(url === "/api/send" && { sent: true }),
           ...(unplaced && { unplaced }),
+          ...(merged && { merged }),
         }),
-      };
+      );
+      return { ok: true, json: async () => answer };
     }
     if (url === "/api/ask") {
       asks.push(JSON.parse(options.body));
       return { ok: true, json: async () => ({ ok: true }) };
     }
-    const snapshot = structuredClone(server);
+    const snapshot = structuredClone(deskState.server);
     return {
       ok: true,
       json: () =>
@@ -196,8 +212,11 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
     desk,
     pending,
     advance: (ms: number) => (clock += ms),
-    server: () => server,
-    update: (patch: any) => (server = { ...server, ...patch }),
+    deskState,
+    server: () => deskState.server,
+    update: (patch: any) => (deskState.server = { ...deskState.server, ...patch }),
+    // The tab and the desk were both given the same records by hand: they're the confirmed copy.
+    confirm: () => h.confirmDesk({ ...S.state, saveNumber: deskState.server.saveNumber }),
     poll: () => {
       const poll = h.pollState();
       polls.push(poll);
@@ -251,6 +270,7 @@ for (const branch of ["diff", "guide"] as const) {
       const f = await fixture(t);
       f.S.state.comments = [structuredClone(reviewerComment)];
       f.update({ comments: [structuredClone(reviewerComment)], ...updateFor(branch, "updated") });
+      f.confirm();
       const owner = f.poll();
       await until(() => f.pending.length === 1);
       const originalState = f.S.state;
@@ -293,6 +313,7 @@ for (const branch of ["diff", "guide"] as const) {
       annotations: [structuredClone(reviewerAnnotation)],
       ...updateFor(branch, "updated"),
     });
+    f.confirm();
     const owner = f.poll();
     await until(() => f.pending.length === 1);
     f.h.turnComment("reviewer"); // question -> change request: same record, no agent Ask
@@ -333,6 +354,7 @@ for (const branch of ["diff", "guide"] as const) {
       annotation.page.url = new URL(f.S.app.route, "http://localhost:3000").href;
       f.S.state.annotations = [annotation];
       f.update({ annotations: [structuredClone(annotation)], ...updateFor(branch, phase) });
+      f.confirm();
       const start = f.pending.length;
       const owner = f.poll();
       await until(() => f.pending.length === start + 1);
@@ -390,6 +412,7 @@ for (const branch of ["diff", "guide"] as const) {
       reloadGeneration: 1,
       annotations: [structuredClone(reviewerAnnotation)],
     });
+    f.confirm();
     const owner = f.poll();
     await until(() => f.pending.length === 1);
     const saveGeneration = f.h.saver.generation();
@@ -791,4 +814,108 @@ test("a Send that lands after its dialog was cancelled leaves a newer dialog and
   await f.h.sendConfirm();
   assert.equal(f.S.sendOpen, false);
   assert.equal(f.saves.at(-1).overallNote, "Second note");
+});
+
+// Two tabs open on one desk, with a.ts and b.ts in the review, each with one block.
+async function twoTabs(t: Parameters<typeof fixture>[0]) {
+  const a = await fixture(t);
+  const b = await fixture(t, a.deskState);
+  const files = ["a.ts", "b.ts"].map((path) => ({ ...structuredClone(reviewFile), path }));
+  const blockB = { ...plain(a.S.state.changes[0]), id: "b-change", path: "b.ts" };
+  const changes = [...plain(a.S.state.changes), blockB];
+  a.update({ files: structuredClone(files), changes: structuredClone(changes) });
+  for (const f of [a, b]) {
+    f.S.state.files = structuredClone(files);
+    f.S.state.changes = structuredClone(changes);
+    f.confirm();
+  }
+  return { a, b };
+}
+const decisionsOf = (s: { decisions?: Array<{ key: string; status: string }> }) =>
+  plain((s.decisions ?? []).map((d) => [d.key, d.status]));
+
+test("tab A approves one file, older tab B another: the desk keeps both, and B then shows both", async (t) => {
+  const { a, b } = await twoTabs(t);
+  await a.h.approveFile("a.ts", { advance: false });
+  assert.equal(await a.h.saver.settled(), true);
+  assert.deepEqual(a.server().reviewedFiles, ["a.ts"]);
+  // B never saw A's save.
+  await b.h.approveFile("b.ts", { advance: false });
+  assert.equal(await b.h.saver.settled(), true);
+  assert.deepEqual(a.server().reviewedFiles, ["a.ts", "b.ts"], "the desk holds both approvals");
+  assert.deepEqual(decisionsOf(a.server()), [
+    ["a.ts:key", "accepted"],
+    ["b.ts:key", "accepted"],
+  ]);
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["a.ts", "b.ts"], "B shows A's approval too");
+  assert.deepEqual(decisionsOf(b.S.state), [
+    ["a.ts:key", "accepted"],
+    ["b.ts:key", "accepted"],
+  ]);
+  assert.equal(b.S.state.changes[0].status, "accepted", "A's block reads accepted in B");
+});
+
+test("a change made while a save is out survives the merged review its answer brings", async (t) => {
+  const { a, b } = await twoTabs(t);
+  await a.h.approveFile("a.ts", { advance: false });
+  await a.h.saver.settled();
+  let release!: () => void;
+  b.desk.holdSave = new Promise<void>((resolve) => (release = resolve));
+  await b.h.approveFile("b.ts", { advance: false });
+  assert.equal(b.h.saver.inFlight(), true, "B's save is out");
+  // Meanwhile, the reviewer in B rejects the block A accepted.
+  await b.h.acceptChange("change", "rejected");
+  release();
+  assert.equal(await b.h.saver.settled(), true);
+  assert.deepEqual(decisionsOf(b.S.state), [
+    ["a.ts:key", "rejected"],
+    ["b.ts:key", "accepted"],
+  ]);
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["a.ts", "b.ts"]);
+  assert.deepEqual(decisionsOf(a.server()), [
+    ["a.ts:key", "rejected"],
+    ["b.ts:key", "accepted"],
+  ]);
+  assert.deepEqual(a.server().reviewedFiles, ["a.ts", "b.ts"]);
+});
+
+test("what the tab took from the desk by poll is not sent back as the reviewer's changes", async (t) => {
+  const f = await outageFixture(t);
+  f.S.state.annotations = [structuredClone(reviewerAnnotation)];
+  f.update({ annotations: [structuredClone(reviewerAnnotation)] });
+  f.confirm();
+  // The agent replies to a comment and in the annotation's thread.
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const annotations = structuredClone(f.server().annotations);
+  annotations[0].comments.push(reply("ui-reply"));
+  f.update({ comments: [...f.server().comments, reply("code-reply")], annotations });
+  await f.poll();
+  assert.equal(f.S.state.comments.length, 1, "the reply reached the tab");
+  assert.equal(f.S.state.annotations[0].comments.length, 2);
+  await f.h.approveFile("a.ts", { advance: false });
+  assert.equal(await f.h.saver.settled(), true);
+  const { changes } = f.saves.at(-1);
+  assert.deepEqual(Object.keys(changes).sort(), [
+    "decisionFiles",
+    "decisions",
+    "fileSignOffs",
+    "signedOffBlocks",
+  ]);
+  assert.deepEqual(changes.fileSignOffs, { changed: [{ path: "a.ts", hash: "H" }], removed: [] });
+  assert.deepEqual(
+    changes.decisions.changed.map((d: { key: string }) => d.key),
+    ["a.ts:key"],
+  );
+});
+
+test("a save with nothing changed sends nothing and counts as landed; Send always posts", async (t) => {
+  const f = await fixture(t);
+  f.h.persist();
+  assert.equal(await f.h.saver.settled(), true);
+  assert.equal(f.saves.length, 0);
+  assert.equal(f.server().saveNumber, undefined, "the save number didn't move");
+  assert.equal(await f.h.send(""), true);
+  assert.equal(f.saves.length, 1);
+  assert.deepEqual(f.saves[0].changes, {});
+  assert.equal(f.server().saveNumber, 1);
 });
