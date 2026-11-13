@@ -3371,6 +3371,7 @@ test("the poll carries the save number, and /api/review the reviewer-owned field
       "lastAnnotationNumber",
       "reviewedFileHashes",
       "reviewedFiles",
+      "settledTopics",
       "signedOffBlocks",
     ]);
     assert.deepEqual(read.review.reviewedFiles, ["a.ts"]);
