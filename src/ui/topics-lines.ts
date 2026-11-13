@@ -104,10 +104,14 @@ export function mountLineBlocks(
     for (const { span, i } of mine) {
       const card = page.ownerDocument.createElement("div");
       card.className = "topic-lines-card";
-      const line = span.start ?? 1;
-      card.innerHTML = `<div class="topic-lines-h"><span class="topic-lines-path" title="${esc(span.path)}">${esc(spanLabel(span))}</span><button type="button" class="btn quiet sm" data-topic-code="${esc(span.path)}" data-line="${line}">Open in Code</button></div>`;
-      place.append(card);
       const rows = sliceOf(span);
+      // Lines gone from the diff have nowhere in Code mode to land.
+      const open =
+        rows === "gone"
+          ? ""
+          : `<button type="button" class="btn quiet sm" data-topic-code="${esc(span.path)}" data-line="${span.start ?? 1}">Open in Code</button>`;
+      card.innerHTML = `<div class="topic-lines-h"><span class="topic-lines-path" title="${esc(span.path)}">${esc(spanLabel(span))}</span>${open}</div>`;
+      place.append(card);
       if (typeof rows === "string") {
         const note = page.ownerDocument.createElement("p");
         note.className = "topic-lines-note";
