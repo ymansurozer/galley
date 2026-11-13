@@ -676,10 +676,17 @@ export type FileContentsPayload = {
 // never ride the poll; the tab fetches /api/state exactly once per baseDiffHash change and diffs
 // guide/comments off this slice in between. DeskStatus is merged into the response alongside these.
 // `ui` rides along so `galley ui` on a live desk reaches the open tab without a diff change.
+// `saveNumber` is the desk's (0 on a review never saved): ahead of the tab's confirmed copy, another
+// tab's save landed, and an idle tab reads the review it brought from /api/review (ReviewRead).
 export type PollPayload = Pick<
   ReviewState,
   "baseDiffHash" | "guide" | "comments" | "ui" | "annotations" | "project" | "branch"
->;
+> & { saveNumber: number };
+
+// The desk's reviewer-owned fields, the save number they're at, and the diff they're keyed to
+// (GET /api/review). What an idle tab takes when another tab's save landed: never the full state,
+// which carries every file's contents.
+export type ReviewRead = { saveNumber: number; baseDiffHash: string; review: ReviewerSave };
 
 // The structured payload printed to stdout (and written to result.json) when
 // the reviewer clicks "Send Review". This is the handoff contract.
