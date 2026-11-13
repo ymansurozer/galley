@@ -1,4 +1,3 @@
-import { optionBlocks } from "./topicoptions.js";
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -48,6 +47,7 @@ import {
   topicQuestionPayload,
 } from "./topicthreads.js";
 import { shotDir } from "./uishots.js";
+import { optionBlocks } from "./topicoptions.js";
 
 export function nowIso() {
   return new Date().toISOString();
@@ -1809,12 +1809,8 @@ async function applyReviewerChanges(
   // A topic thread sits where the desk placed it, on its guide, whichever diff or guide the tab
   // was on (takeTopicThread).
   if (c.topicThreads) {
-    const changed = takeTopicThreads(c.topicThreads.changed, state.topicThreads, state.guide);
-    state.topicThreads = applyKeyed(
-      state.topicThreads ?? [],
-      { ...c.topicThreads, changed },
-      (t) => t.id,
-    );
+    const next = applyKeyed(state.topicThreads ?? [], c.topicThreads, (t) => t.id);
+    state.topicThreads = takeTopicThreads(next, state.topicThreads, state.guide);
   }
   raiseAnnotationMark(state, c.lastAnnotationNumber);
   return unplaced;

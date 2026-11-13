@@ -12,13 +12,14 @@ import { messageWaiting } from "./thread-derive";
 // bodyParts, so the desk's quote and the tab's part are the same block), then the Flagged card.
 // The cursor (j / k) walks this list. A kind of part a later page adds joins it here.
 export function topicParts(topic: GuideTopic, stamp: TopicStamp | undefined): string[] {
-  return [
-    "title",
-    "recorded",
-    ...(stamp?.bodyParts ?? []).map((line) => `body:${line}`),
-    ...(stamp?.options ?? []).map((_, i) => `option:${i + 1}`),
-    ...(topic.flag ? ["flag"] : []),
-  ];
+  const body = [
+    ...(stamp?.bodyParts ?? []).map((line) => ({ part: `body:${line}`, line })),
+    ...(stamp?.options ?? []).map((_, i) => ({
+      part: `option:${i + 1}`,
+      line: stamp?.optionsLine ?? Infinity,
+    })),
+  ].sort((a, b) => a.line - b.line);
+  return ["title", "recorded", ...body.map((b) => b.part), ...(topic.flag ? ["flag"] : [])];
 }
 
 // A body part's source line, or undefined for any other part.

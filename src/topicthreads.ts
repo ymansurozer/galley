@@ -1,4 +1,3 @@
-import { optionBlocks } from "./topicoptions.js";
 import MarkdownIt from "markdown-it";
 import footnote from "markdown-it-footnote";
 
@@ -11,6 +10,7 @@ import type {
   TopicQuestion,
   TopicThread,
 } from "./types.js";
+import { optionBlocks } from "./topicoptions.js";
 
 // Threads on the parts of a topic (types.ts, TopicThread): which blocks of a body take a comment,
 // what a thread quotes and where it goes when a new guide rewrites its topic, reading them off a
@@ -92,9 +92,12 @@ function follow(t: TopicThread, topic: GuideTopic): TopicThread {
   if (t.moved || !p) return { ...t, title: topic.title };
   if (p.kind === "option") {
     const index = optionBlocks(topic.body)[0]?.options?.findIndex((o) => o.label === t.quote) ?? -1;
-    return index < 0
-      ? { ...moved, title: topic.title }
-      : { ...t, title: topic.title, target: { ...t.target, part: `option:${index + 1}` } };
+    if (index < 0) {
+      // The request remains readable, but no longer selects an alternative the guide offers.
+      delete moved.option;
+      return { ...moved, title: topic.title };
+    }
+    return { ...t, title: topic.title, target: { ...t.target, part: `option:${index + 1}` } };
   }
   if (p.kind !== "body") {
     const text = partText(topic, t.target.part);
@@ -203,6 +206,9 @@ export function takeTopicThread(
     const placed: TopicThread = { ...t, target: prev.target, title: prev.title };
     delete placed.quote;
     delete placed.moved;
+    // A stale tab cannot turn a request whose option disappeared back into a pick.
+    if (moved || prev.option === undefined) delete placed.option;
+    else placed.option = prev.option;
     return {
       ...placed,
       ...(quote !== undefined && { quote }),
@@ -215,19 +221,41 @@ export function takeTopicThread(
   const placed: TopicThread = { ...t, title: topic.title };
   delete placed.quote;
   delete placed.moved;
+  if (t.option !== undefined) {
+    // A pick arriving from a tab on an older guide follows its label, not its old number.
+    const index =
+      optionBlocks(topic.body)[0]?.options?.findIndex((o) => o.label === t.option) ?? -1;
+    if (index >= 0)
+      return { ...placed, target: { ...t.target, part: `option:${index + 1}` }, quote: t.option };
+    delete placed.option;
+    return { ...placed, target: { ...t.target, part: "title" }, quote: t.option, moved: true };
+  }
   const quote = partText(topic, t.target.part);
   if (quote !== undefined) return { ...placed, quote };
   return { ...placed, target: { ...t.target, part: "title" }, quote: topic.title };
 }
 
-// A save's topic threads onto the desk's: each taken as takeTopicThread says.
+// A complete next set of threads, each placed by the desk. Only the last-made open body pick
+// survives per topic: two tabs can choose before either sees the other's save. Ordinary requests,
+// resolved picks and reply messages do not compete with a topic's mutually exclusive alternatives.
+// On equal creation times the later entry wins, so a newly appended pick wins the tie.
 export function takeTopicThreads(
   sent: TopicThread[],
   desk: readonly TopicThread[] | undefined,
   guide: Guide | undefined,
 ): TopicThread[] {
   const own = new Map(desk?.map((t) => [t.id, t]));
-  return sent.map((t) => takeTopicThread(t, own.get(t.id), guide));
+  const taken = sent.map((t) => takeTopicThread(t, own.get(t.id), guide));
+  const picks = new Map<string, TopicThread>();
+  const isPick = (t: TopicThread) =>
+    t.option !== undefined && t.target.part.startsWith("option:") && isOpenChange(t);
+  for (const t of taken) {
+    if (!isPick(t)) continue;
+    const prev = picks.get(t.target.topic);
+    if (!prev || (t.comments[0]?.createdAt ?? "") >= (prev.comments[0]?.createdAt ?? ""))
+      picks.set(t.target.topic, t);
+  }
+  return taken.filter((t) => !isPick(t) || picks.get(t.target.topic) === t);
 }
 
 // ── What the agent gets ──────────────────────────────────────────────────────────────────────────

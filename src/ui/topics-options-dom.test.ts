@@ -32,3 +32,23 @@ test("options render safe labels, tags, selection, notes and commentable parts",
   (host.querySelector('[role="radio"]') as HTMLButtonElement).click();
   assert.deepEqual(picked, [0]);
 });
+
+test("arrows only move option focus; Space and Enter pick", () => {
+  const window = new Window();
+  const doc = window.document as unknown as Document;
+  const picked: number[] = [];
+  const list = optionsList(doc, [{ label: "A", ships: true }, { label: "B" }], 0, false, (i) =>
+    picked.push(i),
+  );
+  doc.body.append(list);
+  const buttons = list.querySelectorAll<HTMLButtonElement>(".topic-option");
+  buttons[0]!.focus();
+  buttons[0]!.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+  );
+  assert.equal(doc.activeElement, buttons[1]);
+  assert.deepEqual(picked, []);
+  buttons[1]!.dispatchEvent(new window.KeyboardEvent("keydown", { key: " ", bubbles: true }));
+  buttons[1]!.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  assert.deepEqual(picked, [1, 1]);
+});

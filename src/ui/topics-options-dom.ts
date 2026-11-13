@@ -24,6 +24,7 @@ export function optionsList(
     button.type = "button";
     button.className = "topic-option";
     button.setAttribute("role", "radio");
+    button.tabIndex = index === (selected < 0 ? 0 : selected) ? 0 : -1;
     button.setAttribute("aria-checked", String(index === selected));
     const label = doc.createElement("span");
     label.className = "topic-option-label";
@@ -55,7 +56,7 @@ export function optionsList(
       if (!event.shiftKey) pick(index);
     };
     button.onkeydown = (event) => {
-      if (event.key === " ") {
+      if (event.key === " " || event.key === "Enter") {
         event.preventDefault();
         event.stopPropagation();
         pick(index);
@@ -68,8 +69,11 @@ export function optionsList(
         (index + (["ArrowDown", "ArrowRight"].includes(event.key) ? 1 : options.length - 1)) %
         options.length;
       const target = list.querySelectorAll<HTMLButtonElement>(".topic-option")[next];
-      target?.focus();
-      pick(next);
+      button.tabIndex = -1;
+      if (target) {
+        target.tabIndex = 0;
+        target.focus();
+      }
     };
     row.append(button);
     list.append(row);

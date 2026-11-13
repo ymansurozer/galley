@@ -2,7 +2,9 @@ import MarkdownIt from "markdown-it";
 import type { TopicOption } from "./types.js";
 const parser = new MarkdownIt({ html: false });
 
-// Only top-level fences are options; quoted examples and nested code stay markdown.
+// Options are mutually exclusive alternatives, not independent change requests. The desk
+// validates and stamps the body's one block so every tab draws and quotes the same list.
+// Only top-level fences count; quoted examples and nested code stay markdown.
 export function optionBlocks(body: string) {
   const lines = body.split("\n");
   return parser.parse(body, {}).flatMap((t) =>
@@ -18,6 +20,8 @@ export function optionBlocks(body: string) {
   );
 }
 
+// Keep these checks identical to ui/topics-options-derive.ts: that browser-only copy reads
+// reply fences without pulling backend runtime code across the compilation boundary.
 export function parseOptions(source: string): TopicOption[] | null {
   try {
     const value: unknown = JSON.parse(source);

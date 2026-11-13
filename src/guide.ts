@@ -1,4 +1,3 @@
-import { optionBlocks } from "./topicoptions.js";
 import type {
   Cover,
   Guide,
@@ -8,6 +7,7 @@ import type {
   GuideStage,
   GuideTopic,
 } from "./types.js";
+import { optionBlocks } from "./topicoptions.js";
 
 export type GuideValidation = { ok: true; guide: Guide } | { ok: false; reason: string };
 

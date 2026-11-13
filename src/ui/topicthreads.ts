@@ -1,6 +1,3 @@
-import { optionsList } from "./topics-options-dom";
-import { isPick, parseOptions, replacePick, selectedOption } from "./topics-options-derive";
-import { parseTopicBody } from "./topics-body-derive";
 import { S, $, persist, saver, toast } from "./store";
 import {
   buildCommentThread,
@@ -34,6 +31,15 @@ import {
 import { markParts, placeDroppedThreads, topicBlockersChip, underPart } from "./topicthreads-dom";
 import { uuid } from "./uuid";
 import type { GuideTopic, TopicThread } from "../types";
+import { optionsList } from "./topics-options-dom";
+import {
+  isPick,
+  parseOptions,
+  replacePick,
+  replaceReplyPick,
+  selectedOption,
+} from "./topics-options-derive";
+import { parseTopicBody } from "./topics-body-derive";
 
 // The threads on a topic's parts (ReviewState.topicThreads): the gutter button, ⇧ click and the
 // keyboard's cursor that open the composer on a part, the threads drawn under their parts with the
@@ -174,12 +180,17 @@ function threadCard(t: TopicThread): HTMLElement {
       const fence = wrap.querySelector(
         `.msg[data-id="${CSS.escape(message.id)}"] pre[data-line="${block.line}"]`,
       );
-      fence?.replaceWith(
-        optionsList(document, options, selected, t.status === "open" && !!picked, (index) => {
+      const focusKey = `${t.id}:${message.id}:${block.line}`;
+      const list = optionsList(
+        document,
+        options,
+        selected,
+        t.status === "open" && !!picked,
+        (index) => {
           const option = options[index];
           if (!option) return;
           const now = new Date().toISOString();
-          t.comments.push({
+          const next = replaceReplyPick(t, option, {
             id: uuid(),
             role: "user",
             intent: "action",
@@ -188,11 +199,20 @@ function threadCard(t: TopicThread): HTMLElement {
             createdAt: now,
             updatedAt: now,
           });
-          t.status = "open";
+          if (next === t) return;
+          Object.assign(t, next);
           renderTopics();
+          document
+            .querySelector<HTMLElement>(
+              `[data-reply-options="${CSS.escape(focusKey)}"] [data-option-part="option:${index + 1}"] .topic-option`,
+            )
+            ?.focus({ preventScroll: true });
           persist();
-        }),
+          if (option.ships) toast("Option change request removed — what ships is selected");
+        },
       );
+      list.dataset.replyOptions = focusKey;
+      fence?.replaceWith(list);
     }
   }
   return wrap;
@@ -322,8 +342,10 @@ export function pickOption(index: number) {
   const option = S.state.topics?.[topic.id]?.options?.[index];
   if (!option) return;
   if (option.ships) {
+    if (!threads().some((t) => isPick(t, topic.id))) return;
     S.state.topicThreads = replacePick(threads(), topic.id);
     closeComposer();
+    renderTopics();
     persist();
     toast("Option change request removed — what ships is selected");
     return;
@@ -333,6 +355,12 @@ export function pickOption(index: number) {
     null,
     `Use: ${option.label}`,
   );
+}
+// Space keeps its normal scrolling behavior unless the visible topic cursor names an option.
+export function cursorOnOption() {
+  const topic = openTopicPlace();
+  const part = topic && cursorAt.get(topic.id);
+  return !!(railShown && part?.startsWith("option:") && topic && partsOf(topic).includes(part));
 }
 export function pickAtCursor() {
   const part = S.topicAt && cursorAt.get(S.topicAt);

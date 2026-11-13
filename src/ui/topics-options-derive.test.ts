@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { selectedOption, replacePick, parseOptions } from "./topics-options-derive";
+import {
+  selectedOption,
+  replacePick,
+  parseOptions,
+  replaceReplyPick,
+} from "./topics-options-derive";
 import type { TopicThread } from "../types";
 test("picks replace only picks, shipping clears them and is the default", () => {
   const options = [{ label: "A", ships: true }, { label: "B" }, { label: "C" }];
@@ -45,4 +50,42 @@ test("reply options parse conservatively and preserve optional tags", () => {
     '[{"label":"A","ships":"yes"},{"label":"B"}]',
   ])
     assert.equal(parseOptions(invalid), null);
+});
+
+test("a reply keeps one pick, skips a repeated pick, and shipping removes only that pick", () => {
+  const opener = {
+    id: "opener",
+    role: "user" as const,
+    intent: "question" as const,
+    body: "Choices?",
+    createdAt: "now",
+    updatedAt: "now",
+  };
+  const thread: TopicThread = {
+    id: "t",
+    target: { topic: "topic", part: "title" },
+    title: "T",
+    intent: "question",
+    status: "open",
+    comments: [opener],
+  };
+  const make = (label: string) => ({
+    ...opener,
+    id: label,
+    intent: "action" as const,
+    option: label,
+    body: `Use: ${label}`,
+  });
+  const first = replaceReplyPick(thread, { label: "A" }, make("A"));
+  const second = replaceReplyPick(first, { label: "B" }, make("B"));
+  assert.deepEqual(
+    second.comments.map((m) => m.body),
+    ["Choices?", "Use: B"],
+  );
+  assert.equal(replaceReplyPick(second, { label: "B" }, make("B")), second);
+  assert.deepEqual(
+    replaceReplyPick(second, { label: "Ships", ships: true }, make("Ships")).comments,
+    [opener],
+  );
+  assert.equal(replaceReplyPick(thread, { label: "Ships", ships: true }, make("Ships")), thread);
 });

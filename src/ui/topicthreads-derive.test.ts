@@ -154,3 +154,17 @@ test("the threads on topics the guide no longer has are the Overview's to show",
     ["b"],
   );
 });
+
+test("the cursor visits options where their fence sits among body blocks", () => {
+  assert.deepEqual(
+    topicParts(topic("t1"), {
+      blocks: [],
+      lines: 0,
+      coverHash: "h",
+      bodyParts: [1, 9],
+      optionsLine: 3,
+      options: [{ label: "A" }, { label: "B" }],
+    }),
+    ["title", "recorded", "body:1", "option:1", "option:2", "body:9"],
+  );
+});
