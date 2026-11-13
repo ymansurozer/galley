@@ -345,9 +345,14 @@ export interface Store {
   // a file renders its real diff for the rest of the session instead of the summary card. Per-
   // session and never persisted — the oversized stamp is server-owned and re-derived on reload.
   loadedOversized: Set<string>;
-  // Which lane the centre shows: the diff ("code") or the proxied app ("ui"). Only "code" without
-  // a UI target; only "ui" on a UI-only desk (a target and no diff).
-  view: "code" | "ui";
+  // Which mode the centre shows: the diff ("code"), the proxied app ("ui"), or the guide's topics
+  // ("topics", labelled Decisions). Only the modes the desk has (appview.ts views): no "ui" without
+  // a UI target, only "ui" on a UI-only desk (a target and no diff), "topics" with a guide that
+  // has topics.
+  view: View;
+  // Where Decisions mode is: the Overview (null) or the open topic's id. Not persisted: a tab load
+  // opens on the Overview.
+  topicAt: string | null;
   // The first state is in and the view fits the desk's lanes. Until then the lane chrome stays
   // hidden, so a UI-only desk doesn't flash the code lane on load (or the reverse).
   ready: boolean;
@@ -445,7 +450,10 @@ export interface Store {
   // The UI lane (appview.ts): the Code/UI switch, and the chrome bar's controls over the iframe.
   hasUi?: () => boolean;
   uiOnly?: () => boolean;
-  setView?: (view: "code" | "ui") => void;
+  setView?: (view: View) => void;
+  // The modes the desk has, in the switch's order, and the one ⇧U goes to next.
+  views?: () => View[];
+  nextView?: () => View;
   appHost?: () => string;
   appBack?: () => void;
   appForward?: () => void;
@@ -465,6 +473,9 @@ export interface Store {
 // A picked target awaiting its first message: the page and target the annotation will record,
 // and where the target sits now in the app's viewport (the floating composer stays beside it).
 // A page target has no anchor: the composer sits at the stage's top right.
+// The centre's modes (Store.view).
+export type View = "code" | "ui" | "topics";
+
 export type AnnotationDraft = {
   page: UiPage;
   target: UiTarget;

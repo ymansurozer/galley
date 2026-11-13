@@ -254,13 +254,15 @@ let followed: string | null = null;
 // row — a part's, or the Rest's — and, for a file opened whole, every row of that file (a split
 // file has one per part).
 // It is also the one place the sidebar follows the active step (followActiveRow), whatever moved
-// it — a click, ⇧←/→, ⌘⇧↑/↓, approve-advance, a wrap seek.
+// it — a click, ⇧←/→, ⌘⇧↑/↓, approve-advance, a wrap seek. It marks Code mode's rows only:
+// Decisions mode marks its own (topics.ts), and a code render under it leaves them be.
+const CODE_ROWS = '#files .node.active, #walk .node.active, .side-nav .node[data-key="overview"]';
 export function applyActiveRow() {
   const path = S.overviewOpen
     ? null
     : (S.preview?.path ?? S.state?.files?.[S.fileIndex]?.path ?? null);
   const part = S.preview ? undefined : S.stepPart;
-  for (const el of document.querySelectorAll(".tree .node.active")) el.classList.remove("active");
+  for (const el of document.querySelectorAll(CODE_ROWS)) el.classList.remove("active");
   if (S.overviewOpen)
     document.querySelector('.side-nav .node[data-key="overview"]')?.classList.add("active");
   if (path) {

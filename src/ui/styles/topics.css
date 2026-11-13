@@ -1,0 +1,253 @@
+/* ── Decisions mode (topics.ts): the guide's topics, a page each ──
+   Decisions takes the centre and the sidebar's lists. Code's diff, its file lists, their switch
+   and review progress step aside; the Overview row and Change requests stay above the topics. */
+.app.view-topics
+  :is(.diff-area, .top-progress, .side-switch, .tree-title, #files, #walk, .rail-tab) {
+  display: none !important;
+}
+
+.app:not(.view-topics) :is(#topicsNav, .topics-view) {
+  display: none;
+}
+
+.topics-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--canvas);
+}
+
+/* ── Sidebar: stage headers, a row per group, and under the open topic's group its topics ── */
+#topicsNav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  padding-bottom: 10px;
+}
+
+/* A stage is a heading, not a target. */
+#topicsNav .walk-cat {
+  cursor: default;
+}
+
+#topicsNav .walk-cat:hover {
+  background-color: transparent;
+}
+
+/* A group title too long for the row wraps rather than being cut. */
+#topicsNav .topics-group {
+  height: auto;
+  min-height: 28px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  align-items: flex-start;
+  white-space: normal;
+  line-height: 18px;
+}
+
+#topicsNav .topics-group .nm {
+  overflow: visible;
+}
+
+#topicsNav .topics-group .status-pack {
+  margin-top: 1px;
+}
+
+#topicsNav .topics-group.current {
+  color: var(--ink);
+}
+
+.topics-n {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+#topicsNav .topics-group.current .topics-n {
+  color: var(--ink-2);
+}
+
+/* A topic: no indent and no rail, so its circle sits under the first letter of its group's name.
+   At most two lines; the open one shows whole, the rest in full on hover (the row's title). */
+#topicsNav .topics-topic {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: start;
+  height: auto;
+  min-height: 24px;
+  padding: 4px 8px;
+  white-space: normal;
+  font-size: var(--text-sm);
+  line-height: 16px;
+  text-wrap: pretty;
+}
+
+#topicsNav .topics-topic + .topics-topic {
+  margin-top: 1px;
+}
+
+#topicsNav .topics-topic .st {
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  color: var(--ink-3);
+}
+
+.topics-tt {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#topicsNav .topics-topic:not(.active) .topics-tt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* A flagged topic: the agent asks for a closer look. */
+#topicsNav .crit {
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  color: var(--orange);
+}
+
+/* ── The topic page: its bar, then a centred reading column ── */
+.topic-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 26px 32px 160px;
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: 1.6;
+}
+
+.topic-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-bottom: 10px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.topic-concern {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-sm);
+  background: var(--fill-2);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.topic-title {
+  margin: 0 0 5px;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+  text-wrap: pretty;
+}
+
+.topic-recorded {
+  margin: 5px 0 16px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.topic-recorded b {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.topic-body {
+  line-height: 1.62;
+}
+
+.topic-body > :first-child {
+  margin-top: 0;
+}
+
+.topic-body :is(p, ul, ol, table, pre, blockquote) {
+  margin: 0 0 10px;
+}
+
+.topic-body :is(ul, ol) {
+  padding-left: 18px;
+}
+
+.topic-body :is(h1, h2, h3, h4) {
+  margin: 18px 0 6px;
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.topic-body table {
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.topic-body th {
+  color: var(--ink-2);
+  font-weight: 600;
+  text-align: left;
+}
+
+/* The agent's flag, under the body: where it is least sure. */
+.topic-flag {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--note);
+  box-shadow: inset 0 0 0 1px var(--sep);
+  line-height: 1.55;
+}
+
+.topic-lab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 3px;
+  color: var(--orange-ink);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.topic-lab .ic {
+  width: 12px;
+  height: 12px;
+}
+
+.topic-flag .md > :last-child {
+  margin-bottom: 0;
+}
+
+.topic-flag .md p {
+  margin: 0 0 6px;
+}
+
+/* ── The Overview: Code's Overview page, with the way in last ── */
+.topics-overview .topics-end {
+  margin-top: 30px;
+  padding-top: 22px;
+  box-shadow: 0 -1px 0 var(--sep);
+}
+
+@media (max-width: 760px) {
+  .topic-page {
+    padding: 18px 16px 120px;
+  }
+}

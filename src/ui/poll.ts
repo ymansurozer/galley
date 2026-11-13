@@ -21,6 +21,7 @@ import { currentPartTitle, reseatStep } from "./guide";
 import { refreshBaseTitle, updateProgress } from "./progress";
 import { updateAwaitingDom } from "./annotations";
 import { adoptUiStatus, adoptUiTarget, applyPendingUiRefresh, syncView } from "./appview";
+import { renderTopics } from "./topics";
 import { renderUiLane } from "./uilane";
 import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
 import { recordActivity } from "./thread-derive";
@@ -215,8 +216,10 @@ async function pollOnce() {
     else if (S.fileIndex >= S.state.files.length) S.fileIndex = 0;
     reseatStep(remapped >= 0 ? S.stepPart : undefined, curTitle);
     S.awaitingAgent = false;
-    // A diff that appeared (or emptied) makes a UI-only desk combined (or back).
+    // A diff that appeared (or emptied) makes a UI-only desk combined (or back); a guide that lost
+    // its topics takes Decisions mode with it.
     syncView();
+    if (S.view === "topics") renderTopics();
     // The diff changed (e.g. a reload added files) — refresh the project listing too so
     // the tree reflects newly tracked files, not the listing fetched at startup.
     api<{ files?: string[] }>("/api/tree")
@@ -247,7 +250,9 @@ async function pollOnce() {
     S.state.guide = server.guide;
     S.state.topics = server.topics;
     reseatStep(S.stepPart, title);
+    syncView();
     render();
+    if (S.view === "topics") renderTopics();
     toast("Guide updated");
   }
   // A branch switch can leave the diff unchanged too (`git checkout -b` keeps the working tree), so

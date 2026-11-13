@@ -66,11 +66,14 @@ import {
   firstRenderDone,
   hasUi,
   installAppView,
+  nextView,
   setView,
   setViewport,
   syncView,
   uiOnly,
+  views,
 } from "./appview";
+import { hasTopics, installTopics, openTopic, renderTopics } from "./topics";
 import { installCaptureDebug } from "./capturedebug";
 import { askComment } from "./comments";
 import { composerInUi } from "./composer";
@@ -306,6 +309,8 @@ S.applySettings = () => {
   // applyAppearance first: setMarkdownTheme's diff-only fallback reads <html data-theme>.
   setMarkdownTheme(S.settings.theme);
   render();
+  // A topic's fenced code takes the code theme too.
+  if (S.view === "topics") renderTopics();
 };
 S.openSettings = () => {
   S.settingsOpen = true;
@@ -317,6 +322,11 @@ S.closeSettings = () => {
 // first step in the guide's order.
 S.hasGuide = hasGuide;
 S.openOverview = () => {
+  // Decisions mode has an Overview of its own.
+  if (S.view === "topics") {
+    openTopic(null);
+    return;
+  }
   S.overviewOpen = true;
   // From the App view (its sidebar row or rail icon) the Overview is the code view's page.
   if (S.view === "ui") void setView("code");
@@ -548,6 +558,8 @@ S.send = send;
 S.hasUi = hasUi;
 S.uiOnly = uiOnly;
 S.setView = setView;
+S.views = views;
+S.nextView = nextView;
 S.appHost = appHost;
 S.appBack = appBack;
 S.appForward = appForward;
@@ -613,12 +625,16 @@ if (hasGuide()) {
   S.overviewOpen = true;
   S.sidebarTab = S.settings.sidebarDefault === "walkthrough" ? "walkthrough" : "tree";
 }
+// A guide with topics opens the desk in Decisions mode, on its Overview, on every tab load.
+if (hasTopics()) S.view = "topics";
 installAppView();
+installTopics();
 installUiLane();
 installCaptureDebug();
 installReach();
 syncView(); // a UI-only desk opens straight on the app
 void render().finally(firstRenderDone);
+if (S.view === "topics") renderTopics();
 // Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,
 // so the lane chrome appears at once.
 requestAnimationFrame(() => (S.ready = true));
