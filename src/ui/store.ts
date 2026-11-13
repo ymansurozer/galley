@@ -264,21 +264,25 @@ export function confirmDesk(state: ReviewState) {
 }
 // What a save or Send is out with: the copy its changes were taken from, kept until it answers,
 // and the doubtful copies (below) its changes cover.
-type Outgoing = { body: ReviewerDelta; sent: ReviewerSave; diff: string; covers: ReviewerSave[] };
+type Outgoing = { body: ReviewerDelta; sent: ReviewerSave; diff: string; covers: Doubt[] };
 const outgoing = new Set<Outgoing>();
 // The copies saves and Sends went out with that got no successful answer: an error answer can come
 // after the desk applied the save, and a request given up or lost may have reached it. The desk may
 // hold any of their records, so the confirmed copy alone can't tell what to correct: a comment only
 // a doubtful save carried, deleted since, is in neither the confirmed copy nor the tab. Until a
 // later save or Send lands, or the tab takes the desk's review whole, a save also carries the
-// difference from each of them, so every key one touched is told the tab's current truth.
-const doubtful = new Set<ReviewerSave>();
+// difference from each of them, so every key one touched is told the tab's current truth. A light
+// read settles them too: the tab holds nothing unsaved then, and after it the tab is the desk.
+// Each is held in a box, so a merged answer can rebase it (landed) and the saves covering it still
+// find it.
+type Doubt = { copy: ReviewerSave };
+const doubtful = new Set<Doubt>();
 // Retries through an outage go out with the same copy every few seconds: one kept copy stands for
 // them all, so the copies grow with the reviewer's edits, not with the outage's length.
 function keepDoubtful(sent: ReviewerSave) {
-  for (const copy of doubtful)
+  for (const { copy } of doubtful)
     if (noChanges(reviewerChanges(copy, sent)) && noChanges(reviewerChanges(sent, copy))) return;
-  doubtful.add(sent);
+  doubtful.add({ copy: sent });
 }
 // The save number of the confirmed copy: the poll reads the desk's review (/api/review) once the
 // desk's is past it.
@@ -304,6 +308,7 @@ export function takeDeskReview(read: ReviewRead, held: ReadonlySet<string>): boo
     (S.state.annotations ?? []).map((a) => ({ ...a, comments: a.comments.filter(arrived) })),
   );
   confirm({ saveNumber: read.saveNumber, review: copyOf(read.review), diff: read.baseDiffHash });
+  doubtful.clear();
   keepPlacements(read.review.annotations ?? [], S.state.annotations ?? []);
   Object.assign(S.state, read.review);
   stampDecisions(S.state.changes, S.state.decisions ?? []);
@@ -323,21 +328,23 @@ export const agentRecords = (): Set<string> =>
 export function takenFromDesk(take: (review: ReviewerSave) => void) {
   take(confirmed.review);
   for (const out of outgoing) take(out.sent);
-  for (const copy of doubtful) take(copy);
+  for (const doubt of doubtful) take(doubt.copy);
 }
 function dispatch(): Outgoing {
   const sent = copyOf(reviewerSlice(S.state));
   const covers = [...doubtful];
   const body = {
     base: confirmed.saveNumber,
-    changes: unionChanges([confirmed.review, ...covers].map((base) => reviewerChanges(base, sent))),
+    changes: unionChanges(
+      [confirmed.review, ...covers.map((d) => d.copy)].map((base) => reviewerChanges(base, sent)),
+    ),
     seen: saveStamp(),
   };
   return { body, sent, diff: S.state.baseDiffHash, covers };
 }
 // A save or Send landed (or had nothing to send): the doubtful copies it covered are settled.
 const settle = (out: Outgoing) => {
-  for (const copy of out.covers) doubtful.delete(copy);
+  for (const doubt of out.covers) doubtful.delete(doubt);
 };
 // Set by main.ts: redraw once a save's answer replaced the tab's reviewer-owned fields.
 let redraw = () => {};
@@ -362,9 +369,12 @@ function landed(out: Outgoing, answer: Partial<SaveAnswer>) {
   // What the merged review brought in is the desk's, as a poll's records are (takenFromDesk): every
   // other copy still out takes it under the reviewer's own changes, from that copy's send to this
   // one's, so no later answer counts it as the reviewer's and puts it back over a newer desk record.
+  // So does every doubtful copy this save didn't cover.
   for (const other of outgoing)
     if (other !== out)
       other.sent = applyReviewerChanges(answer.merged, reviewerChanges(out.sent, other.sent));
+  for (const doubt of doubtful)
+    doubt.copy = applyReviewerChanges(answer.merged, reviewerChanges(out.sent, doubt.copy));
   stampDecisions(S.state.changes, S.state.decisions ?? []);
   redraw();
 }

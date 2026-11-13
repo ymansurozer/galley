@@ -1421,3 +1421,57 @@ test("a Reset whose tab's save can't land doesn't post, and says so", async (t) 
     "the tab keeps the reviewer's work",
   );
 });
+
+// Tab A holds a doubtful copy from a Send the desk applied but failed; the comment both tabs hold
+// is at v0. Each tab's edit lands as a save.
+async function doubtfulBesideAnotherTab(t: Parameters<typeof fixture>[0]) {
+  const { a, b } = await twoTabs(t);
+  a.update({ comments: [{ ...structuredClone(reviewerComment), body: "v0" }] });
+  for (const f of [a, b]) {
+    f.S.state.comments = [{ ...structuredClone(reviewerComment), body: "v0" }];
+    f.confirm();
+  }
+  const edit = async (f: typeof a, body: string) => {
+    f.S.state.comments[0].body = body;
+    f.h.persist();
+    assert.equal(await f.h.saver.settled(), true);
+  };
+  return { a, b, edit };
+}
+
+test("a doubtful copy is settled by the desk's review a light read takes, and overwrites nothing", async (t) => {
+  const { a, b, edit } = await doubtfulBesideAnotherTab(t);
+  a.desk.failingAfter = true;
+  assert.equal(await a.h.send(""), false);
+  a.desk.failingAfter = false;
+  await edit(b, "v1");
+  await a.poll();
+  assert.equal(a.S.state.comments[0].body, "v1", "A took B's edit through the read");
+  await edit(b, "v2");
+  // A's next save is about something else.
+  await a.h.acceptChange("b-change", "rejected");
+  assert.equal(await a.h.saver.settled(), true);
+  assert.equal(a.server().comments[0].body, "v2", "B's newer edit stands");
+  assert.equal(a.S.state.comments[0].body, "v2");
+});
+
+test("a doubtful copy takes a merged answer's records as the desk's, not the reviewer's", async (t) => {
+  const { a, b, edit } = await doubtfulBesideAnotherTab(t);
+  await edit(b, "v1");
+  // A, behind, has a save out; a Send goes meanwhile, which the desk applies but fails.
+  let release!: () => void;
+  a.desk.holdSave = new Promise<void>((resolve) => (release = resolve));
+  await a.h.approveFile("a.ts", { advance: false });
+  a.desk.failingAfter = true;
+  assert.equal(await a.h.send(""), false);
+  a.desk.failingAfter = false;
+  // The save lands, and its merged answer brings B's v1 into A.
+  release();
+  assert.equal(await a.h.saver.settled(), true);
+  assert.equal(a.S.state.comments[0].body, "v1");
+  await edit(b, "v2");
+  await a.h.acceptChange("b-change", "rejected");
+  assert.equal(await a.h.saver.settled(), true);
+  assert.equal(a.server().comments[0].body, "v2", "B's newer edit stands");
+  assert.equal(a.S.state.comments[0].body, "v2");
+});
