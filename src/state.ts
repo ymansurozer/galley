@@ -2484,8 +2484,9 @@ async function carryComments(comments: ReviewComment[], rebuilt: ReviewState) {
   return reanchorComments(carried, rebuilt.files, (p) => contentsByPath.get(p));
 }
 
-// `stampSource`: the diff to carry the guide's part and skim stamps from, when it isn't `saved`'s
-// own — the last diff with blocks, after a round that reverted everything (carryGuideStamps).
+// `stampSource`: the diff to carry the guide's part, skim and topic stamps and its line spans from,
+// when it isn't `saved`'s own — the last diff with blocks, after a round that reverted everything
+// (carryGuideStamps, stampTopics).
 export async function mergeReviewState(
   base: ReviewState,
   saved: ReviewState | null,
@@ -2570,7 +2571,8 @@ export async function mergeReviewState(
     persistFile: saved.persistFile,
   } satisfies ReviewState;
   signOffCoveredFiles(merged);
-  stampTopics(merged, saved);
+  // Line spans follow from the same diff the block stamps carried from, with `saved`'s own stamps.
+  stampTopics(merged, stampSource ? { ...stampSource, topics: saved.topics } : saved);
   stampCoverage(merged, merged.guide);
   // A new guide given with this reload or restart carries them again once it is resolved.
   carryTopicSignOffs(merged, saved);
