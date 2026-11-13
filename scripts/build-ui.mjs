@@ -67,10 +67,24 @@ const bridgeOptions = {
   logLevel: "info",
 };
 
+const diagramOptions = {
+  entryPoints: ["src/ui/diagrams.ts"],
+  bundle: true,
+  format: "esm",
+  target: "es2022",
+  outfile: "dist/diagrams.js",
+  minify: true,
+  logLevel: "info",
+};
+
 if (process.argv.includes("--watch")) {
-  for (const opts of [options, bridgeOptions]) await (await esbuild.context(opts)).watch();
-  console.error("esbuild: watching src/ui → dist/ui.js + dist/ui.css, src/bridge → dist/bridge.js");
+  for (const opts of [options, bridgeOptions, diagramOptions])
+    await (await esbuild.context(opts)).watch();
+  console.error(
+    "esbuild: watching src/ui → dist/ui.js + dist/ui.css, src/bridge → dist/bridge.js, diagrams → dist/diagrams.js",
+  );
 } else {
+  await esbuild.build(diagramOptions);
   await esbuild.build(bridgeOptions);
   await esbuild.build(options);
   const bytes = statSync(options.outfile).size;

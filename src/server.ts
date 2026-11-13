@@ -31,6 +31,7 @@ import {
   anchorTextFor,
   buildReviewResult,
   buildReviewState,
+  carryTopicSignOffs,
   hash,
   inPortRange,
   carriesChanges,
@@ -48,6 +49,7 @@ import {
   resolveGuide,
   reviewDir,
   reviewerFields,
+  roundOf,
   syncGitState,
   uiQuestionPayload,
   unvisitedAnnotations,
@@ -313,7 +315,7 @@ async function firstExisting(...candidates: string[]) {
 }
 
 // The UI bundle esbuild emits: ui.js and, beside it, the ui.css its stylesheet import produces.
-async function uiBundlePath(file: "ui.js" | "ui.css") {
+async function uiBundlePath(file: "ui.js" | "ui.css" | "diagrams.js") {
   return firstExisting(path.join(__dirname, file), path.join(process.cwd(), "dist", file));
 }
 
@@ -709,8 +711,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         res.end(await html());
         return;
       }
-      if (req.method === "GET" && (url.pathname === "/ui.js" || url.pathname === "/ui.css")) {
-        const name = url.pathname === "/ui.js" ? "ui.js" : "ui.css";
+      if (req.method === "GET" && ["/ui.js", "/ui.css", "/diagrams.js"].includes(url.pathname)) {
+        const name = url.pathname.slice(1) as "ui.js" | "ui.css" | "diagrams.js";
         const file = await uiBundlePath(name);
         const stat = await fs.stat(file).catch(() => null);
         const etag = stat ? `"${stat.size}-${Math.round(stat.mtimeMs)}"` : "";
@@ -721,7 +723,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         }
         const body = await fs.readFile(file, "utf8").catch(() => "");
         res.writeHead(200, {
-          "content-type": `${name === "ui.js" ? "text/javascript" : "text/css"}; charset=utf-8`,
+          "content-type": `${name === "ui.css" ? "text/css" : "text/javascript"}; charset=utf-8`,
           ...(etag ? { etag, "cache-control": "no-cache" } : {}),
         });
         res.end(body);
@@ -747,6 +749,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           annotations: state.annotations,
           project: state.project,
           branch: state.branch,
+          round: state.round,
           saveNumber: state.saveNumber ?? 0,
         };
         return json(res, 200, { ...poll, ...deskStatus() });
@@ -944,15 +947,26 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             priorDiff,
           );
           await syncGitState(state);
-          const file = await persistReview(state);
-          const sessionDir = path.dirname(file);
+          const sessionDir = await reviewDir(state.root, state.session);
           await pruneScreenshots(sessionDir);
           const resultJson = path.join(sessionDir, `${state.id}-result.json`);
           const payload = buildReviewResult(state, { resultJson, sessionDir }, overallNote);
-          await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
+          // The Send ends the round: what the reviewer settles from here is settled in the next.
+          // A Send that fails before its review is queued for the agent ended nothing, so the
+          // round goes back, on disk too, and a retry sends the same round.
+          const round = state.round;
+          state.round = roundOf(state) + 1;
           const event: ReviewEvent = { kind: "review", result: payload };
           const pending = [...undelivered, event];
-          await writeUndelivered(pending);
+          try {
+            await persistReview(state);
+            await fs.writeFile(resultJson, JSON.stringify(payload, null, 2) + "\n", "utf8");
+            await writeUndelivered(pending);
+          } catch (error) {
+            state.round = round;
+            await persistReview(state).catch(() => {});
+            throw error;
+          }
           undelivered = pending;
           // The review goes to the agent once the tab's answer is over, written or not: a tab
           // that closed, dropped or gave up before it never sees "finish", only "close", and
@@ -969,7 +983,13 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             emitEvent(event);
           };
           res.once("close", handOver);
-          const answer: SaveAnswer = { ok: true, sent: true, resultJson, saveNumber };
+          const answer: SaveAnswer = {
+            ok: true,
+            sent: true,
+            resultJson,
+            saveNumber,
+            round: state.round,
+          };
           if (unplaced) answer.unplaced = true;
           if (merged) answer.merged = merged;
           json(res, 200, answer);
@@ -1223,6 +1243,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
                 `Invalid guide: ${resolved.reason}.`,
                 "Run `galley spec` for the guided-review schema.",
               );
+            // Topic sign-offs are judged by this guide's stamps, not the old guide's.
+            carryTopicSignOffs(merged, state);
             // The carry source's stamps index the old guide's entries: never carry them under this one.
             stampSource = undefined;
           }
@@ -1502,6 +1524,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           state.reviewedFiles = [];
           state.reviewedFileHashes = {};
           state.signedOffBlocks = {};
+          state.settledTopics = {};
           state.stagedFiles = [];
           state.stagedChangeKeys = [];
           state.decisionFiles = [];

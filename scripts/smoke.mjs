@@ -148,6 +148,11 @@ try {
     }
   }
 
+  // Diagrams ship beside the UI, served as an independently importable module.
+  const diagrams = await fetch(BASE + "/diagrams.js");
+  assert.equal(diagrams.status, 200);
+  assert.match(diagrams.headers.get("content-type"), /javascript/);
+  assert.match(await diagrams.text(), /renderDiagram/);
   const state = await getJson("/api/state");
   assert.equal(state.mode, "repo");
   assert.ok(state.changes.length >= 1, "desk has a change to review");
@@ -763,6 +768,20 @@ try {
   // (rejected decisions for every change block) on huge-rejected.txt. They must land in the result
   // arrays exactly as verdicts on rendered files do.
   const NOTE = "After applying, run the formatter and update the changelog.";
+  // Settle one topic of the attached topics guide the way the tab does, through the save route:
+  // its id, the cover hash it holds now, and the round. The Send must list it as settled.
+  const settling = await getJson("/api/state");
+  const settled = await post("/api/save", {
+    base: settling.saveNumber ?? 0,
+    changes: {
+      settledTopics: {
+        changed: [{ id: "a-line", hash: settling.topics["a-line"].coverHash, round: 1 }],
+        removed: [],
+      },
+    },
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: settling.baseDiffHash },
+  });
+  assert.equal(settled.status, 200, "the settle saves");
   const preSend = await getJson("/api/state");
   const approvedHash = preSend.files.find((f) => f.path === "huge-approved.txt").contentHash;
   const rejectedDecisions = preSend.changes
@@ -837,6 +856,13 @@ try {
     "card reject on an oversized file lands in rejected[]",
   );
   console.log("✓ oversized-card verdicts (approve + reject) land in the ReviewResult arrays");
+  assert.deepEqual(
+    ev2.result.topics,
+    { settled: ["a-line"], todo: ["b-top"] },
+    "the settled topic is listed as settled, the other as to do",
+  );
+  assert.equal((await getJson("/api/poll")).round, 2, "the Send started round 2");
+  console.log("✓ a topic settled through the save route arrives in result.topics; the round moves");
   assert.equal(ev2.result.overallNote, NOTE, "overallNote round-trips on the result");
   // The contract is the structured arrays only — no prose summary field, no duplicate .md artifact.
   assert.equal(ev2.result.summaryMarkdown, undefined, "no summaryMarkdown field on the result");

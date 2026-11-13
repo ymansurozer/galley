@@ -54,6 +54,8 @@ export async function send(overallNote = ""): Promise<boolean> {
   noteUnplaced(reply.answer);
   S.awaitingAgent = true;
   S.undeliveredAsks.clear(); // the questions went with the review
+  // The Send started the next round (types.ts, ReviewState.round).
+  if (reply.answer.round) S.state.round = reply.answer.round;
   // The change requests went with it: their held bands go now, not on the next poll.
   updateAwaitingDom();
   return true;

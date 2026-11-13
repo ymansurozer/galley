@@ -33,6 +33,7 @@ import type {
   ReviewerSave,
   SaveStamp,
   ThreadMessage,
+  TopicSignOff,
   TopicStamp,
   UiAnnotationRecord,
 } from "./types.js";
@@ -579,6 +580,43 @@ export function resolveCovers(covers: Cover[], index: CoverIndex): CoverResoluti
 // Every topic of a guide, in the guide's order.
 export const guideTopics = (guide: Guide | undefined) =>
   guide?.stages?.flatMap((s) => s.groups.flatMap((g) => g.topics)) ?? [];
+
+// The review's round: one more than the number of Sends.
+export const roundOf = (state: Pick<ReviewState, "round">) => state.round ?? 1;
+
+// Whether a topic is settled: the reviewer's sign-off names the cover hash the topic has now. The
+// one rule the result, and the carry below, judge a sign-off by (the tab's: topics-derive.ts).
+export const topicSettled = (
+  state: Pick<ReviewState, "topics" | "settledTopics">,
+  id: string,
+): boolean => {
+  const hash = state.topics?.[id]?.coverHash;
+  return hash !== undefined && state.settledTopics?.[id]?.hash === hash;
+};
+
+// The topics' sign-offs carried onto a rebuilt diff or a new guide, from the review they were made
+// on (`saved`), against the topic stamps `state` holds now: kept only while the topic is in the
+// guide and its cover hash is unchanged, so lines shifting above it or rewritten prose keep it. One
+// whose cover hash moved is dropped and its topic stamped `changed`; one whose topic is gone is
+// dropped. A topic still to do keeps the `changed` stamp it had. Reads only `saved`'s sign-offs and
+// stamps, so running it again after a new guide is resolved judges by that guide's stamps alone.
+export function carryTopicSignOffs(
+  state: Pick<ReviewState, "topics" | "settledTopics">,
+  saved: Pick<ReviewState, "topics" | "settledTopics">,
+) {
+  const settled: Record<string, TopicSignOff> = {};
+  for (const [id, signOff] of Object.entries(saved.settledTopics ?? {})) {
+    const stamp = state.topics?.[id];
+    if (!stamp) continue;
+    if (stamp.coverHash === signOff.hash) settled[id] = signOff;
+    else if (saved.topics?.[id]?.coverHash === signOff.hash) stamp.changed = true;
+  }
+  for (const [id, stamp] of Object.entries(state.topics ?? {})) {
+    if (settled[id]) delete stamp.changed;
+    else if (saved.topics?.[id]?.changed) stamp.changed = true;
+  }
+  state.settledTopics = settled;
+}
 
 // Resolve a NEW guide's topic covers (launch with --guide, reload --guide) and stamp the result:
 // each change block's `topics`, and each topic's TopicStamp. Refuses the first cover that resolves
@@ -1291,6 +1329,7 @@ const REVIEWER_SAVE_KEYS = [
   "reviewedFiles",
   "reviewedFileHashes",
   "signedOffBlocks",
+  "settledTopics",
   "decisionFiles",
 ] as const satisfies ReadonlyArray<keyof ReviewerSave>;
 // A save's comments, from a tab still on a diff from before the latest reload or restart, onto the
@@ -1378,6 +1417,7 @@ export const reviewerFields = (state: ReviewState): ReviewerSave => ({
   reviewedFiles: state.reviewedFiles,
   reviewedFileHashes: state.reviewedFileHashes ?? {},
   signedOffBlocks: state.signedOffBlocks ?? {},
+  settledTopics: state.settledTopics ?? {},
   decisionFiles: state.decisionFiles ?? [],
   annotations: state.annotations ?? [],
   lastAnnotationNumber: state.lastAnnotationNumber ?? 0,
@@ -1553,6 +1593,11 @@ function readChanges(value: unknown, app: string | undefined) {
       rs.filter((r): r is ReviewComment => isObject(r) && isString(r.id) && isString(r.path)),
     ),
     annotations: readKeyed(c.annotations, (rs) => readUiAnnotations(rs, app) ?? []),
+    settledTopics: readKeyed(c.settledTopics, (rs) =>
+      rs.flatMap((r) =>
+        isObject(r) && isString(r.id) && isString(r.hash) ? [{ id: r.id, hash: r.hash }] : [],
+      ),
+    ),
     reports: (Array.isArray(c.annotationReports) ? c.annotationReports : []).flatMap((r) =>
       isObject(r) && isString(r.id)
         ? [
@@ -1715,6 +1760,20 @@ async function applyReviewerChanges(
     unplaced = verdictsKey(would) !== verdictsKey(state);
   }
   if (c.verdicts.decisions) stampDecisions(state);
+  // A topic's sign-off names the cover hash it was made on, so one made on any older diff or guide
+  // is only ever inert (topicSettled), never misplaced: every save's lands. It is stamped with the
+  // desk's round, which a tab behind on a Send another tab made doesn't know yet.
+  if (c.settledTopics) {
+    const round = roundOf(state);
+    const signOffs = Object.entries(state.settledTopics ?? {}).map(([id, s]) => ({ id, ...s }));
+    state.settledTopics = Object.fromEntries(
+      applyKeyed(
+        signOffs,
+        { ...c.settledTopics, changed: c.settledTopics.changed.map((t) => ({ ...t, round })) },
+        (t) => t.id,
+      ).map(({ id, hash, round }) => [id, { hash, round }]),
+    );
+  }
   if (c.annotations) {
     const stored = new Map(state.annotations?.map((a) => [a.id, a]));
     for (const a of c.annotations.changed) {
@@ -2369,11 +2428,14 @@ export async function mergeReviewState(
     // but none has been looked for on the changed app yet.
     annotations: unvisitedAnnotations(saved.annotations ?? base.annotations),
     lastAnnotationNumber: saved.lastAnnotationNumber,
+    round: saved.round,
     persistFile: saved.persistFile,
   } satisfies ReviewState;
   signOffCoveredFiles(merged);
   stampTopics(merged);
   stampCoverage(merged, merged.guide);
+  // A new guide given with this reload or restart carries them again once it is resolved.
+  carryTopicSignOffs(merged, saved);
   return merged;
 }
 
@@ -2550,6 +2612,15 @@ export function computeOpenQuestions(state: ReviewState): QuestionPayload[] {
   return [...code, ...ui];
 }
 
+// The guide's topic ids, settled and still to do, in the guide's order; absent without topics.
+function topicsResult(state: ReviewState): ReviewResult["topics"] {
+  const topics = guideTopics(state.guide);
+  if (!topics.length) return undefined;
+  const settled = topics.filter((t) => topicSettled(state, t.id)).map((t) => t.id);
+  const todo = topics.filter((t) => !topicSettled(state, t.id)).map((t) => t.id);
+  return { settled, todo };
+}
+
 export function buildReviewResult(
   state: ReviewState,
   artifacts: { resultJson: string; sessionDir: string },
@@ -2584,6 +2655,7 @@ export function buildReviewResult(
     overallNote: note || undefined,
     stagedFiles: state.stagedFiles,
     approvedFiles: computeApprovedFiles(state),
+    topics: topicsResult(state),
     openQuestions: computeOpenQuestions(state),
     artifacts,
   };
