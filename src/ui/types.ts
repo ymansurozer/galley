@@ -470,12 +470,12 @@ export interface Store {
   shotTitle?: () => string;
 }
 
-// A picked target awaiting its first message: the page and target the annotation will record,
-// and where the target sits now in the app's viewport (the floating composer stays beside it).
-// A page target has no anchor: the composer sits at the stage's top right.
 // The centre's modes (Store.view).
 export type View = "code" | "ui" | "topics";
 
+// A picked target awaiting its first message: the page and target the annotation will record,
+// and where the target sits now in the app's viewport (the floating composer stays beside it).
+// A page target has no anchor: the composer sits at the stage's top right.
 export type AnnotationDraft = {
   page: UiPage;
   target: UiTarget;
