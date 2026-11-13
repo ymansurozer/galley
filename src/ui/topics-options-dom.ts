@@ -55,6 +55,12 @@ export function optionsList(
       if (!event.shiftKey) pick(index);
     };
     button.onkeydown = (event) => {
+      if (event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+        pick(index);
+        return;
+      }
       if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
       event.preventDefault();
       event.stopPropagation();
