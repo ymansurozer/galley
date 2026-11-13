@@ -17,7 +17,6 @@ import { threadKind } from "./thread-derive";
 import { askStamp, firstLine, turnAnnotationInto, turnsInto } from "./uilane-derive";
 import {
   askOf,
-  composerPlace,
   partRank,
   requestsChange,
   threadPlace,
@@ -71,7 +70,7 @@ export function decorateTopicPage(host: HTMLElement, topic: GuideTopic) {
     const at = holder(draft.part);
     const card = document.createElement("div");
     card.className = "annotation topic-thread";
-    card.append(newCommentCard(composerPlace(draft.part)));
+    card.append(newCommentCard(threadPlace({ target: draft })));
     if (at) underPart(at).append(card);
   }
   const chip = topicBlockersChip(

@@ -2,7 +2,7 @@ import { renderTopicBody } from "./topics-body-dom";
 import { esc } from "./html";
 import { keycapsHtml } from "./keycaps";
 import type { TopicPlace, TopicsNavRow } from "./topics-derive";
-import { signOffStand, type TopicSignOffStand } from "./topicthreads-derive";
+import { signOffStand, topicMark, type TopicSignOffStand } from "./topicthreads-derive";
 
 // Decisions mode's markup: the sidebar's stage, group and topic rows, the topic page and the
 // Overview. Markdown is rendered by the caller (`md`), which sanitises it.
@@ -12,12 +12,12 @@ const glyph = (name: string, cls: string) =>
 
 // A topic's or a group's mark: to do, done, or change requested while an open change request is on
 // it (topicthreads-derive topicMark).
-const mark = (settled: boolean, requested = false) =>
-  requested
-    ? glyph("circle-alert", "st changes")
-    : settled
-      ? glyph("check", "st approved")
-      : glyph("circle", "st pending");
+const MARKS = {
+  change: glyph("circle-alert", "st changes"),
+  done: glyph("check", "st approved"),
+  todo: glyph("circle", "st pending"),
+};
+const mark = (settled: boolean, requested = false) => MARKS[topicMark(settled, requested)];
 
 // A row of the sidebar. A group shows what is done of this round's topics, and its mark. A topic
 // shows at most two lines, its full title on hover, and the open one whole (topics.css); its mark,

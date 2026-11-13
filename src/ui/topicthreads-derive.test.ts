@@ -66,12 +66,9 @@ test("threads on the title sit under Recorded with Recorded's own, and one on Re
   assert.equal(threadSlot("title"), "recorded");
   assert.equal(threadSlot("recorded"), "recorded");
   assert.equal(threadSlot("body:3"), "body:3");
-  assert.equal(threadPlace(thread("a", "t1", "recorded")), "On Recorded");
+  assert.equal(threadPlace(thread("a", "t1", "recorded")), "on Recorded");
   assert.equal(threadPlace(thread("a", "t1", "title")), null);
-  assert.equal(
-    threadPlace(thread("a", "t1", "title", { moved: true })),
-    "The part it was on changed",
-  );
+  assert.equal(threadPlace(thread("a", "t1", "title", { moved: true })), "its part changed");
 });
 
 test("a topic with one open change request reads change requested, offers Mark Reviewed, and counts as done once marked", () => {

@@ -32,13 +32,11 @@ export const threadSlot = (part: string) => (part === "title" ? "recorded" : par
 
 // What a thread's card says of where it sits, when its place doesn't say it: one on Recorded says
 // so (it shares its slot with the title's), and one whose part a new guide took away says it moved.
+// The composer for a new thread says what its thread will.
 export function threadPlace(t: Pick<TopicThread, "target" | "moved">): string | null {
-  if (t.moved) return "The part it was on changed";
-  return t.target.part === "recorded" ? "On Recorded" : null;
+  if (t.moved) return "its part changed";
+  return t.target.part === "recorded" ? "on Recorded" : null;
 }
-
-// The composer's header for a new thread on `part`: "on Recorded" there, as the thread will say.
-export const composerPlace = (part: string) => (part === "recorded" ? "on Recorded" : null);
 
 // A thread requests a change when it was opened as one, or when the reviewer requested one later in
 // it: what the Send sends (topicthreads.ts keeps the desk's copy of the rule).
