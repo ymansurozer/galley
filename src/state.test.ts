@@ -12,6 +12,7 @@ import {
   buildReviewResult,
   buildReviewState,
   carryGuideStamps,
+  carryTopicSignOffs,
   computeApprovedFiles,
   deskLockPath,
   findLiveDesks,
@@ -29,6 +30,7 @@ import {
   resolveGuide,
   resolveParts,
   resolveSkim,
+  roundOf,
   reviewDir,
   sanitizeSession,
   portRangeWalk,
@@ -36,6 +38,7 @@ import {
   stablePort,
   stableUiPort,
   writeFileAtomic,
+  topicSettled,
   writeGlobalSettings,
 } from "./state.js";
 import { changeBlocks, changeStableKeyFromBlock, gitStats, parseUnifiedDiff } from "./git.js";
@@ -4141,6 +4144,7 @@ function topicsGuide(
 ): Guide {
   return {
     overview: "o",
+    skims: [{ reason: "Library scaffolding", covers: [{ path: "src/lib/" }] }],
     stages: [
       {
         id: "s",
@@ -4280,4 +4284,321 @@ test("a guide without stages leaves no topic stamps", async () => {
     assert.equal(st.topics, undefined);
     assert.ok(st.changes.every((c) => c.topics === undefined));
   });
+});
+
+test("topics coverage refuses gaps, accepts reasoned skims and gives topics precedence", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    const guide = topicsGuide({ app: [{ path: "src/app.ts", lines: [3] }] });
+    guide.skims = [
+      { reason: "Library scaffolding", rule: "Generated", covers: [{ path: "src/lib/" }] },
+    ];
+    const gap = resolveGuide(st, guide);
+    assert.equal(gap.ok, false);
+    if (!gap.ok) assert.match(gap.reason, /src\/app.ts:10/);
+    guide.skims.push({ reason: "Mechanical", covers: [{ path: "src/app.ts", lines: [3, 10] }] });
+    assert.deepEqual(resolveGuide(st, guide), { ok: true });
+    assert.equal(st.coverage?.topicLines, 2);
+    assert.equal(st.coverage?.skimmedLines, 9);
+    assert.equal(st.coverage?.totalLines, 11);
+    st.guide = guide;
+    const after = await mergeReviewState(await build(appLines(topicsTree, ["top"])), st);
+    assert.equal(after.coverage?.uncoveredLines, 1);
+    assert.equal(after.coverage?.skimmedLines, 9);
+  });
+});
+
+test("whole-file skims satisfy topics coverage", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    const guide = topicsGuide({ app: [{ path: "src/app.ts" }] });
+    guide.files = ["src/lib/util.ts", "src/lib/new.ts"].map((path) => ({
+      path,
+      order: 0,
+      category: "C",
+      skim: true,
+    }));
+    assert.deepEqual(resolveGuide(st, guide), { ok: true });
+    assert.equal(st.coverage?.skimmedLines, 6);
+  });
+});
+
+test("coverage refusal lists twenty places and counts the rest", async () => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-coverage-")));
+  const gitq = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    const lines = Array.from({ length: 260 }, (_, i) => `line ${i + 1}`);
+    await fs.writeFile(path.join(dir, "a.txt"), lines.join("\n") + "\n");
+    gitq("add", ".");
+    gitq("commit", "-qm", "init");
+    await fs.writeFile(
+      path.join(dir, "a.txt"),
+      lines.map((l, i) => (i % 10 === 0 ? `edit ${l}` : l)).join("\n") + "\n",
+    );
+    const st = (await buildReviewState(dir, { session: "s" }))!;
+    const guide = topicsGuide({ first: [{ path: "a.txt", lines: [1] }] });
+    delete guide.skims;
+    const r = resolveGuide(st, guide);
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.match(r.reason, /a.txt:11/);
+      assert.match(r.reason, /a.txt:201; and 5 more$/);
+      assert.equal((r.reason.match(/a.txt:/g) ?? []).length, 20);
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("coverage lists each files-entry block skim separately even with identical reasons", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await build();
+    const guide = topicsGuide({ library: [{ path: "src/lib/" }] });
+    guide.files = [
+      {
+        path: "src/app.ts",
+        order: 0,
+        category: "C",
+        orientation: "o",
+        skimBlocks: [
+          { lines: [3, 3], reason: "Mechanical" },
+          { lines: [10, 10], reason: "Mechanical" },
+        ],
+      },
+    ];
+    assert.deepEqual(resolveGuide(st, guide), { ok: true });
+    assert.deepEqual(
+      st.coverage?.skims.map((s) => s.lines),
+      [0, 2, 3],
+    );
+    st.guide = guide;
+    const shifted = await mergeReviewState(await build(appLines(topicsTree, ["top"])), st);
+    assert.deepEqual(
+      shifted.coverage?.skims.map((s) => s.lines),
+      [0, 2, 3],
+    );
+    assert.equal(shifted.coverage?.uncoveredLines, 1);
+  });
+});
+
+test("coverage refusals use navigable lines for deleted files and top-of-file deletions", async () => {
+  const dir = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "galley-coverage-deletions-")),
+  );
+  const gitq = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "deleted.txt"), "removed\n");
+    await fs.writeFile(path.join(dir, "top.txt"), "removed\nkept\n");
+    await fs.writeFile(path.join(dir, "covered.txt"), "old\n");
+    gitq("add", ".");
+    gitq("commit", "-qm", "init");
+    await fs.rm(path.join(dir, "deleted.txt"));
+    await fs.writeFile(path.join(dir, "top.txt"), "kept\n");
+    await fs.writeFile(path.join(dir, "covered.txt"), "new\n");
+    const st = (await buildReviewState(dir, { session: "s" }))!;
+    const guide = topicsGuide({ covered: [{ path: "covered.txt" }] });
+    delete guide.skims;
+    const result = resolveGuide(st, guide);
+    assert.equal(result.ok, false);
+    if (!result.ok)
+      assert.equal(result.reason, "guide leaves changes uncovered: deleted.txt:1, top.txt:1");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// ── Settling topics across rounds ─────────────────────────────────────────────
+// The tab's sign-off on a topic: its cover hash now, and the round.
+const settleTopic = (st: ReviewState, id: string, round = 1) => {
+  st.settledTopics = { ...st.settledTopics, [id]: { hash: st.topics![id]!.coverHash, round } };
+};
+const settledIds = (st: ReviewState) => guideTopicIds(st).filter((id) => topicSettled(st, id));
+const guideTopicIds = (st: ReviewState) =>
+  st.guide?.stages?.flatMap((s) => s.groups.flatMap((g) => g.topics.map((t) => t.id))) ?? [];
+// A new guide attached with a reload (`galley reload --guide`), as the server runs it.
+const reloadWithGuide = async (base: ReviewState, saved: ReviewState, guide: Guide) => {
+  const merged = await mergeReviewState(base, saved);
+  merged.guide = guide;
+  assert.ok(resolveGuide(merged, guide).ok);
+  carryTopicSignOffs(merged, saved);
+  return merged;
+};
+const settleGuide = topicsGuide({
+  span: [{ path: "src/app.ts", lines: [10] }],
+  other: [{ path: "src/lib/" }],
+});
+settleGuide.skims!.push({
+  reason: "Other fixture edit",
+  covers: [{ path: "src/app.ts", lines: [3] }],
+});
+async function attachTopics(build: (app?: string[]) => Promise<ReviewState>, app?: string[]) {
+  const st = await build(app);
+  st.guide = settleGuide;
+  assert.ok(resolveGuide(st, settleGuide).ok);
+  return st;
+}
+
+test("a settled topic stays settled when lines are inserted above its blocks", async () => {
+  await withTopicsRepo(async (build) => {
+    const before = await attachTopics(build);
+    settleTopic(before, "span");
+    const after = await mergeReviewState(await build(appLines(topicsTree, ["top"])), before);
+    assert.deepEqual(settledIds(after), ["span"]);
+    assert.deepEqual(after.settledTopics, {
+      span: { hash: before.topics!.span!.coverHash, round: 1 },
+    });
+    assert.equal(after.topics?.span?.changed, undefined);
+  });
+});
+
+test("a settled topic whose block is edited is to do again and stamped as changed", async () => {
+  await withTopicsRepo(async (build) => {
+    const before = await attachTopics(build);
+    settleTopic(before, "span");
+    settleTopic(before, "other");
+    const after = await mergeReviewState(
+      await build(appLines({ 3: ["A"], 10: ["C1", "C2 edited"] })),
+      before,
+    );
+    assert.deepEqual(settledIds(after), ["other"]);
+    assert.equal(after.settledTopics?.span, undefined, "its sign-off is dropped");
+    assert.equal(after.topics?.span?.changed, true);
+    assert.equal(after.topics?.other?.changed, undefined);
+    // The mark outlasts a further reload while the topic is to do, and clears once it is settled.
+    const again = await mergeReviewState(
+      await build(appLines({ 3: ["A"], 10: ["C1", "C2 edited"] })),
+      after,
+    );
+    assert.equal(again.topics?.span?.changed, true);
+    settleTopic(again, "span", 2);
+    const settledAgain = await mergeReviewState(
+      await build(appLines({ 3: ["A"], 10: ["C1", "C2 edited"] })),
+      again,
+    );
+    assert.deepEqual(settledIds(settledAgain), ["span", "other"]);
+    assert.equal(settledAgain.topics?.span?.changed, undefined);
+  });
+});
+
+test("a new guide that only rewrites a topic's prose keeps it settled; one without the topic drops it", async () => {
+  await withTopicsRepo(async (build) => {
+    const before = await attachTopics(build);
+    settleTopic(before, "span");
+    const reworded: Guide = structuredClone(settleGuide);
+    const span = reworded.stages![0]!.groups[0]!.topics[0]!;
+    span.title = "A new title";
+    span.body = "Rewritten from scratch.";
+    span.recorded = "docs/adr/7.md";
+    const kept = await reloadWithGuide(await build(), before, reworded);
+    assert.deepEqual(settledIds(kept), ["span"]);
+    const without: Guide = structuredClone(settleGuide);
+    without.stages![0]!.groups[0]!.topics.shift();
+    without.skims!.push({
+      reason: "Removed topic fixture",
+      covers: [{ path: "src/app.ts", lines: [10] }],
+    });
+    const gone = await reloadWithGuide(await build(), kept, without);
+    assert.deepEqual(gone.settledTopics, {});
+    assert.equal(gone.topics?.span, undefined);
+  });
+});
+
+test("a new guide is judged by its own stamps, not the old guide's on the rebuilt diff", async () => {
+  await withTopicsRepo(async (build) => {
+    const whole = topicsGuide({ t: [{ path: "src/app.ts" }] });
+    const before = await build();
+    before.guide = whole;
+    assert.ok(resolveGuide(before, whole).ok);
+    settleTopic(before, "t");
+    // The agent adds a line at the top: the old guide's file cover claims that new block too, while
+    // the new guide names only the two settled blocks at their shifted lines.
+    const narrow = topicsGuide({ t: [{ path: "src/app.ts", lines: [4, 11] }] });
+    narrow.skims!.push({
+      reason: "Inserted fixture line",
+      covers: [{ path: "src/app.ts", lines: [1] }],
+    });
+    const after = await reloadWithGuide(await build(appLines(topicsTree, ["top"])), before, narrow);
+    assert.deepEqual(settledIds(after), ["t"]);
+    assert.equal(after.topics?.t?.changed, undefined);
+    // Under the old guide the same edit does move the topic's hash.
+    const carried = await mergeReviewState(await build(appLines(topicsTree, ["top"])), before);
+    assert.deepEqual(settledIds(carried), []);
+    assert.equal(carried.topics?.t?.changed, true);
+  });
+});
+
+test("the round carries across a reload, and a topic settled in round 1 still says round 1", async () => {
+  await withTopicsRepo(async (build) => {
+    const st = await attachTopics(build);
+    assert.equal(roundOf(st), 1, "a new review is in round 1");
+    settleTopic(st, "span", roundOf(st));
+    assert.deepEqual(buildReviewResult(st, { resultJson: "r", sessionDir: "d" }).topics, {
+      settled: ["span"],
+      todo: ["other"],
+    });
+    st.round = roundOf(st) + 1; // what a Send does (server.ts)
+    const reloaded = await mergeReviewState(await build(), st);
+    assert.equal(roundOf(reloaded), 2);
+    assert.deepEqual(reloaded.settledTopics?.span, { hash: st.topics!.span!.coverHash, round: 1 });
+    assert.deepEqual(buildReviewResult(reloaded, { resultJson: "r", sessionDir: "d" }).topics, {
+      settled: ["span"],
+      todo: ["other"],
+    });
+  });
+});
+
+test("a review whose guide has no topics carries no topics in its result", () => {
+  assert.equal(
+    buildReviewResult(state({}), { resultJson: "r", sessionDir: "d" }).topics,
+    undefined,
+  );
+});
+
+test("two tabs settle different topics: both land, stamped with the desk's round", async () => {
+  const live = state({
+    saveNumber: 1,
+    round: 2,
+    topics: {
+      a: { blocks: [], lines: 1, coverHash: "HA" },
+      b: { blocks: [], lines: 1, coverHash: "HB" },
+    },
+    settledTopics: { a: { hash: "HA", round: 2 } },
+  });
+  // Tab B is behind (it confirmed save 0) and still thinks it is round 1.
+  const outcome = await mergeReviewerSave(live, {
+    base: 0,
+    changes: { settledTopics: { changed: [{ id: "b", hash: "HB", round: 1 }], removed: [] } },
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: "base" },
+  });
+  assert.deepEqual(live.settledTopics, {
+    a: { hash: "HA", round: 2 },
+    b: { hash: "HB", round: 2 },
+  });
+  assert.deepEqual(outcome.merged?.settledTopics, live.settledTopics, "B was behind: it gets both");
+  // A reset of one (Reset in the bar) removes only that one.
+  await mergeReviewerSave(live, {
+    base: 2,
+    changes: { settledTopics: { changed: [], removed: ["a"] } },
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: "base" },
+  });
+  assert.deepEqual(live.settledTopics, { b: { hash: "HB", round: 2 } });
+});
+
+test("a topic sign-off made on an older diff lands, but settles nothing its hash no longer names", async () => {
+  const live = state({
+    baseDiffHash: "new",
+    topics: { a: { blocks: [], lines: 1, coverHash: "NEW" } },
+  });
+  await mergeReviewerSave(live, {
+    base: 0,
+    changes: { settledTopics: { changed: [{ id: "a", hash: "OLD", round: 1 }], removed: [] } },
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: "old" },
+  });
+  assert.equal(topicSettled(live, "a"), false);
 });

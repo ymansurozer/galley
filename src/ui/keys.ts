@@ -4,7 +4,7 @@ import { approveCurrentStep } from "./decisions";
 import { isOversizedPlaceholder, loadOversizedDiff } from "./oversized";
 import { closeComposer, composerInUi } from "./composer";
 import { hasUi, toggleView, uiOnly, views } from "./appview";
-import { groupStep, openTopic, startTopics, topicStep } from "./topics";
+import { groupStep, openTopic, settleOpenTopic, startTopics, topicStep } from "./topics";
 import {
   annotatePage,
   clearPendingPicks,
@@ -223,11 +223,19 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "↵",
-    desc: "Start review",
+    desc: "Start or continue review",
     group: "Decisions",
     test: enter,
     when: () => inTopics() && S.topicAt === null,
     run: () => startTopics(),
+  },
+  {
+    combo: "⇧A",
+    desc: "Settle the open topic",
+    group: "Decisions",
+    test: shift("A"),
+    when: () => inTopics() && S.topicAt !== null,
+    run: () => settleOpenTopic(),
   },
   // Navigate
   {

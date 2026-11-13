@@ -228,6 +228,26 @@ export function validateGuide(input: unknown): GuideValidation {
     if (!l.ok) return l;
     topicLinks = l.links;
   }
+  if (g.skims !== undefined && !topicStages)
+    return { ok: false, reason: "guide.skims needs stages" };
+  const skims: NonNullable<Guide["skims"]> = [];
+  if (g.skims !== undefined) {
+    if (!Array.isArray(g.skims)) return { ok: false, reason: "guide.skims must be an array" };
+    for (const [i, raw] of g.skims.entries()) {
+      const at = `guide.skims[${i}]`;
+      if (!raw || typeof raw !== "object" || !text(raw.reason))
+        return { ok: false, reason: `${at}.reason must be a non-empty string` };
+      if (raw.rule !== undefined && !text(raw.rule))
+        return { ok: false, reason: `${at}.rule must be a non-empty string` };
+      const c = covers(raw.covers, at);
+      if (!c.ok) return c;
+      skims.push({
+        reason: raw.reason,
+        ...(raw.rule === undefined ? {} : { rule: raw.rule }),
+        covers: c.covers,
+      });
+    }
+  }
   const rawFiles = g.files ?? [];
   if (!Array.isArray(rawFiles)) return { ok: false, reason: "guide.files must be an array" };
   if (rawFiles.length === 0 && !topicStages)
@@ -374,6 +394,7 @@ export function validateGuide(input: unknown): GuideValidation {
   if (files.length) guide.files = files;
   if (topicStages) guide.stages = topicStages;
   if (topicLinks?.length) guide.links = topicLinks;
+  if (g.skims !== undefined) guide.skims = skims;
   // Focused-review flag (issue 04) — display-only, badges the overview. A boolean or absent;
   // any other type is a schema violation (consistent with the field-shape checks above).
   if (g.focused !== undefined) {

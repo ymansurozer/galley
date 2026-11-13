@@ -574,3 +574,26 @@ test("validateGuide refuses malformed links, a repeated link and links without s
     /guide\.links needs stages/,
   );
 });
+
+test("skims require a reason and normalize covers with optional reviewer rule", () => {
+  assert.deepEqual(validateGuide({ ...topicsInput(), skims: [{ covers: [{ path: "a" }] }] }), {
+    ok: false,
+    reason: "guide.skims[0].reason must be a non-empty string",
+  });
+  const r = validateGuide({
+    ...topicsInput(),
+    skims: [{ reason: "Generated", rule: "Churn", covers: [{ path: "a", lines: [[8, 3]] }] }],
+  });
+  assert.ok(r.ok);
+  if (r.ok)
+    assert.deepEqual(r.guide.skims, [
+      { reason: "Generated", rule: "Churn", covers: [{ path: "a", lines: [[3, 8]] }] },
+    ]);
+});
+
+test("validateGuide refuses skims without stages", () => {
+  assert.deepEqual(validateGuide({ ...validInput(), skims: [] }), {
+    ok: false,
+    reason: "guide.skims needs stages",
+  });
+});

@@ -305,6 +305,8 @@ export interface Store {
   sendMsg: string;
   // What the receipt holds back ("Not sent: …"), under sendMsg when there are no lanes; "" for none.
   sendNotSent: string;
+  // With topics: how many are settled and how many are still to do; "" without.
+  sendTopics: string;
   sendNote: string;
   // Send was confirmed and waits on new annotations' screenshots (capped): the dialog says so.
   sendFinishing: boolean;
