@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { estimateMeasure, mapProblems } from "./map-check";
 import { MAP_CORPUS } from "./map-corpus";
-import { layoutMap, MAP_WIDTH, type MapStage } from "./map-derive";
+import { layoutMap, linkKey, MAP_WIDTH, type MapStage } from "./map-derive";
 import type { GuideLink } from "../types";
 
 const measure = estimateMeasure();
@@ -31,7 +31,12 @@ test("the map's invariants hold for every shape in the corpus", () => {
   const failures = MAP_CORPUS.flatMap((shape) => {
     const layout = layoutMap(shape.stages, shape.links, measure, shape.width ?? MAP_WIDTH);
     if (!layout) return [];
-    return mapProblems(layout, shape.links, measure).map((p) => `${shape.name}: ${p}`);
+    const problems = mapProblems(layout, shape.links, measure);
+    const known = shape.known?.problems ?? [];
+    return [
+      ...problems.filter((p) => !known.includes(p)).map((p) => `${shape.name}: ${p}`),
+      ...known.filter((p) => !problems.includes(p)).map((p) => `${shape.name}: no longer ${p}`),
+    ];
   });
   assert.deepEqual(failures, []);
 });
@@ -105,7 +110,7 @@ test("a group feeding three others leaves by one exit and fans out with a label 
     stages(["Core", "hub"], ["Users", "x", "y", "z"]),
     links(["hub", "x", "colours"], ["hub", "y", "sizes"], ["hub", "z", "radii"]),
   );
-  const branches = ["hub>x", "hub>y", "hub>z"].map((k) => link(layout, k));
+  const branches = ["x", "y", "z"].map((t) => link(layout, linkKey("hub", t)));
   const starts = branches.map((l) => JSON.stringify(l.points![0]));
   assert.equal(new Set(starts).size, 1, "one exit");
   assert.deepEqual(
@@ -123,8 +128,11 @@ test("two links leaving a box with one label share one exit and one label", () =
     stages(["A", "a"], ["B", "b", "c"]),
     links(["a", "b", "rows"], ["a", "c", "rows"]),
   );
-  assert.deepEqual(link(layout, "a>b").caption?.links, ["a>b", "a>c"]);
-  assert.equal(link(layout, "a>c").caption, undefined);
+  assert.deepEqual(link(layout, linkKey("a", "b")).caption?.links, [
+    linkKey("a", "b"),
+    linkKey("a", "c"),
+  ]);
+  assert.equal(link(layout, linkKey("a", "c")).caption, undefined);
 });
 
 test("a link back to an earlier stage is a note under its source, with no path", () => {
@@ -132,7 +140,7 @@ test("a link back to an earlier stage is a note under its source, with no path",
     stages(["Plan", "p"], ["Build", "b"], ["Ship", "s"]),
     links(["p", "b", "spec"], ["b", "s", "build"], ["s", "p", "feedback"]),
   );
-  const back = link(layout, "s>p");
+  const back = link(layout, linkKey("s", "p"));
   assert.equal(back.kind, "back");
   assert.equal(back.points, undefined);
   assert.deepEqual(back.note?.lines, ["↩ Group p · feedback"]);
@@ -147,14 +155,14 @@ test("a link skipping a stage crosses the box in its way along a strip, and says
     links(["a", "b", "rows"], ["b", "c", "views"], ["a", "c", "ids"]),
   );
   const b = box(layout, "b");
-  const { crossings } = link(layout, "a>c");
+  const { crossings } = link(layout, linkKey("a", "c"));
   assert.equal(crossings.length, 1);
   const [c] = crossings;
   assert.equal(c!.box, "b");
   assert.deepEqual([c!.x1, c!.x2], [b.x, b.x + layout.boxW]);
   const fromEdge = Math.min(c!.y - b.y, b.y + layout.boxH - c!.y);
   assert.ok(fromEdge > 0 && fromEdge <= 13, `within 13 px of b's top or bottom (${fromEdge})`);
-  assert.deepEqual(link(layout, "a>b").crossings, []);
+  assert.deepEqual(link(layout, linkKey("a", "b")).crossings, []);
 });
 
 test("links inside a stage run straight between neighbours and jog round the side otherwise", () => {
@@ -162,11 +170,11 @@ test("links inside a stage run straight between neighbours and jog round the sid
     stages(["A", "a"], ["B", "b1", "b2", "b3"]),
     links(["a", "b1", "x"], ["b1", "b2", "next"], ["b1", "b3", "skip"]),
   );
-  const next = link(layout, "b1>b2");
+  const next = link(layout, linkKey("b1", "b2"));
   assert.equal(next.kind, "same");
   assert.equal(next.points!.length, 2, "a straight run");
   assert.equal(next.points![0]![0], next.points![1]![0], "upright");
-  const skip = link(layout, "b1>b3");
+  const skip = link(layout, linkKey("b1", "b3"));
   assert.equal(skip.points!.length, 4);
   const right = box(layout, "b1").x + layout.boxW;
   assert.ok(
@@ -207,6 +215,6 @@ test("links naming unknown groups or joining a group to itself are left out", ()
   );
   assert.deepEqual(
     layout.links.map((l) => l.key),
-    ["a>b"],
+    [linkKey("a", "b")],
   );
 });

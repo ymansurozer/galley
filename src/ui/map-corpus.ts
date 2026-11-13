@@ -1,5 +1,5 @@
 import type { GuideLink } from "../types";
-import type { MapStage } from "./map-derive";
+import { linkKey, type MapStage } from "./map-derive";
 
 // The shapes of change the map is held to: guide stages, groups and links alone, made-up content.
 // map-derive.test.ts checks the layout's invariants over every shape, and the gallery
@@ -13,6 +13,9 @@ export type MapShape = {
   links: GuideLink[];
   // The width the map is laid out for, when not the Overview's widest.
   width?: number;
+  // Invariant breaks this shape is known to keep, each with the reason it cannot be helped. The
+  // corpus test holds the shape to exactly these, so a new break, or one fixed, shows.
+  known?: { problems: string[]; why: string };
 };
 
 type G = [id: string, title: string, summary?: string];
@@ -483,45 +486,53 @@ export const MAP_CORPUS: MapShape[] = [
       ["r2", "r4", "rows"],
     ],
   ),
-  shape(
-    "crossings in one row",
-    "One box sends five links past the same two boxes; the fifth falls back inside them.",
-    [
+  {
+    ...shape(
+      "crossings in one row",
+      "One box sends five links past the same two boxes; past the four strips, the rest fall back inside them.",
       [
-        "Events",
         [
-          ["bus", "Event bus", "Every change, once."],
-          ["clock", "Clock", "Ticks every minute."],
+          "Events",
+          [
+            ["bus", "Event bus", "Every change, once."],
+            ["clock", "Clock", "Ticks every minute."],
+          ],
+        ],
+        ["Filter", [["filter", "Filter", "Drops noise."]]],
+        ["Enrich", [["enrich", "Enrich", "Adds context."]]],
+        [
+          "Sinks",
+          [
+            ["search", "Search index"],
+            ["mail", "Mail digest"],
+            ["hooks", "Webhooks"],
+            ["metrics", "Metrics"],
+            ["archive", "Archive"],
+          ],
         ],
       ],
-      ["Filter", [["filter", "Filter", "Drops noise."]]],
-      ["Enrich", [["enrich", "Enrich", "Adds context."]]],
       [
-        "Sinks",
-        [
-          ["search", "Search index"],
-          ["mail", "Mail digest"],
-          ["hooks", "Webhooks"],
-          ["metrics", "Metrics"],
-          ["archive", "Archive"],
-        ],
+        ["bus", "filter", "raw events"],
+        ["filter", "enrich", "kept events"],
+        ["bus", "search", "documents"],
+        ["bus", "mail", "mentions"],
+        ["bus", "hooks", "subscribed events"],
+        ["bus", "metrics", "counters"],
+        ["bus", "archive", "everything"],
+        ["clock", "search", "reindex"],
+        ["clock", "mail", "digest time"],
+        ["clock", "hooks", "retries"],
+        ["clock", "metrics", "flush"],
+        ["clock", "archive", "rotate"],
       ],
-    ],
-    [
-      ["bus", "filter", "raw events"],
-      ["filter", "enrich", "kept events"],
-      ["bus", "search", "documents"],
-      ["bus", "mail", "mentions"],
-      ["bus", "hooks", "subscribed events"],
-      ["bus", "metrics", "counters"],
-      ["bus", "archive", "everything"],
-      ["clock", "search", "reindex"],
-      ["clock", "mail", "digest time"],
-      ["clock", "hooks", "retries"],
-      ["clock", "metrics", "flush"],
-      ["clock", "archive", "rotate"],
-    ],
-  ),
+    ),
+    known: {
+      problems: ["search", "hooks", "metrics"].map(
+        (to) => `link ${linkKey("bus", to)} crosses 2 boxes and is labelled only at its start`,
+      ),
+      why: "The gap before the sinks holds ten lanes, two into each sink, and no spot there can be told apart for these three links' labels to be said again; each is said once, clear, at its source.",
+    },
+  },
   shape(
     "several links back",
     "Four links back to earlier stages, two from one box.",
