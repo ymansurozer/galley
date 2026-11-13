@@ -18,7 +18,7 @@ import {
   reviewerChanges,
   stampDecisions,
 } from "./review-delta-derive";
-import { keepPlacements } from "./uilane-derive";
+import { keepPlacements, mergeAgentReplies } from "./uilane-derive";
 
 // Single reactive source of truth: the imperative diff island mutates it directly,
 // and the Alpine-driven chrome (tree, toolbar, composer, modals, toast) renders from it.
@@ -263,9 +263,16 @@ export const postsOut = () => outgoing.size > 0;
 // becomes the tab's reviewer-owned fields and the confirmed copy, with each block's status from its
 // decision. The tab's own placements are kept over the desk's, as a new diff's adoption keeps them,
 // and go out as its reports. A read for another diff, or no newer than the copy, is not taken.
+// The agent's replies a newer poll brought in while the read was out (they move no save number)
+// stay: the read takes them, so the confirmed copy holds them too and no save sends them back.
 export function takeDeskReview(read: ReviewRead): boolean {
   if (read.baseDiffHash !== S.state.baseDiffHash) return false;
   if (confirmed.diff === read.baseDiffHash && read.saveNumber <= confirmed.saveNumber) return false;
+  const have = new Set(read.review.comments.map((c) => c.id));
+  read.review.comments.push(
+    ...S.state.comments.filter((c) => c.role === "agent" && !have.has(c.id)),
+  );
+  mergeAgentReplies(read.review.annotations ?? [], S.state.annotations ?? []);
   confirmed = { saveNumber: read.saveNumber, review: copyOf(read.review), diff: read.baseDiffHash };
   keepPlacements(read.review.annotations ?? [], S.state.annotations ?? []);
   Object.assign(S.state, read.review);

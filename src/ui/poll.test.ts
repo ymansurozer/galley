@@ -1150,3 +1150,42 @@ test("a reviewer comment posted to the desk directly reaches an idle tab through
   );
   assert.equal(reads(f), 1);
 });
+
+test("a read that lands after a newer poll brought the agent's replies keeps them, as the desk's", async (t) => {
+  const { a, b } = await twoTabs(t);
+  a.update({ annotations: [structuredClone(reviewerAnnotation)] });
+  for (const f of [a, b]) {
+    f.S.state.annotations = [structuredClone(reviewerAnnotation)];
+    f.confirm();
+  }
+  await a.h.approveFile("a.ts", { advance: false });
+  assert.equal(await a.h.saver.settled(), true);
+  // B's read goes out, and the desk answers it before the agent replies in both lanes.
+  let release!: () => void;
+  b.desk.holdReview = new Promise<void>((resolve) => (release = resolve));
+  const poll = b.poll();
+  await until(() => reads(b) === 1);
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const annotations = structuredClone(a.server().annotations);
+  annotations[0].comments.push(reply("ui-reply"));
+  a.update({ comments: [...a.server().comments, reply("code-reply")], annotations });
+  // A newer poll brings the replies in while the read is still out.
+  await b.poll();
+  assert.equal(b.S.state.comments.length, 1);
+  release();
+  await poll;
+  assert.deepEqual(plain(b.S.state.reviewedFiles), ["a.ts"], "B took A's save");
+  assert.deepEqual(
+    b.S.state.comments.map((c: { id: string }) => c.id),
+    ["code-reply"],
+    "the code lane's reply stays",
+  );
+  assert.deepEqual(
+    b.S.state.annotations[0].comments.map((m: { id: string }) => m.id),
+    ["annotation-message", "ui-reply"],
+    "the UI lane's reply stays",
+  );
+  await b.h.acceptChange("b-change", "rejected");
+  assert.equal(await b.h.saver.settled(), true);
+  assert.deepEqual(Object.keys(b.saves.at(-1).changes).sort(), ["decisionFiles", "decisions"]);
+});
