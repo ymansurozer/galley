@@ -271,6 +271,20 @@ export function topicSendParts(threads: readonly TopicThread[]): string[] {
   ].filter(Boolean);
 }
 
+// What of the topic threads (the Overview's too) doesn't go to the agent, counted as the code lane
+// counts its own (send-derive.ts codeSendSummary): resolved threads, and open threads whose
+// questions were all answered that request no change.
+export function topicHeldBack(threads: readonly TopicThread[]) {
+  const asked = (t: TopicThread) =>
+    t.comments.some((m) => m.role !== "agent" && m.intent === "question");
+  const waits = (t: TopicThread) => t.comments.some((m) => messageWaiting(m, t.comments));
+  const open = threads.filter((t) => t.status === "open");
+  return {
+    resolved: threads.length - open.length,
+    answered: open.filter((t) => asked(t) && !requestsChange(t) && !waits(t)).length,
+  };
+}
+
 // The topic threads a tab takes with a new guide: the desk's (`desk`), which the guide moved onto its
 // parts or dropped, keeping what the tab holds and hasn't saved. A thread the tab changed since its
 // confirmed copy (`confirmed`) keeps the tab's messages and status where the desk put it, with any

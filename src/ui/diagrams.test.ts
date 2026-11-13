@@ -23,3 +23,13 @@ test("invalid Mermaid throws to the body's code fallback", () => {
     renderDiagram("this is not a diagram", window.document as unknown as Document),
   );
 });
+
+test("labels take the size the page gives, and the drawing is laid out for it", () => {
+  const window = new Window();
+  const doc = window.document as unknown as Document;
+  const source = "flowchart LR\n A[Queue message] --> B[Workflow run]";
+  const small = renderDiagram(source, doc, 12);
+  assert.match(small.innerHTML, /font:12px/);
+  const width = (el: HTMLElement) => Number(el.querySelector("svg")!.getAttribute("width"));
+  assert.ok(width(small) < width(renderDiagram(source, doc)), "smaller text, narrower boxes");
+});

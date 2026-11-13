@@ -1,6 +1,8 @@
 import { parseTopicBody } from "./topics-body-derive";
 
-type Diagrams = { renderDiagram: (source: string, doc: Document) => HTMLElement };
+type Diagrams = {
+  renderDiagram: (source: string, doc: Document, fontSize?: number) => HTMLElement;
+};
 // A runtime URL keeps Pele out of the main bundle. Share in-flight and successful loads,
 // but let a later body retry a transient failure.
 export function diagramLoader(importBundle: () => Promise<Diagrams>) {
@@ -86,7 +88,9 @@ export async function renderTopicBody(
     pending.map(async ({ el, source }) => {
       try {
         const diagrams = await load();
-        el.replaceChildren(diagrams.renderDiagram(source, doc));
+        // Drawn at the body's text size, read where it will sit (Pele's own default is larger).
+        const size = parseFloat(doc.defaultView?.getComputedStyle(el).fontSize ?? "");
+        el.replaceChildren(diagrams.renderDiagram(source, doc, size > 0 ? size : undefined));
         watchFit(el);
       } catch {
         const notice = doc.createElement("p");

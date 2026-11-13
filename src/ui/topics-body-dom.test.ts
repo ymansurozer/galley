@@ -130,3 +130,17 @@ test("a diagram whose column is not laid out yet, or that could not be drawn, st
   assert.equal(diagramFit(697, 0), "drawn");
   assert.equal(diagramFit(0, 656), "drawn");
 });
+
+test("a diagram is drawn at the text size of the body around it", async () => {
+  const { host, md } = fixture();
+  host.ownerDocument.body.append(host);
+  host.style.fontSize = "12px";
+  const sizes: Array<number | undefined> = [];
+  await renderTopicBody(host, "```mermaid\nflowchart LR\nA --> B\n```", md, async () => ({
+    renderDiagram: (_source, doc, fontSize) => {
+      sizes.push(fontSize);
+      return doc.createElement("div");
+    },
+  }));
+  assert.deepEqual(sizes, [12]);
+});

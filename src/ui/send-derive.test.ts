@@ -104,6 +104,18 @@ test("resolved threads and answered questions are held back, on the sub-line", (
   });
 });
 
+test("topic threads held back count in the same sub-line, in the same words", () => {
+  const comments = [ask("b.ts", 5), reply("b.ts", 5)];
+  assert.deepEqual(codeSendSummary(comments, 0, [], { resolved: 1, answered: 2 }), {
+    code: "No change requests",
+    codeNotSent: "Not sent: 1 resolved · 3 answered questions",
+  });
+  assert.deepEqual(codeSendSummary([], 0, [], { resolved: 0, answered: 1 }), {
+    code: "No change requests",
+    codeNotSent: "Not sent: 1 answered question",
+  });
+});
+
 test("a question asked again after the agent's answer waits again", () => {
   const comments = [ask("a.ts", 3), reply("a.ts", 3), ask("a.ts", 3)];
   assert.deepEqual(codeSendSummary(comments, 0), { code: "1 open question", codeNotSent: "" });
