@@ -610,6 +610,14 @@ test("skims require a reason and normalize covers with optional reviewer rule", 
     ok: false,
     reason: "guide.skims[0].reason must be a non-empty string",
   });
+  // A skim has no body, so its refusal doesn't offer a lines block as a way out.
+  assert.deepEqual(
+    validateGuide({ ...topicsInput(), skims: [{ reason: "Generated", covers: [] }] }),
+    {
+      ok: false,
+      reason: "guide.skims[0].covers must be a non-empty array",
+    },
+  );
   const r = validateGuide({
     ...topicsInput(),
     skims: [{ reason: "Generated", rule: "Churn", covers: [{ path: "a", lines: [[8, 3]] }] }],

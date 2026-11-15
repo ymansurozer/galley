@@ -1366,6 +1366,78 @@ test("a split file that becomes a git rename on a reload keeps its parts at its 
   }
 });
 
+test("a topic's and a skim's file cover follow a file that becomes a git rename on a reload", async () => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "galley-rename-covers-")));
+  const gitq = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  try {
+    gitq("init", "-q");
+    gitq("config", "user.email", "t@t.dev");
+    gitq("config", "user.name", "t");
+    await fs.writeFile(path.join(dir, "app.ts"), committedLines.join("\n") + "\n");
+    // Its own lines, so git pairs each rename with its own file.
+    const genLines = (edits: Record<number, string> = {}) =>
+      committedLines.map((_, n) => edits[n + 1] ?? `g${n + 1}`);
+    await fs.writeFile(path.join(dir, "gen.ts"), genLines().join("\n") + "\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "init");
+    // A staged desk, so the renames below are ones git detects (index vs HEAD).
+    const stage = async (files: Record<string, string[]>) => {
+      for (const [file, lines] of Object.entries(files))
+        await fs.writeFile(path.join(dir, file), lines.join("\n") + "\n");
+      gitq("add", "-A");
+      return (await buildReviewState(dir, { session: "s", staged: true }))!;
+    };
+    const before = await stage({ "app.ts": edited({ 3: "A" }), "gen.ts": genLines({ 3: "G" }) });
+    const guide: Guide = {
+      overview: "o",
+      skims: [{ reason: "Generated", covers: [{ path: "gen.ts" }] }],
+      stages: [
+        {
+          id: "s",
+          label: "Stage",
+          groups: [
+            {
+              id: "g",
+              title: "Group",
+              topics: [
+                {
+                  id: "app",
+                  title: "app",
+                  recorded: "Only the code.",
+                  body: "b",
+                  covers: [{ path: "app.ts" }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    before.guide = guide;
+    assert.ok(resolveGuide(before, guide).ok);
+    assert.equal(before.coverage?.uncoveredLines, 0);
+    gitq("mv", "app.ts", "moved.ts");
+    gitq("mv", "gen.ts", "made.ts");
+    // Each file gains a second block after the rename.
+    const after = await stage({
+      "moved.ts": edited({ 3: "A", 10: "C" }),
+      "made.ts": genLines({ 3: "G", 10: "H" }),
+    });
+    assert.deepEqual(after.files.map((f) => f.oldPath).sort(), ["app.ts", "gen.ts"]);
+    const merged = await mergeReviewState(after, before);
+    const topic = merged.guide!.stages![0]!.groups[0]!.topics[0]!;
+    assert.deepEqual(topic.covers, [{ path: "moved.ts" }]);
+    assert.deepEqual(merged.guide!.skims![0]!.covers, [{ path: "made.ts" }]);
+    // The file covers take the new blocks under the new paths, so nothing is left uncovered and
+    // the topic's hash moves with the code it now claims.
+    assert.equal(merged.topics?.app?.blocks.length, 2);
+    assert.notEqual(merged.topics?.app?.coverHash, before.topics?.app?.coverHash);
+    assert.equal(merged.coverage?.uncoveredLines, 0);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 // ── resolveMovedFrom (issue 03) ──────────────────────────────────────────────
 // A guide-declared move: a.ts (a full working-tree deletion) + b.ts (an untracked addition,
 // edited so content differs) → one rename-changed entry at b.ts.

@@ -2509,6 +2509,8 @@ export async function mergeReviewState(
       if (key.startsWith(`${oldP}:`)) return `${newP}:${key.slice(oldP.length + 1)}`;
     return key;
   };
+  const movedCovers = (covers: Cover[]) =>
+    covers.map((c) => (renameMap.has(c.path) ? { ...c, path: migratePath(c.path) } : c));
   const decisions = carryDecisions(base, effectiveDecisions(saved), saved);
   // The guide is carried forward below, and its part and skim stamps with it. A new guide given
   // with this reload or restart re-resolves them from its own spans afterwards (resolveGuide).
@@ -2549,6 +2551,9 @@ export async function mergeReviewState(
     decisions,
     // Carry the attached guide forward across reload/restart (the rebuilt base has none), its
     // entries at the paths renamed files moved to, as their blocks' parts are (carryGuideStamps).
+    // A topic's or a skim's cover of a renamed file moves with it too: its carried blocks are found
+    // by content either way, but a file cover takes the new blocks under its path (stampTopics,
+    // stampCoverage), and the old path names no file in the diff.
     guide: saved.guide
       ? {
           ...saved.guide,
@@ -2557,6 +2562,20 @@ export async function mergeReviewState(
               renameMap.has(g.path) ? { ...g, path: migratePath(g.path) } : g,
             ),
           }),
+          ...(renameMap.size > 0 &&
+            saved.guide.stages && {
+              stages: saved.guide.stages.map((stage) => ({
+                ...stage,
+                groups: stage.groups.map((group) => ({
+                  ...group,
+                  topics: group.topics.map((t) => ({ ...t, covers: movedCovers(t.covers) })),
+                })),
+              })),
+            }),
+          ...(renameMap.size > 0 &&
+            saved.guide.skims && {
+              skims: saved.guide.skims.map((s) => ({ ...s, covers: movedCovers(s.covers) })),
+            }),
         }
       : base.guide,
     // Same for the UI target; a `--ui` at restart replaces it after the merge (runDesk).

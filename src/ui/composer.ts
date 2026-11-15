@@ -150,6 +150,46 @@ export function openTopicComposer(
   renderTopics();
 }
 
+// A topic composer the reviewer left with text in it, by switching mode or opening another page.
+// It closes, so nothing hidden holds the keys or the poll's diff adoption (both wait on an open
+// composer), and it comes back with its text when its page shows again, as the UI lane's does
+// (uilane.ts). One per page, the Overview's under null. Esc discards, as in the other lanes.
+type TopicAside = {
+  draft: typeof S.topicDraft;
+  thread: string | null;
+  editing: string | null;
+  body: string;
+};
+const topicAsides = new Map<string | null, TopicAside>();
+
+export function setTopicComposerAside() {
+  if (!S.composerOpen || !composerInTopics()) return;
+  const body = S.composerBody;
+  if (body.trim())
+    topicAsides.set(S.topicAt, {
+      draft: S.topicDraft,
+      thread: S.composerTopic,
+      editing: S.editingCommentId,
+      body,
+    });
+  closeComposer();
+}
+
+// Decisions shows a page again: reopen the composer set aside on it. A reply or an edit whose
+// thread or message is gone since has nowhere to open, and is dropped.
+export function resumeTopicComposer() {
+  const aside = topicAsides.get(S.topicAt);
+  if (!aside || S.composerOpen || S.view !== "topics") return;
+  topicAsides.delete(S.topicAt);
+  const { draft, thread, editing, body } = aside;
+  const t = thread ? S.state.topicThreads?.find((x) => x.id === thread) : undefined;
+  if (thread && (!t || (editing && !t.comments.some((m) => m.id === editing)))) return;
+  openTopicComposer(draft, thread, body, editing);
+  // After a mode switch the page is still hidden while this render focuses the composer: focus it
+  // again once the page shows.
+  requestAnimationFrame(restoreComposerFocus);
+}
+
 // Close whatever composer is open and rebuild the diff so its DOM goes away (the inline
 // composer is imperative — nothing hides it reactively like the old Alpine popover did).
 // `deferRender` postpones the rebuild until the in-flight click has fully settled: the

@@ -381,17 +381,17 @@ export function topicQuestionPayload(
 }
 
 // A part's place on its topic's page, top to bottom: the title, Recorded, the body by line, the
-// flag, then any other. On the Overview: the summary, then everything on the map (its threads sit
-// under it in the order made), then coverage.
+// options, the flag (its card closes the page), then any other. On the Overview: the summary, then
+// everything on the map (its threads sit under it in the order made), then coverage.
 const OVERVIEW_RANK: Record<string, number> = { summary: 0, map: 1, coverage: 2 };
 function partRank(part: string): number {
   if (/^(group|link):/.test(part)) return OVERVIEW_RANK.map!;
   if (part in OVERVIEW_RANK) return OVERVIEW_RANK[part]!;
   const p = readPart(part);
-  if (!p) return 4;
+  if (!p) return 5;
   if (p.kind === "option") return 3 + p.line / 1e7;
   if (p.kind === "body") return 2 + p.line / 1e7;
-  return { title: 0, recorded: 1, flag: 3 }[p.kind];
+  return { title: 0, recorded: 1, flag: 4 }[p.kind];
 }
 
 // The open change requests for the review result: the Overview's first (it opens the guide), then by

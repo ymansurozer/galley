@@ -132,7 +132,9 @@ export function mountLineBlocks(
       }
       const anns = blockAnnotations(topic.id, span.path, rows, !composerPlaced);
       if (anns.some((a) => a.metadata.type === "composer")) composerPlaced = true;
-      const entry = instanceFor(`${topic.id}\n${fence}\n${i}`, span.path, rows, topic.id, actions);
+      // The path is part of the block's identity: its handlers name the file they comment on.
+      const key = `${topic.id}\n${fence}\n${i}\n${span.path}`;
+      const entry = instanceFor(key, span.path, rows, topic.id, actions);
       const code = page.ownerDocument.createElement("div");
       code.className = "topic-lines-code";
       // The code takes the code theme's scheme, as Code mode's diff area does (tokens.css).

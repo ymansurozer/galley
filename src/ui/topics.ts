@@ -1,6 +1,7 @@
 import { currentFile } from "./changes";
 import { appGo, hasUi, setView } from "./appview";
 import { jumpToBlocker } from "./blockers";
+import { resumeTopicComposer, setTopicComposerAside } from "./composer";
 import { topicPoints } from "./topics-coverage-derive";
 import { renderPoints, renderTopicShare } from "./topics-coverage-dom";
 import { S, $, persist, toast } from "./store";
@@ -179,9 +180,12 @@ function wayIn(): TopicsOverview["way"] {
 
 // Open the Overview (null) or a topic. Decisions mode is showing: its keys and rows are its own.
 export function openTopic(at: TopicAt) {
+  // A composer with text in it stays behind with its page, and comes back when the page does.
+  if (at !== S.topicAt) setTopicComposerAside();
   S.topicAt = at;
   S.treeDrawerOpen = false;
   renderTopics();
+  resumeTopicComposer();
 }
 
 // ⇧→ / ⇧←, ⇧↓ / ⇧↑: a step that has nowhere to go stays put.

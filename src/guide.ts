@@ -54,16 +54,17 @@ function entry(raw: unknown, at: string, required: string[]): Entry {
 
 // A topic's covers: a non-empty array of { path, lines? }, `lines` shaped as a part's are. Shape
 // only — whether each resolves to a change in the diff is resolveCovers' check, on attach.
-// `mayBeEmpty`: a topic whose body's line blocks name lines claims those, so it needs no covers.
+// `lines`, for a topic: whether its body's line blocks name lines. Those it claims, so it needs no
+// covers; a skim has no body and passes nothing.
 function covers(
   raw: unknown,
   at: string,
-  mayBeEmpty = false,
+  lines?: boolean,
 ): { ok: true; covers: Cover[] } | { ok: false; reason: string } {
-  if (!Array.isArray(raw) || (raw.length === 0 && !mayBeEmpty))
+  if (!Array.isArray(raw) || (raw.length === 0 && !lines))
     return {
       ok: false,
-      reason: `${at}.covers must be a non-empty array${mayBeEmpty ? "" : " (or empty, when a lines block in the body names lines)"}`,
+      reason: `${at}.covers must be ${lines ? "an array" : "a non-empty array"}${lines === false ? " (or empty, when a lines block in the body names lines)" : ""}`,
     };
   const out: Cover[] = [];
   for (const [i, c] of raw.entries()) {

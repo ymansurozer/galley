@@ -122,10 +122,12 @@ export const bodyLine = (part: string) => {
 };
 
 // The text a part of `topic` shows, as the desk quotes it (topicthreads.ts partText): a body
-// block's from the desk's own list, Recorded's, the title's and the flag's their field. Undefined for
-// any other part.
+// block's from the desk's own list, an option's label, Recorded's, the title's and the flag's their
+// field. Undefined for any other part.
 export function partQuote(topic: GuideTopic, stamp: TopicStamp | undefined, part: string) {
   if (part === "title" || part === "recorded" || part === "flag") return topic[part];
+  const option = /^option:(\d+)$/.exec(part);
+  if (option) return stamp?.options?.[Number(option[1]) - 1]?.label;
   const line = bodyLine(part);
   return line === undefined ? undefined : stamp?.bodyParts?.find((b) => b.line === line)?.text;
 }
@@ -205,16 +207,18 @@ export type TopicRequest = {
   text: string;
 };
 
-// A part's place on its topic's page, top to bottom (topicParts). On the Overview: the summary, then
-// everything under the map in the order made, then coverage.
+// A part's place on its topic's page, top to bottom (topicParts): the title, Recorded, the body by
+// line, the options, the flag (its card closes the page), then any other. On the Overview: the
+// summary, then everything under the map in the order made, then coverage. The desk orders a sent
+// review's requests by the same rule (topicthreads.ts partRank).
 export function partRank(part: string): number {
   if (part.startsWith("option:")) return 3 + Number(part.slice(7)) / 1e7;
   const line = bodyLine(part);
   if (line !== undefined) return 2 + line / 1e7;
   if (onMap(part)) return 1;
-  const ranks: Record<string, number> = { title: 0, recorded: 1, flag: 3 };
+  const ranks: Record<string, number> = { title: 0, recorded: 1, flag: 4 };
   const overview: Record<string, number> = { summary: 0, map: 1, coverage: 2 };
-  return ranks[part] ?? overview[part] ?? 4;
+  return ranks[part] ?? overview[part] ?? 5;
 }
 
 export function topicRequestList(
@@ -290,7 +294,8 @@ export function topicHeldBack(threads: readonly TopicThread[]) {
 // confirmed copy (`confirmed`) keeps the tab's messages and status where the desk put it, with any
 // agent reply the tab lacks; one the tab made that neither the desk nor the confirmed copy has
 // stays; one the tab deleted stays deleted. One the confirmed copy has and the desk's list lacks
-// was dropped by the guide, and stays dropped.
+// was dropped by the guide, and stays dropped, unless the tab has since put an open change request
+// in it: the desk keeps those on a topic the guide dropped, and this one it has not seen yet.
 export function keepUnsavedThreads(
   desk: readonly TopicThread[],
   local: readonly TopicThread[],
@@ -317,5 +322,7 @@ export function keepUnsavedThreads(
       },
     ];
   });
-  return [...kept, ...local.filter((t) => !onDesk.has(t.id) && !before.has(t.id))];
+  const unsaved = (t: TopicThread) =>
+    !before.has(t.id) || (before.get(t.id) !== JSON.stringify(t) && isOpenChange(t));
+  return [...kept, ...local.filter((t) => !onDesk.has(t.id) && unsaved(t))];
 }

@@ -266,6 +266,27 @@ test("a new guide that drops a topic keeps its open change request and drops its
   );
 });
 
+test("a topic's requests go down its page: the body, the options, then the flag", async () => {
+  const body = 'Para one.\n\n```options\n[{"label":"A"},{"label":"B"}]\n```\n';
+  const live = state({ guide: guideOf(topic("t1", { body, flag: "Risky." })) });
+  await save(live, 0, [
+    sent("flag", "t1", "flag"),
+    sent("opt", "t1", "option:2"),
+    sent("para", "t1", "body:1"),
+  ]);
+  assert.deepEqual(
+    buildReviewResult(live, { resultJson: "r", sessionDir: "d" }).topicChangeRequests.map((r) => [
+      r.id,
+      r.part,
+    ]),
+    [
+      ["para", "body:1"],
+      ["opt", "option:2"],
+      ["flag", "flag"],
+    ],
+  );
+});
+
 test("the result carries open topic change requests with their part and quote; questions go as questions", async () => {
   const live = state({ guide: guideOf(topic("t1")) });
   await save(live, 0, [

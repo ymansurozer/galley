@@ -9,7 +9,7 @@ import {
   shouldWarm,
 } from "./appnav";
 import { dispatchKey } from "./keys";
-import { restoreComposerFocus } from "./composer";
+import { restoreComposerFocus, resumeTopicComposer, setTopicComposerAside } from "./composer";
 import { hasTopics, renderTopics } from "./topics";
 import {
   annotationsUnvisited,
@@ -183,7 +183,9 @@ export function setView(view: View): Promise<void> | undefined {
   if (!views().includes(view)) return;
   // A UI-lane composer can't stay open behind another mode (it would hold the code lane's keys
   // and the poll's diff adoption): it's set aside with its text and comes back with the UI view.
+  // A topic's composer likewise, back with Decisions on its page.
   if (view === "code" || view === "topics") setUiComposerAside();
+  if (view !== "topics") setTopicComposerAside();
   S.view = view;
   syncBridge();
   if (view === "code") {
@@ -193,6 +195,7 @@ export function setView(view: View): Promise<void> | undefined {
   if (view === "topics") {
     reclaimFocus();
     renderTopics();
+    resumeTopicComposer();
     return;
   }
   if (!S.app.loaded) loadApp(targetRoute());

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   droppedThreads,
   isOpenChange,
+  keepUnsavedThreads,
   mapTarget,
   overviewChip,
   overviewParts,
@@ -172,17 +173,20 @@ test("a question followed by a Request change reply counts as a change request",
 test("topic requests list by guide order and down the page, with dropped topics last under their kept title", () => {
   const threads = [
     thread("t2-flag", "t2", "flag"),
+    thread("t2-pick", "t2", "option:1"),
     thread("gone", "dropped", "title", { title: "An old title" }),
     thread("t1-body", "t1", "body:9"),
     thread("t1-rec", "t1", "recorded"),
     thread("t2-title", "t2", "title", { status: "resolved" }),
   ];
   const list = topicRequestList(threads, STAGES);
+  // The flag's card closes the page, so its request comes after one on an option.
   assert.deepEqual(
     list.map((r) => [r.id, r.title, r.part, r.text]),
     [
       ["t1-rec", "Title t1", "recorded", "Change it."],
       ["t1-body", "Title t1", "body:9", "Change it."],
+      ["t2-pick", "Title t2", "option:1", "Change it."],
       ["t2-flag", "Title t2", "flag", "Change it."],
       ["gone", "An old title", "title", "Change it."],
     ],
@@ -355,10 +359,43 @@ test("a part's quote is the desk's text of a body block, or the field the part n
   assert.equal(partQuote(t, stamp, "title"), "Cache it");
   assert.equal(partQuote(t, stamp, "recorded"), "Kept the cache.");
   assert.equal(partQuote(t, stamp, "flag"), "Careful");
-  // A line the desk lists no block at, an option and a line of a line block quote nothing here.
+  // An option quotes its label, so a comment on it follows the label if a new guide reorders them.
+  const options = { ...stamp, options: [{ label: "Keep both" }, { label: "Index only" }] };
+  assert.equal(partQuote(t, options, "option:2"), "Index only");
+  // A line the desk lists no block at, an option it lists none at and a line of a line block quote
+  // nothing here.
   assert.equal(partQuote(t, stamp, "body:2"), undefined);
   assert.equal(partQuote(t, stamp, "option:1"), undefined);
+  assert.equal(partQuote(t, options, "option:3"), undefined);
   assert.equal(partQuote(t, undefined, "body:1"), undefined);
+});
+
+test("a new guide's threads keep what the tab holds unsaved, a request on a dropped topic included", () => {
+  const ask = (id: string) =>
+    thread(id, "gone", "title", {
+      intent: "question",
+      comments: [msg({ id: `${id}-q`, intent: "question" })],
+    });
+  const confirmed = [ask("asked"), ask("left"), thread("saved", "gone", "title")];
+  // The reviewer turned `asked` into a change request, and the save has not landed.
+  const asked = ask("asked");
+  asked.comments.push(msg({ id: "asked-r", intent: "action" }));
+  const local = [
+    asked,
+    ask("left"),
+    thread("saved", "gone", "title"),
+    thread("new", "t1", "title"),
+  ];
+  // The new guide dropped the topic: the desk kept its open request and dropped its questions.
+  const desk = [thread("saved", "gone", "title")];
+  assert.deepEqual(
+    keepUnsavedThreads(desk, local, confirmed).map((t) => [t.id, t.comments.length]),
+    [
+      ["saved", 1],
+      ["asked", 2],
+      ["new", 1],
+    ],
+  );
 });
 
 test("the Send holds back resolved topic threads and answered questions on a topic or the Overview", () => {

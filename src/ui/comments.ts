@@ -44,6 +44,9 @@ export function editComment(id: string) {
   S.composerBody = comment.body;
   S.editingCommentId = id;
   S.composerAnnotation = null;
+  // The composer is the code lane's from here, whatever lane held it (composer.ts).
+  S.topicDraft = null;
+  S.composerTopic = null;
   S.composerOpen = true;
   render();
 }

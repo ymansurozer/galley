@@ -253,6 +253,22 @@ async function pollOnce() {
     S.state.guide = server.guide;
     S.state.topics = server.topics;
     S.state.coverage = server.coverage;
+    // The new guide dropped the sign-off of every topic it changed or no longer has, none of it
+    // the reviewer's: the tab and the confirmed copy drop them too. Kept, a later guide that gave
+    // such a topic its old blocks back would show it settled here while the desk has it to do. A
+    // sign-off the confirmed copy lacks is the tab's own, not saved yet, and stays.
+    const deskSettled = server.settledTopics ?? {};
+    const saved = confirmedReview().settledTopics ?? {};
+    const still = (settled: ReviewState["settledTopics"], keep: (id: string) => boolean) =>
+      Object.fromEntries(Object.entries(settled ?? {}).filter(([id]) => keep(id)));
+    S.state.settledTopics = still(
+      S.state.settledTopics,
+      (id) => id in deskSettled || !(id in saved),
+    );
+    takenFromDesk((review) => {
+      if (review.settledTopics)
+        review.settledTopics = still(review.settledTopics, (id) => id in deskSettled);
+    });
     // The new guide moved topic threads onto its parts and dropped some, none of it the reviewer's:
     // the confirmed copy takes the desk's, and the tab too, with any agent reply since and what the
     // tab holds and hasn't saved (keepUnsavedThreads), which its next save sends.
