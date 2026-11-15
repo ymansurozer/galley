@@ -468,8 +468,11 @@ When a new guide drops a group or a link, a thread on it moves to "map" and its 
 what it was on. The topic id "overview" is taken: no topic may use it.
 
 ### When to skim / focused review
-Skim ONLY on request ("give me a focused review"; "ignore the import churn, show me the real
-changes") — a plain guided review skims nothing. Skim LOWERS attention — the opposite of flag; never
+In the file walkthrough, skim ONLY on request ("give me a focused review"; "ignore the import
+churn, show me the real changes") — a plain file walkthrough skims nothing. A topics guide differs:
+every changed line is under a topic or skimmed (see Coverage), and the rules for what may be skimmed
+are the reviewer's, from their skill. Without such rules, put the line under a topic rather than
+invent a rule. Skim LOWERS attention — the opposite of flag; never
 skim your own risky or non-obvious changes. Given a focused review, set \`focused: true\` and apply
 this default churn policy without item-by-item instruction:
 - whole-file skim — lockfiles, generated/compiled output, vendored code, snapshot files.

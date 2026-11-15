@@ -82,6 +82,10 @@ const ANCHORS = [
   "a skim follows its block's content",
   "Skim LOWERS attention",
   "When to skim",
+  // skims in a topics guide: coverage forces them, the reviewer's rules allow them
+  "a plain file walkthrough skims nothing",
+  "the rules for what may be skimmed\nare the reviewer's, from their skill",
+  "rather than\ninvent a rule",
   // fully-skimmed files leave the flow (issue 07)
   "drops into a collapsed",
   "genuinely needs no eyes",
