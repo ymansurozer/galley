@@ -13,7 +13,7 @@ import type { GuideFile } from "./types";
 // or the file opened whole, has no entry of its own: its card says what the view holds instead.
 
 const STALE =
-  "Guide generated for an earlier diff — regenerate and restart with --guide to refresh";
+  "Guide generated for an earlier diff — regenerate it and run galley reload --guide <file> to refresh";
 
 function el(tag: string, className: string, text?: string): HTMLElement {
   const e = document.createElement(tag);

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ReviewComment, UiAnnotationRecord } from "./types";
-import { codeSendSummary } from "./send-derive.js";
+import { codeSendSummary, topicsSendLine } from "./send-derive.js";
 import { openRequestList } from "./requests-derive.js";
 
 // Each comment is a second after the one before, so an agent reply made later answers a question
@@ -31,6 +31,18 @@ const reply = (path: string, lineNumber: number, over: Partial<ReviewComment> = 
 
 test("no requests reads as none, and nothing is held back", () => {
   assert.deepEqual(codeSendSummary([], 0), { code: "No change requests", codeNotSent: "" });
+});
+
+test("topic change requests count in the receipt when code and the app have none", () => {
+  const two = ["2 change requests on the Overview"];
+  assert.deepEqual(codeSendSummary([], 0, two), {
+    code: "2 change requests on the Overview",
+    codeNotSent: "",
+  });
+  assert.equal(
+    codeSendSummary([comment("a.ts", 3)], 0, two).code,
+    "1 change request in 1 file · 2 change requests on the Overview",
+  );
 });
 
 test("one change request is singular, in one file", () => {
@@ -88,6 +100,18 @@ test("resolved threads and answered questions are held back, on the sub-line", (
   });
   assert.deepEqual(codeSendSummary([ask("c.ts", 1), reply("c.ts", 1), ask("c.ts", 4)], 0), {
     code: "1 open question",
+    codeNotSent: "Not sent: 1 answered question",
+  });
+});
+
+test("topic threads held back count in the same sub-line, in the same words", () => {
+  const comments = [ask("b.ts", 5), reply("b.ts", 5)];
+  assert.deepEqual(codeSendSummary(comments, 0, [], { resolved: 1, answered: 2 }), {
+    code: "No change requests",
+    codeNotSent: "Not sent: 1 resolved · 3 answered questions",
+  });
+  assert.deepEqual(codeSendSummary([], 0, [], { resolved: 0, answered: 1 }), {
+    code: "No change requests",
     codeNotSent: "Not sent: 1 answered question",
   });
 });
@@ -152,4 +176,10 @@ test("the change requests counted are the code rows of the sidebar's Change requ
     codeSendSummary(comments, 0).code,
     `${listed.length} change requests in ${files} files · 2 open questions`,
   );
+});
+
+test("topicsSendLine: how many topics are settled and how many are still to do", () => {
+  assert.equal(topicsSendLine(1, 13), "1 topic settled · 12 still to do");
+  assert.equal(topicsSendLine(0, 2), "0 topics settled · 2 still to do");
+  assert.equal(topicsSendLine(3, 3), "3 topics settled · none left to do");
 });

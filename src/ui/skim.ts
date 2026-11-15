@@ -25,7 +25,7 @@ import type { ChangeState, GuideFile } from "./types";
 
 // The guide entry for a path (or null) — file-level skim reads off it.
 function guideEntry(path: string): GuideFile | null {
-  return S.state?.guide?.files.find((g) => g.path === path) ?? null;
+  return S.state?.guide?.files?.find((g) => g.path === path) ?? null;
 }
 
 export function isFileSkim(path: string): boolean {

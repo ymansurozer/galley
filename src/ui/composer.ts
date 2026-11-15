@@ -2,6 +2,7 @@ import { S } from "./store";
 import { rowAnchor } from "./changes";
 import { render } from "./render";
 import { renderUiLane } from "./uilane";
+import { renderTopics } from "./topics";
 import type { Side } from "./types";
 import { keycapsHtml } from "./keycaps";
 
@@ -17,9 +18,15 @@ import { keycapsHtml } from "./keycaps";
 // reply or edit in an annotation's thread (S.composerAnnotation). Those redraw the UI lane's
 // sidebar and composer instead of the diff.
 
-// The open composer belongs to the UI lane.
+// The open composer belongs to the UI lane, to a topic's page (S.topicDraft, S.composerTopic), or
+// else to the code lane.
 export const composerInUi = () => S.annotationDraft !== null || S.composerAnnotation !== null;
-const redraw = (ui: boolean) => (ui ? renderUiLane() : render());
+export const composerInTopics = () => S.topicDraft !== null || S.composerTopic !== null;
+export const composerInCode = () => !composerInUi() && !composerInTopics();
+type Lane = "code" | "ui" | "topics";
+const laneOf = (): Lane => (composerInUi() ? "ui" : composerInTopics() ? "topics" : "code");
+const redraw = (lane: Lane) =>
+  lane === "ui" ? renderUiLane() : lane === "topics" ? renderTopics() : render();
 
 // Caret offset in the open composer, kept alongside S.composerBody so a rebuild can restore
 // the insertion point, not just the text. Reset whenever a composer opens.
@@ -95,7 +102,7 @@ export function buildEditor(): HTMLElement {
 // the diff (and identity in the markdown view, where D.lineMap is null), so convert before
 // comparing against a thread's raw anchor.
 export function composerTargets(side: Side, rawLine: number): boolean {
-  if (!S.composerOpen || S.editingCommentId || composerInUi()) return false;
+  if (!S.composerOpen || S.editingCommentId || !composerInCode()) return false;
   const at = rowAnchor(S.selected.side, S.selected.lineNumber);
   return at.side === side && at.line === rawLine;
 }
@@ -118,8 +125,69 @@ export function openComposer(
   S.composerBody = body;
   S.editingCommentId = editing;
   S.composerAnnotation = annotation;
+  S.topicDraft = null;
+  S.composerTopic = null;
   S.composerOpen = true;
-  redraw(composerInUi());
+  redraw(laneOf());
+}
+
+// Open a fresh composer on a topic's page: a new thread on `draft`'s part, or a reply in topic
+// thread `thread` (an edit of its message `editing`, opening with its `body`).
+export function openTopicComposer(
+  draft: { topic: string; part: string; option?: string; quote?: string } | null,
+  thread: string | null = null,
+  body = "",
+  editing: string | null = null,
+) {
+  composerCaret = body.length;
+  S.composerBody = body;
+  S.editingCommentId = editing;
+  S.composerAnnotation = null;
+  S.annotationDraft = null;
+  S.topicDraft = draft;
+  S.composerTopic = thread;
+  S.composerOpen = true;
+  renderTopics();
+}
+
+// A topic composer the reviewer left with text in it, by switching mode or opening another page.
+// It closes, so nothing hidden holds the keys or the poll's diff adoption (both wait on an open
+// composer), and it comes back with its text when its page shows again, as the UI lane's does
+// (uilane.ts). One per page, the Overview's under null. Esc discards, as in the other lanes.
+type TopicAside = {
+  draft: typeof S.topicDraft;
+  thread: string | null;
+  editing: string | null;
+  body: string;
+};
+const topicAsides = new Map<string | null, TopicAside>();
+
+export function setTopicComposerAside() {
+  if (!S.composerOpen || !composerInTopics()) return;
+  const body = S.composerBody;
+  if (body.trim())
+    topicAsides.set(S.topicAt, {
+      draft: S.topicDraft,
+      thread: S.composerTopic,
+      editing: S.editingCommentId,
+      body,
+    });
+  closeComposer();
+}
+
+// Decisions shows a page again: reopen the composer set aside on it. A reply or an edit whose
+// thread or message is gone since has nowhere to open, and is dropped.
+export function resumeTopicComposer() {
+  const aside = topicAsides.get(S.topicAt);
+  if (!aside || S.composerOpen || S.view !== "topics") return;
+  topicAsides.delete(S.topicAt);
+  const { draft, thread, editing, body } = aside;
+  const t = thread ? S.state.topicThreads?.find((x) => x.id === thread) : undefined;
+  if (thread && (!t || (editing && !t.comments.some((m) => m.id === editing)))) return;
+  openTopicComposer(draft, thread, body, editing);
+  // After a mode switch the page is still hidden while this render focuses the composer: focus it
+  // again once the page shows.
+  requestAnimationFrame(restoreComposerFocus);
 }
 
 // Close whatever composer is open and rebuild the diff so its DOM goes away (the inline
@@ -133,20 +201,22 @@ export function openComposer(
 // that never become clicks (drags). If that same click opened a fresh composer (clicking
 // another line), the render simply draws it — state is untouched here.
 export function closeComposer(deferRender = false) {
-  const ui = composerInUi();
+  const lane = laneOf();
   S.composerOpen = false;
   S.editingCommentId = null;
   S.composerAnnotation = null;
   S.annotationDraft = null;
+  S.topicDraft = null;
+  S.composerTopic = null;
   if (!deferRender) {
-    redraw(ui);
+    redraw(lane);
     return;
   }
   let timer = 0;
   const settle = () => {
     clearTimeout(timer);
     document.removeEventListener("click", settle);
-    redraw(ui);
+    redraw(lane);
   };
   timer = window.setTimeout(settle, 200);
   document.addEventListener("click", settle); // bubble: runs after the target's own handlers
@@ -160,7 +230,9 @@ export function restoreComposerFocus() {
   const ta = document.querySelector<HTMLTextAreaElement>(
     composerInUi()
       ? "#uiComposer .js-composer-focus, #pinCard .js-composer-focus"
-      : ".js-composer-focus",
+      : composerInTopics()
+        ? "#topics .js-composer-focus"
+        : ".js-composer-focus",
   );
   if (!ta) return;
   if (ta.value !== S.composerBody) ta.value = S.composerBody;

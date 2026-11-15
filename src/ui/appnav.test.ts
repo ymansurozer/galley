@@ -401,13 +401,14 @@ test("a moved reload counter is the agent's `galley reload`, diff or no diff; a 
   assert.equal(reloadRan(desk(undefined, 3), desk(undefined, 1)), false);
 });
 
-test("the app warms in the code view once the diff has rendered and there's an app to load", () => {
+test("the app warms in the code view or Decisions once the diff has rendered and there's an app to load", () => {
   const ready = { rendered: true, proxy: true, target: true, view: "code", loaded: false } as const;
   assert.equal(shouldWarm(ready), true);
   assert.equal(shouldWarm({ ...ready, rendered: false }), false, "opening the desk comes first");
   assert.equal(shouldWarm({ ...ready, proxy: false }), false, "the proxy isn't up yet");
   assert.equal(shouldWarm({ ...ready, target: false }), false, "no app attached");
   assert.equal(shouldWarm({ ...ready, loaded: true }), false, "already loaded");
+  assert.equal(shouldWarm({ ...ready, view: "topics" }), true, "Decisions warms it too");
   // The UI view, a UI-only desk's only view, loads the app itself on the way in.
   assert.equal(shouldWarm({ ...ready, view: "ui" }), false);
 });

@@ -37,6 +37,7 @@ import { diffShadowRoot } from "./diff-dom";
 import { fileLead, renderFileBar } from "./filebar";
 import { guideCard, trackGuideCard } from "./guidecard";
 import { codeScheme } from "./shiki-curated";
+import { renderTopics } from "./topics";
 
 // Cheap stable hash (FNV-1a, base36) for a string — used as @pierre cacheKeys for the old
 // side (the new side reuses the server's contentHash). Same content → same key → cache hit.
@@ -194,6 +195,8 @@ export async function render() {
     restoreComposerFocus();
     // The UI lane draws from the same state (a reload or reset swaps it wholesale).
     renderUiLane();
+    // And Decisions mode (a save's merged answer, another tab's save, a reset).
+    if (S.view === "topics") renderTopics();
     // Re-apply the sidebar highlight an rAF later — after Alpine's microtask flush, so rows
     // that were just re-keyed by a reactive change carry it again (see applyActiveRow).
     requestAnimationFrame(applyActiveRow);

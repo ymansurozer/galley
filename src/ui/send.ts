@@ -1,6 +1,7 @@
 import { S, noteUnplaced, postSend, toast } from "./store";
 import { screenshotsInFlight, screenshotsSettled } from "./uilane";
 import { updateAwaitingDom } from "./annotations";
+import { renderTopics } from "./topics";
 
 // Confirm the Send modal: the typed note (trimmed; empty → omitted) rides along as the one-time
 // overall instruction. Cancel leaves the review untouched. New annotations' screenshots still being
@@ -54,6 +55,13 @@ export async function send(overallNote = ""): Promise<boolean> {
   noteUnplaced(reply.answer);
   S.awaitingAgent = true;
   S.undeliveredAsks.clear(); // the questions went with the review
+  // The Send started the next round (types.ts, ReviewState.round). Decisions draws by it: the
+  // Overview names the round, and the sidebar folds what was settled before it. The poll redraws
+  // only for a round another tab started, since this tab's own is already in S.state by then.
+  if (reply.answer.round) {
+    S.state.round = reply.answer.round;
+    if (S.view === "topics") renderTopics();
+  }
   // The change requests went with it: their held bands go now, not on the next poll.
   updateAwaitingDom();
   return true;

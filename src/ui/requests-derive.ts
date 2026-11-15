@@ -1,6 +1,7 @@
 import type { Step } from "./steps";
 import type { ReviewComment, Side, UiAnnotationRecord } from "./types";
 import { firstLine, isOpenChange } from "./uilane-derive";
+import { compareTopicRequests, type TopicRequest } from "./topicthreads-derive";
 
 // Pure derivations for the open change requests across both lanes: the sidebar's Change requests
 // list, its count, and the walk `]` / `[` take through it. Store-free so they unit-test;
@@ -22,11 +23,15 @@ export type CodeRequest = {
   text: string;
 };
 export type AppRequest = { kind: "app"; id: string; number: number; text: string };
-export type OpenRequest = CodeRequest | AppRequest;
+// A topic request is a thread on a part of a topic (topicthreads-derive.ts).
+export type OpenRequest = CodeRequest | AppRequest | TopicRequest;
 
 // A place the walk steps from: a request, or anywhere between two (the cursor's line, a file's
-// top, the selected annotation when it's a question).
-export type RequestPlace = Omit<CodeRequest, "text"> | { kind: "app"; number: number };
+// top, the selected annotation when it's a question, the top of an open topic).
+export type RequestPlace =
+  | Omit<CodeRequest, "text">
+  | { kind: "app"; number: number }
+  | Pick<TopicRequest, "kind" | "rank" | "partRank" | "seq">;
 
 // A thread asks for a change while a reviewer's comment in it is open and isn't a question: the
 // rule fileObjections, the blockers chip and the Send's codeChangeRequests count by. So an ask the
@@ -49,11 +54,15 @@ export function codeThreads(comments: readonly ReviewComment[]): ReviewComment[]
   return [...threads.values()];
 }
 
-// List order: the code requests, then the app's. Code goes by the step's place in review order
+// List order: the code requests, then the app's, then the topics'. Code goes by the step's place in review order
 // (`rank`; a file outside it, such as a preview, ranks Infinity and those go by path), so a split
 // file's requests come part by part, then the strip (it sits above the diff), then by line, the
-// deleted line before the added one on the same number. App requests go by number.
+// deleted line before the added one on the same number. App requests go by number, topic requests
+// as the review result lists them (topicthreads-derive.ts).
+const LANE = { code: 0, app: 1, topic: 2 };
 function compare(a: RequestPlace, b: RequestPlace) {
+  if (a.kind !== b.kind) return LANE[a.kind] - LANE[b.kind];
+  if (a.kind === "topic" && b.kind === "topic") return compareTopicRequests(a, b);
   if (a.kind === "app" && b.kind === "app") return a.number - b.number;
   if (a.kind === "code" && b.kind === "code")
     return (
@@ -63,7 +72,7 @@ function compare(a: RequestPlace, b: RequestPlace) {
       a.lineNumber - b.lineNumber ||
       +(a.side === "additions") - +(b.side === "additions")
     );
-  return a.kind === "code" ? -1 : 1;
+  return 0;
 }
 
 // The open change requests in list order. `place` attributes a code thread (by the comment asking
@@ -75,6 +84,7 @@ export function openRequestList(
   place: (c: ReviewComment) => Pick<CodeRequest, "step" | "rank">,
   unanchored: (c: ReviewComment) => boolean,
   annotations: readonly UiAnnotationRecord[],
+  topics: readonly TopicRequest[] = [],
 ): OpenRequest[] {
   const list: OpenRequest[] = [];
   for (const thread of codeThreads(comments)) {
@@ -98,13 +108,15 @@ export function openRequestList(
       a.comments.find((m) => m.role !== "agent" && m.intent === "action") ?? a.comments[0];
     list.push({ kind: "app", id: a.id, number: a.number, text: firstLine(ask?.body ?? "") });
   }
+  list.push(...topics);
   return list.sort(compare);
 }
 
 // The sidebar row: a key for the x-for, and the request's place as the row names it — the file's
-// name and line, "· lost" for one in the strip, the pin's number for the app.
+// name and line, "· lost" for one in the strip, the pin's number for the app, the topic's title.
 export function requestRow(r: OpenRequest) {
   if (r.kind === "app") return { ...r, key: `app:${r.id}`, loc: `#${r.number}` };
+  if (r.kind === "topic") return { ...r, key: `topic:${r.id}`, loc: r.title };
   const name = r.path.split("/").pop() || r.path;
   return {
     ...r,

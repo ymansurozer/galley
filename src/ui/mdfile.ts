@@ -4,7 +4,7 @@ import { currentFile, currentComments } from "./changes";
 import { renderMarkdown } from "./markdown";
 import { composerCard } from "./annotations";
 import { threadSlot } from "./rests";
-import { composerInUi, openComposer } from "./composer";
+import { composerInCode, openComposer } from "./composer";
 import type { ReviewComment, ThreadMeta } from "./types";
 
 export function isMarkdownPath(path: string): boolean {
@@ -97,7 +97,7 @@ export function renderMarkdownFile() {
   if (
     S.composerOpen &&
     !S.editingCommentId &&
-    !composerInUi() &&
+    composerInCode() &&
     !byLine.has(S.selected.lineNumber)
   ) {
     const card = document.createElement("div");

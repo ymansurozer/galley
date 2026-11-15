@@ -53,7 +53,8 @@ import {
   walkthroughRows,
 } from "./guide";
 import { refreshBaseTitle, reviewStats } from "./progress";
-import { codeSendSummary } from "./send-derive";
+import { codeSendSummary, topicsSendLine } from "./send-derive";
+import { topicsDone } from "./topics-derive";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import { renderKeycaps } from "./keycaps";
 import { installTooltips } from "./tooltip";
@@ -66,14 +67,19 @@ import {
   firstRenderDone,
   hasUi,
   installAppView,
+  nextView,
   setView,
   setViewport,
   syncView,
   uiOnly,
+  views,
 } from "./appview";
+import { hasTopics, installTopics, openTopic, renderTopics } from "./topics";
 import { installCaptureDebug } from "./capturedebug";
-import { askComment } from "./comments";
-import { composerInUi } from "./composer";
+import { addLineComment } from "./comments";
+import { composerInTopics, composerInUi } from "./composer";
+import { installTopicThreads, submitTopicComposer } from "./topicthreads";
+import { topicHeldBack, topicSendParts } from "./topicthreads-derive";
 import {
   annotatePage,
   closeShot,
@@ -89,7 +95,6 @@ import {
 } from "./uilane";
 import { cursorReset, cursorSelection, invalidateCursorRows } from "./cursor";
 import { openRequest, requestRows } from "./requests";
-import { uuid } from "./uuid";
 import type { Step } from "./steps";
 import type { ChangeState, ReviewState, FileRow, Settings, DiffStyle, Store } from "./types";
 
@@ -306,6 +311,8 @@ S.applySettings = () => {
   // applyAppearance first: setMarkdownTheme's diff-only fallback reads <html data-theme>.
   setMarkdownTheme(S.settings.theme);
   render();
+  // A topic's fenced code takes the code theme too.
+  if (S.view === "topics") renderTopics();
 };
 S.openSettings = () => {
   S.settingsOpen = true;
@@ -317,6 +324,11 @@ S.closeSettings = () => {
 // first step in the guide's order.
 S.hasGuide = hasGuide;
 S.openOverview = () => {
+  // Decisions mode has an Overview of its own.
+  if (S.view === "topics") {
+    openTopic(null);
+    return;
+  }
   S.overviewOpen = true;
   // From the App view (its sidebar row or rail icon) the Overview is the code view's page.
   if (S.view === "ui") void setView("code");
@@ -421,9 +433,15 @@ S.confirmNo = confirmNo;
 // Open the Send modal: a receipt of what's about to go, plus an empty (always fresh) note box.
 // An attached agent picks the review up the instant it's sent, so there's no taking it back —
 // this is the moment to look, and to leave an overall instruction for the whole review.
+// The topics line says what is settled; the topic threads' requests and questions count in the
+// lead with the code's, or, where the receipt splits by lane, on this line.
 const openSendModal = (msg: string, lanes: Store["sendLanes"], notSent = "") => {
   S.sendMsg = msg;
   S.sendNotSent = notSent;
+  const topics = hasTopics() ? topicsDone(S.state.guide?.stages ?? [], S.state) : null;
+  S.sendTopics = topics
+    ? [topicsSendLine(topics.done, topics.total), ...(lanes ? topicParts() : [])].join(" · ")
+    : "";
   S.sendLanes = lanes;
   S.sendNote = "";
   S.sendFailed = false;
@@ -433,10 +451,17 @@ const openSendModal = (msg: string, lanes: Store["sendLanes"], notSent = "") => 
 // The receipt says what the review asks of the agent, not how big the diff is. With a UI lane it
 // splits by lane: the code lines (none on a UI-only desk) and the UI ones. Without one, the code
 // line reads inline in the lead, with what it holds back under it.
-const codeSummary = () => codeSendSummary(S.state?.comments ?? [], reviewStats().rejections);
+const codeSummary = (topics: string[] = []) =>
+  codeSendSummary(
+    S.state?.comments ?? [],
+    reviewStats().rejections,
+    topics,
+    topicHeldBack(S.state?.topicThreads ?? []),
+  );
+const topicParts = () => topicSendParts(S.state?.topicThreads ?? []);
 const openReceipt = (lead: string, question: string) => {
   if (!hasUi()) {
-    const { code, codeNotSent } = codeSummary();
+    const { code, codeNotSent } = codeSummary(topicParts());
     openSendModal(`${lead}: ${code}. ${question}`, null, codeNotSent);
     return;
   }
@@ -483,9 +508,14 @@ S.openInEditor = async () => {
 // answered live) or "action" (Request change — goes back on Send). Editing just updates the
 // body and keeps the existing intent; turning the thread's opening comment changes it (turnComment).
 const submitComment = (intent: "question" | "action") => {
-  // The UI lane's composers (a new annotation, a reply or edit in its thread) submit there.
+  // The UI lane's composers (a new annotation, a reply or edit in its thread) submit there, and a
+  // topic page's on its page.
   if (composerInUi()) {
     submitUiComposer(intent);
+    return;
+  }
+  if (composerInTopics()) {
+    submitTopicComposer(intent);
     return;
   }
   const body = (S.composerBody || "").trim();
@@ -502,7 +532,6 @@ const submitComment = (intent: "question" | "action") => {
     persist();
     return;
   }
-  const now = new Date().toISOString();
   // S.selected carries rendered (display) gutter numbers; persist the raw file line so
   // the anchor stays valid as decisions replay and across rounds.
   const file = currentFile();
@@ -516,27 +545,21 @@ const submitComment = (intent: "question" | "action") => {
   // so if cur isn't this file yet, leave it undefined rather than snapshot the wrong file's line.
   const contents =
     cur.path === file.path ? (side === "deletions" ? cur.oldContents : cur.newContents) : undefined;
-  const c = {
-    id: uuid(),
-    path: file.path,
-    side,
-    lineNumber,
-    endLine,
-    // Snapshot the anchored line's text so a reload can re-anchor the thread after the
-    // agent's edits shift it (reanchorComments).
-    anchorText: contents?.split("\n")[lineNumber - 1],
-    createdAt: now,
-    updatedAt: now,
-    status: "open" as const,
-    role: "user" as const,
+  S.composerOpen = false;
+  addLineComment(
+    {
+      path: file.path,
+      side,
+      lineNumber,
+      endLine,
+      // Snapshot the anchored line's text so a reload can re-anchor the thread after the
+      // agent's edits shift it (reanchorComments).
+      anchorText: contents?.split("\n")[lineNumber - 1],
+    },
     body,
     intent,
-  };
-  S.state.comments.push(c);
-  S.composerOpen = false;
+  );
   render();
-  persist();
-  if (intent === "question") void askComment(c.id);
 };
 S.saveComment = () => submitComment("action"); // editing Save + the `c` shortcut default
 S.ask = () => submitComment("question");
@@ -548,6 +571,8 @@ S.send = send;
 S.hasUi = hasUi;
 S.uiOnly = uiOnly;
 S.setView = setView;
+S.views = views;
+S.nextView = nextView;
 S.appHost = appHost;
 S.appBack = appBack;
 S.appForward = appForward;
@@ -613,12 +638,17 @@ if (hasGuide()) {
   S.overviewOpen = true;
   S.sidebarTab = S.settings.sidebarDefault === "walkthrough" ? "walkthrough" : "tree";
 }
+// A guide with topics opens the desk in Decisions mode, on its Overview, on every tab load.
+if (hasTopics()) S.view = "topics";
 installAppView();
+installTopics();
+installTopicThreads();
 installUiLane();
 installCaptureDebug();
 installReach();
 syncView(); // a UI-only desk opens straight on the app
 void render().finally(firstRenderDone);
+if (S.view === "topics") renderTopics();
 // Alpine reveals an x-show element on the next animation frame; lift the gate in that frame too,
 // so the lane chrome appears at once.
 requestAnimationFrame(() => (S.ready = true));

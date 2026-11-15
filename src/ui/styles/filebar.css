@@ -1,8 +1,9 @@
 /* ── The open file's bar (filebar.ts) ──
    Pinned to the top of #diff while the view scrolls under it: path, moved-from, view toggles,
    open in editor, +/−, then the file's actions. Scoped under #diff to outrank its code-sized
-   `#diff > *` text. */
-#diff > .file-bar {
+   `#diff > *` text. A Decisions topic's page (#topics) pins the same bar, naming its stage and
+   group. */
+:is(#diff, #topics) > .file-bar {
   position: sticky;
   top: 0;
   /* Above @pierre's rows (its own layers stop at z-index 4), below the ruler and the Rendering

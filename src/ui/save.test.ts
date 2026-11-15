@@ -57,7 +57,9 @@ test("reviewerSlice carries only reviewer-owned fields — no rawDiff, no file c
     "lastAnnotationNumber",
     "reviewedFileHashes",
     "reviewedFiles",
+    "settledTopics",
     "signedOffBlocks",
+    "topicThreads",
   ]);
   // The heavy/server-owned fields are absent from the wire.
   const wire = slice as Record<string, unknown>;
@@ -66,6 +68,7 @@ test("reviewerSlice carries only reviewer-owned fields — no rawDiff, no file c
   assert.equal("changes" in wire, false);
   assert.equal("stagedFiles" in wire, false);
   assert.equal("stagedChangeKeys" in wire, false);
+  assert.equal("topics" in wire, false, "the desk's topic stamps are its own");
   // The serialized body carries none of the heavy server-owned state.
   const body = JSON.stringify(slice);
   assert.equal(body.includes("diff --git"), false);

@@ -2,7 +2,8 @@ import { S, $ } from "./store";
 import { currentSlot, progressDetail } from "./guide";
 import { slotOutOfFlow } from "./steps";
 import { flowIndex } from "./changes";
-import { approvePreview } from "./progress-derive";
+import { approvePreview, type Progress } from "./progress-derive";
+import { topicSettled, topicsDone } from "./topics-derive";
 
 // Review progress lives on the top bar's bottom edge, with or without a guide: a quiet gauge with
 // the ⇧A tail ahead of its fill. Imperative rather than Alpine because the *moment* of progress is
@@ -23,8 +24,9 @@ export function refreshBaseTitle() {
   baseTitle = `Galley — ${project ?? base(root)}${context ? ` · ${context}` : ""}`;
 }
 
-// What the bar last drew, and what progress counted by then; null until the first paint.
-let shown: { pct: number; byLines: boolean } | null = null;
+// What the bar last drew, and what progress counted by then (lines, files, or in Decisions mode
+// topics); null until the first paint.
+let shown: { pct: number; by: "lines" | "files" | "topics" } | null = null;
 let swellTimer = 0;
 const SWELL_MS = 300;
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -46,12 +48,24 @@ export function updateProgress() {
     document.title = baseTitle;
     return;
   }
-  const d = progressDetail();
-  const { pct } = d.progress;
+  const { progress, ahead, by } = S.view === "topics" ? topicsProgress() : codeProgress();
+  const { pct } = progress;
   document.title = pct >= 100 ? `✓ ${baseTitle}` : pct > 0 ? `(${pct}%) ${baseTitle}` : baseTitle;
-  // The ⇧A tail: what approving the step open in the diff would add (a part, a Rest, or the file
-  // whole; not a preview, which isn't in the review). CSS transitions glide the fill and the tail
-  // from where they stood.
+  $("progressFill").style.width = `${pct}%`;
+  $("progressTail").style.left = `${pct}%`;
+  $("progressTail").style.width = `${ahead?.tail ?? 0}%`;
+  // A rise is a sign-off's moment: the bar swells while the fill glides. The first paint and a
+  // switch of what progress counts by aren't moments, and a drop just glides back.
+  const rose = shown?.by === by && pct > shown.pct;
+  shown = { pct, by };
+  if (rose && !reducedMotion.matches) swell(strip);
+}
+
+// Code mode's progress, and the ⇧A tail: what approving the step open in the diff would add (a
+// part, a Rest, or the file whole; not a preview, which isn't in the review). CSS transitions glide
+// the fill and the tail from where they stood.
+function codeProgress() {
+  const d = progressDetail();
   const slot = S.view === "code" && !S.overviewOpen ? currentSlot() : null;
   const ahead = approvePreview(
     d.progress,
@@ -63,14 +77,21 @@ export function updateProgress() {
         }
       : null,
   );
-  $("progressFill").style.width = `${pct}%`;
-  $("progressTail").style.left = `${pct}%`;
-  $("progressTail").style.width = `${ahead?.tail ?? 0}%`;
-  // A rise is a sign-off's moment: the bar swells while the fill glides. The first paint and a
-  // switch of what progress counts by aren't moments, and a drop just glides back.
-  const rose = shown?.byLines === d.byLines && pct > shown.pct;
-  shown = { pct, byLines: d.byLines };
-  if (rose && !reducedMotion.matches) swell(strip);
+  return { progress: d.progress, ahead, by: d.byLines ? ("lines" as const) : ("files" as const) };
+}
+
+// Decisions mode's: the share of topics settled, and the open topic as the ⇧A tail while it is to
+// do.
+function topicsProgress() {
+  const stages = S.state.guide?.stages ?? [];
+  const { done, total } = topicsDone(stages, S.state);
+  const progress: Progress = { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
+  const open = S.topicAt !== null && !topicSettled(S.state, S.topicAt);
+  const ahead = approvePreview(
+    progress,
+    open ? { weight: 1, outOfFlow: false, state: "pending" } : null,
+  );
+  return { progress, ahead, by: "topics" as const };
 }
 
 // Whole-review numbers for the Send receipt and the completion prompt.

@@ -18,4 +18,6 @@ When the review session is over, run `galley stop` (idempotent; review state per
 
 For a **focused review** (mechanical churn de-emphasized so only the real changes stand out), attach a guide — `galley spec` documents it.
 
+A guide can also carry **topics**: the desk then opens in **Decisions** mode, where the user settles the change one topic at a time instead of walking files — `galley spec` documents them.
+
 **For the full contract — the `await`/`comment`/`reload` loop, event shapes, `ReviewResult`, how to act on accepted/rejected/requested changes, the guided-review schema, and all options — run `galley spec` and follow it (once per session before your first review).**

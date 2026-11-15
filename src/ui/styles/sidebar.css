@@ -521,7 +521,7 @@
   }
 
   /* !important: x-show writes an inline display when it shows them. */
-  .app.side-collapsed :is(.side-switch, .side-nav, .tree-title, #files, #walk) {
+  .app.side-collapsed :is(.side-switch, .side-nav, .tree-title, #files, #walk, #topicsNav) {
     display: none !important;
   }
 

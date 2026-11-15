@@ -148,6 +148,11 @@ try {
     }
   }
 
+  // Diagrams ship beside the UI, served as an independently importable module.
+  const diagrams = await fetch(BASE + "/diagrams.js");
+  assert.equal(diagrams.status, 200);
+  assert.match(diagrams.headers.get("content-type"), /javascript/);
+  assert.match(await diagrams.text(), /renderDiagram/);
   const state = await getJson("/api/state");
   assert.equal(state.mode, "repo");
   assert.ok(state.changes.length >= 1, "desk has a change to review");
@@ -487,6 +492,304 @@ try {
     "✓ galley reload → parts follow content: the bottom part stays signed off, the top is pending",
   );
 
+  // A topics guide (Decisions mode): attached at start on a second desk and by reload --guide on
+  // this one, each topic read back with the blocks, line count and cover hash the desk stamped.
+  const topicsDir = mkdtempSync(path.join(tmpdir(), "galley-smoke-topics-"));
+  const topicsPath = path.join(topicsDir, "topics.json");
+  const topicsGuide = (covers) => ({
+    overview: "Topics.",
+    stages: [
+      {
+        id: "text",
+        label: "Text",
+        groups: [
+          {
+            id: "edits",
+            title: "Edits",
+            topics: Object.entries(covers).map(([id, c]) => ({
+              id,
+              title: `Topic ${id}`,
+              recorded: "Only the code records this.",
+              body: "Why.",
+              covers: c,
+            })),
+          },
+        ],
+      },
+    ],
+  });
+  const goodTopics = topicsGuide({
+    "a-line": [{ path: "a.txt" }],
+    "b-top": [{ path: "b.txt", lines: [[3, 6]] }],
+  });
+  const currentFiles = (await getJson("/api/state")).files;
+  goodTopics.skims = currentFiles
+    .filter((f) => !["a.txt", "b.txt"].includes(f.path))
+    .map((f) => ({
+      reason: "Other fixture changes",
+      covers: [{ path: f.path }],
+    }));
+  // The earlier reload scenario also left an insertion and the bottom edit in b.txt.
+  goodTopics.skims.push({
+    reason: "Earlier round fixture edits",
+    covers: [{ path: "b.txt", lines: [16, 27] }],
+  });
+  writeFileSync(topicsPath, JSON.stringify(goodTopics));
+  const checkTopics = (st, where) => {
+    assert.deepEqual(
+      st.guide?.stages?.[0]?.groups[0]?.topics.map((t) => t.id),
+      ["a-line", "b-top"],
+      `${where}: the desk holds the guide's topics`,
+    );
+    assert.deepEqual(st.topics["a-line"].blocks, ["a.txt:additions:2:1:1"], where);
+    assert.equal(st.topics["a-line"].lines, 2, `${where}: a.txt's block is 1 removed + 1 added`);
+    assert.equal(st.topics["b-top"].lines, 4, `${where}: b.txt's blocks at lines 3 and 6`);
+    assert.match(st.topics["b-top"].coverHash, /^[0-9a-f]{16}$/, where);
+  };
+  const topicsDesk = spawn(
+    "node",
+    [
+      CLI,
+      "--repo",
+      tmp,
+      "--session",
+      "smoke-topics",
+      "--port",
+      "0",
+      "--no-open",
+      "--guide",
+      topicsPath,
+    ],
+    { stdio: ["ignore", "ignore", "pipe"], env: ENV },
+  );
+  const topicsBase = await waitForDeskUrl(topicsDesk);
+  checkTopics(await (await fetch(topicsBase + "/api/state")).json(), "start --guide");
+  assert.ok(JSON.parse(cli("stop", "--repo", tmp, "--session", "smoke-topics")).ok);
+  for (let i = 0; i < 50 && topicsDesk.exitCode === null; i++) await sleep(100);
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", topicsPath)).ok);
+  checkTopics(await getJson("/api/state"), "reload --guide");
+  // A cover naming a file not in the diff fails the reload, naming the topic and the cover, and
+  // leaves the desk on the guide it had.
+  writeFileSync(
+    topicsPath,
+    JSON.stringify(topicsGuide({ "a-line": [{ path: "a.txt" }], ghost: [{ path: "nope.txt" }] })),
+  );
+  const badTopics = spawnSync(
+    "node",
+    [CLI, "reload", "--repo", tmp, "--session", ID, "--guide", topicsPath],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.equal(badTopics.status, 1, "a cover that resolves to nothing exits non-zero");
+  assert.match(
+    badTopics.stderr,
+    /guide topic "ghost": cover "nope\.txt" names a file that is not in the diff/,
+    "the error names the topic and the cover",
+  );
+  checkTopics(await getJson("/api/state"), "after a refused reload");
+  // A link to a group the guide doesn't have fails the reload the same way, naming the link.
+  writeFileSync(
+    topicsPath,
+    JSON.stringify({ ...goodTopics, links: [{ from: "edits", to: "ghost", label: "feeds" }] }),
+  );
+  const badLink = spawnSync(
+    "node",
+    [CLI, "reload", "--repo", tmp, "--session", ID, "--guide", topicsPath],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.equal(badLink.status, 1, "a link to an unknown group exits non-zero");
+  assert.match(badLink.stderr, /guide\.links\[0\] \(edits → ghost\): "ghost" is not a group id/);
+  checkTopics(await getJson("/api/state"), "after a refused link");
+  const incomplete = structuredClone(goodTopics);
+  incomplete.stages[0].groups[0].topics.pop();
+  writeFileSync(topicsPath, JSON.stringify(incomplete));
+  const uncovered = spawnSync(
+    "node",
+    [CLI, "reload", "--repo", tmp, "--session", ID, "--guide", topicsPath],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.equal(uncovered.status, 1);
+  assert.match(uncovered.stderr, /guide leaves changes uncovered: b\.txt:3/);
+  incomplete.skims.push({
+    reason: "Mechanical fixture edits",
+    rule: "Fixture churn",
+    covers: [{ path: "b.txt" }],
+  });
+  writeFileSync(topicsPath, JSON.stringify(incomplete));
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", topicsPath)).ok);
+  const coverage = (await getJson("/api/state")).coverage;
+  assert.equal(coverage.topicLines, 2);
+  assert.equal(coverage.skimmedLines, coverage.totalLines - 2);
+  assert.equal(coverage.uncoveredLines, 0);
+  // A line block: "b-top" claims b.txt's blocks through a lines fence in its body alone, the desk
+  // stamps where the entry's lines are, and an agent comment on a line inside it is the ordinary
+  // line comment, read back for its path and line.
+  const lined = structuredClone(goodTopics);
+  Object.assign(lined.stages[0].groups[0].topics[1], {
+    body: "Why.\n\n```lines\nb.txt:3-6\n```\n",
+    covers: [],
+  });
+  writeFileSync(topicsPath, JSON.stringify(lined));
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", topicsPath)).ok);
+  const linedState = await getJson("/api/state");
+  assert.equal(linedState.topics["b-top"].lines, 4, "the line block claims b.txt's blocks");
+  assert.deepEqual(
+    linedState.topics["b-top"].lineSpans.map((s) => [s.path, s.start, s.end]),
+    [["b.txt", 3, 6]],
+  );
+  const lineReply = JSON.parse(
+    cli(
+      "comment",
+      "--repo",
+      tmp,
+      "--session",
+      ID,
+      "--path",
+      "b.txt",
+      "--line",
+      "6",
+      "--role",
+      "agent",
+      "--body",
+      "Line six, as the block quotes it.",
+    ),
+  );
+  assert.ok(lineReply.ok && lineReply.commentId, "comment posted on the block's line");
+  assert.deepEqual(
+    (await getJson("/api/state")).comments
+      .filter((c) => c.path === "b.txt" && c.lineNumber === 6)
+      .map((c) => [c.side, c.role, c.body]),
+    [["additions", "agent", "Line six, as the block quotes it."]],
+  );
+  // Later Send assertions settle one topic and leave the other to do.
+  writeFileSync(topicsPath, JSON.stringify(goodTopics));
+  assert.ok(JSON.parse(cli("reload", "--repo", tmp, "--session", ID, "--guide", topicsPath)).ok);
+  checkTopics(await getJson("/api/state"), "after coverage refusal scenario");
+  rmSync(topicsDir, { recursive: true, force: true });
+  console.log(
+    "✓ topics guide → attached on start and by reload --guide; a bad cover or link exits 1 naming it, desk kept; a line block's line takes a galley comment",
+  );
+
+  // A question on a topic's Recorded line: the desk quotes the part, await delivers it on the topic
+  // lane, and `galley comment --topic` answers in its thread.
+  const topicAsked = new Date().toISOString();
+  await post("/api/save", {
+    topicThreads: [
+      {
+        id: "topic-q1",
+        target: { topic: "a-line", part: "recorded" },
+        title: "",
+        intent: "question",
+        status: "open",
+        comments: [
+          {
+            id: "topic-q1-m1",
+            role: "user",
+            intent: "question",
+            body: "Where is this written down?",
+            createdAt: topicAsked,
+            updatedAt: topicAsked,
+          },
+        ],
+      },
+    ],
+  });
+  await post("/api/ask", { topicThreadId: "topic-q1", messageId: "topic-q1-m1" });
+  const evTopic = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  assert.equal(evTopic.kind, "question");
+  assert.deepEqual(evTopic.questions, [
+    {
+      lane: "topic",
+      id: "topic-q1",
+      topic: "a-line",
+      part: "recorded",
+      quote: "Only the code records this.",
+      body: "Where is this written down?",
+      mode: "repo",
+      session: ID,
+    },
+  ]);
+  const replyOptions =
+    'Nowhere yet.\n\n```options\n[{"label":"Write it down"},{"label":"Keep in code"}]\n```';
+  const topicReply = JSON.parse(
+    cli("comment", "--repo", tmp, "--session", ID, "--topic", "topic-q1", "--body", replyOptions),
+  );
+  assert.ok(topicReply.ok && topicReply.live, "the reply went to the live desk");
+  const topicThread = (await getJson("/api/poll")).topicThreads.find((t) => t.id === "topic-q1");
+  assert.deepEqual(
+    topicThread.comments.map((m) => [m.role, m.body]),
+    [
+      ["user", "Where is this written down?"],
+      ["agent", replyOptions],
+    ],
+    "the answer is in the thread the tab polls",
+  );
+  const noThread = spawnSync(
+    "node",
+    [CLI, "comment", "--repo", tmp, "--session", ID, "--topic", "nope", "--body", "x"],
+    { encoding: "utf8", env: ENV },
+  );
+  assert.equal(noThread.status, 1, "a thread id the review doesn't have exits non-zero");
+  console.log(
+    "✓ topic question → await yields lane topic with the part and its quote; comment --topic answers in the thread",
+  );
+
+  // A question on a group's box on the Overview: the event names the Overview and the box, quoting
+  // its title, and `galley comment --topic` answers it like any topic thread.
+  const boxAsked = new Date().toISOString();
+  await post("/api/save", {
+    topicThreads: [
+      ...(await getJson("/api/poll")).topicThreads,
+      {
+        id: "overview-q1",
+        target: { topic: "overview", part: "group:edits" },
+        title: "",
+        intent: "question",
+        status: "open",
+        comments: [
+          {
+            id: "overview-q1-m1",
+            role: "user",
+            intent: "question",
+            body: "Why is this one group?",
+            createdAt: boxAsked,
+            updatedAt: boxAsked,
+          },
+        ],
+      },
+    ],
+  });
+  await post("/api/ask", { topicThreadId: "overview-q1", messageId: "overview-q1-m1" });
+  const evBox = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  assert.equal(evBox.kind, "question");
+  assert.deepEqual(evBox.questions, [
+    {
+      lane: "topic",
+      id: "overview-q1",
+      topic: "overview",
+      part: "group:edits",
+      quote: "Edits",
+      body: "Why is this one group?",
+      mode: "repo",
+      session: ID,
+    },
+  ]);
+  const boxReply = JSON.parse(
+    cli("comment", "--repo", tmp, "--session", ID, "--topic", "overview-q1", "--body", "One file."),
+  );
+  assert.ok(boxReply.ok && boxReply.live, "the reply went to the live desk");
+  assert.deepEqual(
+    (await getJson("/api/poll")).topicThreads
+      .find((t) => t.id === "overview-q1")
+      .comments.map((m) => [m.role, m.body]),
+    [
+      ["user", "Why is this one group?"],
+      ["agent", "One file."],
+    ],
+  );
+  console.log(
+    "✓ Overview question on a box → await names the Overview and the group; comment --topic answers it",
+  );
+
   // human asks a question → `galley await` yields a question event
   await post("/api/ask", {
     path: "a.txt",
@@ -643,6 +946,75 @@ try {
   // (rejected decisions for every change block) on huge-rejected.txt. They must land in the result
   // arrays exactly as verdicts on rendered files do.
   const NOTE = "After applying, run the formatter and update the changelog.";
+  // Settle one topic of the attached topics guide the way the tab does, through the save route:
+  // its id, the cover hash it holds now, and the round. The Send must list it as settled.
+  const settling = await getJson("/api/state");
+  const settled = await post("/api/save", {
+    base: settling.saveNumber ?? 0,
+    changes: {
+      settledTopics: {
+        changed: [{ id: "a-line", hash: settling.topics["a-line"].coverHash, round: 1 }],
+        removed: [],
+      },
+    },
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: settling.baseDiffHash },
+  });
+  assert.equal(settled.status, 200, "the settle saves");
+  // Two topic threads the Send must carry as topicChangeRequests, saved as the tab saves them: a
+  // pick of an option the agent offered in its answer to topic-q1 (the reviewer's message names the
+  // label), and a new change request on b-top's first body block, with the text the tab showed.
+  const threadsNow = await getJson("/api/state");
+  const answered = threadsNow.topicThreads.find((t) => t.id === "topic-q1");
+  const pickedAt = new Date().toISOString();
+  const threadsSaved = await post("/api/save", {
+    base: threadsNow.saveNumber ?? 0,
+    changes: {
+      topicThreads: {
+        changed: [
+          {
+            ...answered,
+            comments: [
+              ...answered.comments,
+              {
+                id: "topic-q1-pick",
+                role: "user",
+                intent: "action",
+                body: "Use: Write it down",
+                option: "Write it down",
+                createdAt: pickedAt,
+                updatedAt: pickedAt,
+              },
+            ],
+          },
+          {
+            id: "topic-c1",
+            target: { topic: "b-top", part: "body:1" },
+            title: "",
+            quote: "Why.",
+            intent: "change",
+            status: "open",
+            comments: [
+              {
+                id: "topic-c1-m1",
+                role: "user",
+                intent: "action",
+                body: "Say why b.txt moved.",
+                createdAt: pickedAt,
+                updatedAt: pickedAt,
+              },
+            ],
+          },
+        ],
+        removed: [],
+      },
+    },
+    seen: {
+      token: null,
+      reloadGeneration: threadsNow.reloadGeneration,
+      baseDiffHash: threadsNow.baseDiffHash,
+    },
+  });
+  assert.equal(threadsSaved.status, 200, "the topic threads save");
   const preSend = await getJson("/api/state");
   const approvedHash = preSend.files.find((f) => f.path === "huge-approved.txt").contentHash;
   const rejectedDecisions = preSend.changes
@@ -717,6 +1089,35 @@ try {
     "card reject on an oversized file lands in rejected[]",
   );
   console.log("✓ oversized-card verdicts (approve + reject) land in the ReviewResult arrays");
+  assert.deepEqual(
+    ev2.result.topics,
+    { settled: ["a-line"], todo: ["b-top"] },
+    "the settled topic is listed as settled, the other as to do",
+  );
+  assert.deepEqual(
+    ev2.result.topicChangeRequests,
+    [
+      {
+        id: "topic-q1",
+        topic: "a-line",
+        part: "recorded",
+        quote: "Only the code records this.",
+        body: "Use: Write it down",
+        option: "Write it down",
+      },
+      {
+        id: "topic-c1",
+        topic: "b-top",
+        part: "body:1",
+        quote: "Why.",
+        body: "Say why b.txt moved.",
+      },
+    ],
+    "the pick and the open request arrive in topicChangeRequests, in the guide's order",
+  );
+  console.log("✓ a topic pick and an open topic request arrive in result.topicChangeRequests");
+  assert.equal((await getJson("/api/poll")).round, 2, "the Send started round 2");
+  console.log("✓ a topic settled through the save route arrives in result.topics; the round moves");
   assert.equal(ev2.result.overallNote, NOTE, "overallNote round-trips on the result");
   // The contract is the structured arrays only — no prose summary field, no duplicate .md artifact.
   assert.equal(ev2.result.summaryMarkdown, undefined, "no summaryMarkdown field on the result");
