@@ -101,7 +101,14 @@ test("pointing at a thread on one link lights that link alone, in the drawing an
     (e) =>
       `${e.className.replace(" map-hot", "")} ${e.dataset.from ?? e.dataset.group}>${e.dataset.to ?? ""}`,
   );
-  assert.deepEqual(hot, ["map-link a>d", "map-label a>d", "map-cross a>d", "map-list-feed a>d"]);
+  // a → d crosses a box, so its label is said twice, and both light.
+  assert.deepEqual(hot, [
+    "map-link a>d",
+    "map-label a>d",
+    "map-label map-echo a>d",
+    "map-cross a>d",
+    "map-list-feed a>d",
+  ]);
   // A box's thread lights the box, in the drawing and as its list row.
   lightMapLinks(host, "b");
   assert.ok(host.querySelector('.map-box[data-group="b"]')!.classList.contains("map-hot"));

@@ -82,7 +82,7 @@ export type MapLink = {
   fan?: true;
   // The label this link's line carries, when it is the one that says it.
   caption?: MapLabel;
-  // A link that crosses two boxes or more says its label again before the box it reaches.
+  // A link that crosses a box says its label again before the box it reaches.
   echo?: MapLabel;
   // A link back to an earlier stage: the note that stands for it.
   note?: MapNote;
@@ -864,14 +864,14 @@ export function layoutMap(
     } else spots = alongRun(p0![0], Math.min(...own.map(firstGapEnd)), p0![1]);
     const atSource = settle(e, own, spots);
     // A crossing link whose label cannot be told apart at its source (its strip runs beside
-    // another) says it near its target instead. One past two boxes or more says it there as well.
-    const far = new Set(e.cross.map((c) => c.box)).size >= 2;
-    const atTarget = e.under && (far || atSource.bad) ? settle(e, own, nearTarget(e)) : undefined;
+    // another) says it near its target instead. Otherwise it says it there as well: a box sits
+    // between the label at its source and the box it reaches.
+    const atTarget = e.under ? settle(e, own, nearTarget(e)) : undefined;
     if (atTarget && atSource.bad && atTarget.bad < atSource.bad) e.caption = keep(atTarget);
     else {
       e.caption = keep(atSource);
       // Said again only where it can be told apart: a muddled echo is worse than none.
-      if (atTarget && far && atTarget.bad === 0) e.echo = keep(atTarget);
+      if (atTarget && atTarget.bad === 0) e.echo = keep(atTarget);
     }
   }
 

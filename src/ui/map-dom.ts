@@ -35,7 +35,7 @@ export function mapHtml(layout: MapLayout) {
         `<g class="map-link" ${ends(l.from, l.to)}><path d="${roundedPath(l.points!)}"/><path class="map-arrow" d="${arrowHead(l.points!)}"/></g>`,
     )
     .join("");
-  // A label near the start of its line, and for a link that crosses two boxes or more, its echo
+  // A label near the start of its line, and for a link that crosses a box, its echo
   // before the box it reaches.
   const label = (l: MapLink, c: MapLabel, cls: string) => {
     const spans = c.lines

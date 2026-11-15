@@ -181,15 +181,15 @@ export function mapProblems(layout: MapLayout, links: GuideLink[], measure: Meas
   for (const k of want)
     if (seen.get(k) !== 1) out.push(`link ${k} appears ${seen.get(k) ?? 0} times`);
 
-  // Every drawn link's label is said by some label on the map; a link that crosses two boxes or
-  // more says it again before the box it reaches.
+  // Every drawn link's label is said by some label on the map; a link that crosses a box says it
+  // again before the box it reaches.
   const said = new Set(labels.flatMap((l) => l.links));
   for (const l of drawn) if (!said.has(l.key)) out.push(`link ${l.key}'s label is never shown`);
-  for (const l of drawn)
-    if (new Set(l.crossings.map((c) => c.box)).size >= 2 && !l.echo)
-      out.push(
-        `link ${l.key} crosses ${l.crossings.length} boxes and is labelled only at its start`,
-      );
+  for (const l of drawn) {
+    const n = l.crossings.length;
+    if (n && !l.echo)
+      out.push(`link ${l.key} crosses ${n} box${n === 1 ? "" : "es"} and is labelled only once`);
+  }
 
   // Two links never run on one track: their parallel runs stay apart, unless they leave by one
   // exit. Their lanes up and down a gap stand at least LANE apart, so they read as two at a

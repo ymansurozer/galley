@@ -211,9 +211,7 @@ export const MAP_CORPUS: MapShape[] = [
       ],
     ),
     known: {
-      problems: [
-        `link ${linkKey("docs", "skill")} crosses 2 boxes and is labelled only at its start`,
-      ],
+      problems: [`link ${linkKey("docs", "skill")} crosses 2 boxes and is labelled only once`],
       why: "The gap before Agent notes holds the two jogs round Store and poll's side and the link's own rise; no spot there clears them all, so the label is said once, clear, at its source.",
     },
   },
@@ -536,7 +534,7 @@ export const MAP_CORPUS: MapShape[] = [
     ),
     known: {
       problems: ["search", "hooks", "metrics"].map(
-        (to) => `link ${linkKey("bus", to)} crosses 2 boxes and is labelled only at its start`,
+        (to) => `link ${linkKey("bus", to)} crosses 2 boxes and is labelled only once`,
       ),
       why: "The gap before the sinks holds ten lanes, two into each sink, and no spot there can be told apart for these three links' labels to be said again; each is said once, clear, at its source.",
     },

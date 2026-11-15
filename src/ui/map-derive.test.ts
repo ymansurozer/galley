@@ -165,6 +165,20 @@ test("a link skipping a stage crosses the box in its way along a strip, and says
   assert.deepEqual(link(layout, linkKey("a", "b")).crossings, []);
 });
 
+test("a link crossing one box says its label at its source and again before its target", () => {
+  const layout = lay(
+    stages(["A", "a"], ["B", "b"], ["C", "c"]),
+    links(["a", "b", "rows"], ["b", "c", "views"], ["a", "c", "ids"]),
+  );
+  const b = box(layout, "b");
+  const { caption, echo } = link(layout, linkKey("a", "c"));
+  assert.ok(caption && echo, "both labels");
+  assert.deepEqual(echo.lines, caption.lines);
+  assert.ok(caption.x < b.x, "the first before the box it crosses");
+  assert.ok(echo.x >= b.x + layout.boxW, "the second past it");
+  assert.equal(link(layout, linkKey("a", "b")).echo, undefined, "a plain link says it once");
+});
+
 test("links inside a stage run straight between neighbours and jog round the side otherwise", () => {
   const layout = lay(
     stages(["A", "a"], ["B", "b1", "b2", "b3"]),
