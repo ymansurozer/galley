@@ -1,6 +1,23 @@
 # Changelog
 
 
+## v0.9.0
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.8.2...v0.9.0)
+
+### 🚀 Enhancements
+
+- Decisions mode, a review of topics beside Code and App ([#145](https://github.com/ymansurozer/galley/pull/145))
+
+### 🩹 Fixes
+
+- Keep the pinned guide line to one line ([#138](https://github.com/ymansurozer/galley/pull/138))
+- Keep review progress across desk stops and second tabs ([#140](https://github.com/ymansurozer/galley/pull/140))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.8.2
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.8.1...v0.8.2)
