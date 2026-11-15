@@ -71,6 +71,10 @@ Comment on any line. Questions get answered live, so you never wait. Change requ
 
 Your agent hands over its dev server and the desk gets an **App** tab. Annotate any element, region or text; check **Attach screenshot** to include a screenshot with a new annotation.
 
+### Settle the decisions
+
+Your agent can write its guide as **topics**: the calls it made, how the new parts work, who can reach what, what it costs, what a deploy needs. The desk gets a **Decisions** tab. Read each topic on its own page, comment on any part of it, pick between the options your agent weighed, and settle it. An overview maps the change and shows that every changed line sits under a topic or was skimmed for a stated reason. Next round, what you settled stays settled unless its code changed.
+
 ### Keyboard-first
 
 Move, comment, approve and send without the mouse.
