@@ -9,6 +9,11 @@ export function topicsSendLine(done: number, total: number) {
   return left ? `${settled} · ${left} still to do` : `${settled} · none left to do`;
 }
 
+// The Send dialog's lead once the last topic is settled: Decisions mode's counterpart of Code
+// mode's "You've reviewed all N files".
+export const topicsFinishLead = (total: number) =>
+  `You've settled ${total === 1 ? "the topic" : `all ${total} topics`}`;
+
 // The Send dialog's Code line, the code lane's counterpart of sendSummary (uilane-derive.ts):
 // what goes, by what it asks of the agent, and what doesn't. Store-free, so it unit-tests.
 

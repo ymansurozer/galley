@@ -448,6 +448,7 @@ export interface Store {
   confirmYes?: () => void;
   confirmNo?: () => void;
   promptFinish?: () => void;
+  promptTopicsFinish?: () => void;
   confirmSend?: () => void;
   sendConfirm?: () => Promise<void>;
   sendCancel?: () => void;
