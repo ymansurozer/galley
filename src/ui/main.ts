@@ -53,7 +53,7 @@ import {
   walkthroughRows,
 } from "./guide";
 import { refreshBaseTitle, reviewStats } from "./progress";
-import { codeSendSummary, topicsSendLine } from "./send-derive";
+import { codeSendSummary, topicsFinishLead, topicsSendLine } from "./send-derive";
 import { topicsDone } from "./topics-derive";
 import { installKeys, helpGroups, confirmYes, confirmNo } from "./keys";
 import { renderKeycaps } from "./keycaps";
@@ -475,6 +475,11 @@ S.promptFinish = () => {
     `You've reviewed ${files === 1 ? "the file" : `all ${files} files`}`,
     "Send the review back to the agent?",
   );
+};
+// Decisions mode's counterpart, fired after the last topic is settled.
+S.promptTopicsFinish = () => {
+  const { total } = topicsDone(S.state.guide?.stages ?? [], S.state);
+  openReceipt(topicsFinishLead(total), "Send the review back to the agent?");
 };
 // Every manual send — the Send button and ⇧S — routes through this receipt-style modal: a
 // glance at what's about to go before the one-way handoff. (The button used to call send()

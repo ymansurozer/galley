@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ReviewComment, UiAnnotationRecord } from "./types";
-import { codeSendSummary, topicsSendLine } from "./send-derive.js";
+import { codeSendSummary, topicsFinishLead, topicsSendLine } from "./send-derive.js";
 import { openRequestList } from "./requests-derive.js";
 
 // Each comment is a second after the one before, so an agent reply made later answers a question
@@ -182,4 +182,9 @@ test("topicsSendLine: how many topics are settled and how many are still to do",
   assert.equal(topicsSendLine(1, 13), "1 topic settled · 12 still to do");
   assert.equal(topicsSendLine(0, 2), "0 topics settled · 2 still to do");
   assert.equal(topicsSendLine(3, 3), "3 topics settled · none left to do");
+});
+
+test("topicsFinishLead: the lead of the Send dialog that opens on the last settled topic", () => {
+  assert.equal(topicsFinishLead(1), "You've settled the topic");
+  assert.equal(topicsFinishLead(4), "You've settled all 4 topics");
 });

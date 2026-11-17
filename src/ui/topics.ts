@@ -233,7 +233,7 @@ const settledWord = (id: string) =>
   topicBlockers(S.state.topicThreads ?? [], id).length ? "Marked reviewed" : "Topic settled";
 
 // Settle the open topic and open the next one still to do; with none left, the Overview, which
-// says so.
+// says so, under the offer to send the review (as Code mode offers it after the last sign-off).
 export function settleOpenTopic() {
   const id = S.topicAt;
   if (id === null || topicSettled(S.state, id) || !settle(id)) return;
@@ -243,7 +243,7 @@ export function settleOpenTopic() {
     openTopic(next);
   } else {
     openTopic(null);
-    toast("Every topic is settled. Send Review when you are ready.");
+    S.promptTopicsFinish?.();
   }
 }
 
@@ -256,11 +256,19 @@ function reset(id: string) {
   toast("Reset to do");
 }
 
-// A topic's mark in the sidebar settles it or resets it, and the page stays where it is.
+// A topic's mark in the sidebar settles it or resets it, and the page stays where it is. Settling
+// the last topic to do offers to send the review, as the sidebar's sign-off of the last file does.
 function toggleTopic(id: string) {
-  if (topicSettled(S.state, id)) reset(id);
-  else if (settle(id)) toast(settledWord(id));
+  if (topicSettled(S.state, id)) {
+    reset(id);
+    renderTopics();
+    return;
+  }
+  if (!settle(id)) return renderTopics();
+  const { done, total } = topicsDone(stages(), S.state);
+  if (done < total) toast(settledWord(id));
   renderTopics();
+  if (done === total) S.promptTopicsFinish?.();
 }
 
 // Rows, the bar's buttons and the Overview's way in act through delegation, since every draw
