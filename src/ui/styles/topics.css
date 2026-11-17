@@ -492,6 +492,12 @@ button.topic-point:hover {
 .topic-more:hover {
   color: var(--ink);
 }
+/* Wrapped (filebar.css), the actions sit on the line below: the share ends where they end. */
+@media (max-width: 760px) {
+  .topic-share {
+    margin-right: 0;
+  }
+}
 @media (max-width: 600px) {
   .topic-share {
     white-space: normal;

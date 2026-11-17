@@ -23,6 +23,17 @@
   background: var(--blue);
 }
 
+/* The part reaches across the margin to its button, so the pointer keeps the part's hover on the
+   way there and the button doesn't fade out under it. */
+.topic-part::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  width: 8px;
+}
+
 .topic-gut {
   position: absolute;
   top: 0;
@@ -50,6 +61,11 @@ li.topic-part::before {
 
 li.topic-part > .topic-gut {
   left: -50px;
+}
+
+li.topic-part::after {
+  left: -26px;
+  width: 26px;
 }
 
 .topic-gut .ic {
