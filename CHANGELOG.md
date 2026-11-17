@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.9.1
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.9.0...v0.9.1)
+
+### 🩹 Fixes
+
+- Tighten the topic page's comment gutter, body size and share placement ([#155](https://github.com/ymansurozer/galley/pull/155))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.9.0
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.8.2...v0.9.0)
