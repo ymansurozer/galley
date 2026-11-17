@@ -13,7 +13,7 @@
   position: absolute;
   top: 2px;
   bottom: 2px;
-  left: -14px;
+  left: -8px;
   width: 3px;
   border-radius: 2px;
   background: transparent;
@@ -26,7 +26,7 @@
 .topic-gut {
   position: absolute;
   top: 0;
-  left: -44px;
+  left: -32px;
   display: grid;
   place-items: center;
   width: 24px;
@@ -45,11 +45,11 @@
 
 /* A list item sits inside its list's indent: its rail and button line up with the others. */
 li.topic-part::before {
-  left: -32px;
+  left: -26px;
 }
 
 li.topic-part > .topic-gut {
-  left: -62px;
+  left: -50px;
 }
 
 .topic-gut .ic {
@@ -83,7 +83,8 @@ li.topic-part > .topic-gut {
   color: var(--blue-ink);
 }
 
-/* The threads under a part, in the page's sans, a little smaller than the body. */
+/* The threads under a part, in the page's sans: their meta a step below the body, their messages
+   at the body's own size (.thread-card .md, .topic-body), so a reply reads as the text it answers. */
 .topic-threads {
   display: grid;
   gap: 8px;
@@ -120,14 +121,6 @@ li > .topic-threads {
 
   li.topic-part > .topic-gut {
     left: -48px;
-  }
-
-  .topic-part::before {
-    left: -8px;
-  }
-
-  li.topic-part::before {
-    left: -26px;
   }
 }
 

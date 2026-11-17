@@ -250,8 +250,27 @@
   font-weight: 500;
 }
 
+/* The body reads at the size of the thread messages under it (.thread-card .md), and its inline
+   code at theirs: the base .md sets the small step on the body element itself, which the page's
+   size never reaches. Code blocks keep .md's own size. */
 .topic-body {
+  font-size: var(--text-md);
   line-height: 1.62;
+}
+
+.topic-body :not(pre) > code {
+  font-size: var(--text-sm);
+}
+
+/* What is not prose keeps the small step: line blocks, options and diagrams inherit their size, and
+   a table's inline code stays a step below its cells. The threads in the body keep their own sizes:
+   an agent reply can hold options too. */
+.topic-body :is(.topic-lines, .topic-options, .topic-diagram):not(.topic-threads *) {
+  font-size: var(--text-sm);
+}
+
+.topic-body table code:not(.topic-threads *) {
+  font-size: var(--text-xs);
 }
 
 .topic-body > :first-child {
@@ -308,6 +327,15 @@
 .topic-lab .ic {
   width: 12px;
   height: 12px;
+}
+
+/* Prose in the same column as the body, at the body's size. */
+.topic-flag .md {
+  font-size: var(--text-md);
+}
+
+.topic-flag .md :not(pre) > code {
+  font-size: var(--text-sm);
 }
 
 .topic-flag .md > :last-child {
@@ -395,7 +423,9 @@
   color: var(--orange-ink);
 }
 .topic-share {
-  margin-left: 16px;
+  /* 12px from the actions with the bar's gap: a fact about the topic, set apart from what can be
+     done with it. */
+  margin-right: 4px;
   color: var(--ink-3);
   font-size: var(--text-xs);
   white-space: nowrap;
