@@ -63,9 +63,9 @@ function barActions(stand: TopicSignOffStand) {
   return `<button class="signoff fill${stand === "mark" ? " warn" : ""}" data-act="settle">${label} ${keycapsHtml("⇧A")}</button>`;
 }
 
-// A topic's page: the bar naming its stage and group with its sign-off, then the topic as a reading
-// column — its concern and whether it changed since the last round, title, where the call is
-// recorded, the body, and the Flagged card under the body.
+// A topic's page: the bar naming its stage and group, its share and sign-off at the right end, then
+// the topic as a reading column — its concern and whether it changed since the last round, title,
+// where the call is recorded, the body, and the Flagged card under the body.
 export function renderTopicPage(
   host: HTMLElement,
   place: TopicPlace,
@@ -75,7 +75,7 @@ export function renderTopicPage(
 ) {
   const { topic, group, stage } = place;
   const where = `${stage.label} / ${group.title}`;
-  const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span>${extras.share}<span class="fb-grow"></span><span class="fb-actions">${barActions(signOffStand(stand.settled, stand.requests ?? 0))}</span></div>`;
+  const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span><span class="fb-grow"></span>${extras.share}<span class="fb-actions">${barActions(signOffStand(stand.settled, stand.requests ?? 0))}</span></div>`;
   const tags = [
     topic.concern ? `<span class="topic-concern">${esc(topic.concern)}</span>` : "",
     stand.changed ? `<span class="topic-changed">Changed since your last round</span>` : "",

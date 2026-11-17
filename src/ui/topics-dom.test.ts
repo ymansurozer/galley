@@ -269,7 +269,12 @@ test("coverage evidence shares the topic page with sign-off controls and the bod
   const bar = page.querySelector(".topics-bar")!;
   assert.ok(bar.querySelector(".topic-share"));
   assert.ok(bar.querySelector('[data-act="settle"]'));
-  assert.ok(bar.innerHTML.indexOf("topic-share") < bar.innerHTML.indexOf("fb-actions"));
+  // The share sits at the bar's right end, just left of the actions group: the blockers chip is
+  // prepended into that group at run time, so the share never lands between the chip and the button.
+  assert.deepEqual(
+    [...bar.children].map((c) => c.className),
+    ["fb-path", "fb-grow", "topic-share", "fb-actions"],
+  );
   assert.equal(page.querySelector(".topic-page")?.lastElementChild?.className, "topic-points");
   assert.match(page.querySelector(".topic-body")?.textContent ?? "", /b/);
 });

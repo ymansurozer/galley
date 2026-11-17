@@ -164,10 +164,11 @@
   line-height: 20px;
 }
 
-/* Phone widths: the actions take a line of their own under the path, right-aligned. The path
-   keeps a few characters so the toggles wrap before it disappears. */
+/* Phone widths: the actions take a line of their own under the path, right-aligned, in a file's
+   bar and a topic's alike. The path keeps a few characters so the toggles wrap before it
+   disappears. */
 @media (max-width: 760px) {
-  #diff > .file-bar {
+  :is(#diff, #topics) > .file-bar {
     flex-wrap: wrap;
     row-gap: 6px;
     padding: 6px 12px;
