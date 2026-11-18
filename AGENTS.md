@@ -16,7 +16,8 @@ pnpm lint         # oxlint + oxfmt --check
 pnpm lint:fix     # oxlint --fix + oxfmt (formats)
 pnpm test         # node:test via tsx, all src/**/*.test.ts
 pnpm smoke        # end-to-end agent-contract test against dist/ — requires pnpm build first
-pnpm release      # lint + check + test + build + smoke + changelogen --release --push --no-github
+pnpm perf-smoke   # perf budgets (startup, payload, ui.js size) against dist/ — requires pnpm build first
+pnpm release      # lint + check + test + build + smoke + perf-smoke + changelogen --release --push --no-github
 ```
 
 Run a single test file:
@@ -25,7 +26,7 @@ Run a single test file:
 node --import tsx --test src/state.test.ts
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke — all must pass.
+CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke, perf-smoke — all must pass.
 
 ## Three compilation worlds
 
