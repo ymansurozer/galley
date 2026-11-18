@@ -36,7 +36,7 @@ async function runTestFile(source: string) {
   }
 }
 
-const header = `import { after, test } from "node:test";
+const header = `import { after, afterEach, test } from "node:test";
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 `;
 
@@ -86,4 +86,26 @@ test("passes", () => {});`,
   assert.equal(r.status, 1);
   assert.match(r.output, /teardown broke/);
   assert.doesNotMatch(r.output, /so its test file is stopped/);
+});
+
+test("a late-registered test gets a fresh deadline", async () => {
+  const r = await runTestFile(
+    header +
+      `test("early", () => {});
+await wait(${DEADLINE_MS * 0.65});
+test("late", () => wait(${DEADLINE_MS * 0.65}));`,
+  );
+  assert.equal(r.status, 0, r.output);
+  assert.match(r.output, /pass 2/);
+});
+
+test("a hanging afterEach stays inside the test deadline", async () => {
+  const r = await runTestFile(
+    header +
+      `afterEach(() => { setInterval(() => {}, 1000); return new Promise(() => {}); });
+test("hanging cleanup", () => {});`,
+  );
+  assert.equal(r.status, 1, r.output);
+  assert.match(r.output, /hanging cleanup \(probe\.test\.mjs\) is still running after 1000 ms/);
+  assert.ok(r.ms < 8 * DEADLINE_MS, `stopped in ${r.ms} ms`);
 });

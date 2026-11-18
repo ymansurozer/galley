@@ -1,4 +1,4 @@
-import { after, afterEach, beforeEach } from "node:test";
+import { after, beforeEach } from "node:test";
 import { Worker } from "node:worker_threads";
 import path from "node:path";
 
@@ -19,10 +19,11 @@ import path from "node:path";
 // late teardown and late errors included. --test-force-exit was rejected: it exits before the
 // reporter flushes, and it dropped test results without failing the run.
 //
-// Not covered: a hang outside any test (a module's top-level await, a before or after hook). The
-// CI job's own timeout is the bound there.
+// The deadline starts with the first observed test. A stuck import or suite setup before then
+// depends on the CI job timeout.
 if (process.env.NODE_TEST_CONTEXT) {
-  const deadline = Number(process.env.TEST_DEADLINE_MS) || 60_000;
+  const configured = Number(process.env.TEST_DEADLINE_MS);
+  const deadline = Number.isFinite(configured) && configured > 0 ? configured : 60_000;
   const file = path.relative(process.cwd(), process.argv[1] ?? "");
   // execArgv: [] keeps this preload (and tsx) out of the worker.
   const watchdog = new Worker(
@@ -31,18 +32,24 @@ if (process.env.NODE_TEST_CONTEXT) {
     const { writeSync } = require("node:fs");
     const { deadline, file } = workerData;
     const running = new Map();
+    let rootSettled = false;
     let settledAt;
     parentPort.on("message", ({ kind, id, name }) => {
-      if (kind === "start") running.set(id, { name, at: Date.now() });
-      else if (kind === "end") running.delete(id);
-      else settledAt = Date.now();
+      if (kind === "start") {
+        running.set(id, { name, at: performance.now() });
+        settledAt = undefined;
+      } else {
+        if (kind === "end") running.delete(id);
+        else rootSettled = true;
+        if (rootSettled && running.size === 0) settledAt = performance.now();
+      }
     });
     const stop = (why) => {
       writeSync(2, "\\n✖ " + why + ", so its test file is stopped.\\n");
       process.kill(process.pid, "SIGKILL");
     };
     setInterval(() => {
-      const now = Date.now();
+      const now = performance.now();
       for (const { name, at } of running.values())
         if (now - at >= deadline) stop(name + " (" + file + ") is still running after " + deadline + " ms");
       if (settledAt !== undefined && now - settledAt >= deadline)
@@ -53,16 +60,14 @@ if (process.env.NODE_TEST_CONTEXT) {
   );
   watchdog.unref();
 
-  // Hooks get the test's own context, so a context is the test's id across its two hooks.
-  const ids = new WeakMap();
   let next = 0;
   beforeEach((t) => {
     const id = next++;
-    ids.set(t, id);
-    watchdog.postMessage({ kind: "start", id, name: t.fullName });
-  });
-  afterEach((t) => {
-    watchdog.postMessage({ kind: "end", id: ids.get(t) });
+    watchdog.postMessage({ kind: "start", id, name: t.fullName ?? t.name });
+    // Node aborts the context when the test finishes, after its teardown hooks.
+    t.signal.addEventListener("abort", () => watchdog.postMessage({ kind: "end", id }), {
+      once: true,
+    });
   });
   // The first root after hook, registered before the file's own: the file's teardown runs inside
   // the settled deadline.
