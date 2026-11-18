@@ -20,12 +20,15 @@ Default sessions: <branch>, file-<path> or pr-<ref>. Subcommands use --session, 
 
 ## The loop
 \`\`\`bash
-galley --session <id> &
-while ev=$(galley await); do
-  [ -z "$ev" ] && continue   # --timeout fired
-  jq -c '.questions[]?' <<<"$ev" | while IFS= read -r q; do   # space-safe
-    lane=$(jq -r .lane<<<"$q")   # handle EACH by Question handling
-  done   # a review: act on .result, then galley reload
+session=review # use the live desk's id
+while ev=$(galley await --session "$session"); do
+  case $(jq -r .kind <<<"$ev") in
+    question)
+      jq -c '.questions[]' <<<"$ev" | while IFS= read -r q; do
+        printf '%s\\n' "$q" # apply Question handling
+      done ;;
+    review) jq '.result' <<<"$ev"; break ;; # act, reload, resume
+  esac
 done
 \`\`\`
 - \`galley await [--timeout <s>]\` — print the next event as one JSON line on stdout and exit 0; empty stdout on timeout (re-poll). On nonzero read stderr (no desk or ambiguous session). Harness logs can append text: capture stdout (\`galley await >"$f"\`) and parse the file. After ANY event, await again immediately.
@@ -58,7 +61,7 @@ Live questions and openQuestions:
 - target?, base? — absent in repo mode. target: the file (file mode) or reviewed ref (pr; a PR number/URL resolves to its head branch). base: the PR's merge-base, else its base ref.
 - accepted[], rejected[]: {path, lineNumber, side, title} — leave accepted; revert rejected.
 - codeChangeRequests[]: {path, lineNumber, side, body} — make the edit there.
-- uiTarget? — app URL (optional)
+- uiTarget? — app URL
 - uiAnnotations[] — open change requests on the app (empty without a UI target): {id, number, body, status, placement, page, target, screenshots?, thread}. Read the screenshots, then edit at the target's source, else the route's page component (a quote is greppable).
   - number: the pin; body: the request; thread[] {role, body, at}: later messages, the human's (role "user") and your \`galley comment --ui\` replies (role "agent"). An annotation opened as a question is here only once they request a change in its thread; act on that message.
   - page: {url, route (path+query), title?, viewport: {width, height, dpr}}
@@ -75,7 +78,7 @@ Live questions and openQuestions:
 - topicChangeRequests[]: {id, topic, part, quote?, body, option?} — open change requests on topics and the Overview, Overview first, then in guide order; a dropped topic's requests come last, still named by its old id, even when that guide has no topics. body is the change to make in the covered code (and the guide's text); option? — the picked option label, only for a request made by picking.
 - openQuestions[]: questions you never answered (a reply in the thread after it was asked answers it), folded into Send, each the same lane-tagged shape as a live question. Answer each where asked; folded questions retain the authority of their original Ask.
 - artifacts: {resultJson, sessionDir}, absolute paths under ~/.galley/<repoHash>/<session>/ (SHA-256 of absolute repo root, first 16 hex)
-Without a long-poll, watch sessionDir: each Send rewrites artifacts.resultJson (a new mtime is a new Send). Questions come only via await.
+Without a long-poll, watch sessionDir: each Send rewrites artifacts.resultJson (a new mtime is a new Send). Only await delivers Questions.
 
 ## How to act on a review
 A change request missing from a later Send was resolved or became a question (items can change kind between rounds): drop it. In pr mode amend the commits, leaving approved hunks as-is.

@@ -32,9 +32,9 @@ CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke, perf-smoke
 
 A desk writes settings, locks and saved reviews under `$HOME/.galley`, so a desk started with the real `HOME` rewrites the user's own. Test against a sandbox desk instead:
 
-1. `pnpm build`, then `pnpm desk:sandbox`. It gives the desk a throwaway `HOME`, a fixture repo and a loopback port in 5100–5299, and prints one JSON line once the desk serves the fixture.
-2. Use the fields of that line. `url` is the desk. `repo` is the fixture: edit it, then `reload`. `cli` is a shell template: replace `<command>` with a subcommand (`await`, `comment`, `reload`, `ui`, `stop`) and keep the printed `HOME`, `--repo` and `--session`, or the CLI looks for desks in the user's `~/.galley`.
-3. Check the page with `pnpm desk:browse <url> [--screenshot <png>]`. It opens every file the desk serves in headless Chromium and fails when a file's row, its changed lines (or a pure rename's notice) don't render, or when the page throws; console errors are reported without failing. Its source is a starting point for checks of your own. Run it, and any script importing `chromium` from `playwright-core`, with the real `HOME`, where Playwright's browser cache is; if Chromium is missing, run `pnpm exec playwright-core install chromium`.
+1. `pnpm build`, then `pnpm --silent desk:sandbox`. It gives the desk a throwaway `HOME`, a fixture repo and a loopback port in 5100–5299, and prints one JSON line once the desk serves the fixture.
+2. Use the fields of that line. `url` is the desk. `repo` is the fixture: edit it, then `reload`. `cli` is a shell template: replace `<command>` with a subcommand (`await`, `comment`, `reload`, `ui`, `stop`) and keep the printed environment prefix, `--repo` and `--session` so it reaches the fixture.
+3. Check the page with `pnpm --silent desk:browse <url> [--screenshot <png>]`. It opens every file the desk serves in headless Chromium and fails when a file's row, its changed lines (or a pure rename's notice) don't render, or when the page throws; console errors are reported without failing. Its source is a starting point for checks of your own. Run it, and any script importing `chromium` from `playwright-core`, with the real `HOME`, where Playwright's browser cache is; if Chromium is missing, run `pnpm exec playwright-core install chromium`.
 4. Stop it with `kill <pid>` (the `pid` field), Ctrl-C, or the template's `stop`. Each stops the desk and deletes the sandbox. A signal sent to `pnpm` alone never reaches it.
 
 ## Three compilation worlds

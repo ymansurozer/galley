@@ -256,7 +256,7 @@ try {
       repo,
       home,
       pid: process.pid,
-      cli: `HOME=${shellQuote(home)} node ${shellQuote(CLI)} <command> --repo ${shellQuote(repo)} --session ${SESSION}`,
+      cli: `env -i PATH="$PATH" HOME=${shellQuote(home)} GIT_CONFIG_NOSYSTEM=1 ${shellQuote(process.execPath)} ${shellQuote(CLI)} <command> --repo ${shellQuote(repo)} --session ${SESSION}`,
     }),
   );
   console.error(`desk:sandbox: ${url} is up. Ctrl-C or SIGTERM stops it and removes ${root}.`);

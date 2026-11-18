@@ -217,7 +217,7 @@ const ANCHORS = [
   'lane "ui"',
   "{lane, annotationId, number, route, body, target, mode, session}",
   'galley comment --ui <id> --body "…"',
-  'jq -r .lane<<<"$q"',
+  'case $(jq -r .kind <<<"$ev") in',
   "your `galley comment --ui` replies",
   "opened as a question is here only once they request a",
   "act on that message",
@@ -266,6 +266,10 @@ test("SPEC's question loop uses the space-safe read idiom, not word-splitting (i
   // must pipe through \`while IFS= read\`. Agents copy it verbatim, so pin the safe idiom.
   assert.ok(SPEC.includes("| while IFS= read -r q"), "loop must use a while-read pipeline");
   assert.ok(!SPEC.includes("for q in $("), "loop must not word-split questions with for-in");
+  const loop = SPEC.split("## The loop")[1]!.split("## Events")[0]!;
+  assert.match(loop, /galley await --session "\$session"/);
+  assert.match(loop, /question\)\s+jq -c '\.questions\[\]'/);
+  assert.match(loop, /review\) jq '\.result' <<<"\$ev"; break/);
 });
 
 test("SPEC states the deduped invariants exactly once (issue 04)", () => {
