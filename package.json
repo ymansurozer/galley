@@ -45,6 +45,8 @@
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "smoke": "node scripts/smoke.mjs",
     "perf-smoke": "node scripts/perf-smoke.mjs",
+    "desk:sandbox": "node scripts/desk-sandbox.mjs",
+    "desk:browse": "node scripts/desk-browse.mjs",
     "prepack": "pnpm build",
     "release": "pnpm lint && pnpm check && pnpm test && pnpm build && pnpm smoke && changelogen --release --push --no-github"
   },
@@ -59,6 +61,7 @@
     "happy-dom": "^21.0.1",
     "oxfmt": "^0.53.0",
     "oxlint": "^1.68.0",
+    "playwright-core": "1.65.0",
     "tsx": "latest",
     "typescript": "latest"
   },

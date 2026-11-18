@@ -16,6 +16,9 @@ pnpm lint         # oxlint + oxfmt --check
 pnpm lint:fix     # oxlint --fix + oxfmt (formats)
 pnpm test         # node:test via tsx, all src/**/*.test.ts
 pnpm smoke        # end-to-end agent-contract test against dist/ — requires pnpm build first
+pnpm perf-smoke   # perf budgets on a ~1,000-file repo against dist/ — requires pnpm build first
+pnpm desk:sandbox # a disposable test desk against dist/ — see Testing a desk
+pnpm desk:browse <url> [--screenshot <png>]  # headless Chromium check of a running desk
 pnpm release      # lint + check + test + build + smoke + changelogen --release --push --no-github
 ```
 
@@ -25,7 +28,17 @@ Run a single test file:
 node --import tsx --test src/state.test.ts
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke — all must pass.
+CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke, perf-smoke — all must pass.
+
+## Testing a desk
+
+A desk writes settings, locks and saved reviews under `$HOME/.galley`, so a test desk on the real `HOME` rewrites the user's own. Test against `pnpm desk:sandbox` (after `pnpm build`): it starts a desk with a throwaway `HOME`, a fixture repo holding one change of each kind, and a loopback port in 5100–5299, then prints one JSON line once the desk serves the fixture. From that line:
+
+- `url` is the desk, for `pnpm desk:browse` or a browser.
+- `cli` is the `galley` command prefixed with the sandbox's `HOME`. Run every subcommand (`await`, `comment`, `reload`, `ui`, `stop`) through it; with any other `HOME` it looks for desks in the user's `~/.galley`.
+- `pid` stops it: `kill <pid>`, or Ctrl-C in a terminal, stops the desk and deletes its temp dir. A SIGTERM sent to `pnpm` itself never reaches the script. To keep it running past one command, start it with `setsid pnpm desk:sandbox > <log> 2>&1 &` and wait for the `"ready"` line.
+
+For a browser, scripts import `chromium` from `playwright-core`, a devDependency pinned to a version whose Chromium Playwright's cache already held (`~/.cache/ms-playwright`; `~/Library/Caches/ms-playwright` on macOS). It finds that cache through the real `HOME`, so run browser scripts outside the sandbox's `HOME`. If Chromium is missing (on a new machine, or after a version bump), run `pnpm exec playwright-core install chromium`. `pnpm desk:browse <url>` clicks every file the desk serves and checks that each one's diff renders. Its source is a starting point for checks of your own.
 
 ## Three compilation worlds
 
