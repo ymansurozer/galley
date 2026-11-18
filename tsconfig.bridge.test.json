@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.bridge.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src/bridge/**/*.test.ts"],
+  "exclude": []
+}

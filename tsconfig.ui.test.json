@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.ui.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src/ui/**/*.test.ts"],
+  "exclude": []
+}
