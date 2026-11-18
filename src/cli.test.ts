@@ -703,3 +703,62 @@ test("comment --ui fails, writing nothing, when the live desk takes the request 
     await cleanup();
   }
 });
+
+// `galley await` feeds `ev=$(galley await)` and `galley await | jq`: stdout carries the event as
+// one JSON line and nothing else, and every outcome without an event leaves stdout empty.
+test("await prints each event as one JSON line on stdout, and nothing else in any outcome", async () => {
+  const { repo, home, cleanup } = await tempRepo(false);
+  const question = {
+    kind: "question",
+    question: {
+      lane: "code",
+      path: "a.txt",
+      lineNumber: 1,
+      side: "additions",
+      body: "Why “two” — not one?",
+      mode: "repo",
+      session: "s",
+    },
+    questions: [] as unknown[],
+  };
+  question.questions.push(question.question);
+  const review = { kind: "review", result: { session: "s", mode: "repo", overallNote: "ship it" } };
+  // Each await long-poll takes the next answer: the two events, a timeout, then a dropped socket.
+  const answers: ((res: http.ServerResponse) => void)[] = [
+    (res) => res.end(JSON.stringify(question)),
+    (res) => res.end(JSON.stringify(review)),
+    (res) => res.writeHead(204).end(),
+    (res) => res.socket?.destroy(),
+  ];
+  const desk = http.createServer((req, res) => {
+    if (req.url?.startsWith("/api/await-send")) answers.shift()!(res);
+    else res.end("{}");
+  });
+  await new Promise<void>((resolve) => desk.listen(0, "127.0.0.1", resolve));
+  try {
+    const { lock } = await savedQuestion(repo, home);
+    const address = desk.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    await writeFile(
+      lock,
+      JSON.stringify({ pid: process.pid, url: `http://127.0.0.1:${port}/`, session: "s" }),
+    );
+    const awaitOnce = () => runCliAsync(["await", "--repo", repo, "--session", "s"], home);
+    for (const event of [question, review]) {
+      const got = await awaitOnce();
+      assert.equal(got.status, 0, got.stderr);
+      assert.equal(got.stdout, `${JSON.stringify(event)}\n`, `${event.kind}: one JSON line`);
+      assert.equal(got.stderr, "", `${event.kind}: nothing on stderr`);
+    }
+    const timedOut = await awaitOnce();
+    assert.deepEqual([timedOut.status, timedOut.stdout], [0, ""], "a timeout prints nothing");
+    assert.equal((await awaitOnce()).stdout, "", "a dropped long-poll prints nothing");
+    await rm(lock);
+    const noDesk = await awaitOnce();
+    assert.deepEqual([noDesk.status, noDesk.stdout], [1, ""], "no desk: exit 1, empty stdout");
+    assert.match(noDesk.stderr, /No live desk for session "s"/);
+  } finally {
+    desk.close();
+    await cleanup();
+  }
+});

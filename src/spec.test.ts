@@ -32,7 +32,7 @@ const ANCHORS = [
   "NEVER edit tracked",
   // replies live in the desk only: no echo into the agent's own chat/harness output
   "in your own chat or harness output",
-  "At most say\n  briefly that you replied in the desk",
+  "At most say briefly that you replied in the desk",
   // question batching + immediate re-await (issue 05); the loop iterates the whole batch, not
   // the deprecated .question compat field (issue 04 cleanup)
   "batched into this delivery",
@@ -63,7 +63,6 @@ const ANCHORS = [
   "One options block per topic",
   '"option:<n>" — the n-th option',
   "There is one reply pick per thread",
-  "Arrows move focus only; Space, Enter and click pick.",
   "How to act on a review",
   // the human can turn a change request into a question and back between rounds
   "change kind between rounds",
@@ -86,8 +85,8 @@ const ANCHORS = [
   "When to skim",
   // skims in a topics guide: coverage forces them, the reviewer's rules allow them
   "a plain file walkthrough skims nothing",
-  "the rules for what may be skimmed\nare the reviewer's, from their skill",
-  "rather than\ninvent a rule",
+  "the rules for what may be skimmed are the reviewer's, from their skill",
+  "rather than invent a rule",
   // fully-skimmed files leave the flow (issue 07)
   "drops into a collapsed",
   "genuinely needs no eyes",
@@ -131,19 +130,19 @@ const ANCHORS = [
   "each Send starts the next",
   "the next reload drops the sign-off",
   "loses its sign-off",
-  "ids unique among stages, among groups and among\ntopics",
-  "a cover naming a file not in the diff, a\nfolder with no changed file under it, or a span that touches no change",
-  "naming the topic and the cover",
+  "ids not unique among stages, among groups and among topics",
+  "a cover naming a file not in the diff, a folder with no changed file under it, or a span that touches no change",
+  "naming the topic and the cover, entry or link",
   // line blocks: the fence, its grammar, its refusals and that it quotes the diff
   "A `lines` fence quotes the diff, so you never retype code",
   "`path:start-end` (new-file-side line numbers, start <= end) or `path:n` for one line",
   "the ordinary line comment Code mode makes",
   "It may be empty when a `lines` block in the body names lines",
-  "A `lines`\nentry that doesn't parse, names a file not in the diff or whose range touches no change aborts it\nthe same way, naming the topic and the entry",
+  "a `lines` entry that doesn't parse, names a file not in the diff or whose range touches no change",
   "links? (array, only with stages), each { from, to, label }",
-  "at most 40\n  characters",
-  "Galley draws the Overview's MAP from the stages, groups\n  and links — you write no diagram",
-  "with a label over 40\ncharacters aborts it the same way, naming the link",
+  "at most 40 characters",
+  "Galley draws the Overview's MAP from the stages, groups and links — you write no diagram",
+  "with a label over 40 characters",
   // The running app: loopback target and explicit refresh signal.
   "--ui <url>",
   "galley ui <url>",
@@ -161,7 +160,7 @@ const ANCHORS = [
   "source?",
   "vue-tracer",
   "vue-file",
-  "file is repo-relative; when the\n    page named a file outside the repo, file, line and column are left out",
+  "file is repo-relative; when the page named a file outside the repo, file, line and column are left out",
   "vendor: true",
   "edit at `source`, not inside the library",
   // annotation screenshots (issue 06): absolute PNG paths, a re-render, with the mark drawn on
@@ -180,7 +179,7 @@ const ANCHORS = [
   '{kind:"element", elements:[element…]}',
   "1–16 elements they clicked",
   '{kind:"region", rect, elements:[element…]}',
-  "canvas and\n      empty space included",
+  "canvas and empty space included",
   '{kind:"text", quote, element}',
   "at most 500 chars",
   '{kind:"page"}',
@@ -220,6 +219,13 @@ test("SPEC carries every consolidated section", () => {
   for (const anchor of ANCHORS) {
     assert.ok(SPEC.includes(anchor), `galley spec is missing the "${anchor}" anchor`);
   }
+});
+
+// Agents read `galley spec` whole every session, so its printed size is a cost they all pay. The
+// ceiling counts bytes as `galley spec` prints them: SPEC plus the trailing newline.
+test("galley spec prints at most 20,000 bytes", () => {
+  const bytes = Buffer.byteLength(SPEC + "\n");
+  assert.ok(bytes <= 20_000, `galley spec prints ${bytes} bytes, over the 20,000-byte ceiling`);
 });
 
 test("SPEC's question loop uses the space-safe read idiom, not word-splitting (issue 04)", () => {
@@ -283,7 +289,7 @@ test("SPEC consistently scopes Ask authority by lane and intent", () => {
   assert.match(SPEC, /folded questions retain the authority of their original Ask/);
   assert.match(
     SPEC,
-    /except for the scoped immediate\n  UI iteration authorized by Question handling/,
+    /except for the scoped immediate UI iteration authorized by Question handling/,
   );
   for (const stale of [
     "app is never\nreloaded under them",
@@ -293,17 +299,14 @@ test("SPEC consistently scopes Ask authority by lane and intent", () => {
     assert.ok(!SPEC.includes(stale));
 });
 
-test("SPEC describes the scoped refresh flag, status, and retry contract", () => {
+test("SPEC describes the scoped refresh flag and retry contract", () => {
   for (const rule of [
     "[--refresh-ui]",
     "reload-only and takes no value",
-    "refreshUi: boolean",
-    "uiRefreshGeneration",
     "never persisted",
     "current route/query",
     "annotation thread and selection",
     "set-aside annotation draft; polling applies it afterward",
-    "without replaying older refreshes",
     "retry with Refresh app",
   ])
     assert.ok(SPEC.includes(rule), rule);

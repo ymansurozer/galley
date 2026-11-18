@@ -65,6 +65,20 @@ delete ENV.GALLEY_PORT_RANGE;
 
 const cli = (...args) =>
   execFileSync("node", [CLI, ...args], { encoding: "utf8", env: ENV }).trim();
+// `galley await` the way an agent pipes it into jq: stdout is exactly one line, the JSON event,
+// and the CLI writes nothing to stderr. `--timeout` empties stdout with no event.
+const runAwait = (timeout) =>
+  spawnSync("node", [CLI, "await", "--repo", tmp, "--session", ID, "--timeout", timeout], {
+    encoding: "utf8",
+    env: ENV,
+  });
+const awaitEvent = () => {
+  const { status, stdout, stderr } = runAwait("5");
+  assert.equal(status, 0, stderr);
+  assert.equal(stderr, "", "await writes nothing to stderr with an event");
+  assert.match(stdout, /^\{[^\n]*\}\n$/, "await prints the event as exactly one JSON line");
+  return JSON.parse(stdout);
+};
 const getJson = async (p, init) => (await fetch(BASE + p, init)).json();
 const post = (p, body) =>
   fetch(BASE + p, {
@@ -694,7 +708,7 @@ try {
     ],
   });
   await post("/api/ask", { topicThreadId: "topic-q1", messageId: "topic-q1-m1" });
-  const evTopic = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const evTopic = awaitEvent();
   assert.equal(evTopic.kind, "question");
   assert.deepEqual(evTopic.questions, [
     {
@@ -759,7 +773,7 @@ try {
     ],
   });
   await post("/api/ask", { topicThreadId: "overview-q1", messageId: "overview-q1-m1" });
-  const evBox = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const evBox = awaitEvent();
   assert.equal(evBox.kind, "question");
   assert.deepEqual(evBox.questions, [
     {
@@ -802,7 +816,7 @@ try {
   const queuedState = await getJson("/api/state");
   assert.equal(queuedState.queuedQuestions, 1, "question queued with no listener");
   console.log("✓ queuedQuestions reflects an undelivered question");
-  const ev1 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const ev1 = awaitEvent();
   assert.equal(ev1.kind, "question");
   assert.equal(ev1.question.lane, "code");
   assert.equal(ev1.question.body, "why this change?");
@@ -825,7 +839,7 @@ try {
   });
   const batchState = await getJson("/api/state");
   assert.equal(batchState.queuedQuestions, 2, "both questions queued with no listener");
-  const evBatch = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const evBatch = awaitEvent();
   assert.equal(evBatch.kind, "question");
   assert.equal(evBatch.questions.length, 2, "both questions delivered in one event");
   assert.deepEqual(
@@ -900,7 +914,7 @@ try {
   ];
   await post("/api/save", { annotations: [saved[0], ...asked] });
   await post("/api/ask", { annotationId: "ui-q1", messageId: "ui-q1-m1" });
-  const evUi = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const evUi = awaitEvent();
   assert.equal(evUi.kind, "question");
   assert.deepEqual(evUi.questions, [
     {
@@ -1044,11 +1058,13 @@ try {
   desk = spawn("node", deskArgs, { stdio: ["ignore", "ignore", "pipe"], env: ENV });
   BASE = await waitForDeskUrl(desk);
   assert.equal((await getJson("/api/state")).queuedReviews, 1, "restart restores queued status");
-  const ev2 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const ev2 = awaitEvent();
+  const timedOut = runAwait("0.05");
+  assert.equal(timedOut.status, 0, timedOut.stderr);
   assert.equal(
-    cli("await", "--repo", tmp, "--session", ID, "--timeout", "0.05"),
+    timedOut.stdout,
     "",
-    "the next await times out instead of redelivering the review",
+    "the next await times out with empty stdout instead of redelivering the review",
   );
   console.log("✓ queued Send survives CLI stop/start and is delivered once");
   assert.equal(ev2.kind, "review");
