@@ -59,7 +59,7 @@ export function formatMoney(amount) {
 }
 `;
 const GIT_KEYS = ["additions:1:0:2", "additions:9:2:11", "additions:23:1:1"];
-const GUIDE: Guide = {
+const GUIDE = {
   overview: "Late fees",
   files: [
     {
@@ -83,7 +83,7 @@ const GUIDE: Guide = {
       part: { title: "Currency formatting", lines: [23] },
     },
   ],
-};
+} satisfies Guide;
 
 // A throwaway repo holding `files` committed, then rewritten to `edits`; runs `fn` in it with HOME
 // pointed inside, so a built review persists there.

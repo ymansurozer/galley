@@ -267,6 +267,7 @@ test("the change under the cursor answers from any of its rows, a replace's dele
 test("a decided change folds away: it no longer answers, and the rows after it renumber", () => {
   const { diff, changes } = cursorFile();
   const [insert, replace] = changes;
+  assert.ok(insert.changeIndex !== undefined, "a change derived from the diff knows its index");
   // Undo the insertion, as replayDecisions would: its two added lines leave the new side.
   insert.status = "rejected";
   const rendered = diffAcceptRejectHunk(diff, insert.hunkIndex, {
