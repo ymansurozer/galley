@@ -58,7 +58,26 @@ const waitForDeskUrl = (child) =>
 // loopback URL — an inherited GALLEY_HOST would make every run time out. They may export
 // GALLEY_PORT_RANGE too, which would move the desk's port. No update-check network call at desk
 // start either.
-const ENV = { ...process.env, GALLEY_NO_UPDATE_CHECK: "1" };
+//
+// It is hermetic to the caller's HOME and Git setup too. The desk persists reviews and settings
+// under $HOME/.galley, so every desk, client and fixture-git process gets a throwaway HOME,
+// separate from the fixture repo and removed by cleanup(). The caller's GIT_* variables (GIT_DIR,
+// GIT_WORK_TREE, GIT_CONFIG_*, ...) are dropped so they can't steer git at another repository,
+// and every XDG base — including the one git reads its global config from — resolves inside
+// the throwaway HOME.
+const homeDir = mkdtempSync(path.join(tmpdir(), "galley-smoke-home-"));
+const ENV = {};
+for (const [key, value] of Object.entries(process.env))
+  if (!key.startsWith("GIT_")) ENV[key] = value;
+Object.assign(ENV, {
+  HOME: homeDir,
+  XDG_CONFIG_HOME: path.join(homeDir, ".config"),
+  XDG_DATA_HOME: path.join(homeDir, ".local", "share"),
+  XDG_STATE_HOME: path.join(homeDir, ".local", "state"),
+  XDG_CACHE_HOME: path.join(homeDir, ".cache"),
+  GIT_CONFIG_NOSYSTEM: "1",
+  GALLEY_NO_UPDATE_CHECK: "1",
+});
 delete ENV.GALLEY_HOST;
 delete ENV.GALLEY_ALLOWED_HOSTS;
 delete ENV.GALLEY_PORT_RANGE;
@@ -111,13 +130,18 @@ const cleanup = () => {
   } catch {
     /**/
   }
+  try {
+    rmSync(homeDir, { recursive: true, force: true });
+  } catch {
+    /**/
+  }
 };
 process.on("exit", cleanup);
 
 try {
   // throwaway repo: one committed file + a working-tree change
   tmp = mkdtempSync(path.join(tmpdir(), "galley-smoke-"));
-  const git = (...a) => execFileSync("git", a, { cwd: tmp, stdio: "ignore" });
+  const git = (...a) => execFileSync("git", a, { cwd: tmp, stdio: "ignore", env: ENV });
   git("init", "-q");
   git("config", "user.email", "s@s.dev");
   git("config", "user.name", "smoke");
