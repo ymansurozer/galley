@@ -3627,6 +3627,27 @@ test("galley file on a file outside any repo names the file's folder", async () 
   }
 });
 
+test("file mode: a tracked file named with two leading dots is a repo child, not a parent path", async () => {
+  const { parent, dir, gitq } = await scratchRepo("acme");
+  try {
+    const dotted = path.join(dir, "..notes.txt");
+    await fs.writeFile(dotted, "one\n");
+    gitq("add", "-A");
+    gitq("commit", "-q", "-m", "dotted");
+    await fs.writeFile(dotted, "two\n");
+    const inside = await buildReviewState(dir, { mode: "file", path: dotted, session: "s" });
+    // Tracked and changed: the review is a diff against the repo-relative name, not a plain read.
+    assert.equal(inside!.target, "..notes.txt");
+    assert.deepEqual(
+      inside!.files.map((f) => f.path),
+      ["..notes.txt"],
+    );
+    assert.ok(inside!.files[0]!.hunks.length > 0, "a tracked diff, not a whole-file read");
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
 test("a review saved before the project name loads, and gains it on reload", async () => {
   const { parent, dir } = await scratchRepo("acme");
   const oldHome = process.env.HOME;
