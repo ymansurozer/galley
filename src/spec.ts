@@ -20,18 +20,18 @@ Default sessions: <branch>, file-<path> or pr-<ref>. Subcommands use --session, 
 
 ## The loop
 \`\`\`bash
-session=review # use the live desk's id
+session=review # desk started with galley --session review &
 while ev=$(galley await --session "$session"); do
   case $(jq -r .kind <<<"$ev") in
     question)
       jq -c '.questions[]' <<<"$ev" | while IFS= read -r q; do
         printf '%s\\n' "$q" # apply Question handling
-      done ;;
+      done; break ;;
     review) jq '.result' <<<"$ev"; break ;; # act, reload, resume
   esac
 done
 \`\`\`
-- \`galley await [--timeout <s>]\` — print the next event as one JSON line on stdout and exit 0; empty stdout on timeout (re-poll). On nonzero read stderr (no desk or ambiguous session). Harness logs can append text: capture stdout (\`galley await >"$f"\`) and parse the file. After ANY event, await again immediately.
+- \`galley await [--timeout <s>]\` — print the next event as one JSON line on stdout and exit 0; empty stdout on timeout (re-poll). On nonzero read stderr (no desk or ambiguous session). Harness logs can append text: capture stdout (\`galley await >"$f"\`) and parse the file. Handle the event, then await again immediately.
 - \`galley comment --path <f> --line <n> [--side additions|deletions] --body "…"\` — reply to a lane "code" question at its path/lineNumber/side, threaded under the human's comment; never echoed back as codeChangeRequests.
 - \`galley comment --ui <id> --body "…"\` (a lane "ui" question's annotationId or a uiAnnotations[].id) and \`galley comment --topic <id> --body "…"\` (a lane "topic" question's id or a topicChangeRequests[].id) reply in that thread; unknown id: exit 1, no post.
 - Replies show in ~1.5s, or append to the saved review if offline. Never repeat or summarize one in your own chat or harness output. At most say briefly that you replied in the desk.

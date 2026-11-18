@@ -276,6 +276,7 @@ test("SPEC's question loop uses the space-safe read idiom, not word-splitting (i
   const loop = SPEC.split("## The loop")[1]!.split("## Events")[0]!;
   assert.match(loop, /galley await --session "\$session"/);
   assert.match(loop, /question\)\s+jq -c '\.questions\[\]'/);
+  assert.match(loop, /question\)[\s\S]*?done; break/);
   assert.match(loop, /review\) jq '\.result' <<<"\$ev"; break/);
 });
 

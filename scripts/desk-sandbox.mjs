@@ -3,7 +3,7 @@
 // own settings and reviews. This one gets a throwaway HOME and a fixture repo with one change of
 // every kind, binds loopback on a port in 5100-5299, prints one JSON line once /api/state serves
 // the fixture, and removes it all on Ctrl-C, SIGTERM, SIGHUP or `galley stop`.
-// Run: pnpm build && pnpm desk:sandbox
+// Run: pnpm build && pnpm --silent desk:sandbox
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

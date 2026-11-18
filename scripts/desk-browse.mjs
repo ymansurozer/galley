@@ -1,7 +1,7 @@
 // Checks a running desk in headless Chromium: the tab loads, every file the desk serves has its own
 // tree row, clicking it opens that file and renders its changed lines (or a pure rename's notice),
-// and nothing throws. Prints one JSON line, or exits non-zero with the reason. Point it at `pnpm desk:sandbox`, not a desk on the real HOME.
-// Run: pnpm desk:browse <url> [--screenshot <file.png>]
+// and nothing throws. Prints one JSON line, or exits non-zero with the reason. Point it at `pnpm --silent desk:sandbox`, not a desk on the real HOME.
+// Run: pnpm --silent desk:browse <url> [--screenshot <file.png>]
 // Chromium comes from Playwright's cache under the real HOME (~/.cache/ms-playwright, or
 // ~/Library/Caches/ms-playwright on macOS) at the revision the pinned playwright-core expects;
 // `pnpm exec playwright-core install chromium` fetches it when it's missing.
@@ -25,7 +25,7 @@ const fail = (message) => {
 };
 
 const { url, screenshot } = parseArgs(process.argv.slice(2));
-if (!url) fail("usage: pnpm desk:browse <desk url> [--screenshot <file.png>]");
+if (!url) fail("usage: pnpm --silent desk:browse <desk url> [--screenshot <file.png>]");
 const base = url.replace(/\/+$/, "");
 
 // The files the tree must show come from the desk itself, so the check holds for any fixture.
@@ -37,7 +37,7 @@ try {
 } catch (error) {
   fail(
     `no desk answers at ${base} (${error instanceof Error ? error.message : error}). ` +
-      "Start one with `pnpm desk:sandbox` and pass the url it prints.",
+      "Start one with `pnpm --silent desk:sandbox` and pass the url it prints.",
   );
 }
 if (!expected.length) fail(`the desk at ${base} has no changes to review; nothing would render`);
