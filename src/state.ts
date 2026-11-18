@@ -993,6 +993,13 @@ export async function resolveDefaultBranch(root: string): Promise<string> {
   return "HEAD";
 }
 
+// A path.relative() result that leaves the repo: the parent itself, a parent component, or an
+// absolute result (a different drive on Windows). A name that merely starts with two dots, like
+// `..foo`, is an ordinary child.
+function isOutsideRoot(rel: string): boolean {
+  return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
+}
+
 // The deep module: produce review files + changes for a given mode.
 // repo  → working/staged diff (opts.path is a root-relative limit).
 // file  → one file (opts.path is absolute); tracked+changed = diff (stageable),
@@ -1028,9 +1035,10 @@ export async function buildDiffSource(opts: {
   if (mode === "file") {
     const abs = opts.path!;
     const rel = path.relative(root, abs);
-    const key = rel.startsWith("..") ? abs : rel;
+    const outside = isOutsideRoot(rel);
+    const key = outside ? abs : rel;
     const tracked =
-      !rel.startsWith("..") &&
+      !outside &&
       (await git(["ls-files", "--error-unmatch", "--", rel], root).then(
         () => true,
         () => false,
@@ -1340,7 +1348,7 @@ export async function buildReviewState(
     return make(
       root,
       source,
-      { staged: false, target: r.startsWith("..") ? abs : r },
+      { staged: false, target: isOutsideRoot(r) ? abs : r },
       await getHead(root),
     );
   }

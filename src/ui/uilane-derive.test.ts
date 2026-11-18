@@ -238,7 +238,6 @@ test("a pin carries what the bridge checks a match against: text, name, classes 
   const [mark] = marksFor(
     [ann("u", 1, "/p", { target: { kind: "element", elements: [upload] } })],
     "/p",
-    null,
   );
   assert.deepEqual(mark!.target, {
     kind: "element",

@@ -94,6 +94,23 @@ const OVERVIEW_TITLE = "Overview";
 // unique (it refuses a second link whose `from>to` reads the same).
 export const groupPart = (id: string) => `group:${id}`;
 export const linkPart = (from: string, to: string) => `link:${from}>${to}`;
+// An Overview part as a thread names it; a link keeps its whole name, which the guide's links are
+// matched by.
+type OverviewPart =
+  | { kind: "summary" }
+  | { kind: "map" }
+  | { kind: "coverage" }
+  | { kind: "group"; id: string }
+  | { kind: "link"; name: string };
+function readOverviewPart(part: string): OverviewPart | null {
+  if (part === "summary" || part === "map" || part === "coverage") return { kind: part };
+  if (part.startsWith("group:")) return { kind: "group", id: part.slice("group:".length) };
+  return part.startsWith("link:") ? { kind: "link", name: part } : null;
+}
+
+// Every kind of part a thread can name, on a topic or on the Overview. `galley spec` documents
+// each (spec.test.ts holds it to that).
+export type TopicPartKind = Part["kind"] | OverviewPart["kind"];
 
 // The coverage card's line, as the agent reads what the reviewer saw.
 export function coverageLine(c: TopicCoverage) {
@@ -109,15 +126,17 @@ function overviewQuote(
   guide: Guide | undefined,
   coverage: TopicCoverage | undefined,
 ): { quote?: string } | null {
-  if (part === "map") return {};
-  if (part === "summary") return guide ? { quote: guide.overview } : null;
-  if (part === "coverage") return coverage ? { quote: coverageLine(coverage) } : {};
+  const p = readOverviewPart(part);
+  if (!p) return null;
+  if (p.kind === "map") return {};
+  if (p.kind === "summary") return guide ? { quote: guide.overview } : null;
+  if (p.kind === "coverage") return coverage ? { quote: coverageLine(coverage) } : {};
   const groups = new Map(guide?.stages?.flatMap((s) => s.groups.map((g) => [g.id, g.title])));
-  if (part.startsWith("group:")) {
-    const title = groups.get(part.slice("group:".length));
+  if (p.kind === "group") {
+    const title = groups.get(p.id);
     return title === undefined ? null : { quote: title };
   }
-  const link = guide?.links?.find((l) => linkPart(l.from, l.to) === part);
+  const link = guide?.links?.find((l) => linkPart(l.from, l.to) === p.name);
   return link
     ? { quote: `${groups.get(link.from)} → ${groups.get(link.to)}: ${link.label}` }
     : null;

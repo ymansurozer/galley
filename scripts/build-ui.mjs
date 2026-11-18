@@ -2,19 +2,7 @@ import * as esbuild from "esbuild";
 import { statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// dist/ui.js is a single un-split bundle served to the tab. Gate it so an accidental fat
-// dependency (e.g. shiki's full bundle — see the plugin below) can't silently balloon it back.
-// The floor is the curated grammars themselves (~2 MB of @shikijs/langs, bundled once — cpp alone
-// is ~650 KB); the total sits near 3 MB. This gate still catches a re-introduced fat barrel (that
-// regression is +9 MB) or the oniguruma wasm (+600 KB). Reaching "hundreds of KB" would require
-// lazy-loading grammar chunks (a code-split + a server route to serve them) — out of scope here.
-// 3.2 → 3.3 MB when light mode added six curated light themes (~170 KB of theme JSON).
-// 3.3 → 3.35 MB when the desk redesign met guide parts (#97): the redesign's surfaces plus #97's
-// step UI (steps, folds, replay) pushed ui.js just past 3.3 MB. The gate stays a tripwire for
-// accidental bloat, not a budget to fill.
-// 3.35 → 3.4 MB when Decisions mode's Overview map (its layout and drawing) met coverage and
-// settling across rounds: real feature code took ui.js just past 3.35 MB.
-const SIZE_LIMIT = 3_400_000;
+import { UI_BUNDLE_LIMIT } from "./ui-budget.mjs";
 
 const shimPath = fileURLToPath(new URL("../src/ui/shiki-shim.ts", import.meta.url));
 const emptyModule = "export default {}; export {};";
@@ -91,12 +79,12 @@ if (process.argv.includes("--watch")) {
   await esbuild.build(options);
   const bytes = statSync(options.outfile).size;
   const kb = (bytes / 1000).toFixed(0);
-  if (bytes > SIZE_LIMIT) {
+  if (bytes > UI_BUNDLE_LIMIT) {
     console.error(
-      `esbuild: ${options.outfile} is ${kb} KB, over the ${SIZE_LIMIT / 1000} KB limit. ` +
+      `esbuild: ${options.outfile} is ${kb} KB, over the ${UI_BUNDLE_LIMIT / 1000} KB limit. ` +
         `A fat dependency likely leaked into the bundle (see the shiki-shim plugin).`,
     );
     process.exit(1);
   }
-  console.error(`esbuild: ${options.outfile} is ${kb} KB (limit ${SIZE_LIMIT / 1000} KB)`);
+  console.error(`esbuild: ${options.outfile} is ${kb} KB (limit ${UI_BUNDLE_LIMIT / 1000} KB)`);
 }

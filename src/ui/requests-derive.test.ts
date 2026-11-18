@@ -66,8 +66,12 @@ const rank = (path: string) => {
 };
 const place = (c: { path: string }) => ({ rank: rank(c.path) });
 const flagged = (c: ReviewComment) => c.unanchored === true;
-const where = (r: RequestPlace) =>
-  r.kind === "app" ? `#${r.number}` : `${r.path}:${r.unanchored ? "strip" : r.lineNumber}`;
+const where = (r: OpenRequest) =>
+  r.kind === "app"
+    ? `#${r.number}`
+    : r.kind === "topic"
+      ? r.id
+      : `${r.path}:${r.unanchored ? "strip" : r.lineNumber}`;
 const list = (comments: ReviewComment[], annotations: UiAnnotationRecord[] = []) =>
   openRequestList(comments, place, flagged, annotations);
 
@@ -215,7 +219,7 @@ test("] visits every request once, code then app, then wraps", () => {
   const seen: string[] = [];
   let from: OpenRequest | null = null;
   for (let i = 0; i < requests.length + 1; i++) {
-    const s = stepRequest(requests, from, 1)!;
+    const s: { request: OpenRequest; wrapped: boolean } = stepRequest(requests, from, 1)!;
     seen.push(`${where(s.request)}${s.wrapped ? " (wrapped)" : ""}`);
     from = s.request;
   }

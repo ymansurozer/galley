@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { SPEC } from "./spec.js";
+import type { TopicPartKind } from "./topicthreads.js";
+import type { ReviewResult } from "./types.js";
 
 // The SPEC string is the single source of truth for the agent contract (printed by
 // `galley spec`). These anchors guard that consolidating the skill/snippet into it didn't
@@ -18,6 +20,9 @@ const ANCHORS = [
   "`--open` on any desk start",
   // the loop + events
   "galley await",
+  "one JSON line on stdout and exit 0",
+  "empty stdout on timeout",
+  "Harness logs can append text: capture stdout",
   "galley comment",
   "galley reload",
   "galley status",
@@ -30,7 +35,7 @@ const ANCHORS = [
   "NEVER edit tracked",
   // replies live in the desk only: no echo into the agent's own chat/harness output
   "in your own chat or harness output",
-  "At most say\n  briefly that you replied in the desk",
+  "At most say briefly that you replied in the desk",
   // question batching + immediate re-await (issue 05); the loop iterates the whole batch, not
   // the deprecated .question compat field (issue 04 cleanup)
   "batched into this delivery",
@@ -61,7 +66,6 @@ const ANCHORS = [
   "One options block per topic",
   '"option:<n>" — the n-th option',
   "There is one reply pick per thread",
-  "Arrows move focus only; Space, Enter and click pick.",
   "How to act on a review",
   // the human can turn a change request into a question and back between rounds
   "change kind between rounds",
@@ -84,8 +88,8 @@ const ANCHORS = [
   "When to skim",
   // skims in a topics guide: coverage forces them, the reviewer's rules allow them
   "a plain file walkthrough skims nothing",
-  "the rules for what may be skimmed\nare the reviewer's, from their skill",
-  "rather than\ninvent a rule",
+  "the rules for what may be skimmed are the reviewer's, from their skill",
+  "rather than invent a rule",
   // fully-skimmed files leave the flow (issue 07)
   "drops into a collapsed",
   "genuinely needs no eyes",
@@ -99,13 +103,17 @@ const ANCHORS = [
   // a fresh guide on regroup
   "part? — split a file",
   "part: { title, lines }",
-  "A split file is split all the way",
+  "Every entry for a split file needs a part",
   "no two parts may claim the",
-  "distinct among the file's parts",
-  "untracked file is one whole-file change, so it can't be split",
-  "a part's skimBlocks may not reach another part's block",
+  "nonblank title unique within the file",
+  "lines: non-empty array of new-file-side [start, end] spans and line numbers",
+  "with lines shaped like part lines",
+  "untracked file is one block and can't split",
+  "A part may skim its own or unclaimed blocks (skimBlocks)",
+  "assign it to the main concern and explain in its orientation",
+  "untouched keep their part; edited or new join the part around them, else Rest",
   '"Rest of <file>" step',
-  "move code from one part to another",
+  "send a fresh guide to regroup blocks",
   "places blocks by content",
   "for a part, its path, title and span",
   "guide.skims needs stages",
@@ -119,7 +127,7 @@ const ANCHORS = [
   "STABLE from one guide to the next",
   "recorded (required, non-empty)",
   "A `mermaid` fence draws a diagram",
-  "what needs a diagram is your call",
+  "undrawable diagrams show as code",
   "covers (required, non-empty array)",
   'a folder ending in "/"',
   "Two topics may cover the same lines",
@@ -129,19 +137,33 @@ const ANCHORS = [
   "each Send starts the next",
   "the next reload drops the sign-off",
   "loses its sign-off",
-  "ids unique among stages, among groups and among\ntopics",
-  "a cover naming a file not in the diff, a\nfolder with no changed file under it, or a span that touches no change",
-  "naming the topic and the cover",
+  "duplicate id within a kind (stage/group/topic)",
+  "file not in the diff; folder without changed files; lines touching no change; malformed `lines` entry",
+  "names the topic and invalid cover, entry or link",
   // line blocks: the fence, its grammar, its refusals and that it quotes the diff
   "A `lines` fence quotes the diff, so you never retype code",
   "`path:start-end` (new-file-side line numbers, start <= end) or `path:n` for one line",
   "the ordinary line comment Code mode makes",
   "It may be empty when a `lines` block in the body names lines",
-  "A `lines`\nentry that doesn't parse, names a file not in the diff or whose range touches no change aborts it\nthe same way, naming the topic and the entry",
   "links? (array, only with stages), each { from, to, label }",
-  "at most 40\n  characters",
-  "Galley draws the Overview's MAP from the stages, groups\n  and links — you write no diagram",
-  "with a label over 40\ncharacters aborts it the same way, naming the link",
+  "at most 40 characters",
+  "Overview draws the map: stage columns, group boxes, link lines",
+  "a link breaking the rules above",
+  // coverage refusals, skim rules, lines fences and settling (issue 06 reconciliation)
+  "topics win overlaps",
+  'the first 20, then "and N more"',
+  "reason, and rule when given, are non-empty; covers select like a topic's",
+  "removed lines included, and follows its blocks across reloads",
+  "line shifts, prose and cover rewrites claiming the same blocks don't count",
+  "Code mode shows files' walkthrough, else the plain tree",
+  "raw HTML stripped",
+  // options: who they're for, their field types, and how picks replace and clear
+  "alternatives you weighed, or the reviewer asked for",
+  "label and note strings, ships and recommended booleans",
+  "anything else refuses the guide",
+  "a new pick replaces it; picking what ships clears it",
+  "Arrows move focus only; Space, Enter and click pick.",
+  "loses its option field",
   // The running app: loopback target and explicit refresh signal.
   "--ui <url>",
   "galley ui <url>",
@@ -159,7 +181,7 @@ const ANCHORS = [
   "source?",
   "vue-tracer",
   "vue-file",
-  "file is repo-relative; when the\n    page named a file outside the repo, file, line and column are left out",
+  "file is repo-relative; when the page named a file outside the repo, file, line and column are left out",
   "vendor: true",
   "edit at `source`, not inside the library",
   // annotation screenshots (issue 06): absolute PNG paths, a re-render, with the mark drawn on
@@ -178,7 +200,7 @@ const ANCHORS = [
   '{kind:"element", elements:[element…]}',
   "1–16 elements they clicked",
   '{kind:"region", rect, elements:[element…]}',
-  "canvas and\n      empty space included",
+  "canvas and empty space included",
   '{kind:"text", quote, element}',
   "at most 500 chars",
   '{kind:"page"}',
@@ -198,20 +220,51 @@ const ANCHORS = [
   'lane "ui"',
   "{lane, annotationId, number, route, body, target, mode, session}",
   'galley comment --ui <id> --body "…"',
-  'jq -r .lane<<<"$q"',
+  'case $(jq -r .kind <<<"$ev") in',
   "your `galley comment --ui` replies",
   "opened as a question is here only once they request a",
-  "the change to make is in",
+  "act on that message",
   "each the same lane-tagged shape as a live question",
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",
   "auto-exits",
+  "Pending await keeps it alive",
+  "SHA-256 of absolute repo root, first 16 hex",
+  "stagedFiles may be empty",
+  "Shares exclude skimmedLines",
+  "CLI uses loopback even with --host/GALLEY_HOST",
+  "agentListening = parked await",
+  "agentRecentlyActive lasts 90s",
   "--idle-timeout",
   // the rest of the operational contract
   "reload vs restart",
   "desk.lock",
   "Settings",
   "PATCH_CONFLICT",
+  // sessions: the lone-desk fallback, a second desk, and restart for a new diff source or mode
+  "else the lone live desk (several: exit 1), else the branch's",
+  "Use --session/--port for a second desk",
+  "`galley stop` and start again with the same --session",
+  "a working-tree move stages both paths as a rename",
+  "On nonzero read stderr (no desk or ambiguous session)",
+  // annotation coordinates, and file polling's Send signal
+  "rect in viewport coordinates",
+  "exact 1-based template line/column",
+  "the live page over both",
+  "a new mtime is a new Send",
+  "Live questions don't survive a stop",
+  // await blocks with no --timeout; file polling names the result file, not just the field
+  "block for the next event",
+  "watch sessionDir's *-result.json (artifacts.resultJson)",
+  // session defaults and desk reuse on start
+  "Default sessions: <branch>, file-<path> or pr-<ref>",
+  "A start reuses its live desk and reloads diff/--guide",
+  // ReviewResult's target and base: when they're absent and what each names
+  "target?, base? — absent in repo mode",
+  "base: the PR's merge-base, else its base ref",
+  // the Overview's reserved topic id, and renames shown without a guide entry
+  '"overview" is reserved',
+  "Unedited renames show as",
 ];
 
 test("SPEC carries every consolidated section", () => {
@@ -220,11 +273,23 @@ test("SPEC carries every consolidated section", () => {
   }
 });
 
+// Agents read `galley spec` whole every session, so its printed size is a cost they all pay. The
+// ceiling counts bytes as `galley spec` prints them: SPEC plus the trailing newline.
+test("galley spec prints fewer than 20,000 bytes", () => {
+  const bytes = Buffer.byteLength(SPEC + "\n");
+  assert.ok(bytes < 20_000, `galley spec prints ${bytes} bytes, expected fewer than 20,000`);
+});
+
 test("SPEC's question loop uses the space-safe read idiom, not word-splitting (issue 04)", () => {
   // Question bodies contain spaces, so \`for q in $(jq …)\` shatters each JSON object — the example
   // must pipe through \`while IFS= read\`. Agents copy it verbatim, so pin the safe idiom.
   assert.ok(SPEC.includes("| while IFS= read -r q"), "loop must use a while-read pipeline");
   assert.ok(!SPEC.includes("for q in $("), "loop must not word-split questions with for-in");
+  const loop = SPEC.split("## The loop")[1]!.split("## Events")[0]!;
+  assert.match(loop, /galley await --session "\$session"/);
+  assert.match(loop, /question\)\s+jq -c '\.questions\[\]'/);
+  assert.match(loop, /question\)[\s\S]*?done; break/);
+  assert.match(loop, /review\) jq '\.result' <<<"\$ev"; break/);
 });
 
 test("SPEC states the deduped invariants exactly once (issue 04)", () => {
@@ -234,7 +299,7 @@ test("SPEC states the deduped invariants exactly once (issue 04)", () => {
   // The no-echo reply rule is one bullet under the comment commands, not repeated per lane.
   assert.equal(count(/harness output/g), 1, "no-echo reply rule should be stated once");
   // The reload-resets-edits invariant lives once, at the reload bullet.
-  assert.equal(count(/resets to pending on reload/g), 1, "reload-resets invariant should be once");
+  assert.equal(count(/reset to pending/g), 1, "reload-resets invariant should be once");
 });
 
 test("SPEC uses only the renamed codeChangeRequests field (issue 04)", () => {
@@ -281,7 +346,7 @@ test("SPEC consistently scopes Ask authority by lane and intent", () => {
   assert.match(SPEC, /folded questions retain the authority of their original Ask/);
   assert.match(
     SPEC,
-    /except for the scoped immediate\n  UI iteration authorized by Question handling/,
+    /except for the scoped immediate UI iteration authorized by Question handling/,
   );
   for (const stale of [
     "app is never\nreloaded under them",
@@ -291,24 +356,114 @@ test("SPEC consistently scopes Ask authority by lane and intent", () => {
     assert.ok(!SPEC.includes(stale));
 });
 
-test("SPEC describes the scoped refresh flag, status, and retry contract", () => {
+test("SPEC describes the scoped refresh flag and retry contract", () => {
   for (const rule of [
     "[--refresh-ui]",
     "reload-only and takes no value",
-    "refreshUi: boolean",
-    "uiRefreshGeneration",
-    "never persisted",
     "current route/query",
     "annotation thread and selection",
     "set-aside annotation draft; polling applies it afterward",
-    "without replaying older refreshes",
     "retry with Refresh app",
   ])
     assert.ok(SPEC.includes(rule), rule);
+});
+
+test("SPEC describes the refresh API and keeps its generation out of saved state", () => {
+  assert.ok(SPEC.includes("POST /api/reload takes optional refreshUi: boolean (else 422)"));
+  // "never persisted" is pinned to the generation's own sentence, not to any other field's.
+  assert.match(
+    SPEC,
+    /uiRefreshGeneration in \/api\/state and \/api\/poll counts successful refreshes, process-local and never persisted/,
+  );
+  assert.ok(SPEC.includes("a tab adopts its desk's generation without replaying older refreshes"));
 });
 
 test("SPEC promises durable sent reviews and describes delivery across restarts", () => {
   assert.ok(SPEC.includes("A sent review survives a desk stop"));
   assert.ok(SPEC.includes("delivered once after the restart"));
   assert.ok(SPEC.includes("Reviews already handed to an agent are not replayed"));
+});
+
+// One value for every ReviewResult field, optional ones included: tsc refuses this literal until a
+// field added to ReviewResult is added here too, and the test below then fails until SPEC names it.
+const EVERY_RESULT_FIELD: Required<ReviewResult> = {
+  session: "s",
+  repoRoot: "/repo",
+  mode: "pr",
+  target: "feature",
+  base: "main",
+  staged: false,
+  head: null,
+  baseDiffHash: "hash",
+  accepted: [],
+  rejected: [],
+  codeChangeRequests: [],
+  uiAnnotations: [],
+  uiTarget: "http://127.0.0.1:3000",
+  overallNote: "note",
+  stagedFiles: [],
+  approvedFiles: [],
+  topics: { settled: [], todo: [] },
+  topicChangeRequests: [],
+  openQuestions: [],
+  artifacts: { resultJson: "/r.json", sessionDir: "/s" },
+};
+
+// The field names SPEC's ReviewResult section lists at the top level: each "- " line's names before
+// its " —" or ":", with any (note), "?" and "[]" dropped.
+function documentedResultFields() {
+  const section = SPEC.split("\n## ReviewResult\n")[1]!.split("\n## ")[0]!;
+  return section
+    .split("\n")
+    .filter((line) => line.startsWith("- "))
+    .flatMap((line) =>
+      line
+        .slice(2)
+        .split(/ —|:/)[0]!
+        .replace(/\s*\([^)]*\)?/g, "")
+        .split(",")
+        .map((name) => name.trim().replace(/\?$|\[\]$/, "")),
+    );
+}
+
+test("SPEC's ReviewResult section names exactly the fields ReviewResult has", () => {
+  const fields = Object.keys(EVERY_RESULT_FIELD);
+  const documented = documentedResultFields();
+  const undocumented = fields.filter((f) => !documented.includes(f));
+  assert.deepEqual(
+    undocumented,
+    [],
+    `galley spec's ReviewResult omits: ${undocumented.join(", ")}`,
+  );
+  const unknown = documented.filter((f) => !fields.includes(f));
+  assert.deepEqual(
+    unknown,
+    [],
+    `galley spec's ReviewResult names non-fields: ${unknown.join(", ")}`,
+  );
+});
+
+// How "Topic parts" writes each kind of part. Keyed by TopicPartKind, so tsc refuses this literal
+// until a new kind is added here.
+const PART_NOTATION: Record<TopicPartKind, string> = {
+  title: '"title" —',
+  recorded: '"recorded" —',
+  flag: '"flag" —',
+  option: '"option:<n>" —',
+  body: '"body:<n>" —',
+  summary: '"summary" —',
+  map: '"map" —',
+  coverage: '"coverage" —',
+  group: '"group:<id>" —',
+  link: '"link:<from>><to>" —',
+};
+
+test("SPEC's Topic parts section documents every kind of topic part", () => {
+  const section = SPEC.split("\n#### Topic parts\n")[1]!.split("\n### ")[0]!;
+  const missing = Object.entries(PART_NOTATION).filter(([, n]) => !section.includes(n));
+  assert.deepEqual(
+    missing.map(([kind]) => kind),
+    [],
+    `galley spec's Topic parts omits: ${missing.map(([, n]) => n).join(", ")}`,
+  );
 });

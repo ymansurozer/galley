@@ -4,6 +4,12 @@ import { sameGuide, validateGuide } from "./guide.js";
 import { mergeReviewState } from "./state.js";
 import type { Guide, ReviewState } from "./types.js";
 
+// A guide's file walkthrough, asserted present: every guide built here has one.
+const filesOf = (guide: Guide) => {
+  assert.ok(guide.files);
+  return guide.files;
+};
+
 const validInput = () => ({
   title: "Add API rate limiting",
   overview: "Adds rate limiting.",
@@ -29,7 +35,7 @@ test("sameGuide compares guides whatever diff each was stamped against, as store
   const stored: Guide = JSON.parse(JSON.stringify({ ...valid(), baseDiffHash: "d1" }));
   assert.ok(sameGuide(valid(), stored));
   const regrouped = valid();
-  regrouped.files[0]!.category = "Elsewhere";
+  filesOf(regrouped)[0]!.category = "Elsewhere";
   assert.ok(!sameGuide(regrouped, stored));
 });
 
@@ -41,19 +47,19 @@ test("validateGuide accepts a well-formed guide and sorts files by order", () =>
   assert.equal(r.guide.overview, "Adds rate limiting.");
   assert.equal(r.guide.prDescription, "Closes #312.");
   assert.deepEqual(
-    r.guide.files.map((f) => f.path),
+    filesOf(r.guide).map((f) => f.path),
     ["src/config/limits.ts", "src/middleware/rateLimit.ts"],
   );
-  assert.equal(r.guide.files[1]!.flag, "reject path");
+  assert.equal(filesOf(r.guide)[1]!.flag, "reject path");
 });
 
 test("validateGuide defaults missing order (by position) and category", () => {
   const r = validateGuide({ overview: "x", files: [{ path: "a.ts", orientation: "s" }] });
   assert.ok(r.ok);
   if (!r.ok) return;
-  assert.equal(r.guide.files[0]!.order, 0);
-  assert.equal(r.guide.files[0]!.category, "Changes");
-  assert.equal(r.guide.files[0]!.flag, undefined);
+  assert.equal(filesOf(r.guide)[0]!.order, 0);
+  assert.equal(filesOf(r.guide)[0]!.category, "Changes");
+  assert.equal(filesOf(r.guide)[0]!.flag, undefined);
 });
 
 test("validateGuide accepts skim fields and normalizes skimBlocks lines", () => {
@@ -71,7 +77,7 @@ test("validateGuide accepts skim fields and normalizes skimBlocks lines", () => 
   });
   assert.ok(r.ok);
   if (!r.ok) return;
-  const f = r.guide.files[0]!;
+  const f = filesOf(r.guide)[0]!;
   assert.equal(f.skim, true);
   assert.equal(f.skimReason, "generated");
   // a bare number normalizes to [n, n]; a reversed pair is ordered ascending.
@@ -82,7 +88,7 @@ test("validateGuide leaves skim fields unset when absent", () => {
   const r = validateGuide({ overview: "o", files: [{ path: "a.ts", orientation: "s" }] });
   assert.ok(r.ok);
   if (!r.ok) return;
-  const f = r.guide.files[0]!;
+  const f = filesOf(r.guide)[0]!;
   assert.equal(f.skim, undefined);
   assert.equal(f.skimReason, undefined);
   assert.equal(f.skimBlocks, undefined);
@@ -95,8 +101,8 @@ test("validateGuide makes orientation optional only on whole-file skim entries",
   const skimmed = one({ skim: true, skimReason: "lockfile churn" });
   assert.ok(skimmed.ok);
   if (skimmed.ok) {
-    assert.equal(skimmed.guide.files[0]!.orientation, undefined);
-    assert.equal(skimmed.guide.files[0]!.skimReason, "lockfile churn");
+    assert.equal(filesOf(skimmed.guide)[0]!.orientation, undefined);
+    assert.equal(filesOf(skimmed.guide)[0]!.skimReason, "lockfile churn");
   }
   // Present on a skim entry, it must still be non-empty.
   assert.deepEqual(one({ skim: true, orientation: "  " }), { ok: false, reason });
@@ -134,8 +140,8 @@ test("validateGuide accepts movedFrom and rejects it with skimBlocks (issue 03)"
   });
   assert.ok(ok.ok);
   if (ok.ok) {
-    assert.equal(ok.guide.files[0]!.movedFrom, "a.ts");
-    assert.equal(ok.guide.files[0]!.skim, true);
+    assert.equal(filesOf(ok.guide)[0]!.movedFrom, "a.ts");
+    assert.equal(filesOf(ok.guide)[0]!.skim, true);
   }
   // Empty/non-string movedFrom is rejected.
   assert.equal(
@@ -182,7 +188,7 @@ test("validateGuide accepts a file split into parts, keeping each part's own ent
   });
   assert.ok(r.ok);
   if (!r.ok) return;
-  const [fees, , lockout] = r.guide.files;
+  const [fees, , lockout] = filesOf(r.guide);
   assert.deepEqual(fees!.part, { title: "Fee charging", lines: [[10, 14], 30] });
   assert.equal(fees!.category, "Billing");
   // A reversed span is ordered ascending, as skimBlocks spans are.

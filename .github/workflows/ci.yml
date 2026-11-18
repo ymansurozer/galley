@@ -3,12 +3,14 @@ name: ci
 on:
   push:
     branches: [main]
+  # Any base, so slice and PRD branches get CI; push stays main-only so a PR's branch isn't run twice.
   pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - run: corepack enable

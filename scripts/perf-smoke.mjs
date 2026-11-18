@@ -17,6 +17,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 
+import { UI_BUNDLE_LIMIT } from "./ui-budget.mjs";
+
 const ID = "perf-smoke";
 const CLI = path.join(process.cwd(), "dist", "cli.js");
 const UI_BUNDLE = path.join(process.cwd(), "dist", "ui.js");
@@ -76,9 +78,6 @@ const getText = async (p) => (await fetch(BASE + p)).text();
 const BUDGET_STARTUP_MS = 15_000; // local ~2s
 const BUDGET_STATE_BYTES = 10 * 1024 * 1024;
 const BUDGET_PERSISTED_BYTES = 10 * 1024 * 1024;
-// 3.2 MiB → 3.4 MB, the build's own gate (scripts/build-ui.mjs), when Decisions mode's topic threads
-// met the Overview map and coverage: real feature code took ui.js just past 3.2 MiB.
-const BUDGET_BUNDLE_BYTES = 3_400_000;
 const BUDGET_RELOAD_MS = 10_000; // local ~280ms
 
 let desk, tmp, homeDir;
@@ -215,7 +214,7 @@ try {
   budget(
     "dist/ui.js size",
     bundleBytes,
-    BUDGET_BUNDLE_BYTES,
+    UI_BUNDLE_LIMIT,
     " bytes",
     "(belt-and-suspenders with the build gate)",
   );

@@ -1,4 +1,9 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import"],
+  "rules": {
+    "import/first": "error",
+    "import/no-duplicates": "error"
+  },
   "ignorePatterns": ["src/ui/icon-data.ts"]
 }

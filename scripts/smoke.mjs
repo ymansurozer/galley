@@ -58,13 +58,46 @@ const waitForDeskUrl = (child) =>
 // loopback URL — an inherited GALLEY_HOST would make every run time out. They may export
 // GALLEY_PORT_RANGE too, which would move the desk's port. No update-check network call at desk
 // start either.
-const ENV = { ...process.env, GALLEY_NO_UPDATE_CHECK: "1" };
+//
+// It is hermetic to the caller's HOME and Git setup too. The desk persists reviews and settings
+// under $HOME/.galley, so every desk, client and fixture-git process gets a throwaway HOME,
+// separate from the fixture repo and removed by cleanup(). The caller's GIT_* variables (GIT_DIR,
+// GIT_WORK_TREE, GIT_CONFIG_*, ...) are dropped so they can't steer git at another repository,
+// and every XDG base — including the one git reads its global config from — resolves inside
+// the throwaway HOME.
+const homeDir = mkdtempSync(path.join(tmpdir(), "galley-smoke-home-"));
+const ENV = {};
+for (const [key, value] of Object.entries(process.env))
+  if (!key.startsWith("GIT_")) ENV[key] = value;
+Object.assign(ENV, {
+  HOME: homeDir,
+  XDG_CONFIG_HOME: path.join(homeDir, ".config"),
+  XDG_DATA_HOME: path.join(homeDir, ".local", "share"),
+  XDG_STATE_HOME: path.join(homeDir, ".local", "state"),
+  XDG_CACHE_HOME: path.join(homeDir, ".cache"),
+  GIT_CONFIG_NOSYSTEM: "1",
+  GALLEY_NO_UPDATE_CHECK: "1",
+});
 delete ENV.GALLEY_HOST;
 delete ENV.GALLEY_ALLOWED_HOSTS;
 delete ENV.GALLEY_PORT_RANGE;
 
 const cli = (...args) =>
   execFileSync("node", [CLI, ...args], { encoding: "utf8", env: ENV }).trim();
+// `galley await` the way an agent pipes it into jq: stdout is exactly one line, the JSON event,
+// and the CLI writes nothing to stderr. `--timeout` empties stdout with no event.
+const runAwait = (timeout) =>
+  spawnSync("node", [CLI, "await", "--repo", tmp, "--session", ID, "--timeout", timeout], {
+    encoding: "utf8",
+    env: ENV,
+  });
+const awaitEvent = () => {
+  const { status, stdout, stderr } = runAwait("5");
+  assert.equal(status, 0, stderr);
+  assert.equal(stderr, "", "await writes nothing to stderr with an event");
+  assert.match(stdout, /^\{[^\n]*\}\n$/, "await prints the event as exactly one JSON line");
+  return JSON.parse(stdout);
+};
 const getJson = async (p, init) => (await fetch(BASE + p, init)).json();
 const post = (p, body) =>
   fetch(BASE + p, {
@@ -97,13 +130,18 @@ const cleanup = () => {
   } catch {
     /**/
   }
+  try {
+    rmSync(homeDir, { recursive: true, force: true });
+  } catch {
+    /**/
+  }
 };
 process.on("exit", cleanup);
 
 try {
   // throwaway repo: one committed file + a working-tree change
   tmp = mkdtempSync(path.join(tmpdir(), "galley-smoke-"));
-  const git = (...a) => execFileSync("git", a, { cwd: tmp, stdio: "ignore" });
+  const git = (...a) => execFileSync("git", a, { cwd: tmp, stdio: "ignore", env: ENV });
   git("init", "-q");
   git("config", "user.email", "s@s.dev");
   git("config", "user.name", "smoke");
@@ -694,7 +732,7 @@ try {
     ],
   });
   await post("/api/ask", { topicThreadId: "topic-q1", messageId: "topic-q1-m1" });
-  const evTopic = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const evTopic = awaitEvent();
   assert.equal(evTopic.kind, "question");
   assert.deepEqual(evTopic.questions, [
     {
@@ -759,7 +797,7 @@ try {
     ],
   });
   await post("/api/ask", { topicThreadId: "overview-q1", messageId: "overview-q1-m1" });
-  const evBox = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const evBox = awaitEvent();
   assert.equal(evBox.kind, "question");
   assert.deepEqual(evBox.questions, [
     {
@@ -802,7 +840,7 @@ try {
   const queuedState = await getJson("/api/state");
   assert.equal(queuedState.queuedQuestions, 1, "question queued with no listener");
   console.log("✓ queuedQuestions reflects an undelivered question");
-  const ev1 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const ev1 = awaitEvent();
   assert.equal(ev1.kind, "question");
   assert.equal(ev1.question.lane, "code");
   assert.equal(ev1.question.body, "why this change?");
@@ -825,7 +863,7 @@ try {
   });
   const batchState = await getJson("/api/state");
   assert.equal(batchState.queuedQuestions, 2, "both questions queued with no listener");
-  const evBatch = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const evBatch = awaitEvent();
   assert.equal(evBatch.kind, "question");
   assert.equal(evBatch.questions.length, 2, "both questions delivered in one event");
   assert.deepEqual(
@@ -900,7 +938,7 @@ try {
   ];
   await post("/api/save", { annotations: [saved[0], ...asked] });
   await post("/api/ask", { annotationId: "ui-q1", messageId: "ui-q1-m1" });
-  const evUi = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const evUi = awaitEvent();
   assert.equal(evUi.kind, "question");
   assert.deepEqual(evUi.questions, [
     {
@@ -1044,11 +1082,13 @@ try {
   desk = spawn("node", deskArgs, { stdio: ["ignore", "ignore", "pipe"], env: ENV });
   BASE = await waitForDeskUrl(desk);
   assert.equal((await getJson("/api/state")).queuedReviews, 1, "restart restores queued status");
-  const ev2 = JSON.parse(cli("await", "--repo", tmp, "--session", ID, "--timeout", "5"));
+  const ev2 = awaitEvent();
+  const timedOut = runAwait("0.05");
+  assert.equal(timedOut.status, 0, timedOut.stderr);
   assert.equal(
-    cli("await", "--repo", tmp, "--session", ID, "--timeout", "0.05"),
+    timedOut.stdout,
     "",
-    "the next await times out instead of redelivering the review",
+    "the next await times out with empty stdout instead of redelivering the review",
   );
   console.log("✓ queued Send survives CLI stop/start and is delivered once");
   assert.equal(ev2.kind, "review");
