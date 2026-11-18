@@ -157,9 +157,9 @@ This rule applies to live questions AND openQuestions folded into a sent review:
 The \`result\` field of a review event:
 - session, repoRoot, mode, staged, head (sha|null), baseDiffHash (an opaque hash of the reviewed
   diff, untracked files included; only ever compare it)
-- target?, base? — what the desk was started on: target is the file (file mode; repo-relative, or
-  absolute outside the repo) or the branch/PR ref (pr mode), base the merge-base the pr diff is
-  against (pr mode). Absent in repo mode.
+- target?, base? — target is the file path (relative to the repo, absolute outside it) in file
+  mode, or the reviewed ref in PR mode (a PR number or URL resolves to its head branch). Base is
+  the PR diff's merge-base, falling back to its base ref. Both are absent in repo mode.
 - accepted[], rejected[]: {path, lineNumber, side, title}
 - codeChangeRequests[]: {path, lineNumber, side, body}
 - uiTarget? — the app URL the desk serves (absent without a UI target); each annotation's own page
