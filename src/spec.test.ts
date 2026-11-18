@@ -104,7 +104,9 @@ const ANCHORS = [
   "no two parts may claim the",
   "distinct among the file's parts",
   "untracked file is one whole-file change, so it can't be split",
-  "a part's skimBlocks may not reach another part's block",
+  "A part may skim its own or unclaimed blocks (skimBlocks)",
+  "Two concerns in one change block go to the main one, said in its orientation",
+  "untouched keep their part; edited or new join the part around them, else Rest",
   '"Rest of <file>" step',
   "move code from one part to another",
   "places blocks by content",
@@ -131,18 +133,32 @@ const ANCHORS = [
   "the next reload drops the sign-off",
   "loses its sign-off",
   "ids not unique among stages, among groups and among topics",
-  "a cover naming a file not in the diff, a folder with no changed file under it, or a span that touches no change",
+  "a cover or `lines` entry naming a file not in the diff, a folder with no changed file under it, or lines touching no change, or a `lines` entry that doesn't parse",
   "naming the topic and the cover, entry or link",
   // line blocks: the fence, its grammar, its refusals and that it quotes the diff
   "A `lines` fence quotes the diff, so you never retype code",
   "`path:start-end` (new-file-side line numbers, start <= end) or `path:n` for one line",
   "the ordinary line comment Code mode makes",
   "It may be empty when a `lines` block in the body names lines",
-  "a `lines` entry that doesn't parse, names a file not in the diff or whose range touches no change",
   "links? (array, only with stages), each { from, to, label }",
   "at most 40 characters",
   "Galley draws the Overview's MAP from the stages, groups and links — you write no diagram",
-  "with a label over 40 characters",
+  "a link breaking the rules above",
+  // coverage refusals, skim rules, lines fences and settling (issue 06 reconciliation)
+  "topics win overlaps",
+  'the first 20, then "and N more"',
+  "reason, and rule when given, are non-empty; covers select like a topic's",
+  "removed lines included, and follows its blocks across reloads",
+  "line shifts, prose and cover rewrites claiming the same blocks don't count",
+  "Code mode shows files' walkthrough, else the plain tree",
+  "raw HTML stripped",
+  // options: who they're for, their field types, and how picks replace and clear
+  "alternatives you weighed, or the reviewer asked for",
+  "label and note strings, ships and recommended booleans",
+  "anything else refuses the guide",
+  "a new pick replaces it; picking what ships clears it",
+  "Arrows move focus only; Space, Enter and click pick.",
+  "loses its option field",
   // The running app: loopback target and explicit refresh signal.
   "--ui <url>",
   "galley ui <url>",
@@ -213,6 +229,18 @@ const ANCHORS = [
   "desk.lock",
   "Settings",
   "PATCH_CONFLICT",
+  // sessions: the lone-desk fallback, a second desk, and restart for a new diff source or mode
+  "else the lone live desk (several: exit 1), else the branch's",
+  "a second desk needs its own --session/--port",
+  "`galley stop` and start again with the same --session",
+  "a working-tree move stages both paths as a rename",
+  "Non-zero exit (no live desk, or several): read stderr",
+  // annotation coordinates, and file polling's Send signal
+  "rect in viewport coordinates",
+  "exact 1-based template line/column",
+  "the live page over both",
+  "a new mtime is a new Send",
+  "Live questions don't survive a stop",
 ];
 
 test("SPEC carries every consolidated section", () => {
@@ -309,6 +337,16 @@ test("SPEC describes the scoped refresh flag and retry contract", () => {
     "retry with Refresh app",
   ])
     assert.ok(SPEC.includes(rule), rule);
+});
+
+test("SPEC describes the refresh API and keeps its generation out of saved state", () => {
+  assert.ok(SPEC.includes("POST /api/reload takes optional refreshUi: boolean (else 422)"));
+  // "never persisted" is pinned to the generation's own sentence, not to any other field's.
+  assert.match(
+    SPEC,
+    /uiRefreshGeneration in \/api\/state and \/api\/poll counts successful refreshes, process-local and never persisted/,
+  );
+  assert.ok(SPEC.includes("a tab adopts its desk's generation without replaying older refreshes"));
 });
 
 test("SPEC promises durable sent reviews and describes delivery across restarts", () => {
