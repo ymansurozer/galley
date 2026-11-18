@@ -28,6 +28,15 @@ node --import tsx --test src/state.test.ts
 
 CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke, perf-smoke.
 
+## Testing a desk
+
+A desk writes settings, locks and saved reviews under `$HOME/.galley`, so a desk started with the real `HOME` rewrites the user's own. Test against a sandbox desk instead:
+
+1. `pnpm build`, then `pnpm desk:sandbox`. It gives the desk a throwaway `HOME`, a fixture repo and a loopback port in 5100–5299, and prints one JSON line once the desk serves the fixture.
+2. Use the fields of that line. `url` is the desk. `repo` is the fixture: edit it, then `reload`. `cli` is a shell template: replace `<command>` with a subcommand (`await`, `comment`, `reload`, `ui`, `stop`) and keep the printed `HOME`, `--repo` and `--session`, or the CLI looks for desks in the user's `~/.galley`.
+3. Check the page with `pnpm desk:browse <url> [--screenshot <png>]`. It opens every file the desk serves in headless Chromium and fails when a file's row, its changed lines (or a pure rename's notice) don't render, or when the page throws; console errors are reported without failing. Its source is a starting point for checks of your own. Run it, and any script importing `chromium` from `playwright-core`, with the real `HOME`, where Playwright's browser cache is; if Chromium is missing, run `pnpm exec playwright-core install chromium`.
+4. Stop it with `kill <pid>` (the `pid` field), Ctrl-C, or the template's `stop`. Each stops the desk and deletes the sandbox. A signal sent to `pnpm` alone never reaches it.
+
 ## Three compilation worlds
 
 `src/` is split into a Node backend and two browser bundles, built and type-checked separately:
@@ -37,7 +46,7 @@ CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke, perf-smoke
   The diagram renderer (`src/ui/diagrams.ts`) is its own esbuild entry, emitted as `dist/diagrams.js` and served at `/diagrams.js`. It is imported at run time the first time a body with a diagram shows, keeping Pele out of `ui.js` and its size gate.
 - **Bridge** (`src/bridge/*.ts`): browser code that runs _inside the reviewed app's pages_, not the desk. The UI proxy injects it into every proxied HTML page. esbuild bundles `src/bridge/main.ts` into `dist/bridge.js` (an IIFE), and `tsconfig.bridge.json` type-checks it (noEmit, DOM libs). Its only channel is tokenized `postMessage` to the desk tab; it never calls the desk API.
 
-The worlds do not import each other at runtime. `src/types.ts` is the single source of truth for the shared shapes (ReviewState, ReviewResult, Guide, the bridge ↔ desk messages, …); `src/ui/types.ts` (and `src/ui/walkthrough.ts`) and the bridge import what they need via `import type { ... } from "../types"` — type-only, erased by esbuild, so no backend code ships in a browser bundle and the runtime boundary holds. Change a wire type in `src/types.ts` alone; the UI and bridge pick it up through the type import.
+The worlds do not import each other at runtime. `src/types.ts` is the single source of truth for the shared shapes (ReviewState, ReviewResult, Guide, the bridge ↔ desk messages, …); `src/ui/types.ts` (and `src/ui/walkthrough.ts`) and the bridge import what they need via `import type { ... } from "../types"` — type-only, erased by esbuild, so no backend code ships in a browser bundle and the runtime boundary holds. Define shared wire shapes in `src/types.ts`; the UI and bridge pick them up through type imports.
 
 ## Architecture
 
@@ -49,7 +58,7 @@ The worlds do not import each other at runtime. `src/types.ts` is the single sou
 - `contentHash`/`reviewedHash` pairs detect staleness: if the agent rewrites a block (or a file) after it was decided/approved, the decision/approval resets to pending on reload. The same pattern invalidates comment anchors (`anchorText` → re-anchoring → `unanchored`) and guides (`baseDiffHash`).
 - Desks are idempotent per repo+session: `stablePort` hashes repo+session to a port in 41000–50999 (or the operator's `GALLEY_PORT_RANGE`, resolved once in `cli.ts` and passed down) so a restarted desk binds the same origin and an open tab self-heals; a desk lock file is trusted only if the server actually answers (`deskAlive`).
 
-**Agent contract:** plain JSON on stdout. `galley await` long-polls and prints one tagged event — `{"kind":"question",…}` (answer now via `galley comment`) or `{"kind":"review","result":{…ReviewResult…}}` (the reviewer hit Send). The contract is the single source of truth in `src/spec.ts` (printed by `galley spec`); the skill (`skills/galley/SKILL.md`) and the AGENTS.md snippet (`skills/galley/agents-snippet.md`) are bootstrap-only and point consuming agents at `galley spec`, and the server's error responses do too. **If you change CLI flags, events, the ReviewResult shape, or a topic part kind, update `src/spec.ts` and its test coverage in the same change.** `scripts/smoke.mjs` and `src/spec.test.ts` exercise this contract and are the regression net for it.
+**Agent contract:** plain JSON on stdout. `galley await` long-polls and prints one tagged event — `{"kind":"question",…}` or `{"kind":"review","result":{…ReviewResult…}}` (the reviewer hit Send). A question event batches every pending question in `questions`: answer each in its own lane, then await again; `galley spec` has the per-lane handling. The contract is the single source of truth in `src/spec.ts` (printed by `galley spec`); the skill (`skills/galley/SKILL.md`) and the AGENTS.md snippet (`skills/galley/agents-snippet.md`) are bootstrap-only and point consuming agents at `galley spec`, and the server's error responses do too. **If you change CLI flags, events, the ReviewResult shape, or a topic part kind, update `src/spec.ts` and its test coverage in the same change.** `scripts/smoke.mjs` and `src/spec.test.ts` exercise this contract and are the regression net for it.
 
 **UI:** an Alpine.js app with a global store (`src/ui/store.ts`); `poll.ts` polls `/api/state`, `render.ts` renders the diff via `@pierre/diffs` (which renumbers lines per render — display anchors are derived, raw file lines stay canonical), `keys.ts` holds the keyboard-first command map, and `guide.ts`/`tree.ts`/`decisions.ts` etc. are feature modules.
 

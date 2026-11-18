@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { Window } from "happy-dom";
+import {
+  Window,
+  type HTMLButtonElement,
+  type HTMLInputElement,
+  type HTMLTextAreaElement,
+} from "happy-dom";
 
 // The real composer, draft lifecycle, saver and bridge receiver run together. Only HTTP and
 // the cross-origin app page are simulated, as in appview.test.ts.
