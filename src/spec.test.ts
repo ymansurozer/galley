@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { SPEC } from "./spec.js";
+import type { TopicPartKind } from "./topicthreads.js";
+import type { ReviewResult } from "./types.js";
 
 // The SPEC string is the single source of truth for the agent contract (printed by
 // `galley spec`). These anchors guard that consolidating the skill/snippet into it didn't
@@ -311,4 +313,88 @@ test("SPEC promises durable sent reviews and describes delivery across restarts"
   assert.ok(SPEC.includes("A sent review survives a desk stop"));
   assert.ok(SPEC.includes("delivered once after the restart"));
   assert.ok(SPEC.includes("Reviews already handed to an agent are not replayed"));
+});
+
+// One value for every ReviewResult field, optional ones included: tsc refuses this literal until a
+// field added to ReviewResult is added here too, and the test below then fails until SPEC names it.
+const EVERY_RESULT_FIELD: Required<ReviewResult> = {
+  session: "s",
+  repoRoot: "/repo",
+  mode: "pr",
+  target: "feature",
+  base: "main",
+  staged: false,
+  head: null,
+  baseDiffHash: "hash",
+  accepted: [],
+  rejected: [],
+  codeChangeRequests: [],
+  uiAnnotations: [],
+  uiTarget: "http://127.0.0.1:3000",
+  overallNote: "note",
+  stagedFiles: [],
+  approvedFiles: [],
+  topics: { settled: [], todo: [] },
+  topicChangeRequests: [],
+  openQuestions: [],
+  artifacts: { resultJson: "/r.json", sessionDir: "/s" },
+};
+
+// The field names SPEC's ReviewResult section lists at the top level: each "- " line's names before
+// its " —" or ":", with any (note), "?" and "[]" dropped.
+function documentedResultFields() {
+  const section = SPEC.split("\n## ReviewResult\n")[1]!.split("\n## ")[0]!;
+  return section
+    .split("\n")
+    .filter((line) => line.startsWith("- "))
+    .flatMap((line) =>
+      line
+        .slice(2)
+        .split(/ —|:/)[0]!
+        .replace(/\s*\([^)]*\)?/g, "")
+        .split(",")
+        .map((name) => name.trim().replace(/\?$|\[\]$/, "")),
+    );
+}
+
+test("SPEC's ReviewResult section names exactly the fields ReviewResult has", () => {
+  const fields = Object.keys(EVERY_RESULT_FIELD);
+  const documented = documentedResultFields();
+  const undocumented = fields.filter((f) => !documented.includes(f));
+  assert.deepEqual(
+    undocumented,
+    [],
+    `galley spec's ReviewResult omits: ${undocumented.join(", ")}`,
+  );
+  const unknown = documented.filter((f) => !fields.includes(f));
+  assert.deepEqual(
+    unknown,
+    [],
+    `galley spec's ReviewResult names non-fields: ${unknown.join(", ")}`,
+  );
+});
+
+// How "Topic parts" writes each kind of part. Keyed by TopicPartKind, so tsc refuses this literal
+// until a new kind is added here.
+const PART_NOTATION: Record<TopicPartKind, string> = {
+  title: '"title" —',
+  recorded: '"recorded" —',
+  flag: '"flag" —',
+  option: '"option:<n>" —',
+  body: '"body:<n>" —',
+  summary: '"summary" —',
+  map: '"map" —',
+  coverage: '"coverage" —',
+  group: '"group:<id>" —',
+  link: '"link:<from>><to>" —',
+};
+
+test("SPEC's Topic parts section documents every kind of topic part", () => {
+  const section = SPEC.split("\n#### Topic parts\n")[1]!.split("\n### ")[0]!;
+  const missing = Object.entries(PART_NOTATION).filter(([, n]) => !section.includes(n));
+  assert.deepEqual(
+    missing.map(([kind]) => kind),
+    [],
+    `galley spec's Topic parts omits: ${missing.map(([, n]) => n).join(", ")}`,
+  );
 });
