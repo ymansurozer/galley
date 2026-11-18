@@ -77,8 +77,12 @@ if (process.env.NODE_TEST_CONTEXT) {
     };
     setInterval(() => {
       const now = performance.now();
-      for (const { name, at } of running.values())
-        if (now - at >= deadline) stop(name + " (" + file + ") is still running after " + deadline + " ms");
+      for (const expired of running.values()) {
+        if (now - expired.at < deadline) continue;
+        const others = [...running.values()].filter((test) => test !== expired).map(({ name }) => name);
+        const active = others.length ? "; also running: " + others.join(", ") : "";
+        stop(expired.name + " (" + file + ") is still running after " + deadline + " ms" + active);
+      }
       if (settledAt !== undefined && now - settledAt >= deadline)
         stop(file + " is still open " + deadline + " ms after its tests finished: something it started holds it open");
     }, 250);

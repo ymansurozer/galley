@@ -49,6 +49,6 @@ A surface that leaves the lane out is a finding, even when the diff never touche
 
 - New or changed contract text in `src/spec.ts` gets an assertion in `src/spec.test.ts` that pins it.
 - A new guide refusal (a `reason` from `validateGuide` and its helpers in `src/guide.ts`) follows its siblings' wording. That wording is a dotted path to the field, then what it must be, as in `guide.stages must be a non-empty array`.
-- A new exported type or function in the backend, or in a shared type in `src/types.ts`, carries a comment stating its invariant: what holds for every value, and who relies on it.
+- A new exported type or function carries a comment stating what it guarantees and who relies on that guarantee.
 - A test goes in the test file of the module it exercises, not in the test file of whichever module the diff happened to touch.
 - Each compilation world (backend, UI, bridge) may need its own copy of a parser or derivation, because the worlds cannot import each other at runtime. Every copy then carries a comment naming the other copy, and saying the two must change together.

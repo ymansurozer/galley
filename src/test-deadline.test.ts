@@ -140,3 +140,15 @@ test("leaves inherited stdio open", () => {
   );
   assert.ok(r.ms < 8 * DEADLINE_MS, `stopped in ${r.ms} ms`);
 });
+
+test("a parent deadline names the active subtest", async () => {
+  const r = await runTestFile(
+    header +
+      `test("parent", (t) => t.test("child hangs", () => {
+  setInterval(() => {}, 1000);
+  return new Promise(() => {});
+}));`,
+  );
+  assert.equal(r.status, 1, r.output);
+  assert.match(r.output, /also running:.*child hangs/);
+});

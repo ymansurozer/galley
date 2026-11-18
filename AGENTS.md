@@ -23,7 +23,7 @@ pnpm release      # CI checks, then changelogen --release --push --no-github
 Run a single test file:
 
 ```bash
-node --import tsx --test src/state.test.ts
+node --import tsx --import ./scripts/test-deadline.mjs --test src/state.test.ts
 ```
 
 CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke, perf-smoke.

@@ -20,6 +20,9 @@ const ANCHORS = [
   "`--open` on any desk start",
   // the loop + events
   "galley await",
+  "one JSON line on stdout and exit 0",
+  "empty stdout on timeout",
+  "Harness logs can append text: capture stdout",
   "galley comment",
   "galley reload",
   "galley status",
@@ -225,6 +228,10 @@ const ANCHORS = [
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",
   "auto-exits",
+  "Pending await keeps it alive",
+  "SHA-256 of absolute repo root, first 16 hex",
+  "stagedFiles may be empty",
+  "Shares exclude skimmedLines",
   "CLI uses loopback even with --host/GALLEY_HOST",
   "agentListening = parked await",
   "agentRecentlyActive lasts 90s",
