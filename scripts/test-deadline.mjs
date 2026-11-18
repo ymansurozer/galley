@@ -29,6 +29,7 @@ if (process.env.NODE_TEST_CONTEXT) {
   const watchdog = new Worker(
     `
     const { parentPort, workerData } = require("node:worker_threads");
+    const { spawnSync } = require("node:child_process");
     const { writeSync } = require("node:fs");
     const { deadline, file } = workerData;
     const running = new Map();
@@ -44,8 +45,34 @@ if (process.env.NODE_TEST_CONTEXT) {
         if (rootSettled && running.size === 0) settledAt = performance.now();
       }
     });
+    // A descendant can keep the runner's inherited stdout pipe open after this file dies.
+    // Stop our process tree only; the test runner and sibling files are outside it.
+    const stopDescendants = () => {
+      if (process.platform === "win32") {
+        spawnSync("taskkill", ["/PID", String(process.pid), "/T", "/F"], {
+          timeout: 1000, stdio: "ignore", windowsHide: true,
+        });
+        return;
+      }
+      const { stdout } = spawnSync("ps", ["-A", "-o", "pid=,ppid="], {
+        encoding: "utf8", timeout: 1000,
+      });
+      const children = new Map();
+      for (const line of (stdout ?? "").trim().split("\\n")) {
+        const [pid, parent] = line.trim().split(/\\s+/).map(Number);
+        if (!pid || !parent) continue;
+        if (!children.has(parent)) children.set(parent, []);
+        children.get(parent).push(pid);
+      }
+      const tree = [process.pid];
+      for (const pid of tree) tree.push(...(children.get(pid) ?? []));
+      for (const pid of tree.slice(1).reverse()) {
+        try { process.kill(pid, "SIGKILL"); } catch { /* Already exited. */ }
+      }
+    };
     const stop = (why) => {
       writeSync(2, "\\n✖ " + why + ", so its test file is stopped.\\n");
+      stopDescendants();
       process.kill(process.pid, "SIGKILL");
     };
     setInterval(() => {
@@ -64,10 +91,17 @@ if (process.env.NODE_TEST_CONTEXT) {
   beforeEach((t) => {
     const id = next++;
     watchdog.postMessage({ kind: "start", id, name: t.fullName ?? t.name });
-    // Node aborts the context when the test finishes, after its teardown hooks.
-    t.signal.addEventListener("abort", () => watchdog.postMessage({ kind: "end", id }), {
-      once: true,
+    // Node can abort the context early on a native timeout. The test's after hook runs
+    // after its enclosing afterEach hooks; require both signals before ending its deadline.
+    let reachedAfter = false;
+    const finish = () => {
+      if (reachedAfter && t.signal.aborted) watchdog.postMessage({ kind: "end", id });
+    };
+    t.after(() => {
+      reachedAfter = true;
+      finish();
     });
+    t.signal.addEventListener("abort", finish, { once: true });
   });
   // The first root after hook, registered before the file's own: the file's teardown runs inside
   // the settled deadline.

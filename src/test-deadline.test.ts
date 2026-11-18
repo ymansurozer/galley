@@ -109,3 +109,34 @@ test("hanging cleanup", () => {});`,
   assert.match(r.output, /hanging cleanup \(probe\.test\.mjs\) is still running after 1000 ms/);
   assert.ok(r.ms < 8 * DEADLINE_MS, `stopped in ${r.ms} ms`);
 });
+
+test("a native timeout still bounds hanging cleanup", async () => {
+  const r = await runTestFile(
+    header +
+      `afterEach(() => { setInterval(() => {}, 1000); return new Promise(() => {}); });
+test("timed out before cleanup", { timeout: 100 }, () => new Promise(() => {}));`,
+  );
+  assert.equal(r.status, 1, r.output);
+  assert.match(
+    r.output,
+    /timed out before cleanup \(probe\.test\.mjs\) is still running after 1000 ms/,
+  );
+  assert.ok(r.ms < 8 * DEADLINE_MS, `stopped in ${r.ms} ms`);
+});
+
+test("a timed-out file's subprocess cannot hold the runner output open", async () => {
+  const r = await runTestFile(
+    header +
+      `import { spawn } from "node:child_process";
+test("leaves inherited stdio open", () => {
+  spawn(process.execPath, ["-e", "setTimeout(() => {}, 9000)"], { stdio: "inherit" });
+  return new Promise(() => {});
+});`,
+  );
+  assert.equal(r.status, 1, r.output);
+  assert.match(
+    r.output,
+    /leaves inherited stdio open \(probe\.test\.mjs\) is still running after 1000 ms/,
+  );
+  assert.ok(r.ms < 8 * DEADLINE_MS, `stopped in ${r.ms} ms`);
+});
