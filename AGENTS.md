@@ -17,8 +17,6 @@ pnpm lint:fix     # oxlint --fix + oxfmt (formats)
 pnpm test         # node:test via tsx, all src/**/*.test.ts
 pnpm smoke        # end-to-end agent-contract test against dist/ — requires pnpm build first
 pnpm perf-smoke   # perf budgets on a ~1,000-file repo against dist/ — requires pnpm build first
-pnpm desk:sandbox # a disposable test desk against dist/ — see Testing a desk
-pnpm desk:browse <url> [--screenshot <png>]  # headless Chromium check of a running desk
 pnpm release      # lint + check + test + build + smoke + changelogen --release --push --no-github
 ```
 
@@ -32,13 +30,12 @@ CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke, perf-smoke
 
 ## Testing a desk
 
-A desk writes settings, locks and saved reviews under `$HOME/.galley`, so a test desk on the real `HOME` rewrites the user's own. Test against `pnpm desk:sandbox` (after `pnpm build`): it starts a desk with a throwaway `HOME`, a fixture repo holding one change of each kind, and a loopback port in 5100–5299, then prints one JSON line once the desk serves the fixture. From that line:
+A desk writes settings, locks and saved reviews under `$HOME/.galley`, so a desk started with the real `HOME` rewrites the user's own. Test against a sandbox desk instead:
 
-- `url` is the desk, for `pnpm desk:browse` or a browser.
-- `cli` is the `galley` command prefixed with the sandbox's `HOME`. Run every subcommand (`await`, `comment`, `reload`, `ui`, `stop`) through it; with any other `HOME` it looks for desks in the user's `~/.galley`.
-- `pid` stops it: `kill <pid>`, or Ctrl-C in a terminal, stops the desk and deletes its temp dir. A SIGTERM sent to `pnpm` itself never reaches the script. To keep it running past one command, start it with `setsid pnpm desk:sandbox > <log> 2>&1 &` and wait for the `"ready"` line.
-
-For a browser, scripts import `chromium` from `playwright-core`, a devDependency pinned to a version whose Chromium Playwright's cache already held (`~/.cache/ms-playwright`; `~/Library/Caches/ms-playwright` on macOS). It finds that cache through the real `HOME`, so run browser scripts outside the sandbox's `HOME`. If Chromium is missing (on a new machine, or after a version bump), run `pnpm exec playwright-core install chromium`. `pnpm desk:browse <url>` clicks every file the desk serves and checks that each one's diff renders. Its source is a starting point for checks of your own.
+1. `pnpm build`, then `pnpm desk:sandbox`. It gives the desk a throwaway `HOME`, a fixture repo and a loopback port in 5100–5299, and prints one JSON line once the desk serves the fixture.
+2. Use the fields of that line. `url` is the desk. `repo` is the fixture: edit it, then `reload`. `cli` is a shell template: replace `<command>` with a subcommand (`await`, `comment`, `reload`, `ui`, `stop`) and keep the printed `HOME`, `--repo` and `--session`, or the CLI looks for desks in the user's `~/.galley`.
+3. Check the page with `pnpm desk:browse <url> [--screenshot <png>]`. It opens every file the desk serves in headless Chromium and fails when a file's row, its changed lines (or a pure rename's notice) don't render, or when the page throws; console errors are reported without failing. Its source is a starting point for checks of your own. Run it, and any script importing `chromium` from `playwright-core`, with the real `HOME`, where Playwright's browser cache is; if Chromium is missing, run `pnpm exec playwright-core install chromium`.
+4. Stop it with `kill <pid>` (the `pid` field), Ctrl-C, or the template's `stop`. Each stops the desk and deletes the sandbox. A signal sent to `pnpm` alone never reaches it.
 
 ## Three compilation worlds
 
@@ -61,7 +58,7 @@ The worlds do not import each other at runtime. `src/types.ts` is the single sou
 - `contentHash`/`reviewedHash` pairs detect staleness: if the agent rewrites a block (or a file) after it was decided/approved, the decision/approval resets to pending on reload. The same pattern invalidates comment anchors (`anchorText` → re-anchoring → `unanchored`) and guides (`baseDiffHash`).
 - Desks are idempotent per repo+session: `stablePort` hashes repo+session to a port in 41000–50999 (or the operator's `GALLEY_PORT_RANGE`, resolved once in `cli.ts` and passed down) so a restarted desk binds the same origin and an open tab self-heals; a desk lock file is trusted only if the server actually answers (`deskAlive`).
 
-**Agent contract:** plain JSON on stdout. `galley await` long-polls and prints one tagged event — `{"kind":"question",…}` (answer now via `galley comment`) or `{"kind":"review","result":{…ReviewResult…}}` (the reviewer hit Send). The contract is the single source of truth in `src/spec.ts` (printed by `galley spec`); the skill (`skills/galley/SKILL.md`) and the AGENTS.md snippet (`skills/galley/agents-snippet.md`) are bootstrap-only and point consuming agents at `galley spec`, and the server's error responses do too. **If you change the CLI flags, events, or ReviewResult shape, update `src/spec.ts` in the same change.** `scripts/smoke.mjs` and `src/spec.test.ts` exercise this contract and are the regression net for it.
+**Agent contract:** plain JSON on stdout. `galley await` long-polls and prints one tagged event — `{"kind":"question",…}` or `{"kind":"review","result":{…ReviewResult…}}` (the reviewer hit Send). A question event batches every pending question in `questions`: answer each in its own lane, then await again; `galley spec` has the per-lane handling. The contract is the single source of truth in `src/spec.ts` (printed by `galley spec`); the skill (`skills/galley/SKILL.md`) and the AGENTS.md snippet (`skills/galley/agents-snippet.md`) are bootstrap-only and point consuming agents at `galley spec`, and the server's error responses do too. **If you change the CLI flags, events, or ReviewResult shape, update `src/spec.ts` in the same change.** `scripts/smoke.mjs` and `src/spec.test.ts` exercise this contract and are the regression net for it.
 
 **UI:** an Alpine.js app with a global store (`src/ui/store.ts`); `poll.ts` polls `/api/state`, `render.ts` renders the diff via `@pierre/diffs` (which renumbers lines per render — display anchors are derived, raw file lines stay canonical), `keys.ts` holds the keyboard-first command map, and `guide.ts`/`tree.ts`/`decisions.ts` etc. are feature modules.
 
