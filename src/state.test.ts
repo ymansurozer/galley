@@ -51,10 +51,16 @@ import type {
   ReviewState,
   UiAnnotationRecord,
   UiElement,
+  UiTarget,
 } from "./types.js";
 
 function file(path: string, contentHash = "FH") {
   return { path, hunks: [], contentHash, changeKind: "modified" as const };
+}
+// The elements a picked target holds; only element and region picks hold a list.
+function elementsOf<E>(target: UiTarget<E>): E[] {
+  assert.ok(target.kind === "element" || target.kind === "region", `a ${target.kind} pick`);
+  return target.elements;
 }
 function change(over: Partial<ChangeState> & { id: string; path: string }): ChangeState {
   return { hunkIndex: 0, side: "additions", lineNumber: 1, title: "", status: "pending", ...over };
@@ -1358,7 +1364,7 @@ test("a split file that becomes a git rename on a reload keeps its parts at its 
     );
     // The guide's entries follow the file, so its parts still name a file in the diff.
     assert.deepEqual(
-      merged.guide?.files.map((g) => g.path),
+      merged.guide?.files?.map((g) => g.path),
       ["moved.ts", "moved.ts"],
     );
   } finally {
@@ -2208,7 +2214,7 @@ const CORE = "additions:8:1:2";
 
 function partsGuide(
   ...parts: Array<[title: string, lines: Array<[number, number] | number>]>
-): Guide {
+): Guide & Required<Pick<Guide, "files">> {
   return {
     overview: "o",
     files: parts.map(([title, lines], i) => ({
@@ -2225,10 +2231,12 @@ const partOf = (changes: ChangeState[], stableKey: string) =>
 // SKIM_DIFF as the resolvers see a review: its raw diff, change blocks and files.
 const skimDiff = (
   changes = changesFromDiff(SKIM_DIFF),
-  files: Array<Pick<ReviewFile, "path" | "changeKind">> = [
-    { path: "app.ts", changeKind: "modified" },
-  ],
-) => ({ rawDiff: SKIM_DIFF, changes, files });
+  files: ReviewFile[] = [file("app.ts")],
+) => ({
+  rawDiff: SKIM_DIFF,
+  changes,
+  files,
+});
 
 test("resolveParts stamps each block with the index of the guide entry whose part claims it", () => {
   const changes = changesFromDiff(SKIM_DIFF);
@@ -2299,10 +2307,7 @@ test("resolveParts says a new untracked file can't be split, naming path and par
   // An untracked add is one whole-file entry with no section in the raw diff.
   const guide = partsGuide(["Scaffold", [[1, 5]]]);
   guide.files[0]!.path = "new.ts";
-  const files = [
-    { path: "app.ts", changeKind: "modified" as const },
-    { path: "new.ts", changeKind: "added" as const },
-  ];
+  const files = [file("app.ts"), { ...file("new.ts"), changeKind: "added" as const }];
   assert.deepEqual(resolveParts(skimDiff(undefined, files), guide), {
     ok: false,
     reason:
@@ -2672,7 +2677,7 @@ test("buildReviewResult makes source files inside the repo repo-relative and lea
   });
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(
-    r.uiAnnotations[0]!.target.elements.map((el) => el.source?.file),
+    elementsOf(r.uiAnnotations[0]!.target).map((el) => el.source?.file),
     [
       "apps/web/app/pages/files.vue",
       undefined,
@@ -2684,7 +2689,7 @@ test("buildReviewResult makes source files inside the repo repo-relative and lea
       undefined,
     ],
   );
-  assert.deepEqual(r.uiAnnotations[0]!.target.elements[0]!.source, {
+  assert.deepEqual(elementsOf(r.uiAnnotations[0]!.target)[0]!.source, {
     file: "apps/web/app/pages/files.vue",
     line: 20,
     column: 7,
@@ -2693,7 +2698,7 @@ test("buildReviewResult makes source files inside the repo repo-relative and lea
   });
   // A page can name any path, and the agent opens what it's handed: outside the repo, only what
   // doesn't point at a file stays.
-  assert.deepEqual(r.uiAnnotations[0]!.target.elements[1]!.source, {
+  assert.deepEqual(elementsOf(r.uiAnnotations[0]!.target)[1]!.source, {
     component: "files",
     via: "vue-tracer",
   });
@@ -2715,12 +2720,12 @@ test("buildReviewResult makes source files inside the repo repo-relative and lea
     }),
     { resultJson: "r.json", sessionDir: "d" },
   );
-  assert.deepEqual(vendored.uiAnnotations[0]!.target.elements[0]!.source, {
+  assert.deepEqual(elementsOf(vendored.uiAnnotations[0]!.target)[0]!.source, {
     vendor: true,
     via: "vue-file",
   });
   assert.equal(
-    s.annotations![0]!.target.elements[0]!.source!.file,
+    elementsOf(s.annotations![0]!.target)[0]!.source!.file,
     "/home/dev/shop/apps/web/app/pages/files.vue",
     "the stored annotation keeps the path the page gave",
   );
@@ -2744,7 +2749,7 @@ test("buildReviewResult makes Windows source paths repo-relative under a Windows
   });
   const r = buildReviewResult(s, { resultJson: "r.json", sessionDir: "d" });
   assert.deepEqual(
-    r.uiAnnotations[0]!.target.elements.map((el) => el.source?.file),
+    elementsOf(r.uiAnnotations[0]!.target).map((el) => el.source?.file),
     ["src/a.vue", "src/a.vue", "src/a.vue", undefined, undefined],
   );
 });
@@ -3093,7 +3098,7 @@ test("mergeReviewerSave truncates oversized page data to the caps", async () => 
     ],
   });
   const a = live.annotations![0]!;
-  const el = a.target.elements[0]!;
+  const el = elementsOf(a.target)[0]!;
   assert.equal(a.page.url.length, 2048);
   assert.equal(a.page.route.length, 2048);
   assert.equal(a.page.title!.length, 300);
@@ -3151,8 +3156,12 @@ test("mergeReviewerSave drops malformed annotations and elements, keeping the re
     live.annotations!.map((a) => a.id),
     ["good", "odd-attrs", "many"],
   );
-  assert.deepEqual(live.annotations![1]!.target.elements[0]!.attrs, {}, "odd attr names dropped");
-  assert.equal(live.annotations![2]!.target.elements.length, 16, "elements capped at 16");
+  assert.deepEqual(
+    elementsOf(live.annotations![1]!.target)[0]!.attrs,
+    {},
+    "odd attr names dropped",
+  );
+  assert.equal(elementsOf(live.annotations![2]!.target).length, 16, "elements capped at 16");
 });
 
 test("mergeReviewerSave keeps an element's source within the caps and drops a malformed one", async () => {
@@ -3180,7 +3189,7 @@ test("mergeReviewerSave keeps an element's source within the caps and drops a ma
       withSource("control", { ...source, file: "a.vue\u0000" }),
     ],
   });
-  const sources = live.annotations!.map((a) => a.target.elements[0]!.source);
+  const sources = live.annotations!.map((a) => elementsOf(a.target)[0]!.source);
   assert.deepEqual(sources[0], source);
   assert.equal(sources[1]!.component!.length, 200);
   assert.deepEqual(sources.slice(2), [undefined, undefined, undefined, undefined]);

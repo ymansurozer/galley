@@ -50,6 +50,7 @@ const mark = (id: string, selector: string, text: string): UiMark => ({
   number: 1,
   resolved: false,
   question: false,
+  waiting: false,
   target: {
     kind: "element",
     elements: [{ selector, tag: "button", text, rect: { x: 0, y: 0, width: 0, height: 0 } }],

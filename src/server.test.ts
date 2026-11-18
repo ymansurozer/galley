@@ -24,7 +24,7 @@ import {
   reviewDir,
   writeGlobalSettings,
 } from "./state.js";
-import type { ReviewComment, ReviewResult, ReviewState } from "./types.js";
+import type { ReviewComment, ReviewFile, ReviewResult, ReviewState } from "./types.js";
 import { isGuideBaseStale } from "./ui/guide-derive.js";
 import { agentPresence, unansweredAsks } from "./ui/topbar-derive.js";
 import { pendingAnswer } from "./ui/thread-derive.js";
@@ -646,7 +646,7 @@ async function withShotDesk(
   });
 }
 
-const upload = (base: string, query: string, body: Uint8Array) =>
+const upload = (base: string, query: string, body: Uint8Array<ArrayBuffer>) =>
   fetch(`${base}api/ui-shot?${query}`, {
     method: "POST",
     headers: { "content-type": "image/png" },
@@ -702,7 +702,7 @@ test("screenshot upload takes a PNG up to the cap and refuses a bigger, non-PNG,
     assert.equal((await upload(handle.url, "annotation=a1&kind=crop", atCap)).status, 200);
     const over = Buffer.alloc(SHOT_CAP + 1);
     PNG.copy(over);
-    const cases: Array<[string, Uint8Array, number]> = [
+    const cases: Array<[string, Uint8Array<ArrayBuffer>, number]> = [
       ["annotation=a2&kind=crop", over, 413],
       ["annotation=a2&kind=crop", Buffer.from("<svg onload=alert(1)>"), 415],
       ["annotation=nope&kind=crop", PNG, 404],
@@ -1713,7 +1713,7 @@ test("a guide swap while the desk has no blocks drops the old guide's parts from
     assert.equal((await post(url, "api/reload", { guide: split })).status, 200);
     await writeFile(path.join(root, "f.txt"), committed);
     assert.equal((await post(url, "api/reload", {})).status, 200);
-    assert.deepEqual(st.changes, []);
+    assert.equal(st.changes.length, 0);
     const whole = { overview: "o", files: [{ path: "f.txt", orientation: "The file." }] };
     assert.equal((await post(url, "api/reload", { guide: whole })).status, 200);
     await writeFile(path.join(root, "f.txt"), edited);
@@ -1960,7 +1960,7 @@ test("/api/file-contents returns contents equal to the embedded copies; rejects 
       "b.ts": { old: "", new: "brand new\n" }, // untracked → no old side
     };
     for (const rel of ["a.ts", "b.ts"]) {
-      const file = st!.files.find((f) => f.path === rel)!;
+      const file: ReviewFile = st!.files.find((f) => f.path === rel)!;
       const r = (await fetch(`${handle.url}api/file-contents?path=${rel}`).then((res) =>
         res.json(),
       )) as {

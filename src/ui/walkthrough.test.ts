@@ -430,7 +430,7 @@ test("walkRows counts a group's rows as steps once it lists a part, else as file
     blocksOf([block("additions:10:0:3", 0, true), block("additions:40:0:1", 2)]),
   );
   const header = (groups: ReturnType<typeof walkthroughGroups>) =>
-    walkRows(groups).find((r) => r.kind === "cat" && r.skimmed);
+    walkRows(groups, null).find((r) => r.kind === "cat" && r.skimmed);
   // Skimmed holds the Fees part and b.ts.
   const skimmed = header(withPart);
   assert.equal(skimmed?.kind === "cat" && skimmed.count, "2 steps");
