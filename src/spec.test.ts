@@ -253,6 +253,18 @@ const ANCHORS = [
   "the live page over both",
   "a new mtime is a new Send",
   "Live questions don't survive a stop",
+  // await blocks with no --timeout; file polling names the result file, not just the field
+  "block for the next event",
+  "watch sessionDir's *-result.json (artifacts.resultJson)",
+  // session defaults and desk reuse on start
+  "Default sessions: <branch>, file-<path> or pr-<ref>",
+  "A start reuses its live desk and reloads diff/--guide",
+  // ReviewResult's target and base: when they're absent and what each names
+  "target?, base? — absent in repo mode",
+  "base: the PR's merge-base, else its base ref",
+  // the Overview's reserved topic id, and renames shown without a guide entry
+  '"overview" is reserved',
+  "Unedited renames show as",
 ];
 
 test("SPEC carries every consolidated section", () => {

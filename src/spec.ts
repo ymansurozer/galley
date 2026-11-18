@@ -31,7 +31,7 @@ while ev=$(galley await --session "$session"); do
   esac
 done
 \`\`\`
-- \`galley await [--timeout <s>]\` — print the next event as one JSON line on stdout and exit 0; empty stdout on timeout (re-poll). On nonzero read stderr (no desk or ambiguous session). Harness logs can append text: capture stdout (\`galley await >"$f"\`) and parse the file. Handle the event, then await again immediately.
+- \`galley await [--timeout <s>]\` — block for the next event, print it as one JSON line on stdout and exit 0; empty stdout on timeout (re-poll). On nonzero read stderr (no desk or ambiguous session). Harness logs can append text: capture stdout (\`galley await >"$f"\`) and parse the file. Handle the event, then await again immediately.
 - \`galley comment --path <f> --line <n> [--side additions|deletions] --body "…"\` — reply to a lane "code" question at its path/lineNumber/side, threaded under the human's comment; never echoed back as codeChangeRequests.
 - \`galley comment --ui <id> --body "…"\` (a lane "ui" question's annotationId or a uiAnnotations[].id) and \`galley comment --topic <id> --body "…"\` (a lane "topic" question's id or a topicChangeRequests[].id) reply in that thread; unknown id: exit 1, no post.
 - Replies show in ~1.5s, or append to the saved review if offline. Never repeat or summarize one in your own chat or harness output. At most say briefly that you replied in the desk.
@@ -78,7 +78,7 @@ Live questions and openQuestions:
 - topicChangeRequests[]: {id, topic, part, quote?, body, option?} — open change requests on topics and the Overview, Overview first, then in guide order; a dropped topic's requests come last, still named by its old id, even when that guide has no topics. body is the change to make in the covered code (and the guide's text); option? — the picked option label, only for a request made by picking.
 - openQuestions[]: questions you never answered (a reply in the thread after it was asked answers it), folded into Send, each the same lane-tagged shape as a live question. Answer each where asked; folded questions retain the authority of their original Ask.
 - artifacts: {resultJson, sessionDir}, absolute paths under ~/.galley/<repoHash>/<session>/ (SHA-256 of absolute repo root, first 16 hex)
-Without a long-poll, watch sessionDir: each Send rewrites artifacts.resultJson (a new mtime is a new Send). Only await delivers Questions.
+Without a long-poll, watch sessionDir's *-result.json (artifacts.resultJson): a new mtime is a new Send. Only await delivers Questions.
 
 ## How to act on a review
 A change request missing from a later Send was resolved or became a question (items can change kind between rounds): drop it. In pr mode amend the commits, leaving approved hunks as-is.
