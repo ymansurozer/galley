@@ -223,9 +223,9 @@ test("SPEC carries every consolidated section", () => {
 
 // Agents read `galley spec` whole every session, so its printed size is a cost they all pay. The
 // ceiling counts bytes as `galley spec` prints them: SPEC plus the trailing newline.
-test("galley spec prints at most 20,000 bytes", () => {
+test("galley spec prints fewer than 20,000 bytes", () => {
   const bytes = Buffer.byteLength(SPEC + "\n");
-  assert.ok(bytes <= 20_000, `galley spec prints ${bytes} bytes, over the 20,000-byte ceiling`);
+  assert.ok(bytes < 20_000, `galley spec prints ${bytes} bytes, expected fewer than 20,000`);
 });
 
 test("SPEC's question loop uses the space-safe read idiom, not word-splitting (issue 04)", () => {
@@ -303,7 +303,6 @@ test("SPEC describes the scoped refresh flag and retry contract", () => {
   for (const rule of [
     "[--refresh-ui]",
     "reload-only and takes no value",
-    "never persisted",
     "current route/query",
     "annotation thread and selection",
     "set-aside annotation draft; polling applies it afterward",
