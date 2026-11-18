@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { Window } from "happy-dom";
+import { Window, type HTMLTextAreaElement } from "happy-dom";
 
 // Run the real browser modules together, including status stripping and iframe navigation.
 // Only the cross-origin page boundary is simulated; desk state and annotation rendering are real.

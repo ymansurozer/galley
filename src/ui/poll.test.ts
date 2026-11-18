@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { Window } from "happy-dom";
 import { addPostedComment, mergeReviewerSave, reviewerFields } from "../state.js";
+import type { ReviewComment } from "../types.js";
 
 // Real poll/status/render modules, adapted from the independent starvation probe. HTTP
 // snapshots and response ordering are controlled; bundles never write generated output.
@@ -294,7 +295,7 @@ const updateFor = (branch: "diff" | "guide", label: string) =>
 const adopted = (f: Awaited<ReturnType<typeof fixture>>, branch: "diff" | "guide") =>
   branch === "diff" ? f.S.lastBaseDiffHash : f.S.state.guide?.title;
 
-const reviewerComment = {
+const reviewerComment: ReviewComment = {
   id: "reviewer",
   role: "user",
   path: "a.ts",
@@ -942,7 +943,7 @@ test("what the tab took from the desk by poll is not sent back as the reviewer's
   f.update({ annotations: [structuredClone(reviewerAnnotation)] });
   f.confirm();
   // The agent replies to a comment and in the annotation's thread.
-  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent" as const, body: "Done" });
   const annotations = structuredClone(f.server().annotations);
   annotations[0].comments.push(reply("ui-reply"));
   f.update({ comments: [...f.server().comments, reply("code-reply")], annotations });
@@ -1203,7 +1204,7 @@ test("a read that lands after a newer poll brought the agent's replies keeps the
   b.desk.holdReview = new Promise<void>((resolve) => (release = resolve));
   const poll = b.poll();
   await until(() => reads(b) === 1);
-  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent" as const, body: "Done" });
   const annotations = structuredClone(a.server().annotations);
   annotations[0].comments.push(reply("ui-reply"));
   a.update({ comments: [...a.server().comments, reply("code-reply")], annotations });
@@ -1230,7 +1231,7 @@ test("a read that lands after a newer poll brought the agent's replies keeps the
 
 test("another tab's reset clears the agent's comments in an idle tab", async (t) => {
   const { a, b } = await twoTabs(t);
-  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent" as const, body: "Done" });
   const annotation = structuredClone(reviewerAnnotation);
   annotation.comments.push(reply("ui-reply"));
   a.update({ comments: [reply("code-reply")], annotations: [structuredClone(annotation)] });
@@ -1255,7 +1256,7 @@ test("another tab's reset clears the agent's comments in an idle tab", async (t)
 
 test("an agent message the desk dropped from a still-present annotation isn't put back by the read", async (t) => {
   const { a, b } = await twoTabs(t);
-  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent", body: "Done" });
+  const reply = (id: string) => ({ ...reviewerComment, id, role: "agent" as const, body: "Done" });
   const annotation = structuredClone(reviewerAnnotation);
   annotation.comments.push(reply("ui-reply"));
   a.update({ annotations: [structuredClone(annotation)] });
