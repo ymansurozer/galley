@@ -3133,6 +3133,8 @@ test("/api/reload after only an untracked add moves the poll's baseDiffHash and 
 });
 
 test("sent reviews survive stop in order, outside tab state, and drain once", async () => {
+  let stopFirst!: () => void;
+  const firstStopped = new Promise<void>((resolve) => (stopFirst = resolve));
   await withServer(
     async (first, root, st) => {
       for (const overallNote of ["first review", "second review"]) {
@@ -3164,9 +3166,12 @@ test("sent reviews survive stop in order, outside tab state, and drain once", as
         side: "new",
       });
       assert.equal((await getState(first.url)).queuedQuestions, 1);
-      await agentPost(first.url, "api/shutdown", {});
+      assert.equal((await agentPost(first.url, "api/shutdown", {})).status, 200);
+      await firstStopped;
       await new Promise<void>((resolve) => first.server.close(() => resolve()));
-      const second = await startServer({ state: st, open: false });
+      let stopSecond!: () => void;
+      const secondStopped = new Promise<void>((resolve) => (stopSecond = resolve));
+      const second = await startServer({ state: st, open: false, onShutdown: stopSecond });
       try {
         assert.equal((await getState(second.url)).queuedReviews, 2);
         assert.equal(
@@ -3180,6 +3185,9 @@ test("sent reviews survive stop in order, outside tab state, and drain once", as
           assert.equal(event.result.overallNote, note);
         }
         assert.equal((await awaitEvent(second.url, "?timeout=0.02")).status, 204);
+        // The await response can arrive before its durable queue entry is retired.
+        assert.equal((await agentPost(second.url, "api/shutdown", {})).status, 200);
+        await secondStopped;
         assert.deepEqual(
           JSON.parse(await readFile(path.join(dir, "undelivered-reviews.queue"), "utf8")).reviews,
           [],
@@ -3192,10 +3200,10 @@ test("sent reviews survive stop in order, outside tab state, and drain once", as
         assert.equal((await getState(third.url)).queuedReviews, 0);
         assert.equal((await awaitEvent(third.url, "?timeout=0.02")).status, 204);
       } finally {
-        third.server.close();
+        await new Promise<void>((resolve) => third.server.close(() => resolve()));
       }
     },
-    { onShutdown: () => {} },
+    { onShutdown: stopFirst },
   );
 });
 
