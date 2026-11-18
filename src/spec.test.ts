@@ -100,15 +100,17 @@ const ANCHORS = [
   // a fresh guide on regroup
   "part? — split a file",
   "part: { title, lines }",
-  "A split file is split all the way",
+  "Every entry for a split file needs a part",
   "no two parts may claim the",
-  "distinct among the file's parts",
-  "untracked file is one whole-file change, so it can't be split",
+  "nonblank title unique within the file",
+  "lines: non-empty array of new-file-side [start, end] spans and line numbers",
+  "with lines shaped like part lines",
+  "untracked file is one block and can't split",
   "A part may skim its own or unclaimed blocks (skimBlocks)",
-  "Two concerns in one change block go to the main one, said in its orientation",
+  "assign it to the main concern and explain in its orientation",
   "untouched keep their part; edited or new join the part around them, else Rest",
   '"Rest of <file>" step',
-  "move code from one part to another",
+  "send a fresh guide to regroup blocks",
   "places blocks by content",
   "for a part, its path, title and span",
   "guide.skims needs stages",
@@ -122,7 +124,7 @@ const ANCHORS = [
   "STABLE from one guide to the next",
   "recorded (required, non-empty)",
   "A `mermaid` fence draws a diagram",
-  "what needs a diagram is your call",
+  "undrawable diagrams show as code",
   "covers (required, non-empty array)",
   'a folder ending in "/"',
   "Two topics may cover the same lines",
@@ -132,9 +134,9 @@ const ANCHORS = [
   "each Send starts the next",
   "the next reload drops the sign-off",
   "loses its sign-off",
-  "ids not unique among stages, among groups and among topics",
-  "a cover or `lines` entry naming a file not in the diff, a folder with no changed file under it, or lines touching no change, or a `lines` entry that doesn't parse",
-  "naming the topic and the cover, entry or link",
+  "duplicate id within a kind (stage/group/topic)",
+  "file not in the diff; folder without changed files; lines touching no change; malformed `lines` entry",
+  "names the topic and invalid cover, entry or link",
   // line blocks: the fence, its grammar, its refusals and that it quotes the diff
   "A `lines` fence quotes the diff, so you never retype code",
   "`path:start-end` (new-file-side line numbers, start <= end) or `path:n` for one line",
@@ -142,7 +144,7 @@ const ANCHORS = [
   "It may be empty when a `lines` block in the body names lines",
   "links? (array, only with stages), each { from, to, label }",
   "at most 40 characters",
-  "Galley draws the Overview's MAP from the stages, groups and links — you write no diagram",
+  "Overview draws the map: stage columns, group boxes, link lines",
   "a link breaking the rules above",
   // coverage refusals, skim rules, lines fences and settling (issue 06 reconciliation)
   "topics win overlaps",
@@ -218,11 +220,14 @@ const ANCHORS = [
   'jq -r .lane<<<"$q"',
   "your `galley comment --ui` replies",
   "opened as a question is here only once they request a",
-  "the change to make is in",
+  "act on that message",
   "each the same lane-tagged shape as a live question",
   // desk lifecycle: explicit stop + the idle reaper (abandoned desks must not accumulate)
   "galley stop",
   "auto-exits",
+  "CLI uses loopback even with --host/GALLEY_HOST",
+  "agentListening = parked await",
+  "agentRecentlyActive lasts 90s",
   "--idle-timeout",
   // the rest of the operational contract
   "reload vs restart",
@@ -231,10 +236,10 @@ const ANCHORS = [
   "PATCH_CONFLICT",
   // sessions: the lone-desk fallback, a second desk, and restart for a new diff source or mode
   "else the lone live desk (several: exit 1), else the branch's",
-  "a second desk needs its own --session/--port",
+  "Use --session/--port for a second desk",
   "`galley stop` and start again with the same --session",
   "a working-tree move stages both paths as a rename",
-  "Non-zero exit (no live desk, or several): read stderr",
+  "On nonzero read stderr (no desk or ambiguous session)",
   // annotation coordinates, and file polling's Send signal
   "rect in viewport coordinates",
   "exact 1-based template line/column",
@@ -270,7 +275,7 @@ test("SPEC states the deduped invariants exactly once (issue 04)", () => {
   // The no-echo reply rule is one bullet under the comment commands, not repeated per lane.
   assert.equal(count(/harness output/g), 1, "no-echo reply rule should be stated once");
   // The reload-resets-edits invariant lives once, at the reload bullet.
-  assert.equal(count(/resets to pending on reload/g), 1, "reload-resets invariant should be once");
+  assert.equal(count(/reset to pending/g), 1, "reload-resets invariant should be once");
 });
 
 test("SPEC uses only the renamed codeChangeRequests field (issue 04)", () => {
