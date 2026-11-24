@@ -326,6 +326,7 @@ async function seedThread(base) {
   const at = new Date().toISOString();
   const res = await fetch(`${base}/api/save`, {
     method: "POST",
+    signal: AbortSignal.timeout(READY_MS),
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       base: state.saveNumber ?? 0,
@@ -376,7 +377,7 @@ async function seedThread(base) {
       "--body",
       "Not yet: the only caller is `greet`, and the fixture passes ASCII names.",
     ],
-    { stdio: ["ignore", "ignore", "pipe"], env: sandboxEnv() },
+    { stdio: ["ignore", "ignore", "pipe"], env: sandboxEnv(), timeout: READY_MS },
   );
   const seeded = await getState(base);
   const thread = seeded.topicThreads?.find((t) => t.id === THREAD);
