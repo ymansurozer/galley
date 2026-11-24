@@ -20,6 +20,13 @@ pnpm perf-smoke   # perf budgets against dist/ — requires pnpm build first
 pnpm release      # CI checks, then changelogen --release --push --no-github
 ```
 
+Check a guide, or reread one section of the contract, without starting a desk. Before a release, run the built local CLI: `pnpm build`, then `node dist/cli.js` stands in for `galley`.
+
+```bash
+galley guide check <file> [--base <ref>]   # the guide's schema, and every span on a changed line of the diff
+galley spec --section <name>              # one section of `galley spec`; `galley spec --help` lists them
+```
+
 Run a single test file:
 
 ```bash
@@ -58,7 +65,7 @@ The worlds do not import each other at runtime. `src/types.ts` is the single sou
 - `contentHash`/`reviewedHash` pairs detect staleness: if the agent rewrites a block (or a file) after it was decided/approved, the decision/approval resets to pending on reload. The same pattern invalidates comment anchors (`anchorText` → re-anchoring → `unanchored`) and guides (`baseDiffHash`).
 - Desks are idempotent per repo+session: `stablePort` hashes repo+session to a port in 41000–50999 (or the operator's `GALLEY_PORT_RANGE`, resolved once in `cli.ts` and passed down) so a restarted desk binds the same origin and an open tab self-heals; a desk lock file is trusted only if the server actually answers (`deskAlive`).
 
-**Agent contract:** plain JSON on stdout. `galley await` long-polls and prints one tagged event — `{"kind":"question",…}` or `{"kind":"review","result":{…ReviewResult…}}` (the reviewer hit Send). A question event batches every pending question in `questions`: answer each in its own lane, then await again; `galley spec` has the per-lane handling. The contract is the single source of truth in `src/spec.ts` (printed by `galley spec`); the skill (`skills/galley/SKILL.md`) and the AGENTS.md snippet (`skills/galley/agents-snippet.md`) are bootstrap-only and point consuming agents at `galley spec`, and the server's error responses do too. **If you change CLI flags, events, the ReviewResult shape, or a topic part kind, update `src/spec.ts` and its test coverage in the same change.** `scripts/smoke.mjs` and `src/spec.test.ts` exercise this contract and are the regression net for it.
+**Agent contract:** plain JSON on stdout. `galley await` long-polls and prints one tagged event — `{"kind":"question",…}` or `{"kind":"review","result":{…ReviewResult…}}` (the reviewer hit Send). A question event batches every pending question in `questions`: answer each in its own lane, then await again; `galley spec` has the per-lane handling. The contract is the single source of truth in `src/spec.ts` (printed by `galley spec`); the skill (`skills/galley/SKILL.md`) and the AGENTS.md snippet (`skills/galley/agents-snippet.md`) are bootstrap-only and point consuming agents at `galley spec`, and the server's error responses do too. **If you change CLI flags, events, the ReviewResult shape, or a topic part kind, update `src/spec.ts` and its test coverage in the same change.** `REVIEW.md`'s Contract hygiene lists what review holds such a change to. `scripts/smoke.mjs` and `src/spec.test.ts` exercise this contract and are the regression net for it.
 
 **UI:** an Alpine.js app with a global store (`src/ui/store.ts`); `poll.ts` polls `/api/state`, `render.ts` renders the diff via `@pierre/diffs` (which renumbers lines per render — display anchors are derived, raw file lines stay canonical), `keys.ts` holds the keyboard-first command map, and `guide.ts`/`tree.ts`/`decisions.ts` etc. are feature modules.
 

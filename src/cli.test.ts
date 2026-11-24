@@ -2,7 +2,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -11,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { deskAlive } from "./cli.js";
 import { startServer } from "./server.js";
 import { deskLockPath, loadLatestReview, persistReview, reviewDir, stableUiPort } from "./state.js";
+import { SPEC, SPEC_SECTIONS, specSection } from "./spec.js";
 import type { ReviewState } from "./types.js";
 
 // A desk lock can outlive its process (crash, SIGKILL) — deskAlive is the only thing standing
@@ -759,6 +769,191 @@ test("await prints each event as one JSON line on stdout, and nothing else in an
     assert.match(noDesk.stderr, /No live desk for session "s"/);
   } finally {
     desk.close();
+    await cleanup();
+  }
+});
+
+// ── `galley spec --section` and `galley guide check`: read-only commands, run like the bin ──
+
+test("galley spec prints the whole contract; --section prints one part of it", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "galley-cli-home-"));
+  try {
+    const whole = runCli(["spec"], home);
+    assert.deepEqual([whole.status, whole.stdout], [0, `${SPEC}\n`]);
+    for (const name of ["guide", "topics"]) {
+      const part = runCli(["spec", "--section", name], home);
+      assert.deepEqual([part.status, part.stdout], [0, `${specSection(name)}\n`], name);
+    }
+    const names = Object.keys(SPEC_SECTIONS).join(", ");
+    for (const args of [["--section", "nope"], ["--section"]]) {
+      const bad = runCli(["spec", ...args], home);
+      assert.deepEqual([bad.status, bad.stdout], [1, ""], args.join(" "));
+      assert.ok(bad.stderr.includes(`Sections: ${names}.`), bad.stderr);
+    }
+    const help = runCli(["spec", "--help"], home);
+    assert.equal(help.status, 0);
+    assert.match(help.stdout, /^Usage: galley spec \[--section <name>\]/);
+    assert.ok(help.stdout.includes(`Sections: ${names}.`), help.stdout);
+    const root = runCli(["--help"], home);
+    assert.match(root.stdout, /galley spec \[--section <name>\]/);
+    assert.match(root.stdout, /galley guide check <file> \[--base <ref>\]/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+// A repo whose working tree changes line 5 of a.txt and adds the untracked n.txt, a guide writer,
+// and `galley guide check` against it.
+async function guideRepo() {
+  const home = await mkdtemp(path.join(tmpdir(), "galley-cli-home-"));
+  const repo = await realpath(await mkdtemp(path.join(tmpdir(), "galley-cli-guide-")));
+  const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q");
+  git("config", "user.email", "t@t.co");
+  git("config", "user.name", "t");
+  const lines = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`);
+  await writeFile(path.join(repo, "a.txt"), `${lines.join("\n")}\n`);
+  git("add", "-A");
+  git("commit", "-q", "-m", "init");
+  lines[4] = "changed";
+  await writeFile(path.join(repo, "a.txt"), `${lines.join("\n")}\n`);
+  await writeFile(path.join(repo, "n.txt"), "new\nfile\n");
+  const guideFile = path.join(home, "guide.json");
+  const check = async (guide: unknown, ...args: string[]) => {
+    await writeFile(guideFile, JSON.stringify(guide));
+    return runCli(["guide", "check", guideFile, "--repo", repo, ...args], home);
+  };
+  const cleanup = async () => {
+    await rm(repo, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
+  };
+  return { home, git, check, cleanup };
+}
+
+// A guide with every kind of span: a part and its skimBlocks, topic covers and a body `lines`
+// entry, and a skim's covers.
+const spanGuide = (a: { part: number; skim: number; cover: number; entry: number }) => ({
+  overview: "o",
+  files: [
+    { path: "n.txt", orientation: "new", order: 2 },
+    {
+      path: "a.txt",
+      orientation: "o",
+      order: 1,
+      part: { title: "P", lines: [a.part] },
+      skimBlocks: [{ lines: [a.skim, a.skim] }],
+    },
+  ],
+  stages: [
+    {
+      id: "s",
+      label: "S",
+      groups: [
+        {
+          id: "g",
+          title: "G",
+          topics: [
+            {
+              id: "t",
+              title: "T",
+              recorded: "code",
+              body: `Why.\n\n\`\`\`lines\na.txt:${a.entry}\n\`\`\``,
+              covers: [{ path: "a.txt", lines: [a.cover] }, { path: "src/" }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  skims: [{ reason: "r", covers: [{ path: "n.txt", lines: [1, 7] }] }],
+});
+
+test("galley guide check passes a guide whose every span lands on the diff, writing nothing", async () => {
+  const { home, git, check, cleanup } = await guideRepo();
+  try {
+    const before = git("status", "--porcelain");
+    const valid = spanGuide({ part: 5, skim: 5, cover: 5, entry: 5 });
+    valid.stages[0]!.groups[0]!.topics[0]!.covers.pop();
+    valid.skims[0]!.covers[0]!.lines.pop();
+    const ok = await check(valid);
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+    assert.match(ok.stdout, /^Guide OK/);
+    assert.equal(git("status", "--porcelain"), before, "the repo and its index are untouched");
+    await assert.rejects(access(path.join(home, ".galley")), "no state directory");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("galley guide check names a schema error and exits 1", async () => {
+  const { check, cleanup } = await guideRepo();
+  try {
+    const bad = await check({ overview: "o", files: [{ path: "a.txt" }] });
+    assert.equal(bad.status, 1);
+    assert.equal(bad.stdout, "guide.files[0].orientation must be a non-empty string\n");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("galley guide check names every span off the diff by its place in the guide", async () => {
+  const { check, cleanup } = await guideRepo();
+  try {
+    const off = await check(spanGuide({ part: 9, skim: 1, cover: 8, entry: 2 }));
+    assert.equal(off.status, 1, off.stderr);
+    const topic = 'guide.stages[0].groups[0].topics[0] ("t")';
+    assert.deepEqual(off.stdout.trimEnd().split("\n"), [
+      // files[1] as written, though order sorts it first
+      'guide.files[1].part.lines[0]: guide part "P" on "a.txt": line 9 matches no change in the diff',
+      'guide.files[1].skimBlocks[0]: guide skimBlocks span [1, 1] on "a.txt" matches no change in the diff',
+      `${topic}.covers[0].lines[0]: cover "a.txt" line 8 matches no change in the diff`,
+      `${topic}.covers[1]: cover "src/" names a folder with no changed file under it`,
+      `${topic}.body, lines fence at line 3: entry "a.txt:2" touches no change in the diff`,
+      'guide.skims[0].covers[0].lines[1]: cover "n.txt" line 7 matches no change in the diff',
+    ]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("galley guide check refuses two parts claiming one change", async () => {
+  const { check, cleanup } = await guideRepo();
+  try {
+    const part = (title: string) => ({
+      path: "a.txt",
+      orientation: "o",
+      part: { title, lines: [5] },
+    });
+    const both = await check({ overview: "o", files: [part("A"), part("B")] });
+    assert.equal(both.status, 1);
+    assert.equal(
+      both.stdout,
+      'guide parts "A" and "B" on "a.txt" both claim the change at line 5\n',
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("galley guide check --base diffs the working tree against a validated commit", async () => {
+  const { git, check, cleanup } = await guideRepo();
+  try {
+    git("commit", "-qam", "change line 5");
+    const guide = {
+      overview: "o",
+      files: [{ path: "a.txt", orientation: "o", part: { title: "P", lines: [5] } }],
+    };
+    const vsIndex = await check(guide);
+    assert.equal(vsIndex.status, 1, "a.txt matches its index");
+    assert.match(vsIndex.stdout, /line 5 matches no change in the diff/);
+    const vsBase = await check(guide, "--base", "HEAD~1");
+    assert.equal(vsBase.status, 0, vsBase.stdout + vsBase.stderr);
+    for (const ref of ["nope", "-p", "HEAD:a.txt"]) {
+      const bad = await check(guide, "--base", ref);
+      assert.deepEqual([bad.status, bad.stdout], [1, ""], ref);
+      assert.match(bad.stderr, /is not a commit/, ref);
+    }
+  } finally {
     await cleanup();
   }
 });

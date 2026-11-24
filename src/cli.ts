@@ -8,13 +8,15 @@ import { getBranch, getGitRoot, gh, git } from "./git.js";
 import { sameGuide, validateGuide } from "./guide.js";
 import { parseUiTarget } from "./proxy.js";
 import { AGENT_HEADER, startServer } from "./server.js";
-import { SPEC } from "./spec.js";
+import { SPEC, SPEC_SECTIONS, specSection } from "./spec.js";
 import { carryTopicThreads } from "./topicthreads.js";
 import {
   appendAnnotationReply,
   appendComment,
   appendTopicReply,
+  buildDiffSource,
   buildReviewState,
+  coverIndex,
   deskLockPath,
   findLiveDesks,
   loadLatestReview,
@@ -23,17 +25,21 @@ import {
   parsedDiffOf,
   persistReview,
   readDeskLock,
+  resolveCovers,
   resolveMovedFrom,
   resolveGuide,
+  resolveParts,
   resolvePortRange,
+  resolveSkim,
   reviewDir,
   sanitizeSession,
   stablePort,
   stableUiPort,
   syncGitState,
 } from "./state.js";
-import type { DeskLock } from "./state.js";
-import type { Guide, ReviewMode } from "./types.js";
+import type { CoverIndex, DeskLock, DiffSource } from "./state.js";
+import { entryLabel, lineBlocks } from "./topiclines.js";
+import type { Cover, Guide, GuideFile, ReviewMode } from "./types.js";
 import { maybeOfferUpdate } from "./update.js";
 
 function parseArgs(argv: string[]) {
@@ -472,6 +478,149 @@ function loadGuideArg(value: string | boolean | undefined) {
   return result.guide;
 }
 
+// `galley guide check <file> [--base <ref>]`: what attaching a guide would refuse, found without a
+// desk. validateGuide's schema check comes first (it stops at its first reason); then each span alone
+// goes through the desk's own resolvers against the diff, so every miss prints, at its dotted place
+// in the guide as written. With no miss, the whole guide's parts and skims resolve together, as an
+// attach does, which catches two parts claiming one block. The diff is a repo desk's (working tree
+// vs index, untracked files included), or the working tree vs the --base commit. Reads only: no
+// desk, no state directory, no settings.
+async function runGuideCheck(file: string | undefined, args: Record<string, string | boolean>) {
+  if (!file || (args.base !== undefined && typeof args.base !== "string")) {
+    console.error(GUIDE_HELP);
+    process.exitCode = 1;
+    return;
+  }
+  let input: unknown;
+  try {
+    input = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    console.error(
+      `Could not read guide file "${file}" as JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const repo = resolveRepo(args);
+  const root = await getGitRoot(repo).catch(() => null);
+  if (!root) {
+    console.error(`galley guide check: ${repo} is not in a git repository.`);
+    process.exitCode = 1;
+    return;
+  }
+  // The ref reaches git only through rev-parse --verify, past --end-of-options, and the diff takes
+  // the commit id it resolves to, so no ref is ever read as an option.
+  let base: string | undefined;
+  if (typeof args.base === "string") {
+    base = await git(
+      ["rev-parse", "--verify", "--quiet", "--end-of-options", `${args.base}^{commit}`],
+      root,
+    ).catch(() => "");
+    if (!base) {
+      console.error(`galley guide check: --base "${args.base}" is not a commit in ${root}.`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  const validation = validateGuide(input);
+  const empty: DiffSource = { files: [], changes: [], rawDiff: "", parsedDiff: [] };
+  const problems = validation.ok
+    ? guideSpanProblems(
+        input,
+        validation.guide,
+        (await buildDiffSource({ mode: "repo", root, base })) ?? empty,
+      )
+    : [validation.reason];
+  if (problems.length) {
+    process.stdout.write(problems.join("\n") + "\n");
+    process.exitCode = 1;
+    return;
+  }
+  const diff = base
+    ? `the working tree vs ${args.base}`
+    : "the working tree vs the index, untracked files included";
+  console.log(`Guide OK: the schema holds and every span lands on a change in ${diff}.`);
+}
+
+// Every span of a validated guide that misses the diff, each as "<place>: <the desk's reason>".
+// `written` is the guide as parsed: validateGuide sorts files by order, and an entry's path and part
+// title together are unique (it refuses a repeat), so they find the entry's index as written.
+function guideSpanProblems(written: unknown, guide: Guide, source: DiffSource): string[] {
+  const problems: string[] = [];
+  const parsed = source.parsedDiff;
+  const record = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
+  const writtenFiles = record(written).files;
+  const writtenAt = (file: GuideFile) => {
+    const i = Array.isArray(writtenFiles)
+      ? writtenFiles.findIndex(
+          (w) => record(w).path === file.path && record(record(w).part).title === file.part?.title,
+        )
+      : -1;
+    return `guide.files[${i}]`;
+  };
+  const alone = (entry: GuideFile): Guide => ({ overview: guide.overview, files: [entry] });
+  for (const file of guide.files ?? []) {
+    const { part } = file;
+    part?.lines.forEach((span, j) => {
+      const r = resolveParts(source, alone({ ...file, part: { ...part, lines: [span] } }), parsed);
+      if (!r.ok) problems.push(`${writtenAt(file)}.part.lines[${j}]: ${r.reason}`);
+    });
+    // Without its part, so a span is judged only on whether it lands on a change.
+    file.skimBlocks?.forEach((block, j) => {
+      const entry = { path: file.path, order: file.order, category: file.category };
+      const r = resolveSkim(
+        source.rawDiff,
+        source.changes,
+        alone({ ...entry, skimBlocks: [block] }),
+        parsed,
+      );
+      if (!r.ok) problems.push(`${writtenAt(file)}.skimBlocks[${j}]: ${r.reason}`);
+    });
+  }
+  const index = coverIndex(source);
+  guide.stages?.forEach((stage, si) =>
+    stage.groups.forEach((group, gi) =>
+      group.topics.forEach((topic, ti) => {
+        const at = `guide.stages[${si}].groups[${gi}].topics[${ti}] (${JSON.stringify(topic.id)})`;
+        problems.push(...coverProblems(topic.covers, at, index));
+        // resolveTopics' reasons for a line block entry, placed by the fence's source line.
+        const lines = lineBlocks(topic.body);
+        for (const block of lines.ok ? lines.blocks : [])
+          for (const entry of block.entries) {
+            const named = `${at}.body, lines fence at line ${block.line}: entry ${JSON.stringify(entryLabel(entry))}`;
+            if (!index.has(entry.path))
+              problems.push(`${named} names a file that is not in the diff`);
+            else if (
+              !resolveCovers([{ path: entry.path, lines: [[entry.start, entry.end]] }], index).ok
+            )
+              problems.push(`${named} touches no change in the diff`);
+          }
+      }),
+    ),
+  );
+  guide.skims?.forEach((skim, k) =>
+    problems.push(...coverProblems(skim.covers, `guide.skims[${k}]`, index)),
+  );
+  if (problems.length) return problems;
+  const parts = resolveParts(source, guide, parsed);
+  const skims = parts.ok ? resolveSkim(source.rawDiff, source.changes, guide, parsed) : parts;
+  return skims.ok ? [] : [skims.reason];
+}
+
+// Each cover's path alone, then each of its spans alone, so every miss is named.
+function coverProblems(covers: Cover[], at: string, index: CoverIndex): string[] {
+  const problems: string[] = [];
+  covers.forEach((cover, i) => {
+    const whole = resolveCovers([{ path: cover.path }], index);
+    if (!whole.ok) return problems.push(`${at}.covers[${i}]: ${whole.reason}`);
+    cover.lines?.forEach((span, j) => {
+      const r = resolveCovers([{ path: cover.path, lines: [span] }], index);
+      if (!r.ok) problems.push(`${at}.covers[${i}].lines[${j}]: ${r.reason}`);
+    });
+  });
+  return problems;
+}
+
 // A `galley pr <ref>` target is a PR number (`123`) or a GitHub PR URL when it matches these;
 // anything else is treated as a plain branch name (the original behavior).
 function isPrRef(ref: string) {
@@ -815,7 +964,9 @@ Usage:
                                     (--guide swaps the attached review guide too)
                                     (--refresh-ui also refreshes the app at its current route/query)
   galley stop [--session <id>|--all]  Stop this repo's live desk(s); idempotent
-  galley spec                       Print the full agent contract (modes, loop, ReviewResult, guide schema)
+  galley spec [--section <name>]    Print the agent contract, or one section (galley spec --help)
+  galley guide check <file> [--base <ref>]   Check a guide's schema and spans against the diff,
+                                    with no desk; exits 1 listing each problem
 
 Common flags:
   --repo <path>     Repo to review (default: cwd)
@@ -839,6 +990,40 @@ Env:
 
 Docs: https://github.com/ymansurozer/galley`;
 
+const SECTION_NAMES = `Sections: ${Object.keys(SPEC_SECTIONS).join(", ")}.`;
+
+const SPEC_HELP = `Usage: galley spec [--section <name>]
+
+Print the agent contract, or one section of it.
+${SECTION_NAMES}`;
+
+const GUIDE_HELP = `Usage: galley guide check <file> [--base <ref>] [--repo <path>]
+
+Check a review guide without a desk: its schema, then that every span (part lines, skimBlocks,
+topic and skim covers, topic body lines entries) lands on a change in the diff, and that no two
+parts claim one change. The diff is a repo desk's: the working tree vs the index, untracked files
+included. --base <ref> diffs the working tree against that commit instead. Prints each problem
+with its place in the guide and exits 1 on any. Writes nothing.`;
+
+// `galley spec [--section <name>]`: the whole contract, or one section of it.
+function runSpec(args: Record<string, string | boolean>) {
+  if (args.section === undefined) {
+    process.stdout.write(SPEC + "\n");
+    return;
+  }
+  const section = typeof args.section === "string" ? specSection(args.section) : undefined;
+  if (section === undefined) {
+    const asked =
+      typeof args.section === "string"
+        ? `Unknown spec section "${args.section}"`
+        : "--section needs a name";
+    console.error(`${asked}. ${SECTION_NAMES}`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(section + "\n");
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes("-v") || argv.includes("--version")) {
@@ -847,7 +1032,7 @@ async function main() {
     return;
   }
   if (argv[0] === "help" || argv.includes("-h") || argv.includes("--help")) {
-    console.log(HELP);
+    console.log(argv[0] === "spec" ? SPEC_HELP : argv[0] === "guide" ? GUIDE_HELP : HELP);
     return;
   }
   const sub = argv[0] && !argv[0].startsWith("--") ? argv[0] : null;
@@ -874,8 +1059,12 @@ async function main() {
   if (sub === "reload") return runReload(args);
   if (sub === "stop") return runStop(args);
   if (sub === "ui") return runUi(positional, args);
-  if (sub === "spec") {
-    process.stdout.write(SPEC + "\n");
+  if (sub === "spec") return runSpec(args);
+  if (sub === "guide") {
+    if (positional === "check")
+      return runGuideCheck(rest[1]?.startsWith("--") ? undefined : rest[1], args);
+    console.error(GUIDE_HELP);
+    process.exitCode = 1;
     return;
   }
   if (sub === "file") {
@@ -889,7 +1078,7 @@ async function main() {
   if (sub === "pr") return runDesk("pr", positional, args);
   if (sub) {
     console.error(
-      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref|number|url> | ui <url> | comment | status | await | reload | stop | spec.`,
+      `Unknown command "${sub}". Use: galley | galley file <path> | galley pr <ref|number|url> | ui <url> | comment | status | await | reload | stop | spec | guide check <file>.`,
     );
     process.exitCode = 1;
     return;
