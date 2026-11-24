@@ -87,7 +87,7 @@ A change request missing from a later Send was resolved or became a question (it
 You own the dev server; Galley never starts, restarts or stops it. Pass \`--ui <url>\` on any desk start, or \`galley ui <url>\` to set its target (prints {ok,live:true,session,target}); without a desk it starts one (UI-only if clean; background it). <url> must be a loopback http:// URL (localhost, 127.0.0.0/8, ::1; a bare host:port gets http://), else exit 1, no start. Path+query sets the first page (dev sign-in works). Target survives reload/restart. If the app is down, don't claim visual success; the reviewer can retry with Refresh app.
 
 ## Guided review (optional)
-\`galley <mode> --guide <file>\` attaches a guide (prose is markdown, raw HTML stripped). Write it OUTSIDE the working tree. Stamped to its diff, it survives reload/restart. When stale, swap with \`galley reload --guide <new>\`.
+\`galley <mode> --guide <file>\` attaches a guide (prose is markdown, raw HTML stripped). Write it OUTSIDE the working tree. Stamped to its diff, it survives reload/restart. When stale, swap with \`galley reload --guide <new>\`. Schema: \`galley spec --section guide\`.
 
 ### Guide JSON schema
 - title? — overview heading (default: branch/ref).
@@ -101,28 +101,28 @@ You own the dev server; Galley never starts, restarts or stops it. Pass \`--ui <
   - flag? — scrutiny note, only when warranted.
   - skim?, skimReason? — mark the WHOLE file skimmable, with a short why.
   - skimBlocks? — array of { lines, reason? }: lines a new-file-side [start, end] span or line number, resolved to its change block(s); across reloads a skim follows its block's content (edited or new blocks show in full).
-  - movedFrom? — old path for a moved AND edited file (path is new): one rename with edits, a "moved from" badge and verdict-only blocks. Working repo mode only; allows \`skim\`, not \`skimBlocks\`. Unresolvable: aborts a new guide, dropped from a carried one. Unedited renames show as "renamed old → new" unasked.
+  - movedFrom? — old path for a moved AND edited file (path is new): one rename with edits, a "moved from" badge and verdict-only blocks. Working repo mode only; allows \`skim\`, not \`skimBlocks\`. Unresolvable: dropped from a carried guide. Unedited renames show as "renamed old → new" unasked.
   - part? — split a file that mixes concerns into steps: one entry per concern, each with its own fields and part: { title, lines } (nonblank title unique within the file; lines: non-empty array of new-file-side [start, end] spans and line numbers). Every entry for a split file needs a part. A part may skim its own or unclaimed blocks (skimBlocks), not take \`skim\` or \`movedFrom\`. Unclaimed blocks go to a "Rest of <file>" step. Adjacent edits without an unchanged line share a block: assign it to the main concern and explain in its orientation. An untracked file is one block and can't split. A carried guide places blocks by content (untouched keep their part; edited or new join the part around them, else Rest), send a fresh guide to regroup blocks.
 - focused? — boolean; badges the overview "focused review — mechanical churn skimmed".
 - stages? — topics (Decisions mode, below). A guide carries files, stages, or both; Code mode shows files' walkthrough, else the plain tree.
 A fully skimmed file/part or pure rename drops into a collapsed "Skimmed" group.
-Validation aborts the launch (or reload --guide, leaving the desk as it was), naming the field (for a part, its path, title and span): required fields; each skimBlocks/part span resolves to a change block; movedFrom pairs a full deletion with the addition at path; no two parts may claim the same block.
+Validation aborts the launch (or reload --guide, leaving the desk as it was), naming the field (for a part, its path, title and span): spans resolve to change blocks; no two parts may claim the same block; movedFrom pairs a full deletion with the addition at path. \`galley guide check <file> [--base <ref>]\` checks schema and spans offline.
 
 ### Topics (Decisions mode)
 With \`stages\`, Decisions mode settles TOPICS (one call each) in guide order. Fields without ? are required; strings are non-empty.
 - stages (non-empty array), each { id, label, groups }.
-- groups (required, non-empty array), each { id, title, summary?, topics }.
+- groups (non-empty array), each { id, title, summary?, topics }.
 - topics (non-empty array), each:
   - id — STABLE from one guide to the next: the reviewer's work is found by id. "overview" is reserved.
   - title — the call or question, as a sentence.
-  - recorded (required, non-empty) — where the call is written down, or that only the code records it.
+  - recorded — where the call is written down, or that only the code records it.
   - body — markdown. A \`mermaid\` fence draws a diagram; undrawable diagrams show as code. A \`lines\` fence quotes the diff, so you never retype code: one entry per line (blank lines skipped), \`path:start-end\` (new-file-side line numbers, start <= end) or \`path:n\` for one line. It shows the hunks the range touches, removed lines included, and follows its blocks across reloads; a comment there is the ordinary line comment Code mode makes. Entries count as covers.
   - concern? — a label from the reviewer's skill; flag? — a scrutiny note; pages? — app paths.
-  - covers (required, non-empty array) — { path, lines? }: a file, a folder ending in "/", or a file with lines shaped like part lines. Two topics may cover the same lines. It may be empty when a \`lines\` block in the body names lines.
+  - covers (non-empty array) — { path, lines? }: a file, a folder ending in "/", or a file with lines shaped like part lines. Two topics may cover the same lines. It may be empty when a \`lines\` block in the body names lines.
 - links? (array, only with stages), each { from, to, label } — what one group hands another: two different group ids, one link per pair, label at most 40 characters. Overview draws the map: stage columns, group boxes, link lines (backlinks are notes). Under three groups: no map.
-- skims? — array of { reason, rule?, covers }; needs stages ("guide.skims needs stages"). reason, and rule when given, are non-empty; covers select like a topic's. Skim rules are the reviewer's: cite the rule. Coverage only.
-Coverage: with stages every changed block is under a topic or skimmed (files-entry skims count; topics win overlaps), else start/reload --guide refuses with "guide leaves changes uncovered: path:line", the first 20, then "and N more". Reload without a new guide marks gaps "not in the guide yet". State coverage: topicLines, skimmedLines, totalLines, uncoveredLines, each skim's reason, rule? and exclusive count. Shares exclude skimmedLines.
-Topic validation names the topic and invalid cover, entry or link. Refusals: missing required field; duplicate id within a kind (stage/group/topic); file not in the diff; folder without changed files; lines touching no change; malformed \`lines\` entry; a link breaking the rules above. Across reloads a topic keeps its blocks by content; a file or folder cover takes new blocks under it.
+- skims? — array of { reason, rule?, covers }, only with stages. reason, and rule when given, are non-empty; covers select like a topic's. Skim rules are the reviewer's: cite the rule. Coverage only.
+Coverage: with stages every changed block is under a topic or skimmed (files-entry skims count; topics win overlaps), else attaching refuses with "guide leaves changes uncovered: path:line", the first 20, then "and N more". Reload without a new guide marks gaps "not in the guide yet". State coverage: topicLines, skimmedLines, totalLines, uncoveredLines, each skim's reason, rule? and exclusive count. Shares exclude skimmedLines.
+Topic validation names the topic and invalid cover, entry or link. Refusals: duplicate id within a kind (stage/group/topic); file not in the diff; folder without changed files; lines touching no change; malformed \`lines\` entry; a link breaking the rules above. Across reloads a topic keeps its blocks by content; a file or folder cover takes new blocks under it.
 
 #### Settling and rounds
 A review runs in rounds; each Send starts the next. A settled topic stays settled while the content of the blocks it claims is unchanged (line shifts, prose and cover rewrites claiming the same blocks don't count); otherwise the next reload drops the sign-off. A topic a new guide no longer has (by id) loses its sign-off. A settled topic's open change requests are still sent.
@@ -153,3 +153,47 @@ Skim LOWERS attention, the opposite of flag: skim only what genuinely needs no e
 ## Settings & errors
 - With the human's "Approve stages file" setting off, stagedFiles may be empty.
 - Error responses are {error, code, fix, docs}; honor fix. PATCH_CONFLICT (409): the working tree changed since the desk loaded; reload state and retry.`;
+
+// `galley spec --section <name>` reprints one part of SPEC for an agent that needs only that part
+// again (a guide drafter rereading the schema). Each name maps to a heading in SPEC, so the text
+// keeps one source. cli.ts lists these names in `galley spec --help` and on an unknown name.
+export const SPEC_SECTIONS: Record<string, string> = {
+  modes: "## Review modes",
+  loop: "## The loop",
+  events: "## Events",
+  result: "## ReviewResult",
+  acting: "## How to act on a review",
+  app: "## The running app",
+  guide: "## Guided review",
+  topics: "### Topics (Decisions mode)",
+  rounds: "## Between rounds",
+  settings: "## Settings & errors",
+};
+
+const SPEC_LINES = SPEC.split("\n");
+const headingLevel = (line: string) => /^(#+) /.exec(line)?.[1]!.length ?? Infinity;
+
+// The [start, end) lines under a heading: through the line before the next heading at its level or
+// above.
+function headingRange(heading: string): [number, number] {
+  const start = SPEC_LINES.findIndex((line) => line.startsWith(heading));
+  const level = headingLevel(SPEC_LINES[start]!);
+  let end = start + 1;
+  while (end < SPEC_LINES.length && headingLevel(SPEC_LINES[end]!) > level) end++;
+  return [start, end];
+}
+
+// One section's text, or undefined for an unknown name. A section nested inside another (topics
+// inside guide) is left out of the outer one, so every line of SPEC prints in exactly one section
+// (spec.test.ts holds this).
+export function specSection(name: string): string | undefined {
+  if (!Object.hasOwn(SPEC_SECTIONS, name)) return undefined;
+  const [start, end] = headingRange(SPEC_SECTIONS[name]!);
+  const nested = Object.values(SPEC_SECTIONS)
+    .map(headingRange)
+    .filter(([s]) => s > start && s < end);
+  return SPEC_LINES.slice(start, end)
+    .filter((_, i) => !nested.some(([s, e]) => start + i >= s && start + i < e))
+    .join("\n")
+    .trimEnd();
+}
