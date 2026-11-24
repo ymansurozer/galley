@@ -131,6 +131,17 @@ export async function deskAlive(url: string): Promise<boolean> {
   }
 }
 
+// A reply or status line reaches the tab at once, but the reviewer's next message reaches the agent
+// only through a parked `galley await`. A live desk reports whether one is (agentListening on the
+// reply/status response); when none is, say so on stderr, keeping stdout one JSON line. A desk too
+// old to report it adds nothing.
+function listening(agentListening: unknown): { listening?: boolean } {
+  if (typeof agentListening !== "boolean") return {};
+  if (!agentListening)
+    console.error("no `galley await` attached — the user's replies wait until you run one");
+  return { listening: agentListening };
+}
+
 // `galley comment --path <file> --line <n> [--side additions] --body "..."`
 // Posts an agent reply. If a live desk is running for the session, it goes over
 // HTTP so the open tab updates immediately; otherwise it is appended to the
@@ -166,10 +177,9 @@ async function runComment(args: Record<string, string | boolean>) {
         body: JSON.stringify(payload),
       });
       if (res.ok) {
-        const json = (await res.json()) as { commentId?: string };
-        process.stdout.write(
-          JSON.stringify({ ok: true, live: true, session, commentId: json.commentId }) + "\n",
-        );
+        const json = (await res.json()) as { commentId?: string; agentListening?: unknown };
+        const out = { ok: true, live: true, session, commentId: json.commentId };
+        process.stdout.write(JSON.stringify({ ...out, ...listening(json.agentListening) }) + "\n");
         return;
       }
     } catch {
@@ -229,6 +239,7 @@ async function runThreadComment(
     }).catch(() => null);
     const json = ((await res?.json().catch(() => null)) ?? {}) as {
       commentId?: string;
+      agentListening?: unknown;
       error?: string;
       fix?: string;
     };
@@ -241,9 +252,8 @@ async function runThreadComment(
       process.exitCode = 1;
       return;
     }
-    process.stdout.write(
-      JSON.stringify({ ok: true, live: true, session, commentId: json.commentId }) + "\n",
-    );
+    const out = { ok: true, live: true, session, commentId: json.commentId };
+    process.stdout.write(JSON.stringify({ ...out, ...listening(json.agentListening) }) + "\n");
     return;
   }
   const reply = await how.append(root, session, id, body);
@@ -279,7 +289,9 @@ async function runStatus(args: Record<string, string | boolean>) {
         body: JSON.stringify({ body }),
       });
       if (res.ok) {
-        process.stdout.write(JSON.stringify({ ok: true, live: true, session }) + "\n");
+        const json = (await res.json().catch(() => ({}))) as { agentListening?: unknown };
+        const out = { ok: true, live: true, session, ...listening(json.agentListening) };
+        process.stdout.write(JSON.stringify(out) + "\n");
         return;
       }
     } catch {

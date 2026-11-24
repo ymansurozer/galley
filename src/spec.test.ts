@@ -234,6 +234,8 @@ const ANCHORS = [
   "Shares exclude skimmedLines",
   "CLI uses loopback even with --host/GALLEY_HOST",
   "agentListening = parked await",
+  // a live reply or status says whether an await is parked, and nudges on stderr when none is
+  "live comment/status print it as listening; false warns on stderr (await again)",
   "agentRecentlyActive lasts 90s",
   "--idle-timeout",
   // the rest of the operational contract

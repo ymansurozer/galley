@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { deskAlive } from "./cli.js";
-import { startServer } from "./server.js";
+import { AGENT_HEADER, startServer } from "./server.js";
 import { deskLockPath, loadLatestReview, persistReview, reviewDir, stableUiPort } from "./state.js";
 import type { ReviewState } from "./types.js";
 
@@ -659,6 +659,67 @@ test("CLI status, replies in both lanes, and reload renew bounded recent presenc
       assert.equal(await recent(), false, "the server's existing TTL seam bounds presence");
     }
   } finally {
+    desk?.server.close();
+    process.env.HOME = oldHome;
+    await cleanup();
+  }
+});
+
+// A reply or status reaches the tab at once, but the reviewer's answer reaches the agent only
+// through a parked `galley await`: every lane says whether one is, on stdout and as a stderr nudge.
+test("comment in every lane and status report whether a galley await is attached", async () => {
+  const { repo, home, cleanup } = await tempRepo(false);
+  const oldHome = process.env.HOME;
+  process.env.HOME = home;
+  let desk: Awaited<ReturnType<typeof startServer>> | undefined;
+  const parked = new AbortController();
+  try {
+    const { lock } = await savedQuestion(repo, home);
+    const review = (await loadLatestReview(repo, "s"))!;
+    review.topicThreads = [
+      {
+        id: "t1",
+        target: { topic: "overview", part: "summary" },
+        title: "Overview",
+        intent: "question",
+        status: "open",
+        comments: [],
+      },
+    ];
+    desk = await startServer({ state: review, idleTimeoutMs: 0 });
+    await writeFile(lock, JSON.stringify({ pid: process.pid, url: desk.url, session: "s" }));
+    const warning = "no `galley await` attached — the user's replies wait until you run one\n";
+    const commands = [
+      ["status", "--body", "Reading"],
+      ["comment", "--path", "a.txt", "--line", "1", "--body", "Code answer"],
+      ["comment", "--ui", "q1", "--body", "App answer"],
+      ["comment", "--topic", "t1", "--body", "Topic answer"],
+    ];
+    const runAll = async (listening: boolean) => {
+      for (const command of commands) {
+        const result = await runCliAsync([...command, "--repo", repo, "--session", "s"], home);
+        assert.equal(result.status, 0, result.stderr);
+        const out = JSON.parse(result.stdout) as Record<string, unknown>;
+        assert.deepEqual(
+          [out.ok, out.live, out.session, out.listening],
+          [true, true, "s", listening],
+          command.join(" "),
+        );
+        if (command[0] === "comment") assert.equal(typeof out.commentId, "string");
+        assert.equal(result.stderr, listening ? "" : warning, command.join(" "));
+      }
+    };
+    await runAll(false);
+    const headers = { [AGENT_HEADER]: "1" };
+    fetch(`${desk.url}api/await-send`, { headers, signal: parked.signal }).catch(() => {});
+    const listening = async () =>
+      ((await fetch(`${desk!.url}api/poll`).then((r) => r.json())) as { agentListening: boolean })
+        .agentListening;
+    for (let i = 0; i < 100 && !(await listening()); i++)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    await runAll(true);
+  } finally {
+    parked.abort();
     desk?.server.close();
     process.env.HOME = oldHome;
     await cleanup();
