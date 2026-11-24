@@ -191,16 +191,16 @@ try {
         .waitFor({ timeout: RENDER_MS });
     });
     const topicPage = page.locator("#topics .topic-page");
-    for (const { id, target } of topic.threads) {
+    for (const [i, { id, target }] of topic.threads.entries()) {
       // A missing flag puts its threads under Recorded. Check the actual anchor as well.
       const flag = '[data-part="flag"]:has(.topic-flag)';
       const holder =
         target.part === "flag" ? topicPage.locator(`${flag} + .topic-threads`) : topicPage;
-      await step(`topic ${topic.id}'s thread ${id} never rendered at ${target.part}`, () =>
-        holder
-          .locator(`.topic-thread[data-thread=${JSON.stringify(id)}]`)
-          .waitFor({ timeout: RENDER_MS }),
-      );
+      const thread = holder.locator(`.topic-thread[data-thread=${JSON.stringify(id)}]`);
+      await step(`topic ${topic.id}'s thread ${id} never rendered at ${target.part}`, async () => {
+        await thread.waitFor({ timeout: RENDER_MS });
+        if (screenshot && i === 0) await thread.scrollIntoViewIfNeeded({ timeout: RENDER_MS });
+      });
     }
   }
   if (screenshot) await page.screenshot({ path: screenshot });

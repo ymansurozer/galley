@@ -1047,6 +1047,47 @@ test("galley guide check refuses two parts claiming one change", async () => {
   }
 });
 
+test("galley guide check --base only counts edits in a restored untracked file", async () => {
+  const { repo, git, check, cleanup } = await guideRepo();
+  try {
+    git("rm", "--cached", "a.txt");
+    git("commit", "-qm", "delete a.txt");
+    // The restored working file differs from the base on line 5 only.
+    const part = (line: number) => ({
+      overview: "o",
+      files: [{ path: "a.txt", orientation: "o", part: { title: "P", lines: [line] } }],
+    });
+    const index = path.join(repo, ".git", "index");
+    const before = await readFile(index);
+    const unchanged = await check(part(1), "--base", "HEAD~1");
+    assert.equal(unchanged.status, 1, unchanged.stdout + unchanged.stderr);
+    assert.match(unchanged.stdout, /line 1 matches no change/);
+    const changed = await check(part(5), "--base", "HEAD~1");
+    assert.equal(changed.status, 0, changed.stdout + changed.stderr);
+    assert.deepEqual(await readFile(index), before);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("galley guide check does not write Git textconv cache notes", async () => {
+  const { repo, git, check, cleanup } = await guideRepo();
+  try {
+    await writeFile(path.join(repo, ".gitattributes"), "a.txt diff=preview\n");
+    git("config", "diff.preview.textconv", "cat");
+    git("config", "diff.preview.cachetextconv", "true");
+    const guide = {
+      overview: "o",
+      files: [{ path: "a.txt", orientation: "o", part: { title: "P", lines: [5] } }],
+    };
+    const result = await check(guide);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(git("for-each-ref", "refs/notes/textconv"), "");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("galley guide check --base diffs the working tree against a validated commit", async () => {
   const { git, check, cleanup } = await guideRepo();
   try {

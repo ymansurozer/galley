@@ -87,7 +87,7 @@ A change request missing from a later Send was resolved or became a question (it
 You own the dev server; Galley never starts, restarts or stops it. Pass \`--ui <url>\` on any desk start, or \`galley ui <url>\` to set its target (prints {ok,live:true,session,target}); without a desk it starts one (UI-only if clean; background it). <url> must be a loopback http:// URL (localhost, 127.0.0.0/8, ::1; a bare host:port gets http://), else exit 1, no start. Path+query sets the first page (dev sign-in works). Target survives reload/restart. If the app is down, don't claim visual success; the reviewer can retry with Refresh app.
 
 ## Guided review (optional)
-\`galley <mode> --guide <file>\` attaches a guide (prose is markdown, raw HTML stripped). Write it OUTSIDE the working tree. Stamped to its diff, it survives reload/restart. When stale, swap with \`galley reload --guide <new>\`. Schema: \`galley spec --section guide\`.
+\`galley <mode> --guide <file>\` attaches a guide (prose is markdown, raw HTML stripped). Write it OUTSIDE the working tree. Stamped to its diff, it survives reload/restart. When stale, swap with \`galley reload --guide <new>\`. Schema: \`galley spec --section guide\` or \`galley spec --section topics\`.
 
 ### Guide JSON schema
 - title? — overview heading (default: branch/ref).

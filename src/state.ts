@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
@@ -1001,6 +1002,56 @@ function isOutsideRoot(rel: string): boolean {
   return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
 }
 
+// Git compares the working tree through its index, so an untracked file restored at a path
+// that exists in the base otherwise looks like a deletion plus a full addition. Put those
+// paths back in a temporary index with their base blob IDs. This lets the normal git diff
+// compare their actual edits, name renames consistently, and leave the real index untouched.
+async function diffAgainstBase(
+  args: string[],
+  root: string,
+  base: string,
+  untracked: string[],
+): Promise<{ rawDiff: string; untracked: string[] }> {
+  const paths = new Set(untracked);
+  const tree = await git(["ls-tree", "-r", "-z", base], root);
+  const restored = new Map<string, string>();
+  for (const entry of tree.split("\0")) {
+    const tab = entry.indexOf("\t");
+    if (tab === -1) continue;
+    const file = entry.slice(tab + 1);
+    if (!paths.has(file)) continue;
+    const [mode, type, oid] = entry.slice(0, tab).split(" ");
+    if (type === "blob") restored.set(file, `${mode},${oid},${file}`);
+  }
+  if (!restored.size) return { rawDiff: await git(args, root), untracked };
+
+  const original = await git(["rev-parse", "--path-format=absolute", "--git-path", "index"], root);
+  const temp = await fs.mkdtemp(path.join(tmpdir(), "galley-guide-index-"));
+  const indexFile = path.join(temp, "index");
+  const env = { ...process.env, GIT_INDEX_FILE: indexFile };
+  try {
+    try {
+      await fs.copyFile(original, indexFile);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    // A copied split index can read its shared base, but updates must stay in the temp dir.
+    for (const info of restored.values()) {
+      await git(
+        ["-c", "core.splitIndex=false", "update-index", "--add", "--cacheinfo", info],
+        root,
+        env,
+      );
+    }
+    return {
+      rawDiff: await git(args, root, env),
+      untracked: untracked.filter((file) => !restored.has(file)),
+    };
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+}
+
 // The deep module: produce review files + changes for a given mode.
 // repo  → working/staged diff (opts.path is a root-relative limit). opts.base, a commit, diffs the
 //         working tree against it instead of the index (`galley guide check --base`; no desk does).
@@ -1076,11 +1127,20 @@ export async function buildDiffSource(opts: {
   // regardless of the user's `diff.renames` config (see buildDiffSource's contract).
   // A porcelain diff can refresh the index's stat cache. An offline guide check promises
   // to leave the index untouched even when a file's timestamps have changed.
-  const args = opts.readOnly ? ["-c", "diff.autoRefreshIndex=false", ...DIFF] : [...DIFF];
+  // Text conversion can populate refs/notes/textconv, so use the underlying text diff.
+  const args = opts.readOnly
+    ? ["-c", "diff.autoRefreshIndex=false", ...DIFF, "--no-textconv"]
+    : [...DIFF];
   if (opts.staged) args.push("--cached");
   else if (opts.base) args.push(opts.base);
   if (opts.path) args.push("--", opts.path);
-  const rawDiff = await git(args, root);
+  const lsArgs = ["ls-files", "--others", "--exclude-standard", "-z"];
+  if (opts.path) lsArgs.push("--", opts.path);
+  const workingOnly = opts.staged ? [] : (await git(lsArgs, root)).split("\0").filter(Boolean);
+  const { rawDiff, untracked } =
+    opts.base && workingOnly.length
+      ? await diffAgainstBase(args, root, opts.base, workingOnly)
+      : { rawDiff: await git(args, root), untracked: workingOnly };
   // Each side must match what the diff was taken against, because the UI renders these hunks
   // over the old/new contents (re-diffing the two sides itself where they don't match — see
   // changes-derive.ts parseRawDiff). Unstaged diffs working tree vs INDEX, so old reads :0 — a
@@ -1109,9 +1169,6 @@ export async function buildDiffSource(opts: {
   // (/api/stage), which doesn't rely on rawDiff. Staged mode is unaffected: untracked files
   // are by definition not in the index.
   if (!opts.staged) {
-    const lsArgs = ["ls-files", "--others", "--exclude-standard"];
-    if (opts.path) lsArgs.push("--", opts.path);
-    const untracked = (await git(lsArgs, root)).split(/\r?\n/).filter(Boolean);
     const untrackedEntries: Array<{ rel: string; working: string }> = [];
     for (const rel of untracked)
       untrackedEntries.push({

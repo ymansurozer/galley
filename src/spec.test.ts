@@ -158,7 +158,7 @@ const ANCHORS = [
   "raw HTML stripped",
   // a guide checks without a desk, and its sections reprint alone
   "`galley guide check <file> [--base <ref>]` checks schema and spans offline",
-  "Schema: `galley spec --section guide`",
+  "Schema: `galley spec --section guide` or `galley spec --section topics`",
   // options: who they're for, their field types, and how picks replace and clear
   "alternatives you weighed, or the reviewer asked for",
   "label and note strings, ships and recommended booleans",
