@@ -1076,7 +1076,7 @@ export async function buildDiffSource(opts: {
   // regardless of the user's `diff.renames` config (see buildDiffSource's contract).
   // A porcelain diff can refresh the index's stat cache. An offline guide check promises
   // to leave the index untouched even when a file's timestamps have changed.
-  const args = opts.readOnly ? ["--no-optional-locks", ...DIFF] : [...DIFF];
+  const args = opts.readOnly ? ["-c", "diff.autoRefreshIndex=false", ...DIFF] : [...DIFF];
   if (opts.staged) args.push("--cached");
   else if (opts.base) args.push(opts.base);
   if (opts.path) args.push("--", opts.path);
