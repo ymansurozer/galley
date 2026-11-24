@@ -1038,7 +1038,7 @@ async function diffAgainstBase(
     // A copied split index can read its shared base, but updates must stay in the temp dir.
     for (const info of restored.values()) {
       await git(
-        ["-c", "core.splitIndex=false", "update-index", "--add", "--cacheinfo", info],
+        ["-c", "core.splitIndex=false", "update-index", "--add", "--replace", "--cacheinfo", info],
         root,
         env,
       );
@@ -1050,6 +1050,26 @@ async function diffAgainstBase(
   } finally {
     await fs.rm(temp, { recursive: true, force: true });
   }
+}
+
+// Keep configured diff drivers so the check sees the same lines as the desk, but keep
+// their conversion cache out of Git notes. --get-regexp returns no matches with exit 1.
+async function readOnlyDiffConfig(root: string): Promise<string[]> {
+  const keys = await git(
+    ["config", "--name-only", "--null", "--get-regexp", "^diff\\..*\\.cachetextconv$"],
+    root,
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (Number(error.code) !== 1) throw error;
+    return "";
+  });
+  return [
+    "-c",
+    "diff.autoRefreshIndex=false",
+    ...keys
+      .split("\0")
+      .filter(Boolean)
+      .flatMap((key) => ["-c", `${key}=false`]),
+  ];
 }
 
 // The deep module: produce review files + changes for a given mode.
@@ -1127,10 +1147,7 @@ export async function buildDiffSource(opts: {
   // regardless of the user's `diff.renames` config (see buildDiffSource's contract).
   // A porcelain diff can refresh the index's stat cache. An offline guide check promises
   // to leave the index untouched even when a file's timestamps have changed.
-  // Text conversion can populate refs/notes/textconv, so use the underlying text diff.
-  const args = opts.readOnly
-    ? ["-c", "diff.autoRefreshIndex=false", ...DIFF, "--no-textconv"]
-    : [...DIFF];
+  const args = opts.readOnly ? [...(await readOnlyDiffConfig(root)), ...DIFF] : [...DIFF];
   if (opts.staged) args.push("--cached");
   else if (opts.base) args.push(opts.base);
   if (opts.path) args.push("--", opts.path);

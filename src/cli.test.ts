@@ -1070,18 +1070,56 @@ test("galley guide check --base only counts edits in a restored untracked file",
   }
 });
 
-test("galley guide check does not write Git textconv cache notes", async () => {
+test("galley guide check --base handles a restored file over cached directory entries", async () => {
   const { repo, git, check, cleanup } = await guideRepo();
   try {
-    await writeFile(path.join(repo, ".gitattributes"), "a.txt diff=preview\n");
-    git("config", "diff.preview.textconv", "cat");
-    git("config", "diff.preview.cachetextconv", "true");
+    const file = path.join(repo, "a.txt");
+    const working = await readFile(file);
+    git("rm", "-f", "a.txt");
+    await mkdir(file);
+    await writeFile(path.join(file, "defaults"), "cached\n");
+    git("add", "a.txt");
+    git("commit", "-qm", "replace the file with a directory");
+    await rm(file, { recursive: true });
+    await writeFile(file, working);
     const guide = {
       overview: "o",
       files: [{ path: "a.txt", orientation: "o", part: { title: "P", lines: [5] } }],
     };
-    const result = await check(guide);
+    const result = await check(guide, "--base", "HEAD~1");
     assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(git("ls-files", "--", "a.txt"), /a.txt\/defaults/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("galley guide check honors textconv without writing its Git cache notes", async () => {
+  const { repo, git, check, cleanup } = await guideRepo();
+  try {
+    const file = path.join(repo, "a.txt");
+    const base = (await readFile(file, "utf8"))
+      .replace("changed", "line 5")
+      .replace("line 9", "generated first");
+    await writeFile(file, base);
+    git("add", "a.txt");
+    git("commit", "-qm", "commit the generated line");
+    await writeFile(
+      file,
+      base.replace("line 5", "changed").replace("generated first", "generated second"),
+    );
+    await writeFile(path.join(repo, ".gitattributes"), "a.txt diff=preview\n");
+    git("config", "diff.preview.textconv", "sed '/^generated /d'");
+    git("config", "diff.preview.cachetextconv", "true");
+    const part = (line: number) => ({
+      overview: "o",
+      files: [{ path: "a.txt", orientation: "o", part: { title: "P", lines: [line] } }],
+    });
+    const ignored = await check(part(9));
+    assert.equal(ignored.status, 1, ignored.stdout + ignored.stderr);
+    assert.match(ignored.stdout, /line 9 matches no change/);
+    const changed = await check(part(5));
+    assert.equal(changed.status, 0, changed.stdout + changed.stderr);
     assert.equal(git("for-each-ref", "refs/notes/textconv"), "");
   } finally {
     await cleanup();
