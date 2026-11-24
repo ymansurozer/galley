@@ -1,6 +1,26 @@
 # Changelog
 
 
+## v0.9.2
+
+[compare changes](https://github.com/ymansurozer/galley/compare/v0.9.1...v0.9.2)
+
+### 🚀 Enhancements
+
+- Address the November 23 Galley retro ([#166](https://github.com/ymansurozer/galley/pull/166))
+
+### 🩹 Fixes
+
+- Offer to send the review when the last topic is settled ([#156](https://github.com/ymansurozer/galley/pull/156))
+
+### 🏡 Chore
+
+- Address the November 16 Galley retro ([#158](https://github.com/ymansurozer/galley/pull/158))
+
+### ❤️ Contributors
+
+- Yusuf Mansur Özer <ymansurozer@gmail.com>
+
 ## v0.9.1
 
 [compare changes](https://github.com/ymansurozer/galley/compare/v0.9.0...v0.9.1)
