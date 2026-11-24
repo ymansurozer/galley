@@ -32,9 +32,9 @@ CI (`.github/workflows/ci.yml`) runs lint, check, build, test, smoke, perf-smoke
 
 A desk writes settings, locks and saved reviews under `$HOME/.galley`, so a desk started with the real `HOME` rewrites the user's own. Test against a sandbox desk instead:
 
-1. `pnpm build`, then `pnpm --silent desk:sandbox`. It gives the desk a throwaway `HOME`, a fixture repo and a loopback port in 5100–5299, and prints one JSON line once the desk serves the fixture.
+1. `pnpm build`, then `pnpm --silent desk:sandbox`. It gives the desk a throwaway `HOME`, a fixture repo and a loopback port in 5100–5299, and prints one JSON line once the desk serves the fixture. To test Decisions mode, run `pnpm --silent desk:sandbox --guide`: it attaches a topics guide (two groups, a topic with a flag card) and seeds a topic thread, a question with the agent's answer, before the JSON line.
 2. Read that line's fields with `jq -r`. `url` is the desk. `repo` is the fixture: edit it, then `reload`. `cli` is a shell template: replace `<command>` with a subcommand (`await`, `comment`, `reload`, `ui`, `stop`) and keep the printed environment prefix, `--repo` and `--session` so it reaches the fixture.
-3. Check the page with `pnpm --silent desk:browse <url> [--screenshot <png>]`. It opens every file the desk serves in headless Chromium and fails when a file's row, its changed lines (or a pure rename's notice) don't render, or when the page throws; console errors are reported without failing. Run it, and any script importing `chromium` from `playwright-core`, with the real `HOME`, where Playwright's browser cache is; if Chromium is missing, run `pnpm exec playwright-core install chromium`.
+3. Check the page with `pnpm --silent desk:browse <url> [--screenshot <png>]`. It opens every file the desk serves in headless Chromium and fails when a file's row, its changed lines (or a pure rename's notice) don't render, or when the page throws; console errors are reported without failing. On a desk with a topics guide it walks the files in Code mode, then opens Decisions on the first topic with a thread, fails unless the topic and its threads render, and takes the screenshot there. Run it, and any script importing `chromium` from `playwright-core`, with the real `HOME`, where Playwright's browser cache is; if Chromium is missing, run `pnpm exec playwright-core install chromium`.
 4. Stop it with `kill <pid>` (the `pid` field), Ctrl-C, or the template's `stop`. Each stops the desk and deletes the sandbox. A signal sent to `pnpm` alone never reaches it.
 
 ## Three compilation worlds
@@ -64,6 +64,7 @@ The worlds do not import each other at runtime. `src/types.ts` is the single sou
 
 ## Conventions
 
+- Record conventions, gotchas, recipes, and known flakes in `AGENTS.md` or a repo doc linked here so every account and Codex can find them. Keep personal preferences in per-account agent memory.
 - Commits follow **Conventional Commits** (`feat:`, `fix:`, `perf:`, `refactor:`, `docs:`, `chore:`, …). `changelogen` groups them into the changelog and infers the semver bump, so the prefix matters — use `feat:` for user-facing additions and `fix:` for bug fixes.
 - Comments in this codebase explain _why_ and record invariants (see `state.ts`, `types.ts`); match that style.
 - Formatting/linting is oxfmt/oxlint — run `pnpm lint:fix` rather than hand-formatting.
