@@ -5,10 +5,13 @@
 // the fixture, and removes it all on Ctrl-C, SIGTERM, SIGHUP or `galley stop`. With --guide it also
 // attaches a topics guide, so the desk opens in Decisions mode with a reviewer's thread to answer.
 // Run: pnpm build && pnpm --silent desk:sandbox [--guide]
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const SESSION = "sandbox";
 const CLI = path.join(process.cwd(), "dist", "cli.js");
@@ -60,6 +63,7 @@ const repo = path.join(root, "repo");
 const guidePath = path.join(root, "guide.json");
 let desk;
 let stopping = false;
+const stoppingSignal = new AbortController();
 
 // The fixture's git and the desk (which runs git too) share one environment that can reach
 // nothing outside the root. The caller's GIT_* variables would otherwise steer them: GIT_DIR
@@ -106,6 +110,7 @@ function stopDesk(child) {
 function shutdown() {
   if (stopping) return;
   stopping = true;
+  stoppingSignal.abort();
   (desk ? stopDesk(desk) : Promise.resolve()).then(() => {
     cleanup();
     process.exit();
@@ -312,8 +317,8 @@ async function waitForFixture(child, base) {
   throw new Error(`the desk never served the fixture within ${READY_MS / 1000}s (${last})`);
 }
 
-const getState = async (base) => {
-  const res = await fetch(`${base}/api/state`, { signal: AbortSignal.timeout(READY_MS) });
+const getState = async (base, signal) => {
+  const res = await fetch(`${base}/api/state`, { signal });
   if (!res.ok) throw new Error(`/api/state answered ${res.status}`);
   return res.json();
 };
@@ -322,11 +327,12 @@ const getState = async (base) => {
 // then the agent's answer through `galley comment --topic`, so the thread shows both roles. Resolves
 // only once /api/state holds the guide and the answered thread, so the ready line promises both.
 async function seedThread(base) {
-  const state = await getState(base);
+  const signal = AbortSignal.any([stoppingSignal.signal, AbortSignal.timeout(READY_MS)]);
+  const state = await getState(base, signal);
   const at = new Date().toISOString();
   const res = await fetch(`${base}/api/save`, {
     method: "POST",
-    signal: AbortSignal.timeout(READY_MS),
+    signal,
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       base: state.saveNumber ?? 0,
@@ -363,7 +369,7 @@ async function seedThread(base) {
     }),
   });
   if (!res.ok) throw new Error(`seeding the topic thread: /api/save answered ${res.status}`);
-  execFileSync(
+  await execFileAsync(
     process.execPath,
     [
       CLI,
@@ -377,9 +383,9 @@ async function seedThread(base) {
       "--body",
       "Not yet: the only caller is `greet`, and the fixture passes ASCII names.",
     ],
-    { stdio: ["ignore", "ignore", "pipe"], env: sandboxEnv(), timeout: READY_MS },
+    { env: sandboxEnv(), signal },
   );
-  const seeded = await getState(base);
+  const seeded = await getState(base, signal);
   const thread = seeded.topicThreads?.find((t) => t.id === THREAD);
   if (
     !seeded.guide?.stages?.some((st) =>

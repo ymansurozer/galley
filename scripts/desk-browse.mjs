@@ -53,14 +53,14 @@ if (!expected.length) fail(`the desk at ${base} has no changes to review; nothin
 // a thread when the desk has one, else the guide's first. Undefined without a topics guide.
 function topicToOpen(state) {
   const topics = (state.guide?.stages ?? []).flatMap((s) =>
-    s.groups.flatMap((g) => g.topics.map((t) => ({ id: t.id, group: g.id }))),
+    s.groups.flatMap((g) => g.topics.map((t) => ({ id: t.id, title: t.title, group: g.id }))),
   );
   const threads = state.topicThreads ?? [];
   const found = topics.find((t) => threads.some((th) => th.target.topic === t.id)) ?? topics[0];
   return (
     found && {
       ...found,
-      threads: threads.filter((th) => th.target.topic === found.id).map((th) => th.id),
+      threads: threads.filter((th) => th.target.topic === found.id),
     }
   );
 }
@@ -180,15 +180,28 @@ try {
       nav("data-group", topic.group).click({ timeout: RENDER_MS }),
     );
     await step(`topic ${topic.id} never opened`, async () => {
-      await nav("data-topic", topic.id).click({ timeout: RENDER_MS });
-      await page.locator("#topics .topic-page .topic-title").waitFor({ timeout: RENDER_MS });
+      const row = nav("data-topic", topic.id);
+      const folded = nav("data-earlier", topic.group).and(page.locator('[aria-expanded="false"]'));
+      if ((await row.count()) === 0 && (await folded.count()) === 1)
+        await folded.click({ timeout: RENDER_MS });
+      await row.click({ timeout: RENDER_MS });
+      await page
+        .locator("#topics .topic-page")
+        .getByRole("heading", { name: topic.title, exact: true })
+        .waitFor({ timeout: RENDER_MS });
     });
-    for (const id of topic.threads)
-      await step(`topic ${topic.id}'s thread ${id} never rendered`, () =>
-        page
-          .locator(`#topics .topic-thread[data-thread=${JSON.stringify(id)}]`)
+    const topicPage = page.locator("#topics .topic-page");
+    for (const { id, target } of topic.threads) {
+      // A missing flag puts its threads under Recorded. Check the actual anchor as well.
+      const flag = '[data-part="flag"]:has(.topic-flag)';
+      const holder =
+        target.part === "flag" ? topicPage.locator(`${flag} + .topic-threads`) : topicPage;
+      await step(`topic ${topic.id}'s thread ${id} never rendered at ${target.part}`, () =>
+        holder
+          .locator(`.topic-thread[data-thread=${JSON.stringify(id)}]`)
           .waitFor({ timeout: RENDER_MS }),
       );
+    }
   }
   if (screenshot) await page.screenshot({ path: screenshot });
   if (pageErrors.length) throw new Error(`the page threw: ${pageErrors.join(" | ")}`);
@@ -200,7 +213,7 @@ try {
       title: await page.title(),
       chromium: browser.version(),
       files: views,
-      ...(topic && { topic: { id: topic.id, threads: topic.threads } }),
+      ...(topic && { topic: { id: topic.id, threads: topic.threads.map((thread) => thread.id) } }),
       consoleErrors,
       screenshot,
     }),
