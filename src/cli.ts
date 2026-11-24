@@ -478,8 +478,7 @@ function loadGuideArg(value: string | boolean | undefined) {
   return result.guide;
 }
 
-// `galley guide check <file> [--base <ref>]`: what attaching a guide would refuse, found without a
-// desk. validateGuide's schema check comes first (it stops at its first reason); then each span alone
+// `galley guide check <file> [--base <ref>]`: schema and diff spans, checked without a desk. validateGuide's schema check comes first (it stops at its first reason); then each span alone
 // goes through the desk's own resolvers against the diff, so every miss prints, at its dotted place
 // in the guide as written. With no miss, the whole guide's parts and skims resolve together, as an
 // attach does, which catches two parts claiming one block. The diff is a repo desk's (working tree
@@ -523,14 +522,17 @@ async function runGuideCheck(file: string | undefined, args: Record<string, stri
     }
   }
   const validation = validateGuide(input);
+  if (!validation.ok) {
+    console.log(validation.reason);
+    process.exitCode = 1;
+    return;
+  }
   const empty: DiffSource = { files: [], changes: [], rawDiff: "", parsedDiff: [] };
-  const problems = validation.ok
-    ? guideSpanProblems(
-        input,
-        validation.guide,
-        (await buildDiffSource({ mode: "repo", root, base })) ?? empty,
-      )
-    : [validation.reason];
+  const diffSource = await buildDiffSource({ mode: "repo", root, base, readOnly: true });
+  const source = { ...(diffSource ?? empty), mode: "repo" as const, staged: false };
+  // Check the same locations the desk will see after merging resolvable declared moves.
+  resolveMovedFrom(source, validation.guide, { strict: false });
+  const problems = guideSpanProblems(input, validation.guide, source);
   if (problems.length) {
     process.stdout.write(problems.join("\n") + "\n");
     process.exitCode = 1;
@@ -611,6 +613,12 @@ function guideSpanProblems(written: unknown, guide: Guide, source: DiffSource): 
 function coverProblems(covers: Cover[], at: string, index: CoverIndex): string[] {
   const problems: string[] = [];
   covers.forEach((cover, i) => {
+    if (cover.path.endsWith("/") && cover.lines) {
+      problems.push(
+        `${at}.covers[${i}].lines (on ${JSON.stringify(cover.path)}) must be omitted for folders`,
+      );
+      return;
+    }
     const whole = resolveCovers([{ path: cover.path }], index);
     if (!whole.ok) return problems.push(`${at}.covers[${i}]: ${whole.reason}`);
     cover.lines?.forEach((span, j) => {
@@ -1002,8 +1010,8 @@ const GUIDE_HELP = `Usage: galley guide check <file> [--base <ref>] [--repo <pat
 Check a review guide without a desk: its schema, then that every span (part lines, skimBlocks,
 topic and skim covers, topic body lines entries) lands on a change in the diff, and that no two
 parts claim one change. The diff is a repo desk's: the working tree vs the index, untracked files
-included. --base <ref> diffs the working tree against that commit instead. Prints each problem
-with its place in the guide and exits 1 on any. Writes nothing.`;
+included. --base <ref> diffs the working tree against that commit instead. Prints the first
+schema error or lists span errors with their locations. Exits 1 on failure and writes nothing.`;
 
 // `galley spec [--section <name>]`: the whole contract, or one section of it.
 function runSpec(args: Record<string, string | boolean>) {

@@ -87,7 +87,7 @@ A change request missing from a later Send was resolved or became a question (it
 You own the dev server; Galley never starts, restarts or stops it. Pass \`--ui <url>\` on any desk start, or \`galley ui <url>\` to set its target (prints {ok,live:true,session,target}); without a desk it starts one (UI-only if clean; background it). <url> must be a loopback http:// URL (localhost, 127.0.0.0/8, ::1; a bare host:port gets http://), else exit 1, no start. Path+query sets the first page (dev sign-in works). Target survives reload/restart. If the app is down, don't claim visual success; the reviewer can retry with Refresh app.
 
 ## Guided review (optional)
-\`galley <mode> --guide <file>\` attaches a guide (prose is markdown, raw HTML stripped). Write it OUTSIDE the working tree. Stamped to its diff, it survives reload/restart. When stale, swap with \`galley reload --guide <new>\`. Reprint: \`galley spec --section guide|topics\`.
+\`galley <mode> --guide <file>\` attaches a guide (prose is markdown, raw HTML stripped). Write it OUTSIDE the working tree. Stamped to its diff, it survives reload/restart. When stale, swap with \`galley reload --guide <new>\`. Schema: \`galley spec --section guide\`.
 
 ### Guide JSON schema
 - title? — overview heading (default: branch/ref).
@@ -106,7 +106,7 @@ You own the dev server; Galley never starts, restarts or stops it. Pass \`--ui <
 - focused? — boolean; badges the overview "focused review — mechanical churn skimmed".
 - stages? — topics (Decisions mode, below). A guide carries files, stages, or both; Code mode shows files' walkthrough, else the plain tree.
 A fully skimmed file/part or pure rename drops into a collapsed "Skimmed" group.
-Validation aborts the launch (or reload --guide, leaving the desk as it was), naming the field (for a part, its path, title and span): spans resolve to change blocks; no two parts may claim the same block; movedFrom pairs a full deletion with the addition at path. \`galley guide check <file> [--base <ref>]\` checks schema and spans with no desk, listing every problem.
+Validation aborts the launch (or reload --guide, leaving the desk as it was), naming the field (for a part, its path, title and span): spans resolve to change blocks; no two parts may claim the same block; movedFrom pairs a full deletion with the addition at path. \`galley guide check <file> [--base <ref>]\` checks schema and spans offline.
 
 ### Topics (Decisions mode)
 With \`stages\`, Decisions mode settles TOPICS (one call each) in guide order. Fields without ? are required; strings are non-empty.

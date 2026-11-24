@@ -8,8 +8,10 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import http from "node:http";
@@ -827,7 +829,7 @@ async function guideRepo() {
     await rm(repo, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });
   };
-  return { home, git, check, cleanup };
+  return { home, repo, git, check, cleanup };
 }
 
 // A guide with every kind of span: a part and its skimBlocks, topic covers and a body `lines`
@@ -869,16 +871,26 @@ const spanGuide = (a: { part: number; skim: number; cover: number; entry: number
 });
 
 test("galley guide check passes a guide whose every span lands on the diff, writing nothing", async () => {
-  const { home, git, check, cleanup } = await guideRepo();
+  const { home, repo, git, check, cleanup } = await guideRepo();
   try {
+    const unchanged = path.join(repo, "unchanged.txt");
+    await writeFile(unchanged, "same\n");
+    git("add", "unchanged.txt");
+    git("commit", "-qm", "track an unchanged file");
+    git("config", "diff.autoRefreshIndex", "true");
     const before = git("status", "--porcelain");
+    const index = path.join(repo, ".git", "index");
+    const indexBefore = await readFile(index);
+    const timestamp = new Date("2000-01-01T00:00:00Z");
+    await utimes(unchanged, timestamp, timestamp);
     const valid = spanGuide({ part: 5, skim: 5, cover: 5, entry: 5 });
     valid.stages[0]!.groups[0]!.topics[0]!.covers.pop();
     valid.skims[0]!.covers[0]!.lines.pop();
     const ok = await check(valid);
     assert.equal(ok.status, 0, ok.stdout + ok.stderr);
     assert.match(ok.stdout, /^Guide OK/);
-    assert.equal(git("status", "--porcelain"), before, "the repo and its index are untouched");
+    assert.deepEqual(await readFile(index), indexBefore, "Git did not refresh its index");
+    assert.equal(git("status", "--porcelain"), before, "the working diff is untouched");
     await assert.rejects(access(path.join(home, ".galley")), "no state directory");
   } finally {
     await cleanup();
@@ -911,6 +923,45 @@ test("galley guide check names every span off the diff by its place in the guide
       `${topic}.body, lines fence at line 3: entry "a.txt:2" touches no change in the diff`,
       'guide.skims[0].covers[0].lines[1]: cover "n.txt" line 7 matches no change in the diff',
     ]);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("galley guide check refuses line spans on folder covers", async () => {
+  const { repo, check, cleanup } = await guideRepo();
+  try {
+    await mkdir(path.join(repo, "src"));
+    await writeFile(path.join(repo, "src", "added.txt"), "new\n");
+    const guide = spanGuide({ part: 5, skim: 5, cover: 5, entry: 5 });
+    guide.stages[0]!.groups[0]!.topics[0]!.covers[1] = { path: "src/", lines: [999] };
+    guide.skims[0]!.covers[0]!.lines.pop();
+    const result = await check(guide);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout, /covers\[1\]\.lines \(on "src\/"\) must be omitted for folders/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("galley guide check resolves declared moves before checking topic spans", async () => {
+  const { repo, check, cleanup } = await guideRepo();
+  try {
+    await rename(path.join(repo, "a.txt"), path.join(repo, "moved.txt"));
+    const guide = spanGuide({ part: 5, skim: 5, cover: 1, entry: 5 });
+    const topic = guide.stages[0]!.groups[0]!.topics[0]!;
+    topic.body = "Moved file";
+    topic.covers = [{ path: "moved.txt", lines: [1] }];
+    const result = await check({
+      ...guide,
+      files: [{ path: "moved.txt", movedFrom: "a.txt", orientation: "A move with edits" }],
+      skims: [],
+    });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(
+      result.stdout,
+      /covers\[0\]\.lines\[0\].*cover "moved.txt" line 1 matches no change/,
+    );
   } finally {
     await cleanup();
   }

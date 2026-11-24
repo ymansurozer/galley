@@ -157,8 +157,8 @@ const ANCHORS = [
   "Code mode shows files' walkthrough, else the plain tree",
   "raw HTML stripped",
   // a guide checks without a desk, and its sections reprint alone
-  "`galley guide check <file> [--base <ref>]` checks schema and spans with no desk, listing every problem",
-  "Reprint: `galley spec --section guide|topics`",
+  "`galley guide check <file> [--base <ref>]` checks schema and spans offline",
+  "Reprint: `galley spec --section guide`",
   // options: who they're for, their field types, and how picks replace and clear
   "alternatives you weighed, or the reviewer asked for",
   "label and note strings, ships and recommended booleans",

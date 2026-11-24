@@ -926,7 +926,7 @@ export type MovedResolution = { ok: true } | { ok: false; reason: string };
 // delete+add — a move that no longer holds deserves fresh eyes). Working repo mode only (git -M
 // covers committed renames; file mode has no untracked side).
 export function resolveMovedFrom(
-  state: ReviewState,
+  state: Pick<ReviewState, "mode" | "staged" | "files" | "changes">,
   guide: Guide,
   opts: { strict: boolean },
 ): MovedResolution {
@@ -1013,6 +1013,7 @@ export async function buildDiffSource(opts: {
   path?: string;
   staged?: boolean;
   base?: string;
+  readOnly?: boolean;
 }): Promise<DiffSource | null> {
   const { mode, root } = opts;
   // `-U3` pins git's context to the default whatever the user's `diff.context` says: the tab
@@ -1073,7 +1074,9 @@ export async function buildDiffSource(opts: {
   // repo
   // -M asks git itself to detect renames, so committed/staged renames render deterministically
   // regardless of the user's `diff.renames` config (see buildDiffSource's contract).
-  const args = [...DIFF];
+  // A porcelain diff can refresh the index's stat cache. An offline guide check promises
+  // to leave the index untouched even when a file's timestamps have changed.
+  const args = opts.readOnly ? ["--no-optional-locks", ...DIFF] : [...DIFF];
   if (opts.staged) args.push("--cached");
   else if (opts.base) args.push(opts.base);
   if (opts.path) args.push("--", opts.path);
