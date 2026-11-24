@@ -2,12 +2,16 @@
 // saved reviews under $HOME/.galley, so a test desk run against the real HOME rewrites the user's
 // own settings and reviews. This one gets a throwaway HOME and a fixture repo with one change of
 // every kind, binds loopback on a port in 5100-5299, prints one JSON line once /api/state serves
-// the fixture, and removes it all on Ctrl-C, SIGTERM, SIGHUP or `galley stop`.
-// Run: pnpm build && pnpm --silent desk:sandbox
-import { execFileSync, spawn } from "node:child_process";
+// the fixture, and removes it all on Ctrl-C, SIGTERM, SIGHUP or `galley stop`. With --guide it also
+// attaches a topics guide, so the desk opens in Decisions mode with a reviewer's thread to answer.
+// Run: pnpm build && pnpm --silent desk:sandbox [--guide]
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const SESSION = "sandbox";
 const CLI = path.join(process.cwd(), "dist", "cli.js");
@@ -39,6 +43,14 @@ const fail = (message) => {
 // POSIX sh single quotes keep every byte literal; a quote inside closes, escapes and reopens.
 const shellQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
 
+const args = process.argv.slice(2);
+const unknown = args.filter((a) => a !== "--guide");
+if (unknown.length) {
+  console.error(`desk:sandbox: unknown argument ${unknown[0]}. Usage: desk:sandbox [--guide]`);
+  process.exit(1);
+}
+const GUIDED = args.includes("--guide");
+
 if (!existsSync(CLI)) {
   console.error("desk:sandbox: dist/cli.js is missing. Run `pnpm build` first.");
   process.exit(1);
@@ -47,8 +59,11 @@ if (!existsSync(CLI)) {
 const root = mkdtempSync(path.join(tmpdir(), "galley-sandbox-"));
 const home = path.join(root, "home");
 const repo = path.join(root, "repo");
+// Outside the repo, so the guide is no change under review, and inside the root, so it goes with it.
+const guidePath = path.join(root, "guide.json");
 let desk;
 let stopping = false;
+const stoppingSignal = new AbortController();
 
 // The fixture's git and the desk (which runs git too) share one environment that can reach
 // nothing outside the root. The caller's GIT_* variables would otherwise steer them: GIT_DIR
@@ -95,6 +110,7 @@ function stopDesk(child) {
 function shutdown() {
   if (stopping) return;
   stopping = true;
+  stoppingSignal.abort();
   (desk ? stopDesk(desk) : Promise.resolve()).then(() => {
     cleanup();
     process.exit();
@@ -148,13 +164,102 @@ function writeFixture() {
   rmSync(path.join(repo, "notes/obsolete.txt"));
 }
 
+// A Decisions-mode guide over the fixture's diff: two groups, every changed block under a topic and
+// the pure rename skimmed, as the desk's coverage check demands. The first topic carries a flag card,
+// a list and inline code, and gets the seeded thread (seedThread); the second quotes the diff
+// through a `lines` fence.
+const FLAG_TOPIC = "title-case";
+const THREAD = "sandbox-q1";
+const FLAG =
+  "`title` upper-cases one UTF-16 code unit, so a name that opens with an emoji comes back unchanged.";
+function writeGuide() {
+  const topic = (id, title, recorded, body, covers, extra) => ({
+    id,
+    title,
+    recorded,
+    body,
+    covers,
+    ...extra,
+  });
+  const guide = {
+    title: "Sandbox review",
+    overview: "The sandbox greets a name in title case, and its docs say where to start.",
+    stages: [
+      {
+        id: "sandbox",
+        label: "Sandbox",
+        groups: [
+          {
+            id: "greeting",
+            title: "Greeting",
+            summary: "How `greet` shapes a name.",
+            topics: [
+              topic(
+                FLAG_TOPIC,
+                "Title-case a name through a helper of its own",
+                "Only the code records this.",
+                "`greet` passes the name through `title` from `src/format.ts`:\n\n" +
+                  "- `title` upper-cases the first character and keeps the rest.\n" +
+                  '- An empty name stays empty: `title("")` returns `""`.\n' +
+                  "- Nothing else calls `title` yet.\n",
+                [{ path: "src/format.ts" }],
+                { flag: FLAG },
+              ),
+              topic(
+                "exclaim",
+                "End the greeting with an exclamation mark",
+                "Only the code records this.",
+                "The greeting reads `Hello, Ada!` now.\n\n```lines\nsrc/greet.ts:1-5\n```\n",
+                [],
+              ),
+            ],
+          },
+          {
+            id: "docs",
+            title: "Docs",
+            summary: "Where a reader starts.",
+            topics: [
+              topic(
+                "readme",
+                "Point readers at the guide first",
+                "README.md and docs/README.md.",
+                "Both READMEs gain a line on what to read first.",
+                [{ path: "README.md" }, { path: "docs/README.md" }],
+              ),
+              topic(
+                "obsolete-note",
+                "Drop the obsolete note",
+                "Only the code records this.",
+                "Nothing reads `notes/obsolete.txt` any more.",
+                [{ path: "notes/obsolete.txt" }],
+              ),
+            ],
+          },
+        ],
+      },
+    ],
+    skims: [{ reason: "A pure rename, nothing to read", covers: [{ path: "docs/guide.md" }] }],
+  };
+  writeFileSync(guidePath, JSON.stringify(guide, null, 2));
+}
+
 // Starts a desk and resolves with it and the port it printed in
 // `Galley <session>: http://127.0.0.1:<port>/` on stderr. The line can arrive split, so chunks
 // accumulate until it shows; from then on the desk's stderr passes straight through.
 function startDesk(port) {
   const child = spawn(
     process.execPath,
-    [CLI, "--repo", repo, "--session", SESSION, "--port", String(port), "--no-open"],
+    [
+      CLI,
+      "--repo",
+      repo,
+      "--session",
+      SESSION,
+      "--port",
+      String(port),
+      "--no-open",
+      ...(GUIDED ? ["--guide", guidePath] : []),
+    ],
     { stdio: ["ignore", "ignore", "pipe"], env: sandboxEnv() },
   );
   desk = child;
@@ -212,8 +317,91 @@ async function waitForFixture(child, base) {
   throw new Error(`the desk never served the fixture within ${READY_MS / 1000}s (${last})`);
 }
 
+const getState = async (base, signal) => {
+  const res = await fetch(`${base}/api/state`, { signal });
+  if (!res.ok) throw new Error(`/api/state answered ${res.status}`);
+  return res.json();
+};
+
+// A reviewer's question on the flag topic's Flagged note, saved the way the tab saves a new thread,
+// then the agent's answer through `galley comment --topic`, so the thread shows both roles. Resolves
+// only once /api/state holds the guide and the answered thread, so the ready line promises both.
+async function seedThread(base) {
+  const signal = AbortSignal.any([stoppingSignal.signal, AbortSignal.timeout(READY_MS)]);
+  const state = await getState(base, signal);
+  const at = new Date().toISOString();
+  const res = await fetch(`${base}/api/save`, {
+    method: "POST",
+    signal,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      base: state.saveNumber ?? 0,
+      changes: {
+        topicThreads: {
+          changed: [
+            {
+              id: THREAD,
+              target: { topic: FLAG_TOPIC, part: "flag" },
+              title: "",
+              quote: FLAG,
+              intent: "question",
+              status: "open",
+              comments: [
+                {
+                  id: "sandbox-q1-m1",
+                  role: "user",
+                  intent: "question",
+                  body: "Does any caller pass a name that opens with an emoji?",
+                  createdAt: at,
+                  updatedAt: at,
+                },
+              ],
+            },
+          ],
+          removed: [],
+        },
+      },
+      seen: {
+        token: null,
+        reloadGeneration: state.reloadGeneration ?? 0,
+        baseDiffHash: state.baseDiffHash,
+      },
+    }),
+  });
+  if (!res.ok) throw new Error(`seeding the topic thread: /api/save answered ${res.status}`);
+  await execFileAsync(
+    process.execPath,
+    [
+      CLI,
+      "comment",
+      "--repo",
+      repo,
+      "--session",
+      SESSION,
+      "--topic",
+      THREAD,
+      "--body",
+      "Not yet: the only caller is `greet`, and the fixture passes ASCII names.",
+    ],
+    { env: sandboxEnv(), signal },
+  );
+  const seeded = await getState(base, signal);
+  const thread = seeded.topicThreads?.find((t) => t.id === THREAD);
+  if (
+    !seeded.guide?.stages?.some((st) =>
+      st.groups.some((g) => g.topics.some((t) => t.id === FLAG_TOPIC)),
+    )
+  )
+    throw new Error("the desk holds no fixture guide after the seed");
+  if (thread?.target.part !== "flag" || thread.comments.map((m) => m.role).join() !== "user,agent")
+    throw new Error(
+      `the desk lacks the seeded thread on ${FLAG_TOPIC}'s flag, question and answer`,
+    );
+}
+
 try {
   writeFixture();
+  if (GUIDED) writeGuide();
   let started;
   for (let attempt = 1; attempt <= ATTEMPTS && !started; attempt++) {
     const start = PORT_LO + Math.floor(Math.random() * (PORT_HI - PORT_LO + 1));
@@ -244,6 +432,7 @@ try {
   });
   const url = `http://127.0.0.1:${port}/`;
   await waitForFixture(child, url.slice(0, -1));
+  if (GUIDED) await seedThread(url.slice(0, -1));
   if (!alive(child) || stopping) throw new Error("the desk exited before it was ready");
 
   ready = true;
