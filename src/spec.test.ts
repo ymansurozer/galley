@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { SPEC } from "./spec.js";
+import { SPEC, SPEC_SECTIONS, specSection } from "./spec.js";
 import type { TopicPartKind } from "./topicthreads.js";
 import type { ReviewResult } from "./types.js";
 
@@ -116,19 +116,18 @@ const ANCHORS = [
   "send a fresh guide to regroup blocks",
   "places blocks by content",
   "for a part, its path, title and span",
-  "guide.skims needs stages",
-  "skims? — array of { reason, rule?, covers }",
+  "skims? — array of { reason, rule?, covers }, only with stages",
   "guide leaves changes uncovered: path:line",
   "Skim rules are the reviewer's",
   // topics guide (Decisions mode): the schema, stable ids, covers and the refusals
   "### Topics (Decisions mode)",
   "stages (non-empty array), each { id, label, groups }",
-  "groups (required, non-empty array), each { id, title, summary?, topics }",
+  "groups (non-empty array), each { id, title, summary?, topics }",
   "STABLE from one guide to the next",
-  "recorded (required, non-empty)",
+  "recorded — where the call is written down",
   "A `mermaid` fence draws a diagram",
   "undrawable diagrams show as code",
-  "covers (required, non-empty array)",
+  "covers (non-empty array) — { path, lines? }",
   'a folder ending in "/"',
   "Two topics may cover the same lines",
   // settling topics across rounds: the result's ids, the round and how a sign-off carries
@@ -157,6 +156,9 @@ const ANCHORS = [
   "line shifts, prose and cover rewrites claiming the same blocks don't count",
   "Code mode shows files' walkthrough, else the plain tree",
   "raw HTML stripped",
+  // a guide checks without a desk, and its sections reprint alone
+  "`galley guide check <file> [--base <ref>]` checks schema and spans offline",
+  "Schema: `galley spec --section guide` or `galley spec --section topics`",
   // options: who they're for, their field types, and how picks replace and clear
   "alternatives you weighed, or the reviewer asked for",
   "label and note strings, ships and recommended booleans",
@@ -234,6 +236,8 @@ const ANCHORS = [
   "Shares exclude skimmedLines",
   "CLI uses loopback even with --host/GALLEY_HOST",
   "agentListening = parked await",
+  // a live reply or status says whether an await is parked, and nudges on stderr when none is
+  "live comment/status: listening if reported; false warns on stderr (await again)",
   "agentRecentlyActive lasts 90s",
   "--idle-timeout",
   // the rest of the operational contract
@@ -278,6 +282,44 @@ test("SPEC carries every consolidated section", () => {
 test("galley spec prints fewer than 20,000 bytes", () => {
   const bytes = Buffer.byteLength(SPEC + "\n");
   assert.ok(bytes < 20_000, `galley spec prints ${bytes} bytes, expected fewer than 20,000`);
+});
+
+// `galley spec --section <name>` prints one of these, cut from SPEC itself.
+test("specSection guide is the guided review, its schema and skim advice, without topics", () => {
+  const guide = specSection("guide")!;
+  assert.ok(guide.startsWith("## Guided review (optional)\n"), guide.slice(0, 80));
+  assert.ok(guide.includes("### Guide JSON schema\n- title? — overview heading"));
+  assert.ok(guide.includes("`galley guide check <file> [--base <ref>]`"));
+  assert.ok(guide.endsWith("never logic or behavior-changing config."));
+  for (const other of ["### Topics (Decisions mode)", "#### Options fence", "## Between rounds"])
+    assert.ok(!guide.includes(other), `guide section holds ${other}`);
+});
+
+test("specSection topics is Topics (Decisions mode) and its subsections only", () => {
+  const topics = specSection("topics")!;
+  assert.ok(topics.startsWith("### Topics (Decisions mode)\n"));
+  assert.ok(topics.includes("#### Settling and rounds"));
+  assert.ok(topics.endsWith('A thread on a dropped group or link moves to "map".'));
+  for (const other of ["### Guide JSON schema", "### When to skim", "## Guided review"])
+    assert.ok(!topics.includes(other), `topics section holds ${other}`);
+});
+
+test("the spec sections split every line of SPEC between them, once each", () => {
+  const tally = (lines: string[], by: number) => {
+    for (const line of lines) if (line.trim()) seen.set(line, (seen.get(line) ?? 0) + by);
+  };
+  const seen = new Map<string, number>();
+  tally(SPEC.split("\n").slice(1), 1);
+  for (const name of Object.keys(SPEC_SECTIONS)) tally(specSection(name)!.split("\n"), -1);
+  assert.deepEqual(
+    [...seen].filter(([, n]) => n !== 0),
+    [],
+  );
+});
+
+test("specSection knows only its own names", () => {
+  assert.equal(specSection("nope"), undefined);
+  assert.equal(specSection("constructor"), undefined);
 });
 
 test("SPEC's question loop uses the space-safe read idiom, not word-splitting (issue 04)", () => {

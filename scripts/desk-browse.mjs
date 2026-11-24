@@ -1,6 +1,10 @@
 // Checks a running desk in headless Chromium: the tab loads, every file the desk serves has its own
 // tree row, clicking it opens that file and renders its changed lines (or a pure rename's notice),
-// and nothing throws. Prints one JSON line, or exits non-zero with the reason. Point it at `pnpm --silent desk:sandbox`, not a desk on the real HOME.
+// and nothing throws. A desk with a topics guide opens in Decisions mode: the files are walked in
+// Code mode, then the page goes back to Decisions and opens the first topic with a thread (else the
+// first topic), which must render with its threads before the screenshot. Prints one JSON line, or
+// exits non-zero with the reason. Point it at `pnpm --silent desk:sandbox`, not a desk on the real
+// HOME.
 // Run: pnpm --silent desk:browse <url> [--screenshot <file.png>]
 // Chromium comes from Playwright's cache under the real HOME (~/.cache/ms-playwright, or
 // ~/Library/Caches/ms-playwright on macOS) at the revision the pinned playwright-core expects;
@@ -30,10 +34,13 @@ const base = url.replace(/\/+$/, "");
 
 // The files the tree must show come from the desk itself, so the check holds for any fixture.
 let expected;
+let topic;
 try {
   const res = await fetch(`${base}/api/state`, { signal: AbortSignal.timeout(STATE_MS) });
   if (!res.ok) throw new Error(`/api/state answered ${res.status}`);
-  expected = (await res.json()).files;
+  const state = await res.json();
+  expected = state.files;
+  topic = topicToOpen(state);
 } catch (error) {
   fail(
     `no desk answers at ${base} (${error instanceof Error ? error.message : error}). ` +
@@ -41,6 +48,22 @@ try {
   );
 }
 if (!expected.length) fail(`the desk at ${base} has no changes to review; nothing would render`);
+
+// The topic Decisions mode is checked on: the first one a thread sits on, so the screenshot shows
+// a thread when the desk has one, else the guide's first. Undefined without a topics guide.
+function topicToOpen(state) {
+  const topics = (state.guide?.stages ?? []).flatMap((s) =>
+    s.groups.flatMap((g) => g.topics.map((t) => ({ id: t.id, title: t.title, group: g.id }))),
+  );
+  const threads = state.topicThreads ?? [];
+  const found = topics.find((t) => threads.some((th) => th.target.topic === t.id)) ?? topics[0];
+  return (
+    found && {
+      ...found,
+      threads: threads.filter((th) => th.target.topic === found.id),
+    }
+  );
+}
 
 let browser;
 try {
@@ -75,6 +98,12 @@ try {
       throw new Error(`${what} within ${RENDER_MS / 1000}s.${errors}`);
     }
   };
+  // The mode switch's buttons are named by their label (index.html's lane-switch).
+  const mode = (label) => page.locator(".lane-switch button", { hasText: label });
+  if (topic)
+    await step("the Code mode button never showed", () =>
+      mode("Code").click({ timeout: RENDER_MS }),
+    );
   await step("the file tree never rendered", () =>
     page.locator("#files .node").first().waitFor({ timeout: RENDER_MS }),
   );
@@ -141,6 +170,39 @@ try {
       );
     views.push({ path: file.path, view });
   }
+  if (topic) {
+    await step("the Decisions mode button never showed", () =>
+      mode("Decisions").click({ timeout: RENDER_MS }),
+    );
+    // A group's row opens its first topic still to do; the topic's own row shows once it's open.
+    const nav = (attr, id) => page.locator(`#topicsNav [${attr}=${JSON.stringify(id)}]`);
+    await step(`the Decisions sidebar never listed group ${topic.group}`, () =>
+      nav("data-group", topic.group).click({ timeout: RENDER_MS }),
+    );
+    await step(`topic ${topic.id} never opened`, async () => {
+      const row = nav("data-topic", topic.id);
+      const folded = nav("data-earlier", topic.group).and(page.locator('[aria-expanded="false"]'));
+      if ((await row.count()) === 0 && (await folded.count()) === 1)
+        await folded.click({ timeout: RENDER_MS });
+      await row.click({ timeout: RENDER_MS });
+      await page
+        .locator("#topics .topic-page")
+        .getByRole("heading", { name: topic.title, exact: true })
+        .waitFor({ timeout: RENDER_MS });
+    });
+    const topicPage = page.locator("#topics .topic-page");
+    for (const [i, { id, target }] of topic.threads.entries()) {
+      // A missing flag puts its threads under Recorded. Check the actual anchor as well.
+      const flag = '[data-part="flag"]:has(.topic-flag)';
+      const holder =
+        target.part === "flag" ? topicPage.locator(`${flag} + .topic-threads`) : topicPage;
+      const thread = holder.locator(`.topic-thread[data-thread=${JSON.stringify(id)}]`);
+      await step(`topic ${topic.id}'s thread ${id} never rendered at ${target.part}`, async () => {
+        await thread.waitFor({ timeout: RENDER_MS });
+        if (screenshot && i === 0) await thread.scrollIntoViewIfNeeded({ timeout: RENDER_MS });
+      });
+    }
+  }
   if (screenshot) await page.screenshot({ path: screenshot });
   if (pageErrors.length) throw new Error(`the page threw: ${pageErrors.join(" | ")}`);
 
@@ -151,6 +213,7 @@ try {
       title: await page.title(),
       chromium: browser.version(),
       files: views,
+      ...(topic && { topic: { id: topic.id, threads: topic.threads.map((thread) => thread.id) } }),
       consoleErrors,
       screenshot,
     }),

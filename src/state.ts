@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
@@ -116,8 +117,9 @@ export function sanitizeSession(session: string) {
 
 // `parsedDiff` is the single parseUnifiedDiff(rawDiff) result assembleDiff already computed — kept
 // on the source so the reload path can reuse it for skim resolution instead of re-parsing (issue
-// 06). Empty when there's no diff (unchanged/untracked full-file, rawDiff "").
-type DiffSource = {
+// 06). Empty when there's no diff (unchanged/untracked full-file, rawDiff ""). Exported for
+// `galley guide check`, which resolves a guide's spans against one with no desk.
+export type DiffSource = {
   files: ReviewFile[];
   changes: ChangeState[];
   rawDiff: string;
@@ -925,7 +927,7 @@ export type MovedResolution = { ok: true } | { ok: false; reason: string };
 // delete+add — a move that no longer holds deserves fresh eyes). Working repo mode only (git -M
 // covers committed renames; file mode has no untracked side).
 export function resolveMovedFrom(
-  state: ReviewState,
+  state: Pick<ReviewState, "mode" | "staged" | "files" | "changes">,
   guide: Guide,
   opts: { strict: boolean },
 ): MovedResolution {
@@ -1000,8 +1002,79 @@ function isOutsideRoot(rel: string): boolean {
   return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
 }
 
+// Git compares the working tree through its index, so an untracked file restored at a path
+// that exists in the base otherwise looks like a deletion plus a full addition. Put those
+// paths back in a temporary index with their base blob IDs. This lets the normal git diff
+// compare their actual edits, name renames consistently, and leave the real index untouched.
+async function diffAgainstBase(
+  args: string[],
+  root: string,
+  base: string,
+  untracked: string[],
+): Promise<{ rawDiff: string; untracked: string[] }> {
+  const paths = new Set(untracked);
+  const tree = await git(["ls-tree", "-r", "-z", base], root);
+  const restored = new Map<string, string>();
+  for (const entry of tree.split("\0")) {
+    const tab = entry.indexOf("\t");
+    if (tab === -1) continue;
+    const file = entry.slice(tab + 1);
+    if (!paths.has(file)) continue;
+    const [mode, type, oid] = entry.slice(0, tab).split(" ");
+    if (type === "blob") restored.set(file, `${mode},${oid},${file}`);
+  }
+  if (!restored.size) return { rawDiff: await git(args, root), untracked };
+
+  const original = await git(["rev-parse", "--path-format=absolute", "--git-path", "index"], root);
+  const temp = await fs.mkdtemp(path.join(tmpdir(), "galley-guide-index-"));
+  const indexFile = path.join(temp, "index");
+  const env = { ...process.env, GIT_INDEX_FILE: indexFile };
+  try {
+    try {
+      await fs.copyFile(original, indexFile);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    // A copied split index can read its shared base, but updates must stay in the temp dir.
+    for (const info of restored.values()) {
+      await git(
+        ["-c", "core.splitIndex=false", "update-index", "--add", "--replace", "--cacheinfo", info],
+        root,
+        env,
+      );
+    }
+    return {
+      rawDiff: await git(args, root, env),
+      untracked: untracked.filter((file) => !restored.has(file)),
+    };
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+}
+
+// Keep configured diff drivers so the check sees the same lines as the desk, but keep
+// their conversion cache out of Git notes. --get-regexp returns no matches with exit 1.
+async function readOnlyDiffConfig(root: string): Promise<string[]> {
+  const keys = await git(
+    ["config", "--name-only", "--null", "--get-regexp", "^diff\\..*\\.cachetextconv$"],
+    root,
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (Number(error.code) !== 1) throw error;
+    return "";
+  });
+  return [
+    "-c",
+    "diff.autoRefreshIndex=false",
+    ...keys
+      .split("\0")
+      .filter(Boolean)
+      .flatMap((key) => ["-c", `${key}=false`]),
+  ];
+}
+
 // The deep module: produce review files + changes for a given mode.
-// repo  → working/staged diff (opts.path is a root-relative limit).
+// repo  → working/staged diff (opts.path is a root-relative limit). opts.base, a commit, diffs the
+//         working tree against it instead of the index (`galley guide check --base`; no desk does).
 // file  → one file (opts.path is absolute); tracked+changed = diff (stageable),
 //         untracked/new = full file as additions, tracked-unchanged = full file.
 // pr    → opts.base..HEAD (committed), verdict-only.
@@ -1011,6 +1084,7 @@ export async function buildDiffSource(opts: {
   path?: string;
   staged?: boolean;
   base?: string;
+  readOnly?: boolean;
 }): Promise<DiffSource | null> {
   const { mode, root } = opts;
   // `-U3` pins git's context to the default whatever the user's `diff.context` says: the tab
@@ -1071,10 +1145,19 @@ export async function buildDiffSource(opts: {
   // repo
   // -M asks git itself to detect renames, so committed/staged renames render deterministically
   // regardless of the user's `diff.renames` config (see buildDiffSource's contract).
-  const args = [...DIFF];
+  // A porcelain diff can refresh the index's stat cache. An offline guide check promises
+  // to leave the index untouched even when a file's timestamps have changed.
+  const args = opts.readOnly ? [...(await readOnlyDiffConfig(root)), ...DIFF] : [...DIFF];
   if (opts.staged) args.push("--cached");
+  else if (opts.base) args.push(opts.base);
   if (opts.path) args.push("--", opts.path);
-  const rawDiff = await git(args, root);
+  const lsArgs = ["ls-files", "--others", "--exclude-standard", "-z"];
+  if (opts.path) lsArgs.push("--", opts.path);
+  const workingOnly = opts.staged ? [] : (await git(lsArgs, root)).split("\0").filter(Boolean);
+  const { rawDiff, untracked } =
+    opts.base && workingOnly.length
+      ? await diffAgainstBase(args, root, opts.base, workingOnly)
+      : { rawDiff: await git(args, root), untracked: workingOnly };
   // Each side must match what the diff was taken against, because the UI renders these hunks
   // over the old/new contents (re-diffing the two sides itself where they don't match — see
   // changes-derive.ts parseRawDiff). Unstaged diffs working tree vs INDEX, so old reads :0 — a
@@ -1103,9 +1186,6 @@ export async function buildDiffSource(opts: {
   // (/api/stage), which doesn't rely on rawDiff. Staged mode is unaffected: untracked files
   // are by definition not in the index.
   if (!opts.staged) {
-    const lsArgs = ["ls-files", "--others", "--exclude-standard"];
-    if (opts.path) lsArgs.push("--", opts.path);
-    const untracked = (await git(lsArgs, root)).split(/\r?\n/).filter(Boolean);
     const untrackedEntries: Array<{ rel: string; working: string }> = [];
     for (const rel of untracked)
       untrackedEntries.push({
@@ -1124,14 +1204,14 @@ export async function buildDiffSource(opts: {
     // distinct old/new paths get issue 01's decision/comment migration for free.
     // Keyed by blob OID — byte-identical contents share an OID, so the map pairs a deletion with
     // an untracked file exactly when git would call it a rename (OID equality iff content equal).
-    // The deletion's old side lives in the index (:0); read it just to hash for pairing (a read, not
-    // retained — the merged entry stores no contents; the tab fetches them on open). Skip the reads
-    // entirely when there's nothing untracked to pair against.
+    // The deletion's old side lives in the index (:0), or in opts.base; read it just to hash for
+    // pairing (a read, not retained — the merged entry stores no contents; the tab fetches them on
+    // open). Skip the reads entirely when there's nothing untracked to pair against.
     const deletions = files.filter((f) => !f.newPath); // full deletions (+++ /dev/null)
     const delByHash = new Map<string, ReviewFile[]>();
     if (untrackedEntries.length)
       for (const d of deletions) {
-        const h = blobOid(await fileAt(root, d.oldPath ?? d.path, ":0"));
+        const h = blobOid(await fileAt(root, d.oldPath ?? d.path, opts.base ?? ":0"));
         const arr = delByHash.get(h);
         if (arr) arr.push(d);
         else delByHash.set(h, [d]);

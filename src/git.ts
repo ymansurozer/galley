@@ -18,9 +18,10 @@ const MAX_BUFFER = 256 * 1024 * 1024;
 // both spawn git through — makes every invocation (diff builders, rawBlobOids, ls-files --others,
 // diff --cached --name-only, …) emit raw UTF-8 paths, in one place. It's a no-op for commands that
 // emit no paths, so applying it globally is safe rather than per-call-site (which could miss one).
-export async function git(args: string[], cwd: string) {
+export async function git(args: string[], cwd: string, env?: NodeJS.ProcessEnv) {
   const { stdout } = await execFileAsync("git", ["-c", "core.quotePath=false", ...args], {
     cwd,
+    env,
     maxBuffer: MAX_BUFFER,
   });
   return String(stdout).trimEnd();

@@ -621,9 +621,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // Held in memory only: after a restart in that window, every block comes back in Rest.
   let stampSource: Pick<ReviewState, "files" | "changes"> | undefined;
 
+  // Whether a `galley await` is parked. Agent replies and status lines carry it too, so the CLI can
+  // tell an agent that answered without re-arming that the reviewer's next message has nowhere to go.
+  const listening = () => ({ agentListening: eventWaiters.length > 0 });
   const deskStatus = (): DeskStatus => ({
     agentActivity: liveActivity(),
-    agentListening: eventWaiters.length > 0,
+    ...listening(),
     agentRecentlyActive: Date.now() < agentActiveUntil,
     queuedQuestions: eventQueue.filter((e) => e.kind === "question").length,
     queuedReviews: eventQueue.filter((e) => e.kind === "review").length,
@@ -1474,7 +1477,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             markAgentRequest(req);
           }
           await persistReview(state);
-          return json(res, 200, { ok: true, commentId: comment.id });
+          return json(res, 200, { ok: true, commentId: comment.id, ...listening() });
         });
       }
       if (req.method === "POST" && url.pathname === "/api/ui-comment") {
@@ -1509,7 +1512,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           agentActivity = null;
           markAgentRequest(req);
           await persistReview(state);
-          return json(res, 200, { ok: true, commentId: reply.id });
+          return json(res, 200, { ok: true, commentId: reply.id, ...listening() });
         });
       }
       if (req.method === "POST" && url.pathname === "/api/topic-comment") {
@@ -1540,7 +1543,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           agentActivity = null;
           markAgentRequest(req);
           await persistReview(state);
-          return json(res, 200, { ok: true, commentId: reply.id });
+          return json(res, 200, { ok: true, commentId: reply.id, ...listening() });
         });
       }
       if (req.method === "POST" && url.pathname === "/api/status") {
@@ -1558,7 +1561,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           );
         agentActivity = { body: text, at: nowIso() };
         markAgentRequest(req);
-        return json(res, 200, { ok: true });
+        return json(res, 200, { ok: true, ...listening() });
       }
       if (req.method === "POST" && url.pathname === "/api/reset") {
         return await serialize(async () => {
