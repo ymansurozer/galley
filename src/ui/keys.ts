@@ -241,7 +241,7 @@ const HOTKEYS: Hotkey[] = [
   },
   {
     combo: "⇧A",
-    desc: "Settle the open topic",
+    desc: "Settle if needed and advance",
     group: "Decisions",
     test: shift("A"),
     when: onTopic,
