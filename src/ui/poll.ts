@@ -174,6 +174,10 @@ async function pollOnce() {
         latestPoll!.revision !== request.revision ||
         stateRevision(payload) !== request.revision ||
         S.state !== state ||
+        // A save already in flight can confirm a newer review while this guide is in transit.
+        (!diffChanged &&
+          confirmedMoved() !== moves &&
+          (payload.saveNumber ?? 0) < confirmedNumber()) ||
         // Reviewer saves mutate in place and can finish during the transfer. Being idle now
         // cannot prove this snapshot includes them (including a save still waiting to dispatch).
         saver.generation() !== saveGeneration
