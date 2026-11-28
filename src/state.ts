@@ -643,18 +643,29 @@ function legacyTopicCoverMatches(
 // the reason stays with the pending topic. Always judge a replacement guide against the saved
 // review, even if the carried guide was already stamped against the new diff.
 export function carryTopicSignOffs(
-  state: Pick<ReviewState, "topics" | "settledTopics" | "guide" | "files" | "changes">,
-  saved: Pick<ReviewState, "topics" | "settledTopics" | "guide">,
+  state: Pick<
+    ReviewState,
+    "topics" | "topicRevision" | "settledTopics" | "guide" | "files" | "changes"
+  >,
+  saved: Pick<ReviewState, "topics" | "topicRevision" | "settledTopics" | "guide">,
 ) {
+  const topics = state.topics ?? {};
+  const revision = (saved.topicRevision ?? 0) + 1;
+  let revised = Object.keys(saved.topics ?? {}).some((id) => !Object.hasOwn(topics, id));
   const settled = new Map<string, TopicSignOff>();
   const signOffs = new Map(Object.entries(saved.settledTopics ?? {}));
   const oldTopics = new Map(guideTopics(saved.guide ?? state.guide).map((t) => [t.id, t]));
   let units: Map<string, string> | undefined;
   const currentUnits = () =>
     (units ??= new Map([...coverIndex(state).values()].flat().map((u) => [u.key, u.hash])));
-  for (const [id, stamp] of Object.entries(state.topics ?? {})) {
+  for (const [id, stamp] of Object.entries(topics)) {
     const signOff = signOffs.get(id);
     const prior = saved.topics?.[id];
+    if (prior?.coverHash !== stamp.coverHash || prior?.textHash !== stamp.textHash) {
+      stamp.revision = revision;
+      revised = true;
+    } else if (prior.revision !== undefined) stamp.revision = prior.revision;
+    else delete stamp.revision;
     if (prior?.changed) stamp.changed = prior.changed;
     else delete stamp.changed;
     if (!signOff) continue;
@@ -674,6 +685,7 @@ export function carryTopicSignOffs(
       stamp.changed = textChanged ? (codeChanged ? "both" : "text") : "code";
     }
   }
+  state.topicRevision = revised ? revision : saved.topicRevision;
   state.settledTopics = Object.fromEntries(settled);
 }
 

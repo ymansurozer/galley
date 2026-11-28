@@ -378,13 +378,10 @@ function takeTopicSignOffs(target: ReviewerSave, source: ReviewerSave, ids: Read
 
 // A new guide invalidates sign-offs on changed or removed topics. Use the guide snapshot's value
 // for those topics in every copy, including saves whose answers were written before the swap.
+// An unchanged topic can have a reset on the desk and a re-settlement still queued in the tab.
 export function takeGuideSignOffs(server: ReviewState) {
   const prior = S.state.topics ?? {};
-  const ids = new Set([
-    ...Object.keys(prior),
-    ...Object.keys(server.topics ?? {}),
-    ...Object.keys(confirmed.review.settledTopics ?? {}),
-  ]);
+  const ids = new Set([...Object.keys(prior), ...Object.keys(server.topics ?? {})]);
   const rebased = new Set(
     [...ids].filter((id) => {
       const before = prior[id];
@@ -393,8 +390,7 @@ export function takeGuideSignOffs(server: ReviewState) {
         !after ||
         before?.coverHash !== after.coverHash ||
         before?.textHash !== after.textHash ||
-        (Object.hasOwn(confirmed.review.settledTopics ?? {}, id) &&
-          !Object.hasOwn(server.settledTopics ?? {}, id))
+        before?.revision !== after.revision
       );
     }),
   );

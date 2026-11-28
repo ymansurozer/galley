@@ -1619,6 +1619,15 @@ test("guide edits reopen settled topics for Send and stale saves cannot settle t
 
     await reload();
     const cover = st.topics?.call?.coverHash;
+    const checkRevision = async () => {
+      const poll = await fetch(`${url}api/poll`).then((r) => r.json());
+      assert.equal(poll.topicRevision, st.topicRevision);
+      assert.equal(st.topics?.call?.revision, st.topicRevision);
+    };
+    const initialRevision = st.topicRevision!;
+    guide.overview = "Overview revised";
+    await reload();
+    assert.equal(st.topicRevision, initialRevision);
     for (const edit of [
       () => (topic.title = "Revised call"),
       () => (topic.body = topic.body.replace("Initial explanation.", "New explanation.")),
@@ -1629,8 +1638,11 @@ test("guide edits reopen settled topics for Send and stale saves cannot settle t
         )),
     ]) {
       await settle();
+      const previousRevision: number = st.topicRevision!;
       edit();
       await reload();
+      assert.equal(st.topicRevision, previousRevision + 1);
+      await checkRevision();
       assert.equal(st.topics?.call?.coverHash, cover);
       assert.equal(st.topics?.call?.changed, "text");
       assert.deepEqual(st.settledTopics, {});
@@ -1653,6 +1665,7 @@ test("guide edits reopen settled topics for Send and stale saves cannot settle t
     assert.ok(base);
     const restarted = await mergeReviewState(base, saved);
     assert.deepEqual(restarted.settledTopics, st.settledTopics);
+    assert.equal(restarted.topicRevision, st.topicRevision);
     const desk = await startServer({ state: restarted, open: false, idleTimeoutMs: 0 });
     try {
       topic.body += "\n\nA later revision.";

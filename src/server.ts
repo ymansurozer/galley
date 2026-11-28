@@ -760,6 +760,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           ui: state.ui,
           annotations: state.annotations,
           topicThreads: state.topicThreads,
+          topicRevision: state.topicRevision,
           project: state.project,
           branch: state.branch,
           round: state.round,
@@ -1223,6 +1224,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           if (!base) {
             const saved = {
               topics: state.topics,
+              topicRevision: state.topicRevision,
               guide: state.guide,
               settledTopics: state.settledTopics,
             };
@@ -1301,7 +1303,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
               files: state.files,
               stagedChangeKeys: state.stagedChangeKeys,
             };
-          Object.assign(state, merged);
+          Object.assign(state, merged, { topics: merged.topics });
           await syncGitState(state);
           await persistReview(state);
           reloadGeneration++;

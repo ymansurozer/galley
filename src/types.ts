@@ -272,6 +272,8 @@ export type TopicStamp = {
   lines: number;
   coverHash: string;
   textHash?: string;
+  // The last review topicRevision that changed this topic's identity.
+  revision?: number;
   changed?: true | "text" | "code" | "both";
   bodyParts?: Array<{ line: number; text: string }>;
   lineSpans?: LineSpan[];
@@ -383,12 +385,13 @@ export type ReviewState = {
   // Each guide topic's resolution against this diff, by topic id (TopicStamp). Server-owned and
   // rebuilt whenever the guide is attached or the diff is rebuilt; absent when the guide has no topics.
   topics?: Record<string, TopicStamp>;
+  // Advances when a topic's code or text identity changes, even if it returns to an older value.
+  topicRevision?: number;
   // Server-owned split rebuilt on attach/reload; absent without stages. The tab displays it
   // rather than resolving possibly stale guide spans itself (TopicCoverage records the partition).
   coverage?: TopicCoverage;
   // The topics the reviewer settled, by topic id (TopicSignOff). Reviewer-owned, like
-  // signedOffBlocks: carried across a reload or restart only while the topic is in the guide and
-  // its cover hash is unchanged.
+  // signedOffBlocks: carried across a reload or restart only while the topic's code and text match.
   settledTopics?: Record<string, TopicSignOff>;
   // The reviewer's threads on the parts of topics (TopicThread). Reviewer-owned, like annotations,
   // and apart from `comments`, whose rows need a file in the diff.
@@ -857,6 +860,7 @@ export type PollPayload = Pick<
   | "ui"
   | "annotations"
   | "topicThreads"
+  | "topicRevision"
   | "project"
   | "branch"
   | "round"
