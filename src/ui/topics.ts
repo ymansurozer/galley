@@ -224,10 +224,10 @@ export function startTopics() {
 function settle(id: string) {
   const stamp = S.state.topics?.[id];
   if (!stamp) return false;
-  const { coverHash: hash, textHash } = stamp;
+  const { coverHash: hash, textHash, revision } = stamp;
   S.state.settledTopics = {
     ...S.state.settledTopics,
-    [id]: { hash, textHash, round: roundOf(S.state), settlementId: uuid() },
+    [id]: { hash, textHash, revision, round: roundOf(S.state), settlementId: uuid() },
   };
   persist();
   return true;

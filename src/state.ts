@@ -1840,12 +1840,17 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 const isString = (v: unknown): v is string => typeof v === "string";
 function readTopicSignOffs(records: unknown[]) {
   return records.flatMap((r) =>
-    isObject(r) && isString(r.id) && isString(r.hash)
+    isObject(r) &&
+    isString(r.id) &&
+    isString(r.hash) &&
+    (r.revision === undefined ||
+      (typeof r.revision === "number" && Number.isSafeInteger(r.revision)))
       ? [
           {
             id: r.id,
             hash: r.hash,
             ...(isString(r.textHash) && { textHash: r.textHash }),
+            ...(r.revision !== undefined && { revision: r.revision }),
             ...(isString(r.settlementId) && { settlementId: r.settlementId }),
             ...(typeof r.round === "number" && { round: r.round }),
           },
@@ -1879,7 +1884,8 @@ function applyTopicSettlements(
   }
   for (const { id, ...signOff } of changed) {
     const stamp = state.topics?.[id];
-    if (!stamp || !matchesTopic(stamp, signOff)) {
+    // A live write must name the occurrence it saw. Persisted legacy records migrate separately.
+    if (!stamp || !matchesTopic(stamp, signOff) || signOff.revision !== stamp.revision) {
       unplaced = true;
       continue;
     }

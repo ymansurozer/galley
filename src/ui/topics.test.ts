@@ -54,7 +54,7 @@ const state = () =>
     round: 2,
     topics: {
       a: { blocks: [], lines: 0, coverHash: "ha", textHash: "text-a" },
-      b: { blocks: [], lines: 0, coverHash: "hb", textHash: "text-b" },
+      b: { blocks: [], lines: 0, coverHash: "hb", textHash: "text-b", revision: 3 },
     },
     settledTopics: { a: { hash: "ha", textHash: "text-a", round: 1 } },
     topicThreads: [],
@@ -86,7 +86,7 @@ test("Shift+A advances settled topics without saving, and preserves pending sett
 
   press("A", true);
   const { settlementId, ...b } = signOffB()!;
-  assert.deepEqual(b, { hash: "hb", textHash: "text-b", round: 2 });
+  assert.deepEqual(b, { hash: "hb", textHash: "text-b", revision: 3, round: 2 });
   assert.ok(settlementId);
   assert.equal(saves.mock.callCount(), 1);
   assert.equal(S.topicAt, null);

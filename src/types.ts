@@ -298,11 +298,13 @@ export type LineSpan = {
 // A settled topic (ReviewState.settledTopics): the cover and text hashes the reviewer signed off,
 // and the round. Older saved reviews lack textHash; the desk checks and upgrades them on carry.
 // settlementId identifies an individual sign-off, even after another settle in the same round.
+// revision binds a submitted sign-off to the occurrence of the topic the tab saw.
 export type TopicSignOff = {
   hash: string;
   textHash?: string;
   round: number;
   settlementId?: string;
+  revision?: number;
 };
 
 // The desk's reasons for reopening topics, sent separately from reviewer-owned records.

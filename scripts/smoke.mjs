@@ -985,14 +985,14 @@ try {
   // arrays exactly as verdicts on rendered files do.
   const NOTE = "After applying, run the formatter and update the changelog.";
   // Settle one topic of the attached topics guide the way the tab does, through the save route:
-  // its id, its code and text hashes, and the round. The Send must list it as settled.
+  // its id, its code and text hashes, its revision, and the round.
   const settling = await getJson("/api/state");
-  const { coverHash: hash, textHash } = settling.topics["a-line"];
+  const { coverHash: hash, textHash, revision } = settling.topics["a-line"];
   const settled = await post("/api/save", {
     base: settling.saveNumber ?? 0,
     changes: {
       settledTopics: {
-        changed: [{ id: "a-line", hash, textHash, round: 1 }],
+        changed: [{ id: "a-line", hash, textHash, revision, round: 1 }],
         removed: [],
       },
     },
