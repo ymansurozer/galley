@@ -4858,7 +4858,13 @@ test("two tabs settle different topics: both land, stamped with the desk's round
   // A reset of one (Reset in the bar) removes only that one.
   await mergeReviewerSave(live, {
     base: 2,
-    changes: { settledTopics: { changed: [], removed: ["a"] } },
+    changes: {
+      settledTopics: {
+        changed: [],
+        removed: ["a"],
+        removedSignOffs: [{ id: "a", hash: "HA", round: 2 }],
+      },
+    },
     seen: { token: null, reloadGeneration: 0, baseDiffHash: "base" },
   });
   assert.deepEqual(live.settledTopics, { b: { hash: "HB", round: 2 } });
@@ -4875,6 +4881,60 @@ test("a topic sign-off made on an older diff cannot be saved", async () => {
     seen: { token: null, reloadGeneration: 0, baseDiffHash: "old" },
   });
   assert.deepEqual(live.settledTopics, {});
+});
+
+test("a topic reset must identify the desk's current sign-off", async () => {
+  const current = { hash: "code", textHash: "new text", round: 2, settlementId: "new-sign-off" };
+  const live = state({
+    topics: { a: { blocks: [], lines: 1, coverHash: "code", textHash: "new text" } },
+    settledTopics: { a: current },
+  });
+  for (const removedSignOffs of [
+    [],
+    [{ id: "a", ...current, textHash: "old text" }],
+    [{ id: "a", ...current, settlementId: "earlier-same-round" }],
+  ]) {
+    const answer = await mergeReviewerSave(live, {
+      base: live.saveNumber ?? 0,
+      changes: { settledTopics: { changed: [], removed: ["a"], removedSignOffs } },
+      seen: { token: null, reloadGeneration: 0, baseDiffHash: "base" },
+    });
+    assert.deepEqual(live.settledTopics, { a: current });
+    assert.deepEqual(answer.merged?.settledTopics, { a: current });
+  }
+  await mergeReviewerSave(live, {
+    base: live.saveNumber,
+    changes: {
+      settledTopics: { changed: [], removed: ["a"], removedSignOffs: [{ id: "a", ...current }] },
+    },
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: "base" },
+  });
+  assert.deepEqual(live.settledTopics, {});
+});
+
+test("a full reviewer copy cannot promote a hash-only sign-off or erase another topic's sign-off", async () => {
+  await withTopicsRepo(async (build) => {
+    const live = await attachTopics(build);
+    settleTopic(live, "other");
+    const prior = structuredClone(live.settledTopics);
+    const legacy = { hash: live.topics!.span!.coverHash, round: 1 };
+    await mergeReviewerSave(live, {
+      settledTopics: { span: legacy },
+      reviewedFiles: ["src/app.ts"],
+    });
+    assert.deepEqual(live.reviewedFiles, ["src/app.ts"]);
+    const reloaded = await mergeReviewState(await build(), live);
+    assert.deepEqual(reloaded.settledTopics, prior);
+    // A saved topic stamp that already had a text identity cannot vouch for a hash-only record.
+    live.settledTopics = { ...prior, span: legacy };
+    assert.deepEqual((await mergeReviewState(await build(), live)).settledTopics, prior);
+    live.settledTopics = prior;
+    const textHash = live.topics!.span!.textHash!;
+    await mergeReviewerSave(live, { settledTopics: { span: { ...legacy, textHash } } });
+    const settlementId = live.settledTopics?.span?.settlementId;
+    assert.ok(settlementId);
+    assert.deepEqual(live.settledTopics, { ...prior, span: { ...legacy, textHash, settlementId } });
+  });
 });
 
 test("changing only topic options resets its sign-off, while topics without options keep their hash", async () => {

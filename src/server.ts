@@ -52,6 +52,7 @@ import {
   reviewerFields,
   roundOf,
   stampTopics,
+  topicWarnings,
   syncGitState,
   uiQuestionPayload,
   unvisitedAnnotations,
@@ -767,13 +768,14 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
         return json(res, 200, { ...poll, ...deskStatus() });
       }
       if (req.method === "GET" && url.pathname === "/api/review") {
-        // What an idle tab takes when another tab saved (types.ts, ReviewRead): the reviewer-owned
-        // fields only, git-free like the poll. A save applies its changes and raises the number with
+        // What an idle tab takes when another tab saved: reviewer-owned fields and topic warnings,
+        // git-free like the poll. A save applies its changes and raises the number with
         // no I/O between, so a read here never sees one without the other.
         const read: ReviewRead = {
           saveNumber: state.saveNumber ?? 0,
           baseDiffHash: state.baseDiffHash,
           review: reviewerFields(state),
+          topicWarnings: topicWarnings(state),
         };
         return json(res, 200, read);
       }
@@ -936,7 +938,12 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
           withdrawQuestions(asked);
           const file = await persistReview(state);
           await pruneScreenshots(path.dirname(file));
-          const answer: SaveAnswer = { ok: true, file, saveNumber };
+          const answer: SaveAnswer = {
+            ok: true,
+            file,
+            saveNumber,
+            topicWarnings: topicWarnings(state),
+          };
           if (unplaced) answer.unplaced = true;
           if (merged) answer.merged = merged;
           return json(res, 200, answer);
@@ -1001,6 +1008,7 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             resultJson,
             saveNumber,
             round: state.round,
+            topicWarnings: topicWarnings(state),
           };
           if (unplaced) answer.unplaced = true;
           if (merged) answer.merged = merged;

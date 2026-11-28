@@ -1,4 +1,5 @@
 import Alpine from "alpinejs";
+import type { TopicWarnings } from "../types";
 import type {
   DiffHolder,
   ReviewRead,
@@ -270,7 +271,13 @@ export function confirmDesk(state: ReviewState) {
 }
 // What a save or Send is out with: the copy its changes were taken from, kept until it answers,
 // and the doubtful copies (below) its changes cover.
-type Outgoing = { body: ReviewerDelta; sent: ReviewerSave; diff: string; covers: Doubt[] };
+type Outgoing = {
+  body: ReviewerDelta;
+  sent: ReviewerSave;
+  diff: string;
+  covers: Doubt[];
+  topicRebases: Map<string, number>;
+};
 const outgoing = new Set<Outgoing>();
 // The copies saves and Sends went out with that got no successful answer: an error answer can come
 // after the desk applied the save, and a request given up or lost may have reached it. The desk may
@@ -321,6 +328,7 @@ export function takeDeskReview(read: ReviewRead, held: ReadonlySet<string>): boo
   doubtful.clear();
   keepPlacements(read.review.annotations ?? [], S.state.annotations ?? []);
   Object.assign(S.state, read.review);
+  takeTopicWarnings(read.topicWarnings);
   stampDecisions(S.state.changes, S.state.decisions ?? []);
   return true;
 }
@@ -345,6 +353,57 @@ export function takenFromDesk(take: (review: ReviewerSave) => void) {
   for (const out of outgoing) take(out.sent);
   for (const doubt of doubtful) take(doubt.copy);
 }
+
+function takeTopicWarnings(warnings: TopicWarnings | undefined, skip?: ReadonlySet<string>) {
+  if (!warnings) return;
+  for (const [id, stamp] of Object.entries(S.state.topics ?? {})) {
+    if (skip?.has(id)) continue;
+    const warning = Object.hasOwn(warnings, id) ? warnings[id] : undefined;
+    if (warning) stamp.changed = warning;
+    else delete stamp.changed;
+  }
+}
+
+function takeTopicSignOffs(target: ReviewerSave, source: ReviewerSave, ids: ReadonlySet<string>) {
+  if (!ids.size) return;
+  const signOffs = { ...target.settledTopics };
+  const from = source.settledTopics ?? {};
+  for (const id of ids) {
+    const signOff = from[id];
+    if (signOff && Object.hasOwn(from, id)) signOffs[id] = { ...signOff };
+    else delete signOffs[id];
+  }
+  target.settledTopics = signOffs;
+}
+
+// A new guide invalidates sign-offs on changed or removed topics. Use the guide snapshot's value
+// for those topics in every copy, including saves whose answers were written before the swap.
+export function takeGuideSignOffs(server: ReviewState) {
+  const prior = S.state.topics ?? {};
+  const ids = new Set([
+    ...Object.keys(prior),
+    ...Object.keys(server.topics ?? {}),
+    ...Object.keys(confirmed.review.settledTopics ?? {}),
+  ]);
+  const rebased = new Set(
+    [...ids].filter((id) => {
+      const before = prior[id];
+      const after = server.topics?.[id];
+      return (
+        !after ||
+        before?.coverHash !== after.coverHash ||
+        before?.textHash !== after.textHash ||
+        (Object.hasOwn(confirmed.review.settledTopics ?? {}, id) &&
+          !Object.hasOwn(server.settledTopics ?? {}, id))
+      );
+    }),
+  );
+  takeTopicSignOffs(S.state, server, rebased);
+  takenFromDesk((review) => takeTopicSignOffs(review, server, rebased));
+  for (const out of outgoing)
+    for (const id of rebased) out.topicRebases.set(id, server.saveNumber ?? 0);
+}
+
 function dispatch(): Outgoing {
   const sent = copyOf(reviewerSlice(S.state));
   const covers = [...doubtful];
@@ -355,7 +414,7 @@ function dispatch(): Outgoing {
     ),
     seen: saveStamp(),
   };
-  return { body, sent, diff: S.state.baseDiffHash, covers };
+  return { body, sent, diff: S.state.baseDiffHash, covers, topicRebases: new Map() };
 }
 // A save or Send landed (or had nothing to send): the doubtful copies it covered are settled.
 const settle = (out: Outgoing) => {
@@ -374,10 +433,13 @@ function landed(out: Outgoing, answer: Partial<SaveAnswer>) {
   const number = answer.saveNumber ?? confirmed.saveNumber;
   if (S.state.baseDiffHash !== out.diff) return;
   if (confirmed.diff === out.diff && number < confirmed.saveNumber) return;
+  const rebased = new Set([...out.topicRebases].filter(([, at]) => number <= at).map(([id]) => id));
+  takeTopicWarnings(answer.topicWarnings, rebased);
   if (!answer.merged) {
     confirm({ saveNumber: number, review: out.sent, diff: out.diff });
     return;
   }
+  takeTopicSignOffs(answer.merged, out.sent, rebased);
   const since = reviewerChanges(out.sent, reviewerSlice(S.state));
   confirm({ saveNumber: number, review: copyOf(answer.merged), diff: out.diff });
   Object.assign(S.state, applyReviewerChanges(answer.merged, since));

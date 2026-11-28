@@ -117,6 +117,7 @@ test("reviewerChanges: each collection's changed, added and removed records, by 
     settledTopics: {
       changed: [{ id: "t3", hash: "T3", textHash: "R3", round: 2 }],
       removed: ["t2"],
+      removedSignOffs: [{ id: "t2", hash: "T2", round: 1 }],
     },
     decisionFiles: { changed: ["c.ts"], removed: ["a.ts"] },
     annotations: {

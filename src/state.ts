@@ -36,6 +36,7 @@ import type {
   ThreadMessage,
   TopicSignOff,
   TopicStamp,
+  TopicWarnings,
   LineSpan,
   UiAnnotationRecord,
 } from "./types.js";
@@ -657,6 +658,7 @@ export function carryTopicSignOffs(
     if (prior?.changed) stamp.changed = prior.changed;
     else delete stamp.changed;
     if (!signOff) continue;
+    if (signOff.textHash === undefined && prior?.textHash !== undefined) continue;
 
     const oldTopic = oldTopics.get(id);
     const oldTextHash = signOff.textHash ?? (saved.guide && oldTopic && topicTextHash(oldTopic));
@@ -666,7 +668,7 @@ export function carryTopicSignOffs(
         ? !legacyTopicCoverMatches(stamp, signOff, oldTopic, currentUnits)
         : signOff.hash !== stamp.coverHash;
     if (!codeChanged && !textChanged) {
-      settled.set(id, { hash: stamp.coverHash, textHash: stamp.textHash, round: signOff.round });
+      settled.set(id, { ...signOff, hash: stamp.coverHash, textHash: stamp.textHash });
       delete stamp.changed;
     } else if (!prior || matchesTopic(prior, signOff)) {
       stamp.changed = textChanged ? (codeChanged ? "both" : "text") : "code";
@@ -1578,7 +1580,6 @@ const REVIEWER_SAVE_KEYS = [
   "reviewedFiles",
   "reviewedFileHashes",
   "signedOffBlocks",
-  "settledTopics",
   "decisionFiles",
 ] as const satisfies ReadonlyArray<keyof ReviewerSave>;
 // A save's comments, from a tab still on a diff from before the latest reload or restart, onto the
@@ -1627,13 +1628,15 @@ export async function mergeReviewerSave(
   if (!body || typeof body !== "object") return { unplaced: false, saveNumber: latest };
   const incoming = body as Record<string, unknown>;
   const changes = carriesChanges(incoming);
+  const topicDelta = isObject(incoming.changes) && isObject(incoming.changes.settledTopics);
   const unplaced = changes
     ? await applyReviewerChanges(state, incoming, desk, priorDiff)
     : await mergeReviewerCopy(state, incoming, desk, priorDiff);
   state.saveNumber = latest + 1;
   const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
   const needsMerge =
-    changes && (unplaced || incoming.base !== latest) && seen?.baseDiffHash === state.baseDiffHash;
+    (unplaced || topicDelta || (changes && incoming.base !== latest)) &&
+    seen?.baseDiffHash === state.baseDiffHash;
   return {
     unplaced,
     saveNumber: state.saveNumber,
@@ -1672,6 +1675,18 @@ export const reviewerFields = (state: ReviewState): ReviewerSave => ({
   lastAnnotationNumber: state.lastAnnotationNumber ?? 0,
   topicThreads: state.topicThreads ?? [],
 });
+
+// The lightweight review and save answers carry desk-owned topic warnings separately.
+export function topicWarnings(state: Pick<ReviewState, "topics">): TopicWarnings | undefined {
+  return (
+    state.topics &&
+    Object.fromEntries(
+      Object.entries(state.topics).flatMap(([id, stamp]) =>
+        stamp.changed ? [[id, stamp.changed]] : [],
+      ),
+    )
+  );
+}
 
 // Whether a save was made before the desk's latest reload or restart, which reset every
 // annotation's placement: its placements are older than the desk's.
@@ -1739,6 +1754,17 @@ async function mergeReviewerCopy(
     const value = key === "comments" ? comments : incoming[key];
     if (value !== undefined) (state as Record<string, unknown>)[key] = value;
   }
+  if (isObject(incoming.settledTopics)) {
+    // A snapshot has no evidence of which sign-offs the reviewer meant to remove.
+    const changed = readTopicSignOffs(
+      Object.entries(incoming.settledTopics).flatMap(([id, record]) =>
+        isObject(record) ? [{ ...record, id }] : [],
+      ),
+    );
+    const identified = changed.filter((s) => s.textHash !== undefined);
+    unplaced =
+      applyTopicSettlements(state, identified, [], []) || identified.length !== changed.length;
+  }
   const beforeReload = madeBeforeReload(seen, desk);
   // The tab adopts a reloaded diff only once no save is draining and no composer is open (poll.ts),
   // so a save can carry decisions keyed to the blocks of an older diff. Its reload count can't tell:
@@ -1762,9 +1788,11 @@ async function mergeReviewerCopy(
         );
       signOffCoveredFiles(state);
     } else {
-      unplaced = Object.entries(deskVerdicts).some(
-        ([key, own]) => key in incoming && canonical(incoming[key]) !== canonical(own),
-      );
+      unplaced =
+        unplaced ||
+        Object.entries(deskVerdicts).some(
+          ([key, own]) => key in incoming && canonical(incoming[key]) !== canonical(own),
+        );
       Object.assign(state, deskVerdicts);
     }
   }
@@ -1798,6 +1826,65 @@ async function mergeReviewerCopy(
 type Keyed<T> = { changed: T[]; removed: string[] };
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
 const isString = (v: unknown): v is string => typeof v === "string";
+function readTopicSignOffs(records: unknown[]) {
+  return records.flatMap((r) =>
+    isObject(r) && isString(r.id) && isString(r.hash)
+      ? [
+          {
+            id: r.id,
+            hash: r.hash,
+            ...(isString(r.textHash) && { textHash: r.textHash }),
+            ...(isString(r.settlementId) && { settlementId: r.settlementId }),
+            ...(typeof r.round === "number" && { round: r.round }),
+          },
+        ]
+      : [],
+  );
+}
+
+function applyTopicSettlements(
+  state: ReviewState,
+  changed: ReturnType<typeof readTopicSignOffs>,
+  removed: string[],
+  removedSignOffs: ReturnType<typeof readTopicSignOffs>,
+) {
+  let unplaced = false;
+  const settled = new Map(Object.entries(state.settledTopics ?? {}));
+  for (const id of removed) {
+    const current = settled.get(id);
+    if (!current) continue;
+    // Keep the tab's copy of this identity check in review-delta-derive.ts in sync.
+    const seen = removedSignOffs.some(
+      (s) =>
+        s.id === id &&
+        s.hash === current.hash &&
+        s.textHash === current.textHash &&
+        s.settlementId === current.settlementId &&
+        (s.settlementId !== undefined || s.round === current.round),
+    );
+    if (seen) settled.delete(id);
+    else unplaced = true;
+  }
+  for (const { id, ...signOff } of changed) {
+    const stamp = state.topics?.[id];
+    if (!stamp || !matchesTopic(stamp, signOff)) {
+      unplaced = true;
+      continue;
+    }
+    delete stamp.changed;
+    if (!matchesTopic(stamp, settled.get(id))) {
+      const settlementId = signOff.settlementId ?? (stamp.textHash && crypto.randomUUID());
+      settled.set(id, {
+        ...signOff,
+        ...(settlementId && { settlementId }),
+        round: roundOf(state),
+      });
+    }
+  }
+  state.settledTopics = Object.fromEntries(settled);
+  return unplaced;
+}
+
 function readKeyed<T>(value: unknown, read: (records: unknown[]) => T[]): Keyed<T> | undefined {
   if (!isObject(value)) return undefined;
   return {
@@ -1847,13 +1934,11 @@ function readChanges(value: unknown, app: string | undefined) {
     ),
     annotations: readKeyed(c.annotations, (rs) => readUiAnnotations(rs, app) ?? []),
     topicThreads: readKeyed(c.topicThreads, (rs) => readTopicThreads(rs) ?? []),
-    settledTopics: readKeyed(c.settledTopics, (rs) =>
-      rs.flatMap((r) =>
-        isObject(r) && isString(r.id) && isString(r.hash)
-          ? [{ id: r.id, hash: r.hash, ...(isString(r.textHash) && { textHash: r.textHash }) }]
-          : [],
-      ),
-    ),
+    settledTopics: readKeyed(c.settledTopics, readTopicSignOffs),
+    removedSignOffs:
+      isObject(c.settledTopics) && Array.isArray(c.settledTopics.removedSignOffs)
+        ? readTopicSignOffs(c.settledTopics.removedSignOffs)
+        : [],
     reports: (Array.isArray(c.annotationReports) ? c.annotationReports : []).flatMap((r) =>
       isObject(r) && isString(r.id)
         ? [
@@ -2016,27 +2101,14 @@ async function applyReviewerChanges(
     unplaced = verdictsKey(would) !== verdictsKey(state);
   }
   if (c.verdicts.decisions) stampDecisions(state);
-  // Require both identities before writing so a stale save cannot replace a current sign-off.
-  // The desk sets the round since the tab may have missed another tab's Send.
   if (c.settledTopics) {
-    const round = roundOf(state);
-    const signOffs = Object.entries(state.settledTopics ?? {}).map(([id, s]) => ({ id, ...s }));
-    const changed = c.settledTopics.changed.filter(({ id, ...signOff }) => {
-      const stamp = state.topics?.[id];
-      if (!stamp || !matchesTopic(stamp, signOff)) {
-        unplaced = true;
-        return false;
-      }
-      delete stamp.changed;
-      return !topicSettled(state, id);
-    });
-    state.settledTopics = Object.fromEntries(
-      applyKeyed(
-        signOffs,
-        { ...c.settledTopics, changed: changed.map((t) => ({ ...t, round })) },
-        (t) => t.id,
-      ).map(({ id, ...signOff }) => [id, signOff]),
-    );
+    unplaced =
+      applyTopicSettlements(
+        state,
+        c.settledTopics.changed,
+        c.settledTopics.removed,
+        c.removedSignOffs,
+      ) || unplaced;
   }
   if (c.annotations) {
     const stored = new Map(state.annotations?.map((a) => [a.id, a]));

@@ -69,6 +69,7 @@ installKeys();
 test("Shift+A advances settled topics without saving, and preserves pending settlement and sidebar toggle", () => {
   const saves = mock.method(saver, "trigger", () => {});
   S.state = state();
+  const signOffB = () => S.state.settledTopics?.b;
   S.view = "topics";
   S.topicAt = "a";
   S.promptTopicsFinish = () => {
@@ -84,7 +85,9 @@ test("Shift+A advances settled topics without saving, and preserves pending sett
   assert.equal(saves.mock.callCount(), 0);
 
   press("A", true);
-  assert.deepEqual(S.state.settledTopics!.b, { hash: "hb", textHash: "text-b", round: 2 });
+  const { settlementId, ...b } = signOffB()!;
+  assert.deepEqual(b, { hash: "hb", textHash: "text-b", round: 2 });
+  assert.ok(settlementId);
   assert.equal(saves.mock.callCount(), 1);
   assert.equal(S.topicAt, null);
   assert.equal(S.sendOpen, true);
@@ -105,10 +108,13 @@ test("Shift+A advances settled topics without saving, and preserves pending sett
   S.topicAt = "b";
   renderTopics();
   (window.document.querySelector('[data-mark="b"]') as unknown as HTMLButtonElement).click();
-  assert.equal(S.state.settledTopics!.b, undefined);
+  assert.equal(signOffB(), undefined);
   assert.equal(S.topicAt, "b");
   (window.document.querySelector('[data-mark="b"]') as unknown as HTMLButtonElement).click();
-  assert.deepEqual(S.state.settledTopics!.b, { hash: "hb", textHash: "text-b", round: 2 });
+  const { settlementId: nextSettlement, ...settledAgain } = signOffB()!;
+  assert.deepEqual(settledAgain, b);
+  assert.ok(nextSettlement);
+  assert.notEqual(nextSettlement, settlementId);
   assert.equal(S.topicAt, "b");
   assert.equal(saves.mock.callCount(), 3);
   saves.mock.restore();

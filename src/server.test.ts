@@ -554,18 +554,22 @@ test("a Send reports settled and to-do topics and starts the next round; reset c
       ],
     };
     st.topics = {
-      t1: { blocks: [], lines: 1, coverHash: "H1" },
+      t1: { blocks: [], lines: 1, coverHash: "H1", changed: "text" },
       t2: { blocks: [], lines: 1, coverHash: "H2" },
     };
     const seen = { token: null, reloadGeneration: 0, baseDiffHash: "base" };
     const poll = async () =>
       (await fetch(`${handle.url}api/poll`).then((r) => r.json())) as { round?: number };
+    const read = async () => fetch(`${handle.url}api/review`).then((r) => r.json());
     assert.equal((await poll()).round, undefined, "a new review is in round 1");
-    await post(handle.url, "api/save", {
+    assert.deepEqual((await read()).topicWarnings, { t1: "text" });
+    const saved = await post(handle.url, "api/save", {
       base: 0,
       changes: { settledTopics: { changed: [{ id: "t1", hash: "H1", round: 1 }], removed: [] } },
       seen,
     });
+    assert.deepEqual((await saved.json()).topicWarnings, {});
+    assert.deepEqual((await read()).topicWarnings, {});
     const sent = (await post(handle.url, "api/send", {
       base: 1,
       changes: {},

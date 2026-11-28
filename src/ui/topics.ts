@@ -33,6 +33,7 @@ import {
 } from "./topics-dom";
 import { layoutMap, MAP_WIDTH } from "./map-derive";
 import { canvasMeasure, lightMapLinks } from "./map-dom";
+import { uuid } from "./uuid";
 
 // Decisions mode: the guide's topics, read one page at a time. It draws into its own sidebar list
 // (#topicsNav) and centre (#topics); Code mode's diff and lists stand aside while it shows
@@ -226,7 +227,7 @@ function settle(id: string) {
   const { coverHash: hash, textHash } = stamp;
   S.state.settledTopics = {
     ...S.state.settledTopics,
-    [id]: { hash, textHash, round: roundOf(S.state) },
+    [id]: { hash, textHash, round: roundOf(S.state), settlementId: uuid() },
   };
   persist();
   return true;

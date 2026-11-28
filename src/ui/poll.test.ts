@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { Window } from "happy-dom";
-import { addPostedComment, mergeReviewerSave, reviewerFields } from "../state.js";
+import { addPostedComment, mergeReviewerSave, reviewerFields, topicWarnings } from "../state.js";
 import type { ReviewComment } from "../types.js";
 
 // Real poll/status/render modules, adapted from the independent starvation probe. HTTP
@@ -56,6 +56,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
     hang: false,
     holdSend: undefined as undefined | Promise<void>,
     holdSave: undefined as undefined | Promise<void>,
+    holdSaveAnswer: undefined as undefined | Promise<void>,
     holdReview: undefined as undefined | Promise<void>,
     holdReset: undefined as undefined | Promise<void>,
     hangReset: undefined as undefined | "before" | "after",
@@ -169,12 +170,15 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
         JSON.stringify({
           ok: true,
           saveNumber,
+          topicWarnings: topicWarnings(server),
           ...(url === "/api/send" && { sent: true }),
           ...(unplaced && { unplaced }),
           ...(merged && { merged }),
         }),
       );
-      return { ok: true, json: async () => answer };
+      const holdAnswer = desk.holdSaveAnswer;
+      desk.holdSaveAnswer = undefined;
+      return { ok: true, json: async () => (await holdAnswer, answer) };
     }
     if (url === "/api/reset") {
       const hang = desk.hangReset;
@@ -214,6 +218,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
           saveNumber: snapshot.saveNumber ?? 0,
           baseDiffHash: snapshot.baseDiffHash,
           review: reviewerFields(snapshot),
+          topicWarnings: topicWarnings(snapshot),
         }),
       );
       const hold = desk.holdReview;
@@ -1707,4 +1712,58 @@ test("a new guide that cost a topic its sign-off drops it in the tab too, and ke
     removed: [],
   });
   assert.deepEqual(Object.keys(f.server().settledTopics).sort(), ["t1", "t3"]);
+});
+
+test("a delayed merged save answer cannot restore a sign-off after wording changes and returns", async (t) => {
+  const f = await fixture(t);
+  const original = { blocks: [], lines: 1, coverHash: "h", textHash: "original" };
+  f.S.state.topics = { a: original };
+  f.update({ topics: { a: original }, saveNumber: 1 }); // force a merged answer
+  let release!: () => void;
+  f.desk.holdSaveAnswer = new Promise<void>((resolve) => (release = resolve));
+  f.S.state.settledTopics = { a: { hash: "h", textHash: "original", round: 1 } };
+  f.h.persist();
+  await until(() => f.server().saveNumber === 2);
+  try {
+    for (const [index, textHash] of ["new text", "original"].entries()) {
+      f.update({
+        ...updateFor("guide", `guide ${index}`),
+        topics: { a: { ...original, textHash } },
+        settledTopics: {},
+      });
+      const polling = f.poll();
+      await until(() => f.pending.length === index + 1);
+      f.pending[index]!.release();
+      await polling;
+      assert.deepEqual(plain(f.S.state.settledTopics), {});
+    }
+  } finally {
+    release();
+  }
+  await f.h.saver.settled();
+  assert.deepEqual(plain(f.S.state.settledTopics), {});
+  f.S.state.comments.push({ id: "unrelated", path: "a.ts", role: "user", body: "Note" });
+  f.h.persist();
+  await f.h.saver.settled();
+  assert.equal(f.saves.at(-1).changes.settledTopics, undefined);
+  assert.deepEqual(f.server().settledTopics, {});
+});
+
+test("a second tab takes the cleared warning when a topic is settled and reset", async (t) => {
+  const f = await fixture(t);
+  const stamp = { blocks: [], lines: 1, coverHash: "h", textHash: "revised", changed: "text" };
+  f.S.state.topics = { a: stamp };
+  f.update({ topics: { a: { ...stamp } }, settledTopics: {} });
+  f.confirm();
+  const settled = { hash: "h", textHash: "revised", round: 1 };
+  for (const [index, settledTopics] of [{ a: settled }, {}].entries()) {
+    f.update({
+      topics: { a: { ...stamp, changed: undefined } },
+      saveNumber: index + 1,
+      settledTopics,
+    });
+    await f.poll();
+  }
+  assert.deepEqual(plain(f.S.state.settledTopics), {});
+  assert.equal(f.S.state.topics.a.changed, undefined);
 });
