@@ -53,10 +53,10 @@ const state = () =>
     session: "test",
     round: 2,
     topics: {
-      a: { blocks: [], lines: 0, coverHash: "ha" },
-      b: { blocks: [], lines: 0, coverHash: "hb" },
+      a: { blocks: [], lines: 0, coverHash: "ha", textHash: "text-a" },
+      b: { blocks: [], lines: 0, coverHash: "hb", textHash: "text-b" },
     },
-    settledTopics: { a: { hash: "ha", round: 1 } },
+    settledTopics: { a: { hash: "ha", textHash: "text-a", round: 1 } },
     topicThreads: [],
   }) as unknown as typeof S.state;
 const press = (key: string, shiftKey = false) =>
@@ -78,13 +78,13 @@ test("Shift+A advances settled topics without saving, and preserves pending sett
   renderTopics();
   press("A", true);
   assert.equal(S.topicAt, "b");
-  assert.deepEqual(S.state.settledTopics!.a, { hash: "ha", round: 1 });
+  assert.deepEqual(S.state.settledTopics!.a, { hash: "ha", textHash: "text-a", round: 1 });
   assert.deepEqual(topicsDone(stages, S.state), { done: 1, total: 2 });
   assert.equal(S.state.round, 2);
   assert.equal(saves.mock.callCount(), 0);
 
   press("A", true);
-  assert.deepEqual(S.state.settledTopics!.b, { hash: "hb", round: 2 });
+  assert.deepEqual(S.state.settledTopics!.b, { hash: "hb", textHash: "text-b", round: 2 });
   assert.equal(saves.mock.callCount(), 1);
   assert.equal(S.topicAt, null);
   assert.equal(S.sendOpen, true);
@@ -100,7 +100,7 @@ test("Shift+A advances settled topics without saving, and preserves pending sett
   assert.equal(saves.mock.callCount(), 1);
   press("Escape");
   assert.equal(S.state.round, 2);
-  assert.deepEqual(S.state.settledTopics!.a, { hash: "ha", round: 1 });
+  assert.deepEqual(S.state.settledTopics!.a, { hash: "ha", textHash: "text-a", round: 1 });
 
   S.topicAt = "b";
   renderTopics();
@@ -108,7 +108,7 @@ test("Shift+A advances settled topics without saving, and preserves pending sett
   assert.equal(S.state.settledTopics!.b, undefined);
   assert.equal(S.topicAt, "b");
   (window.document.querySelector('[data-mark="b"]') as unknown as HTMLButtonElement).click();
-  assert.deepEqual(S.state.settledTopics!.b, { hash: "hb", round: 2 });
+  assert.deepEqual(S.state.settledTopics!.b, { hash: "hb", textHash: "text-b", round: 2 });
   assert.equal(S.topicAt, "b");
   assert.equal(saves.mock.callCount(), 3);
   saves.mock.restore();
