@@ -51,6 +51,7 @@ import {
   reviewDir,
   reviewerFields,
   roundOf,
+  stampTopics,
   syncGitState,
   uiQuestionPayload,
   unvisitedAnnotations,
@@ -617,9 +618,9 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
   // anchored by their lines' text, merge from any older diff (mergeReviewerSave).
   let priorDiff = options.priorDiff;
   // The last diff with blocks, kept while a reload that reverted every edit leaves the desk with
-  // none: the next reload carries the guide's part and skim stamps from it (mergeReviewState).
+  // none: the next reload carries guide stamps from it (mergeReviewState).
   // Held in memory only: after a restart in that window, every block comes back in Rest.
-  let stampSource: Pick<ReviewState, "files" | "changes"> | undefined;
+  let stampSource: Pick<ReviewState, "files" | "changes" | "topics"> | undefined;
 
   // Whether a `galley await` is parked. Agent replies and status lines carry it too, so the CLI can
   // tell an agent that answered without re-arming that the reviewer's next message has nowhere to go.
@@ -1201,7 +1202,8 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             validatedGuide = result.guide;
           }
           markAgentRequest(req);
-          if (state.changes.length) stampSource = { files: state.files, changes: state.changes };
+          if (state.changes.length)
+            stampSource = { files: state.files, changes: state.changes, topics: state.topics };
           const base = await buildReviewState(state.root, {
             mode: state.mode,
             session: state.session,
@@ -1211,11 +1213,20 @@ export async function startServer(options: ServerOptions): Promise<ServerHandle>
             base: state.mode === "pr" ? state.base : undefined,
           });
           if (!base) {
+            const saved = {
+              topics: state.topics,
+              guide: state.guide,
+              settledTopics: state.settledTopics,
+            };
             state.files = [];
             state.changes = [];
             state.rawDiff = "";
             state.baseDiffHash = hash("");
             state.annotations = unvisitedAnnotations(state.annotations);
+            if (state.guide?.stages) {
+              stampTopics(state);
+              carryTopicSignOffs(state, saved);
+            }
             // No rebuild to take them from, but the agent may have switched branches.
             [state.project, state.branch] = await Promise.all([
               getProjectName(state.root),

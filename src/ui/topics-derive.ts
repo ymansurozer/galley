@@ -4,19 +4,19 @@ import type { GuideGroup, GuideStage, GuideTopic, ReviewState } from "../types";
 // settled, and the sidebar's rows. Topics are read in the guide's order: stage by stage, group by
 // group.
 
-// What settling reads off the review: the desk's stamp per topic (its cover hash now), the
+// What settling reads off the review: the desk's stamp per topic (its code and text hashes), the
 // reviewer's sign-offs, and the round.
 export type TopicsReview = Pick<ReviewState, "topics" | "settledTopics" | "round">;
 
 // The review's round: one more than the number of Sends.
 export const roundOf = (review: TopicsReview) => review.round ?? 1;
 
-// Whether a topic is settled: the reviewer's sign-off names the cover hash the topic has now. The
-// one rule the sidebar, the bar, the counts, progress and Send judge by (the desk's twin:
-// state.ts topicSettled).
+// Whether a topic is settled for the sidebar, progress and Send: its sign-off names its current
+// code and text. Keep the desk's copy in state.ts (matchesTopic) in sync.
 export function topicSettled(review: TopicsReview, id: string): boolean {
-  const hash = review.topics?.[id]?.coverHash;
-  return hash !== undefined && review.settledTopics?.[id]?.hash === hash;
+  const stamp = review.topics?.[id];
+  const signOff = review.settledTopics?.[id];
+  return !!stamp && signOff?.hash === stamp.coverHash && signOff.textHash === stamp.textHash;
 }
 
 // The round a topic settled in an earlier round was settled in: folded away under its group and

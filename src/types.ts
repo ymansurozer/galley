@@ -258,8 +258,9 @@ export type GuideLink = { from: string; to: string; label: string };
 // on every reload (state.ts stampTopics). `blocks` are the change blocks it claims, `path:stableKey`
 // in diff order; `lines` is their added plus removed lines; `coverHash` hashes the blocks' content in
 // order and no line number, so it holds while lines shift above them and moves when one is edited.
-// `changed`: the reviewer's sign-off on it was dropped because its cover hash moved (state.ts
-// carryTopicSignOffs); kept until the topic is settled again. `bodyParts`: the body's blocks a
+// `textHash` identifies the authored title and body, including options. `changed` records what
+// invalidated the sign-off until the topic is settled again; legacy true has no reason.
+// `bodyParts`: the body's blocks a
 // comment can sit on, each by its source line with its text (topicthreads.ts bodyBlocks), so the tab
 // places parts by the desk's own list and a new thread sends the text the desk quotes. `lineSpans`:
 // each entry of the body's line blocks, where its lines are now (LineSpan); absent when the body has
@@ -270,7 +271,8 @@ export type TopicStamp = {
   blocks: string[];
   lines: number;
   coverHash: string;
-  changed?: true;
+  textHash?: string;
+  changed?: true | "text" | "code" | "both";
   bodyParts?: Array<{ line: number; text: string }>;
   lineSpans?: LineSpan[];
   options?: TopicOption[];
@@ -291,9 +293,9 @@ export type LineSpan = {
   end?: number;
 };
 
-// A settled topic (ReviewState.settledTopics): its cover hash when the reviewer settled it, and the
-// round it was settled in. Settled while `hash` is the topic's current coverHash (topicSettled).
-export type TopicSignOff = { hash: string; round: number };
+// A settled topic (ReviewState.settledTopics): the cover and text hashes the reviewer signed off,
+// and the round. Older saved reviews lack textHash; the desk checks and upgrades them on carry.
+export type TopicSignOff = { hash: string; textHash?: string; round: number };
 
 // The guided review the coding agent attaches (the desk renders it, runs no model).
 // Absent on a ReviewState → no guide surfaces render and the desk works as today.
@@ -442,11 +444,11 @@ export type SaveStamp = { token: string | null; reloadGeneration: number; baseDi
 
 // The desk's answer to a save (/api/save); Send's (/api/send) carries `sent` and `resultJson` in
 // place of `file`. A save has landed only on a 2xx answer whose `ok` is true. `unplaced`: the save
-// was made on a diff older than the one before the desk's current one, so the desk could not place
-// its decisions and sign-offs and kept its own (mergeReviewerSave); its comments still landed.
+// names an older version of the diff or a topic, so the desk could not place some decisions or
+// sign-offs (mergeReviewerSave). Its comments still landed.
 // `saveNumber`: the desk's number once it applied this save (ReviewState.saveNumber). `merged`: the
-// desk's reviewer-owned fields after the merge, when the save's `base` was not the desk's latest
-// number, so other saves landed since the tab's copy, and the tab is on the desk's current diff.
+// desk's reviewer-owned fields after the merge, if some changes could not be placed or other saves
+// landed since the tab's copy, and the tab is on the desk's current diff.
 // A tab on an older diff gets none: they're keyed to a diff it doesn't have. `round`: on a Send, the
 // round it started (ReviewState.round).
 export type SaveAnswer = {

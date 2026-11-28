@@ -70,7 +70,7 @@ const blockSignOffs = (s: ReviewerSave) =>
 const topicSignOffs = (s: ReviewerSave) =>
   Object.entries(s.settledTopics ?? {}).map(([id, t]) => ({ id, ...t }));
 const topicSignOffMap = (list: ReturnType<typeof topicSignOffs>) =>
-  Object.fromEntries(list.map(({ id, hash, round }) => [id, { hash, round }]));
+  Object.fromEntries(list.map(({ id, ...signOff }) => [id, signOff]));
 
 // Whether its screenshots are stored is the desk's to say, never the tab's (types.ts), so it is no
 // change of the tab's. What the page reports by itself (placement, a failed capture) goes as a

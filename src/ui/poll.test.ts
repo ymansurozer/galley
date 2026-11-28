@@ -1668,25 +1668,42 @@ test("a guide swap keeps the topic threads the tab hasn't saved, and drops what 
 test("a new guide that cost a topic its sign-off drops it in the tab too, and keeps one not saved yet", async (t) => {
   const f = await fixture(t);
   // Saved: t1 and t2 settled.
-  f.S.state.settledTopics = { t1: { hash: "h1", round: 1 }, t2: { hash: "h2", round: 1 } };
-  f.update({ settledTopics: plain(f.S.state.settledTopics) });
+  const topics = Object.fromEntries(
+    [1, 2, 3].map((n) => [
+      `t${n}`,
+      { blocks: [], lines: 1, coverHash: `h${n}`, textHash: `w${n}` },
+    ]),
+  );
+  f.S.state.topics = topics;
+  f.S.state.settledTopics = {
+    t1: { hash: "h1", textHash: "w1", round: 1 },
+    t2: { hash: "h2", textHash: "w2", round: 1 },
+  };
+  f.update({ topics, settledTopics: plain(f.S.state.settledTopics) });
   f.confirm();
   // The tab settles t3, and its save has not gone out. Meanwhile the agent attaches a new guide
-  // that gives t2 other blocks: the desk drops t2's sign-off.
-  f.S.state.settledTopics = { ...f.S.state.settledTopics, t3: { hash: "h3", round: 1 } };
-  f.update({ ...updateFor("guide", "swapped"), settledTopics: { t1: { hash: "h1", round: 1 } } });
+  // with revised wording for t2: the desk drops t2's sign-off.
+  f.S.state.settledTopics = {
+    ...f.S.state.settledTopics,
+    t3: { hash: "h3", textHash: "w3", round: 1 },
+  };
+  f.update({
+    ...updateFor("guide", "swapped"),
+    topics: { ...topics, t2: { ...topics.t2!, textHash: "new" } },
+    settledTopics: { t1: { hash: "h1", textHash: "w1", round: 1 } },
+  });
   const owner = f.poll();
   await until(() => f.pending.length === 1);
   f.pending[0]!.release();
   await owner;
   assert.equal(f.S.state.guide?.title, "swapped");
-  // Kept, a later guide that gave t2 its old blocks back would show it settled here alone.
+  // A later guide that restored t2's wording would otherwise show it settled here alone.
   assert.deepEqual(Object.keys(plain(f.S.state.settledTopics)), ["t1", "t3"]);
   // The drop was the desk's: the next save sends the tab's own sign-off and nothing about t2.
   f.h.persist();
   await f.h.saver.settled();
   assert.deepEqual(plain(f.saves.at(-1).changes.settledTopics), {
-    changed: [{ id: "t3", hash: "h3", round: 1 }],
+    changed: [{ id: "t3", hash: "h3", textHash: "w3", round: 1 }],
     removed: [],
   });
   assert.deepEqual(Object.keys(f.server().settledTopics).sort(), ["t1", "t3"]);

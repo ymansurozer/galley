@@ -210,7 +210,7 @@
   font-size: var(--text-xs);
 }
 
-/* Galley's own word on the topic: its lines changed since the reviewer settled it. */
+/* The reason the reviewer needs to settle this topic again. */
 .topic-changed {
   color: var(--orange-ink);
   font-weight: 500;

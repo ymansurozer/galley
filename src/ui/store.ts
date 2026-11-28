@@ -204,7 +204,7 @@ export function noteUnplaced(answer: Partial<SaveAnswer> | null) {
   if (!answer?.unplaced) return;
   unplacedUntil = Date.now() + UNPLACED_MS;
   toast(
-    "Decisions and sign-offs made on an older diff couldn't be carried over. Comments were saved; the desk's review is shown.",
+    "Some decisions or sign-offs couldn't be carried over because the review changed. Your comments were saved.",
     undefined,
     "",
     UNPLACED_MS,

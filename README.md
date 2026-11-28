@@ -73,7 +73,7 @@ Your agent hands over its dev server and the desk gets an **App** tab. Annotate 
 
 ### Settle the decisions
 
-Your agent can write its guide as **topics**: the calls it made, how the new parts work, who can reach what, what it costs, what a deploy needs. The desk gets a **Decisions** tab. Read each topic on its own page, comment on any part of it, pick between the options your agent weighed, and settle it. An overview maps the change and shows that every changed line sits under a topic or was skimmed for a stated reason. Next round, what you settled stays settled unless its code changed.
+Your agent can write its guide as **topics**: the calls it made, how the new parts work, who can reach what, what it costs, what a deploy needs. The desk gets a **Decisions** tab. Read each topic on its own page, comment on any part of it, pick between the options your agent weighed, and settle it. An overview maps the change and shows that every changed line sits under a topic or was skimmed for a stated reason. Next round, what you settled stays settled unless its title, body or covered code changed.
 
 ### Keyboard-first
 

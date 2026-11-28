@@ -116,18 +116,26 @@ test("the sidebar lists stages and groups, and unfolds only the open topic's gro
 const ALL = ["a1", "a2", "b1", "c1", "c2", "c3", "c4"];
 const review = (settled: Record<string, number> = {}, round = 1): TopicsReview => ({
   round,
-  topics: Object.fromEntries(ALL.map((id) => [id, { blocks: [], lines: 1, coverHash: `H${id}` }])),
+  topics: Object.fromEntries(
+    ALL.map((id) => [id, { blocks: [], lines: 1, coverHash: `H${id}`, textHash: `T${id}` }]),
+  ),
   settledTopics: Object.fromEntries(
-    Object.entries(settled).map(([id, r]) => [id, { hash: `H${id}`, round: r }]),
+    Object.entries(settled).map(([id, r]) => [
+      id,
+      { hash: `H${id}`, textHash: `T${id}`, round: r },
+    ]),
   ),
 });
 
-test("a topic is settled only while its sign-off names its cover hash now", () => {
+test("a topic is settled only while its sign-off names its current code and text", () => {
   const r = review({ a1: 1 });
   assert.equal(topicSettled(r, "a1"), true);
   assert.equal(topicSettled(r, "a2"), false);
-  r.topics!.a1!.coverHash = "moved";
-  assert.equal(topicSettled(r, "a1"), false, "its lines changed since");
+  r.topics!.a1!.textHash = "reworded";
+  assert.equal(topicSettled(r, "a1"), false, "its wording changed");
+  r.topics!.a1!.textHash = "Ta1";
+  r.topics!.a1!.coverHash = "edited";
+  assert.equal(topicSettled(r, "a1"), false, "its covered code changed");
   assert.equal(topicSettled({ settledTopics: { gone: { hash: "H", round: 1 } } }, "gone"), false);
 });
 

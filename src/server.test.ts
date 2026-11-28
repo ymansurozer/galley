@@ -21,10 +21,19 @@ import {
   buildReviewState,
   hash,
   loadLatestReview,
+  mergeReviewState,
   reviewDir,
   writeGlobalSettings,
 } from "./state.js";
-import type { ReviewComment, ReviewFile, ReviewResult, ReviewState } from "./types.js";
+import type {
+  AwaitEvent,
+  Guide,
+  ReviewComment,
+  ReviewFile,
+  ReviewResult,
+  ReviewState,
+  SaveStamp,
+} from "./types.js";
 import { isGuideBaseStale } from "./ui/guide-derive.js";
 import { agentPresence, unansweredAsks } from "./ui/topbar-derive.js";
 import { pendingAnswer } from "./ui/thread-derive.js";
@@ -1559,6 +1568,116 @@ async function withBlockDesk(
 }
 
 const lines30 = Array.from({ length: 30 }, (_, i) => `l${i + 1}`);
+
+test("guide edits reopen settled topics for Send and stale saves cannot settle the revision", async () => {
+  await withBlockDesk("before\n", "after\n", async ({ st, root, url, g }) => {
+    await writeFile(path.join(root, ".gitignore"), ".galley/\n");
+    g(["add", ".gitignore"]);
+    g(["commit", "-qm", "ignore desk output"]);
+    const topic = {
+      id: "call",
+      title: "Initial call",
+      recorded: "f.txt",
+      body: 'Initial explanation.\n\n```options\n[{"label":"A","recommended":true},{"label":"B"}]\n```',
+      covers: [{ path: "f.txt" }],
+    };
+    const guide: Guide = {
+      overview: "o",
+      stages: [{ id: "s", label: "S", groups: [{ id: "g", title: "G", topics: [topic] }] }],
+    };
+    const reload = async () => assert.equal((await post(url, "api/reload", { guide })).status, 200);
+    const seen = async (desk: string): Promise<SaveStamp> => {
+      const p = (await fetch(`${desk}api/poll`).then((r) => r.json())) as Omit<
+        SaveStamp,
+        "token"
+      > & {
+        uiProxy: { token: string } | null;
+      };
+      return {
+        token: p.uiProxy?.token ?? null,
+        reloadGeneration: p.reloadGeneration,
+        baseDiffHash: p.baseDiffHash,
+      };
+    };
+    const settleBody = async () => {
+      const { coverHash: hash, textHash } = st.topics!.call!;
+      return {
+        base: st.saveNumber ?? 0,
+        changes: { settledTopics: { changed: [{ id: "call", hash, textHash }], removed: [] } },
+        seen: await seen(url),
+      };
+    };
+    const settle = async () => {
+      assert.equal((await post(url, "api/save", await settleBody())).status, 200);
+      assert.equal(st.settledTopics?.call?.textHash, st.topics?.call?.textHash);
+      assert.equal(st.topics?.call?.changed, undefined);
+    };
+
+    await reload();
+    const cover = st.topics?.call?.coverHash;
+    for (const edit of [
+      () => (topic.title = "Revised call"),
+      () => (topic.body = topic.body.replace("Initial explanation.", "New explanation.")),
+      () =>
+        (topic.body = topic.body.replace(
+          '"A","recommended":true},{"label":"B"',
+          '"A"},{"label":"B","recommended":true',
+        )),
+    ]) {
+      await settle();
+      edit();
+      await reload();
+      assert.equal(st.topics?.call?.coverHash, cover);
+      assert.equal(st.topics?.call?.changed, "text");
+      assert.deepEqual(st.settledTopics, {});
+      const sent = await post(url, "api/send", {
+        base: st.saveNumber,
+        changes: {},
+        seen: await seen(url),
+        overallNote: "",
+      });
+      assert.equal(sent.status, 200);
+      const event = (await awaitEvent(url, "?timeout=1").then((r) => r.json())) as AwaitEvent;
+      assert.equal(event.kind, "review");
+      assert.deepEqual(event.result.topics, { settled: [], todo: ["call"] });
+    }
+    await settle();
+    const stale = await settleBody();
+    const saved = await loadLatestReview(root, st.session);
+    assert.ok(saved);
+    const base = await buildReviewState(root, { session: st.session });
+    assert.ok(base);
+    const restarted = await mergeReviewState(base, saved);
+    assert.deepEqual(restarted.settledTopics, st.settledTopics);
+    const desk = await startServer({ state: restarted, open: false, idleTimeoutMs: 0 });
+    try {
+      topic.body += "\n\nA later revision.";
+      assert.equal((await post(desk.url, "api/reload", { guide })).status, 200);
+      assert.equal(restarted.topics?.call?.changed, "text");
+      // The diff and save number still match. The old text identity alone must refuse this.
+      const ack = await post(desk.url, "api/save", stale);
+      assert.equal(ack.status, 200);
+      assert.equal((await ack.json()).unplaced, true);
+      assert.deepEqual(restarted.settledTopics, {});
+      const { coverHash: hash, textHash } = restarted.topics!.call!;
+      const current = {
+        base: restarted.saveNumber,
+        changes: { settledTopics: { changed: [{ id: "call", hash, textHash }], removed: [] } },
+        seen: await seen(desk.url),
+      };
+      assert.equal((await post(desk.url, "api/save", current)).status, 200);
+      assert.equal((await post(desk.url, "api/save", stale)).status, 200);
+      assert.equal(restarted.settledTopics?.call?.textHash, textHash);
+      await writeFile(path.join(root, "f.txt"), "before\n");
+      assert.equal((await post(desk.url, "api/reload", {})).status, 200);
+      assert.equal(restarted.topics?.call?.changed, "code");
+      assert.deepEqual(restarted.settledTopics, {});
+    } finally {
+      desk.server.close();
+    }
+  });
+});
+
 // lines30 with the given edits made: lines inserted after a line, a line replaced, a line gone.
 const edit30 = (edits: { a?: true; ten?: string; x?: true; d?: true }, eol = "\n") =>
   lines30
