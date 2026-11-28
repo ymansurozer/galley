@@ -4,7 +4,13 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { Window } from "happy-dom";
-import { addPostedComment, mergeReviewerSave, reviewerFields } from "../state.js";
+import {
+  addPostedComment,
+  carryTopicSignOffs,
+  mergeReviewerSave,
+  reviewerFields,
+  topicWarnings,
+} from "../state.js";
 import type { ReviewComment } from "../types.js";
 
 // Real poll/status/render modules, adapted from the independent starvation probe. HTTP
@@ -56,6 +62,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
     hang: false,
     holdSend: undefined as undefined | Promise<void>,
     holdSave: undefined as undefined | Promise<void>,
+    holdSaveAnswer: undefined as undefined | Promise<void>,
     holdReview: undefined as undefined | Promise<void>,
     holdReset: undefined as undefined | Promise<void>,
     hangReset: undefined as undefined | "before" | "after",
@@ -169,12 +176,15 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
         JSON.stringify({
           ok: true,
           saveNumber,
+          topicWarnings: topicWarnings(server),
           ...(url === "/api/send" && { sent: true }),
           ...(unplaced && { unplaced }),
           ...(merged && { merged }),
         }),
       );
-      return { ok: true, json: async () => answer };
+      const holdAnswer = desk.holdSaveAnswer;
+      desk.holdSaveAnswer = undefined;
+      return { ok: true, json: async () => (await holdAnswer, answer) };
     }
     if (url === "/api/reset") {
       const hang = desk.hangReset;
@@ -214,6 +224,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
           saveNumber: snapshot.saveNumber ?? 0,
           baseDiffHash: snapshot.baseDiffHash,
           review: reviewerFields(snapshot),
+          topicWarnings: topicWarnings(snapshot),
         }),
       );
       const hold = desk.holdReview;
@@ -243,6 +254,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }, shared?:
                       "ui",
                       "annotations",
                       "topicThreads",
+                      "topicRevision",
                       "project",
                       "branch",
                       "uiProxy",
@@ -1668,26 +1680,205 @@ test("a guide swap keeps the topic threads the tab hasn't saved, and drops what 
 test("a new guide that cost a topic its sign-off drops it in the tab too, and keeps one not saved yet", async (t) => {
   const f = await fixture(t);
   // Saved: t1 and t2 settled.
-  f.S.state.settledTopics = { t1: { hash: "h1", round: 1 }, t2: { hash: "h2", round: 1 } };
-  f.update({ settledTopics: plain(f.S.state.settledTopics) });
+  const topics = Object.fromEntries(
+    [1, 2, 3].map((n) => [
+      `t${n}`,
+      { blocks: [], lines: 1, coverHash: `h${n}`, textHash: `w${n}` },
+    ]),
+  );
+  f.S.state.topics = topics;
+  f.S.state.settledTopics = {
+    t1: { hash: "h1", textHash: "w1", round: 1 },
+    t2: { hash: "h2", textHash: "w2", round: 1 },
+  };
+  f.update({ topics, settledTopics: plain(f.S.state.settledTopics) });
   f.confirm();
   // The tab settles t3, and its save has not gone out. Meanwhile the agent attaches a new guide
-  // that gives t2 other blocks: the desk drops t2's sign-off.
-  f.S.state.settledTopics = { ...f.S.state.settledTopics, t3: { hash: "h3", round: 1 } };
-  f.update({ ...updateFor("guide", "swapped"), settledTopics: { t1: { hash: "h1", round: 1 } } });
+  // with revised wording for t2: the desk drops t2's sign-off.
+  f.S.state.settledTopics = {
+    ...f.S.state.settledTopics,
+    t3: { hash: "h3", textHash: "w3", round: 1 },
+  };
+  f.update({
+    ...updateFor("guide", "swapped"),
+    topics: { ...topics, t2: { ...topics.t2!, textHash: "new" } },
+    settledTopics: { t1: { hash: "h1", textHash: "w1", round: 1 } },
+  });
   const owner = f.poll();
   await until(() => f.pending.length === 1);
   f.pending[0]!.release();
   await owner;
   assert.equal(f.S.state.guide?.title, "swapped");
-  // Kept, a later guide that gave t2 its old blocks back would show it settled here alone.
+  // A later guide that restored t2's wording would otherwise show it settled here alone.
   assert.deepEqual(Object.keys(plain(f.S.state.settledTopics)), ["t1", "t3"]);
   // The drop was the desk's: the next save sends the tab's own sign-off and nothing about t2.
   f.h.persist();
   await f.h.saver.settled();
   assert.deepEqual(plain(f.saves.at(-1).changes.settledTopics), {
-    changed: [{ id: "t3", hash: "h3", round: 1 }],
+    changed: [{ id: "t3", hash: "h3", textHash: "w3", round: 1 }],
     removed: [],
   });
   assert.deepEqual(Object.keys(f.server().settledTopics).sort(), ["t1", "t3"]);
+});
+
+test("a delayed merged save answer cannot restore a sign-off after wording changes and returns", async (t) => {
+  const f = await fixture(t);
+  const original = { blocks: [], lines: 1, coverHash: "h", textHash: "original" };
+  f.S.state.topics = { a: original };
+  f.update({ topics: { a: original }, saveNumber: 1 }); // force a merged answer
+  let release!: () => void;
+  f.desk.holdSaveAnswer = new Promise<void>((resolve) => (release = resolve));
+  f.S.state.settledTopics = { a: { hash: "h", textHash: "original", round: 1 } };
+  f.h.persist();
+  await until(() => f.server().saveNumber === 2);
+  try {
+    for (const [index, textHash] of ["new text", "original"].entries()) {
+      f.update({
+        ...updateFor("guide", `guide ${index}`),
+        topics: { a: { ...original, textHash } },
+        settledTopics: {},
+      });
+      const polling = f.poll();
+      await until(() => f.pending.length === index + 1);
+      f.pending[index]!.release();
+      await polling;
+      assert.deepEqual(plain(f.S.state.settledTopics), {});
+    }
+  } finally {
+    release();
+  }
+  await f.h.saver.settled();
+  assert.deepEqual(plain(f.S.state.settledTopics), {});
+  f.S.state.comments.push({ id: "unrelated", path: "a.ts", role: "user", body: "Note" });
+  f.h.persist();
+  await f.h.saver.settled();
+  assert.equal(f.saves.at(-1).changes.settledTopics, undefined);
+  assert.deepEqual(f.server().settledTopics, {});
+});
+
+test("a second tab takes the cleared warning when a topic is settled and reset", async (t) => {
+  const f = await fixture(t);
+  const stamp = { blocks: [], lines: 1, coverHash: "h", textHash: "revised", changed: "text" };
+  f.S.state.topics = { a: stamp };
+  f.update({ topics: { a: { ...stamp } }, settledTopics: {} });
+  f.confirm();
+  const settled = { hash: "h", textHash: "revised", round: 1 };
+  for (const [index, settledTopics] of [{ a: settled }, {}].entries()) {
+    f.update({
+      topics: { a: { ...stamp, changed: undefined } },
+      saveNumber: index + 1,
+      settledTopics,
+    });
+    await f.poll();
+  }
+  assert.deepEqual(plain(f.S.state.settledTopics), {});
+  assert.equal(f.S.state.topics.a.changed, undefined);
+});
+
+test("a guide snapshot overtaken by a merged save cannot undo a topic reset", async (t) => {
+  const f = await fixture(t);
+  const original = { blocks: [], lines: 1, coverHash: "h", textHash: "original" };
+  f.S.state.topics = { a: original };
+  let release!: () => void;
+  f.desk.holdSave = new Promise<void>((resolve) => (release = resolve));
+  f.S.state.comments.push({ id: "local", path: "a.ts", role: "user", body: "Note" });
+  f.h.persist();
+
+  const revised = updateFor("guide", "revised");
+  f.update({
+    ...revised,
+    saveNumber: 1,
+    topics: { a: { ...original, textHash: "revised" } },
+    settledTopics: { a: { hash: "h", textHash: "revised", round: 1 } },
+  });
+  const oldPoll = f.poll();
+  await until(() => f.pending.length === 1);
+  f.update({ saveNumber: 2, settledTopics: {} });
+  release();
+  await f.h.saver.settled();
+  assert.equal(f.server().saveNumber, 3);
+  f.pending[0]!.release();
+  await oldPoll;
+  assert.notEqual(f.S.state.guide?.title, "revised");
+  assert.deepEqual(plain(f.S.state.settledTopics), {});
+
+  const nextPoll = f.poll();
+  await until(() => f.pending.length === 2);
+  f.pending[1]!.release();
+  await nextPoll;
+  assert.equal(f.S.state.guide?.title, "revised");
+  assert.deepEqual(plain(f.S.state.settledTopics), {});
+  assert.equal(f.S.state.comments.at(-1)?.id, "local");
+});
+
+test("an overview-only reload preserves a re-settlement queued behind a reset", async (t) => {
+  const f = await fixture(t);
+  const stamp = { blocks: [], lines: 1, coverHash: "h", textHash: "original" };
+  const original = { hash: "h", textHash: "original", round: 1, settlementId: "first" };
+  f.S.state.topics = { a: stamp };
+  f.S.state.settledTopics = { a: original };
+  const guide = updateFor("guide", "original").guide;
+  f.S.state.guide = guide;
+  f.update({ guide, topics: { a: stamp }, settledTopics: { a: original } });
+  f.confirm();
+  let release!: () => void;
+  f.desk.holdSaveAnswer = new Promise<void>((resolve) => (release = resolve));
+  f.S.state.settledTopics = {};
+  f.h.persist();
+  await until(() => f.server().saveNumber === 1);
+  const queued = { ...original, settlementId: "second" };
+  try {
+    assert.deepEqual(f.server().settledTopics, {});
+    f.S.state.settledTopics = { a: queued };
+    f.h.persist();
+    f.update({ guide: { ...guide, overview: "overview changed" } });
+    const polling = f.poll();
+    await until(() => f.pending.length === 1);
+    f.pending[0]!.release();
+    await polling;
+    assert.deepEqual(plain(f.S.state.settledTopics), { a: queued });
+  } finally {
+    release();
+  }
+  await f.h.saver.settled();
+  assert.deepEqual(f.server().settledTopics, { a: queued });
+});
+
+test("a wording round trip between polls invalidates a delayed settlement acknowledgement", async (t) => {
+  const f = await fixture(t);
+  const original = { blocks: [], lines: 1, coverHash: "h", textHash: "original" };
+  f.S.state.topics = { a: original };
+  f.update({ topics: { a: original } });
+  let release!: () => void;
+  f.desk.holdSaveAnswer = new Promise<void>((resolve) => (release = resolve));
+  f.S.state.settledTopics = { a: { hash: "h", textHash: "original", round: 1 } };
+  f.h.persist();
+  await until(() => f.server().saveNumber === 1);
+  try {
+    for (const textHash of ["revised", "original"]) {
+      const saved = f.server();
+      const next = { ...saved, topics: { a: { ...original, textHash } } };
+      carryTopicSignOffs(next, saved);
+      f.update(next);
+    }
+    assert.deepEqual(f.server().settledTopics, {});
+    let finished = false;
+    const polling = f.poll().then(() => (finished = true));
+    await until(() => finished || f.pending.length === 1);
+    f.pending[0]?.release();
+    await polling;
+    assert.equal(f.pending.length, 1, "the poll sees the revision even though the wording matches");
+  } finally {
+    release();
+  }
+  await f.h.saver.settled();
+  assert.deepEqual(plain(f.S.state.settledTopics), {});
+  const nextPoll = f.poll();
+  await nextPoll;
+  assert.equal(f.pending.length, 1, "an unchanged revision does not require another full state");
+  f.S.state.comments.push({ id: "unrelated", path: "a.ts", role: "user", body: "Note" });
+  f.h.persist();
+  await f.h.saver.settled();
+  assert.equal(f.saves.at(-1).changes.settledTopics, undefined);
+  assert.deepEqual(f.server().settledTopics, {});
 });

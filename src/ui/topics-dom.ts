@@ -1,5 +1,5 @@
 import { renderCoverage } from "./topics-coverage-dom";
-import type { GuideLink, TopicCoverage } from "../types";
+import type { GuideLink, TopicCoverage, TopicStamp } from "../types";
 import { renderTopicBody } from "./topics-body-dom";
 import { esc } from "./html";
 import { keycapsHtml } from "./keycaps";
@@ -47,9 +47,14 @@ export function renderTopicsNav(host: HTMLElement, rows: TopicsNavRow[]) {
   host.innerHTML = rows.map(navRow).join("");
 }
 
-// Where the open topic stands: settled (its sign-off is current), or to do with its lines changed
-// since the reviewer's last round; and how many open change requests it holds.
-export type TopicStand = { settled: boolean; changed: boolean; requests?: number };
+// The open topic's current sign-off status, any reason it reopened, and its open change requests.
+export type TopicStand = { settled: boolean; changed?: TopicStamp["changed"]; requests?: number };
+
+const changeLabels = {
+  text: "Topic text changed",
+  code: "Covered code changed",
+  both: "Topic text and covered code changed",
+};
 
 // The bar's end: Settle Topic (Mark Reviewed while it holds open change requests), or once settled
 // its state (Settled, or Reviewed with requests) and Reset.
@@ -70,7 +75,7 @@ export function renderTopicPage(
   host: HTMLElement,
   place: TopicPlace,
   md: (s: string) => string,
-  stand: TopicStand = { settled: false, changed: false },
+  stand: TopicStand = { settled: false },
   extras = { share: "", points: "" },
 ) {
   const { topic, group, stage } = place;
@@ -78,7 +83,9 @@ export function renderTopicPage(
   const bar = `<div class="file-bar topics-bar"><span class="fb-path" title="${esc(where)}"><span class="fb-dir"><bdi>${esc(stage.label)} /&nbsp;</bdi></span><span class="fb-name">${esc(group.title)}</span></span><span class="fb-grow"></span>${extras.share}<span class="fb-actions">${barActions(signOffStand(stand.settled, stand.requests ?? 0))}</span></div>`;
   const tags = [
     topic.concern ? `<span class="topic-concern">${esc(topic.concern)}</span>` : "",
-    stand.changed ? `<span class="topic-changed">Changed since your last round</span>` : "",
+    stand.changed
+      ? `<span class="topic-changed">${stand.changed === true ? "Topic changed" : changeLabels[stand.changed]}</span>`
+      : "",
   ].join("");
   const meta = tags ? `<div class="topic-meta">${tags}</div>` : "";
   const flag = topic.flag

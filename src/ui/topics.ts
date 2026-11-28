@@ -33,6 +33,7 @@ import {
 } from "./topics-dom";
 import { layoutMap, MAP_WIDTH } from "./map-derive";
 import { canvasMeasure, lightMapLinks } from "./map-dom";
+import { uuid } from "./uuid";
 
 // Decisions mode: the guide's topics, read one page at a time. It draws into its own sidebar list
 // (#topicsNav) and centre (#topics); Code mode's diff and lists stand aside while it shows
@@ -79,7 +80,7 @@ export function renderTopics() {
     const lines = S.state.topics?.[place.topic.id]?.lines ?? 0;
     const c = S.state.coverage;
     const settled = topicSettled(S.state, place.topic.id);
-    const changed = !settled && !!S.state.topics?.[place.topic.id]?.changed;
+    const changed = settled ? undefined : S.state.topics?.[place.topic.id]?.changed;
     const requests = topicBlockers(threads, place.topic.id).length;
     renderTopicPage(
       page,
@@ -217,13 +218,17 @@ export function startTopics() {
   else S.confirmSend?.();
 }
 
-// Settle a topic (Settle Topic, ⇧A on the open one, its mark in the sidebar): its cover hash now,
-// in this round. The desk stamps the round too, so a tab that missed another tab's Send can't
+// Settle a topic (Settle Topic, ⇧A on the open one, its mark in the sidebar): its code and text
+// now, in this round. The desk stamps the round too, so a tab that missed another tab's Send can't
 // misdate it (state.ts).
 function settle(id: string) {
-  const hash = S.state.topics?.[id]?.coverHash;
-  if (hash === undefined) return false;
-  S.state.settledTopics = { ...S.state.settledTopics, [id]: { hash, round: roundOf(S.state) } };
+  const stamp = S.state.topics?.[id];
+  if (!stamp) return false;
+  const { coverHash: hash, textHash, revision } = stamp;
+  S.state.settledTopics = {
+    ...S.state.settledTopics,
+    [id]: { hash, textHash, revision, round: roundOf(S.state), settlementId: uuid() },
+  };
   persist();
   return true;
 }
@@ -251,6 +256,8 @@ export function settleOpenTopic() {
 
 // Reset a settled topic: it is to do again.
 function reset(id: string) {
+  const stamp = S.state.topics?.[id];
+  if (stamp) delete stamp.changed;
   S.state.settledTopics = Object.fromEntries(
     Object.entries(S.state.settledTopics ?? {}).filter(([key]) => key !== id),
   );

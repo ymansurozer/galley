@@ -36,6 +36,7 @@ import type {
   ThreadMessage,
   TopicSignOff,
   TopicStamp,
+  TopicWarnings,
   LineSpan,
   UiAnnotationRecord,
 } from "./types.js";
@@ -606,38 +607,86 @@ export const guideTopics = (guide: Guide | undefined) =>
 // The review's round: one more than the number of Sends.
 export const roundOf = (state: Pick<ReviewState, "round">) => state.round ?? 1;
 
-// Whether a topic is settled: the reviewer's sign-off names the cover hash the topic has now. The
-// one rule the result, and the carry below, judge a sign-off by (the tab's: topics-derive.ts).
+const topicTextHash = ({ title, body }: GuideTopic) => hash(JSON.stringify([title, body]));
+
+const matchesTopic = (
+  stamp: TopicStamp | undefined,
+  signOff: Pick<TopicSignOff, "hash" | "textHash"> | undefined,
+) => !!stamp && signOff?.hash === stamp.coverHash && signOff.textHash === stamp.textHash;
+
+// Whether a topic is settled for review delivery: the sign-off names its current code and text.
+// Keep the tab's copy in topics-derive.ts in sync.
 export const topicSettled = (
   state: Pick<ReviewState, "topics" | "settledTopics">,
   id: string,
 ): boolean => {
-  const hash = state.topics?.[id]?.coverHash;
-  return hash !== undefined && state.settledTopics?.[id]?.hash === hash;
+  return matchesTopic(state.topics?.[id], state.settledTopics?.[id]);
 };
 
-// The topics' sign-offs carried onto a rebuilt diff or a new guide, from the review they were made
-// on (`saved`), against the topic stamps `state` holds now: kept only while the topic is in the
-// guide and its cover hash is unchanged, so lines shifting above it or rewritten prose keep it. One
-// whose cover hash moved is dropped and its topic stamped `changed`; one whose topic is gone is
-// dropped. A topic still to do keeps the `changed` stamp it had. Reads only `saved`'s sign-offs and
-// stamps, so running it again after a new guide is resolved judges by that guide's stamps alone.
-export function carryTopicSignOffs(
-  state: Pick<ReviewState, "topics" | "settledTopics">,
-  saved: Pick<ReviewState, "topics" | "settledTopics">,
+// Legacy hashes included the options source after the covered unit hashes. Recreate that check
+// against the new code using the previous options, so an option edit alone counts as text.
+function legacyTopicCoverMatches(
+  stamp: TopicStamp,
+  signOff: TopicSignOff,
+  oldTopic: GuideTopic | undefined,
+  currentUnits: () => Map<string, string>,
 ) {
-  const settled: Record<string, TopicSignOff> = {};
-  for (const [id, signOff] of Object.entries(saved.settledTopics ?? {})) {
-    const stamp = state.topics?.[id];
-    if (!stamp) continue;
-    if (stamp.coverHash === signOff.hash) settled[id] = signOff;
-    else if (saved.topics?.[id]?.coverHash === signOff.hash) stamp.changed = true;
+  if (stamp.coverHash === signOff.hash) return true;
+  const options = oldTopic && optionBlocks(oldTopic.body)[0];
+  if (!options) return false;
+  const units = currentUnits();
+  const hashes = stamp.blocks.map((key) => units.get(key)).join("\n");
+  return hash(hashes + "\n" + options.source) === signOff.hash;
+}
+
+// Carry valid sign-offs across restart, reload or guide replacement. When a sign-off is dropped,
+// the reason stays with the pending topic. Always judge a replacement guide against the saved
+// review, even if the carried guide was already stamped against the new diff.
+export function carryTopicSignOffs(
+  state: Pick<
+    ReviewState,
+    "topics" | "topicRevision" | "settledTopics" | "guide" | "files" | "changes"
+  >,
+  saved: Pick<ReviewState, "topics" | "topicRevision" | "settledTopics" | "guide">,
+) {
+  const topics = state.topics ?? {};
+  const revision = (saved.topicRevision ?? 0) + 1;
+  let revised = Object.keys(saved.topics ?? {}).some((id) => !Object.hasOwn(topics, id));
+  const settled = new Map<string, TopicSignOff>();
+  const signOffs = new Map(Object.entries(saved.settledTopics ?? {}));
+  const oldTopics = new Map(guideTopics(saved.guide ?? state.guide).map((t) => [t.id, t]));
+  let units: Map<string, string> | undefined;
+  const currentUnits = () =>
+    (units ??= new Map([...coverIndex(state).values()].flat().map((u) => [u.key, u.hash])));
+  for (const [id, stamp] of Object.entries(topics)) {
+    const signOff = signOffs.get(id);
+    const prior = saved.topics?.[id];
+    if (prior?.coverHash !== stamp.coverHash || prior?.textHash !== stamp.textHash) {
+      stamp.revision = revision;
+      revised = true;
+    } else if (prior.revision !== undefined) stamp.revision = prior.revision;
+    else delete stamp.revision;
+    if (prior?.changed) stamp.changed = prior.changed;
+    else delete stamp.changed;
+    if (!signOff) continue;
+    if (signOff.textHash === undefined && prior?.textHash !== undefined) continue;
+
+    const oldTopic = oldTopics.get(id);
+    const oldTextHash = signOff.textHash ?? (saved.guide && oldTopic && topicTextHash(oldTopic));
+    const textChanged = oldTextHash !== undefined && oldTextHash !== stamp.textHash;
+    const codeChanged =
+      signOff.textHash === undefined
+        ? !legacyTopicCoverMatches(stamp, signOff, oldTopic, currentUnits)
+        : signOff.hash !== stamp.coverHash;
+    if (!codeChanged && !textChanged) {
+      settled.set(id, { ...signOff, hash: stamp.coverHash, textHash: stamp.textHash });
+      delete stamp.changed;
+    } else if (!prior || matchesTopic(prior, signOff)) {
+      stamp.changed = textChanged ? (codeChanged ? "both" : "text") : "code";
+    }
   }
-  for (const [id, stamp] of Object.entries(state.topics ?? {})) {
-    if (settled[id]) delete stamp.changed;
-    else if (saved.topics?.[id]?.changed) stamp.changed = true;
-  }
-  state.settledTopics = settled;
+  state.topicRevision = revised ? revision : saved.topicRevision;
+  state.settledTopics = Object.fromEntries(settled);
 }
 
 // Resolve a NEW guide's topic covers (launch with --guide, reload --guide) and stamp the result:
@@ -814,7 +863,8 @@ function writeTopicStamps(
     stamps[topic.id] = {
       blocks: mine.map((u) => u.key),
       lines: mine.reduce((n, u) => n + u.lines, 0),
-      coverHash: hash(mine.map((u) => u.hash).join("\n") + (options ? "\n" + options.source : "")),
+      coverHash: hash(mine.map((u) => u.hash).join("\n")),
+      textHash: topicTextHash(topic),
       bodyParts: bodyBlocks(topic.body),
       ...(options?.options && { options: options.options, optionsLine: options.line }),
     };
@@ -1542,7 +1592,6 @@ const REVIEWER_SAVE_KEYS = [
   "reviewedFiles",
   "reviewedFileHashes",
   "signedOffBlocks",
-  "settledTopics",
   "decisionFiles",
 ] as const satisfies ReadonlyArray<keyof ReviewerSave>;
 // A save's comments, from a tab still on a diff from before the latest reload or restart, onto the
@@ -1579,9 +1628,8 @@ async function mergeStaleComments(desk: ReviewComment[], sent: ReviewComment[], 
 // `desk`: the live desk's own stamp (types.ts, SaveStamp), to tell a save the tab made before the
 // latest `galley reload` or restart. Without one, every save counts as current. `priorDiff`: the
 // diff the desk held before that reload or restart, the one a tab that hasn't caught up is on.
-// `unplaced`: the save's verdicts could not be placed and differ from the desk's own, which it kept:
-// the reviewer made them and they were not carried over. `merged`: the desk's reviewer-owned fields,
-// for a tab whose copy was behind (other saves landed since `base`) and is on the current diff.
+// `unplaced`: the save's verdicts or sign-offs could not be placed. `merged`: the desk's
+// reviewer-owned fields for a tab on the current diff whose save needs reconciliation.
 export async function mergeReviewerSave(
   state: ReviewState,
   body: unknown,
@@ -1592,16 +1640,19 @@ export async function mergeReviewerSave(
   if (!body || typeof body !== "object") return { unplaced: false, saveNumber: latest };
   const incoming = body as Record<string, unknown>;
   const changes = carriesChanges(incoming);
+  const topicDelta = isObject(incoming.changes) && isObject(incoming.changes.settledTopics);
   const unplaced = changes
     ? await applyReviewerChanges(state, incoming, desk, priorDiff)
     : await mergeReviewerCopy(state, incoming, desk, priorDiff);
   state.saveNumber = latest + 1;
   const seen = incoming.seen as Partial<SaveStamp> | null | undefined;
-  const behind = changes && incoming.base !== latest && seen?.baseDiffHash === state.baseDiffHash;
+  const needsMerge =
+    (unplaced || topicDelta || (changes && incoming.base !== latest)) &&
+    seen?.baseDiffHash === state.baseDiffHash;
   return {
     unplaced,
     saveNumber: state.saveNumber,
-    ...(behind && { merged: structuredClone(reviewerFields(state)) }),
+    ...(needsMerge && { merged: structuredClone(reviewerFields(state)) }),
   };
 }
 
@@ -1636,6 +1687,18 @@ export const reviewerFields = (state: ReviewState): ReviewerSave => ({
   lastAnnotationNumber: state.lastAnnotationNumber ?? 0,
   topicThreads: state.topicThreads ?? [],
 });
+
+// The lightweight review and save answers carry desk-owned topic warnings separately.
+export function topicWarnings(state: Pick<ReviewState, "topics">): TopicWarnings | undefined {
+  return (
+    state.topics &&
+    Object.fromEntries(
+      Object.entries(state.topics).flatMap(([id, stamp]) =>
+        stamp.changed ? [[id, stamp.changed]] : [],
+      ),
+    )
+  );
+}
 
 // Whether a save was made before the desk's latest reload or restart, which reset every
 // annotation's placement: its placements are older than the desk's.
@@ -1703,6 +1766,17 @@ async function mergeReviewerCopy(
     const value = key === "comments" ? comments : incoming[key];
     if (value !== undefined) (state as Record<string, unknown>)[key] = value;
   }
+  if (isObject(incoming.settledTopics)) {
+    // A snapshot has no evidence of which sign-offs the reviewer meant to remove.
+    const changed = readTopicSignOffs(
+      Object.entries(incoming.settledTopics).flatMap(([id, record]) =>
+        isObject(record) ? [{ ...record, id }] : [],
+      ),
+    );
+    const identified = changed.filter((s) => s.textHash !== undefined);
+    unplaced =
+      applyTopicSettlements(state, identified, [], []) || identified.length !== changed.length;
+  }
   const beforeReload = madeBeforeReload(seen, desk);
   // The tab adopts a reloaded diff only once no save is draining and no composer is open (poll.ts),
   // so a save can carry decisions keyed to the blocks of an older diff. Its reload count can't tell:
@@ -1726,9 +1800,11 @@ async function mergeReviewerCopy(
         );
       signOffCoveredFiles(state);
     } else {
-      unplaced = Object.entries(deskVerdicts).some(
-        ([key, own]) => key in incoming && canonical(incoming[key]) !== canonical(own),
-      );
+      unplaced =
+        unplaced ||
+        Object.entries(deskVerdicts).some(
+          ([key, own]) => key in incoming && canonical(incoming[key]) !== canonical(own),
+        );
       Object.assign(state, deskVerdicts);
     }
   }
@@ -1762,6 +1838,71 @@ async function mergeReviewerCopy(
 type Keyed<T> = { changed: T[]; removed: string[] };
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
 const isString = (v: unknown): v is string => typeof v === "string";
+function readTopicSignOffs(records: unknown[]) {
+  return records.flatMap((r) =>
+    isObject(r) &&
+    isString(r.id) &&
+    isString(r.hash) &&
+    (r.revision === undefined ||
+      (typeof r.revision === "number" && Number.isSafeInteger(r.revision)))
+      ? [
+          {
+            id: r.id,
+            hash: r.hash,
+            ...(isString(r.textHash) && { textHash: r.textHash }),
+            ...(r.revision !== undefined && { revision: r.revision }),
+            ...(isString(r.settlementId) && { settlementId: r.settlementId }),
+            ...(typeof r.round === "number" && { round: r.round }),
+          },
+        ]
+      : [],
+  );
+}
+
+function applyTopicSettlements(
+  state: ReviewState,
+  changed: ReturnType<typeof readTopicSignOffs>,
+  removed: string[],
+  removedSignOffs: ReturnType<typeof readTopicSignOffs>,
+) {
+  let unplaced = false;
+  const settled = new Map(Object.entries(state.settledTopics ?? {}));
+  for (const id of removed) {
+    const current = settled.get(id);
+    if (!current) continue;
+    // Keep the tab's copy of this identity check in review-delta-derive.ts in sync.
+    const seen = removedSignOffs.some(
+      (s) =>
+        s.id === id &&
+        s.hash === current.hash &&
+        s.textHash === current.textHash &&
+        s.settlementId === current.settlementId &&
+        (s.settlementId !== undefined || s.round === current.round),
+    );
+    if (seen) settled.delete(id);
+    else unplaced = true;
+  }
+  for (const { id, ...signOff } of changed) {
+    const stamp = state.topics?.[id];
+    // A live write must name the occurrence it saw. Persisted legacy records migrate separately.
+    if (!stamp || !matchesTopic(stamp, signOff) || signOff.revision !== stamp.revision) {
+      unplaced = true;
+      continue;
+    }
+    delete stamp.changed;
+    if (!matchesTopic(stamp, settled.get(id))) {
+      const settlementId = signOff.settlementId ?? (stamp.textHash && crypto.randomUUID());
+      settled.set(id, {
+        ...signOff,
+        ...(settlementId && { settlementId }),
+        round: roundOf(state),
+      });
+    }
+  }
+  state.settledTopics = Object.fromEntries(settled);
+  return unplaced;
+}
+
 function readKeyed<T>(value: unknown, read: (records: unknown[]) => T[]): Keyed<T> | undefined {
   if (!isObject(value)) return undefined;
   return {
@@ -1811,11 +1952,11 @@ function readChanges(value: unknown, app: string | undefined) {
     ),
     annotations: readKeyed(c.annotations, (rs) => readUiAnnotations(rs, app) ?? []),
     topicThreads: readKeyed(c.topicThreads, (rs) => readTopicThreads(rs) ?? []),
-    settledTopics: readKeyed(c.settledTopics, (rs) =>
-      rs.flatMap((r) =>
-        isObject(r) && isString(r.id) && isString(r.hash) ? [{ id: r.id, hash: r.hash }] : [],
-      ),
-    ),
+    settledTopics: readKeyed(c.settledTopics, readTopicSignOffs),
+    removedSignOffs:
+      isObject(c.settledTopics) && Array.isArray(c.settledTopics.removedSignOffs)
+        ? readTopicSignOffs(c.settledTopics.removedSignOffs)
+        : [],
     reports: (Array.isArray(c.annotationReports) ? c.annotationReports : []).flatMap((r) =>
       isObject(r) && isString(r.id)
         ? [
@@ -1978,19 +2119,14 @@ async function applyReviewerChanges(
     unplaced = verdictsKey(would) !== verdictsKey(state);
   }
   if (c.verdicts.decisions) stampDecisions(state);
-  // A topic's sign-off names the cover hash it was made on, so one made on any older diff or guide
-  // is only ever inert (topicSettled), never misplaced: every save's lands. It is stamped with the
-  // desk's round, which a tab behind on a Send another tab made doesn't know yet.
   if (c.settledTopics) {
-    const round = roundOf(state);
-    const signOffs = Object.entries(state.settledTopics ?? {}).map(([id, s]) => ({ id, ...s }));
-    state.settledTopics = Object.fromEntries(
-      applyKeyed(
-        signOffs,
-        { ...c.settledTopics, changed: c.settledTopics.changed.map((t) => ({ ...t, round })) },
-        (t) => t.id,
-      ).map(({ id, hash, round }) => [id, { hash, round }]),
-    );
+    unplaced =
+      applyTopicSettlements(
+        state,
+        c.settledTopics.changed,
+        c.settledTopics.removed,
+        c.removedSignOffs,
+      ) || unplaced;
   }
   if (c.annotations) {
     const stored = new Map(state.annotations?.map((a) => [a.id, a]));
@@ -2578,7 +2714,7 @@ async function carryComments(comments: ReviewComment[], rebuilt: ReviewState) {
 export async function mergeReviewState(
   base: ReviewState,
   saved: ReviewState | null,
-  stampSource?: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys">,
+  stampSource?: Pick<ReviewState, "files" | "changes" | "stagedChangeKeys" | "topics">,
 ) {
   if (!saved) return base;
   const currentFiles = new Set(base.files.map((file) => file.path));
@@ -2678,8 +2814,11 @@ export async function mergeReviewState(
     persistFile: saved.persistFile,
   } satisfies ReviewState;
   signOffCoveredFiles(merged);
-  // Line spans follow from the same diff the block stamps carried from, with `saved`'s own stamps.
-  stampTopics(merged, stampSource ? { ...stampSource, topics: saved.topics } : saved);
+  // Line spans follow the guide stamps from the last diff that held their blocks.
+  stampTopics(
+    merged,
+    stampSource ? { ...stampSource, topics: stampSource.topics ?? saved.topics } : saved,
+  );
   stampCoverage(merged, merged.guide);
   // A new guide given with this reload or restart carries them again once it is resolved.
   carryTopicSignOffs(merged, saved);

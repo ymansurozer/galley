@@ -12,6 +12,7 @@ import {
   toast,
   saver,
   takeDeskReview,
+  takeGuideSignOffs,
   takenFromDesk,
   unplacedShowing,
 } from "./store";
@@ -89,7 +90,8 @@ export function adoptDeskStatus<T>(payload: T & Partial<DeskStatus>): T {
 // Only changes that can invalidate full-state work belong here. Presence, names and replies
 // keep arriving on lite polls while a large snapshot transfers; they must not starve adoption.
 function stateRevision(
-  payload: Pick<PollPayload, "ui" | "baseDiffHash" | "guide"> & Partial<DeskStatus>,
+  payload: Pick<PollPayload, "ui" | "baseDiffHash" | "guide" | "topicRevision"> &
+    Partial<DeskStatus>,
 ): string {
   return JSON.stringify([
     payload.uiProxy ?? null,
@@ -98,6 +100,7 @@ function stateRevision(
     payload.uiRefreshGeneration ?? 0,
     payload.baseDiffHash,
     payload.guide ?? null,
+    payload.topicRevision ?? null,
   ]);
 }
 
@@ -149,8 +152,9 @@ async function pollOnce() {
   applyPendingUiRefresh();
   const diffChanged = lite.baseDiffHash !== S.lastBaseDiffHash;
   const guideChanged = JSON.stringify(lite.guide ?? null) !== JSON.stringify(S.state.guide ?? null);
+  const topicsChanged = lite.topicRevision !== S.state.topicRevision;
   let server: ReviewState | undefined;
-  if (diffChanged || guideChanged) {
+  if (diffChanged || guideChanged || topicsChanged) {
     // The reload branch replaces S.state wholesale and re-renders, which would clobber local
     // decisions/comments not yet persisted and rebuild the diff DOM out from under an open
     // composer (losing in-progress typing). Defer while a save is busy (in flight, queued, or
@@ -173,6 +177,10 @@ async function pollOnce() {
         latestPoll!.revision !== request.revision ||
         stateRevision(payload) !== request.revision ||
         S.state !== state ||
+        // A save already in flight can confirm a newer review while this guide is in transit.
+        (!diffChanged &&
+          confirmedMoved() !== moves &&
+          (payload.saveNumber ?? 0) < confirmedNumber()) ||
         // Reviewer saves mutate in place and can finish during the transfer. Being idle now
         // cannot prove this snapshot includes them (including a save still waiting to dispatch).
         saver.generation() !== saveGeneration
@@ -235,9 +243,8 @@ async function pollOnce() {
     if (!unplacedShowing()) toast("Diff updated");
     return;
   }
-  // A reload can swap the guide without changing the diff (agent regenerated it) —
-  // adopt it even when baseDiffHash is unchanged. Guides are small; the compare is cheap.
-  if (guideChanged) {
+  // Topic revisions can also change when the guide returns to wording the tab already has.
+  if (guideChanged || topicsChanged) {
     // The new guide restamped which blocks its parts, skims and topics claim, server-side; those
     // stamps ride the changes and the topic stamps, so take them off the full state (fetched only
     // on a swap — the diff is the same). A diff that moved meanwhile waits for the next tick's full
@@ -250,25 +257,11 @@ async function pollOnce() {
       c.skim = stamped.get(c.id)?.skim;
       c.topics = stamped.get(c.id)?.topics;
     }
+    takeGuideSignOffs(server);
     S.state.guide = server.guide;
     S.state.topics = server.topics;
+    S.state.topicRevision = server.topicRevision;
     S.state.coverage = server.coverage;
-    // The new guide dropped the sign-off of every topic it changed or no longer has, none of it
-    // the reviewer's: the tab and the confirmed copy drop them too. Kept, a later guide that gave
-    // such a topic its old blocks back would show it settled here while the desk has it to do. A
-    // sign-off the confirmed copy lacks is the tab's own, not saved yet, and stays.
-    const deskSettled = server.settledTopics ?? {};
-    const saved = confirmedReview().settledTopics ?? {};
-    const still = (settled: ReviewState["settledTopics"], keep: (id: string) => boolean) =>
-      Object.fromEntries(Object.entries(settled ?? {}).filter(([id]) => keep(id)));
-    S.state.settledTopics = still(
-      S.state.settledTopics,
-      (id) => id in deskSettled || !(id in saved),
-    );
-    takenFromDesk((review) => {
-      if (review.settledTopics)
-        review.settledTopics = still(review.settledTopics, (id) => id in deskSettled);
-    });
     // The new guide moved topic threads onto its parts and dropped some, none of it the reviewer's:
     // the confirmed copy takes the desk's, and the tab too, with any agent reply since and what the
     // tab holds and hasn't saved (keepUnsavedThreads), which its next save sends.
@@ -346,13 +339,22 @@ async function pullReview(saveNumber: number | undefined) {
   if (saveNumber === undefined || saveNumber <= confirmedNumber()) return;
   if (reviewRead || !mayTakeReview()) return;
   const state = S.state;
+  const guide = S.state.guide;
+  const topicRevision = S.state.topicRevision;
   const saveGeneration = saver.generation();
   const held = agentRecords();
   reviewRead = true;
   try {
     const read = await api<ReviewRead>("/api/review");
     // The reviewer changed something, opened a composer, or the tab took a new diff meanwhile.
-    if (S.state !== state || saver.generation() !== saveGeneration || !mayTakeReview()) return;
+    if (
+      S.state !== state ||
+      S.state.guide !== guide ||
+      S.state.topicRevision !== topicRevision ||
+      saver.generation() !== saveGeneration ||
+      !mayTakeReview()
+    )
+      return;
     if (!read?.review || typeof read.saveNumber !== "number") return;
     if (takeDeskReview(read, held)) render();
   } catch {

@@ -70,7 +70,15 @@ const blockSignOffs = (s: ReviewerSave) =>
 const topicSignOffs = (s: ReviewerSave) =>
   Object.entries(s.settledTopics ?? {}).map(([id, t]) => ({ id, ...t }));
 const topicSignOffMap = (list: ReturnType<typeof topicSignOffs>) =>
-  Object.fromEntries(list.map(({ id, hash, round }) => [id, { hash, round }]));
+  Object.fromEntries(list.map(({ id, ...signOff }) => [id, signOff]));
+
+function topicSettlementChanges(base: ReviewerSave, now: ReviewerSave) {
+  const before = topicSignOffs(base);
+  const changes = keyedChanges(before, topicSignOffs(now), (t) => t.id);
+  if (!changes?.removed.length) return changes;
+  const removed = new Set(changes.removed);
+  return { ...changes, removedSignOffs: copyOf(before.filter((t) => removed.has(t.id))) };
+}
 
 // Whether its screenshots are stored is the desk's to say, never the tab's (types.ts), so it is no
 // change of the tab's. What the page reports by itself (placement, a failed capture) goes as a
@@ -120,7 +128,7 @@ export function reviewerChanges(base: ReviewerSave, now: ReviewerSave): Reviewer
     comments: keyedChanges(base.comments ?? [], now.comments ?? [], (c) => c.id),
     fileSignOffs: keyedChanges(fileSignOffs(base), fileSignOffs(now), (f) => f.path),
     signedOffBlocks: keyedChanges(blockSignOffs(base), blockSignOffs(now), (b) => b.key),
-    settledTopics: keyedChanges(topicSignOffs(base), topicSignOffs(now), (t) => t.id),
+    settledTopics: topicSettlementChanges(base, now),
     decisionFiles: keyedChanges(base.decisionFiles ?? [], now.decisionFiles ?? [], (p) => p),
     ...annotationChanges(base.annotations ?? [], now.annotations ?? []),
     topicThreads: keyedChanges(base.topicThreads ?? [], now.topicThreads ?? [], (t) => t.id),
@@ -156,12 +164,19 @@ export function unionChanges(all: readonly ReviewerChanges[]): ReviewerChanges {
   for (const report of all.flatMap((c) => c.annotationReports ?? []))
     if (!whole.has(report.id)) reports.set(report.id, { ...reports.get(report.id), ...report });
   const marks = all.flatMap((c) => c.lastAnnotationNumber ?? []);
+  const topics = unionKeyed(pick("settledTopics"), (t) => t.id);
+  const removedSignOffs = all.flatMap((c) => c.settledTopics?.removedSignOffs ?? []);
   const out: ReviewerChanges = {
     decisions: unionKeyed(pick("decisions"), (d) => d.key),
     comments: unionKeyed(pick("comments"), (c) => c.id),
     fileSignOffs: unionKeyed(pick("fileSignOffs"), (f) => f.path),
     signedOffBlocks: unionKeyed(pick("signedOffBlocks"), (b) => b.key),
-    settledTopics: unionKeyed(pick("settledTopics"), (t) => t.id),
+    settledTopics: topics && {
+      ...topics,
+      ...(removedSignOffs.length && {
+        removedSignOffs: [...new Map(removedSignOffs.map((s) => [canonical(s), s])).values()],
+      }),
+    },
     decisionFiles: unionKeyed(pick("decisionFiles"), (p) => p),
     annotations,
     annotationReports: reports.size ? [...reports.values()] : undefined,
@@ -194,10 +209,28 @@ export function applyReviewerChanges(copy: ReviewerSave, changes: ReviewerChange
     out.signedOffBlocks = Object.fromEntries(
       applyKeyed(blockSignOffs(out), c.signedOffBlocks, (b) => b.key).map((b) => [b.key, b.hash]),
     );
-  if (c.settledTopics)
+  if (c.settledTopics) {
+    const gone = new Set(c.settledTopics.removed);
+    const signed = topicSignOffs(out);
+    // Match the desk's removal check in state.ts (applyTopicSettlements).
+    const removed = signed
+      .filter(
+        (t) =>
+          gone.has(t.id) &&
+          c.settledTopics?.removedSignOffs?.some(
+            (s) =>
+              s.id === t.id &&
+              s.hash === t.hash &&
+              s.textHash === t.textHash &&
+              s.settlementId === t.settlementId &&
+              (s.settlementId !== undefined || s.round === t.round),
+          ),
+      )
+      .map((t) => t.id);
     out.settledTopics = topicSignOffMap(
-      applyKeyed(topicSignOffs(out), c.settledTopics, (t) => t.id),
+      applyKeyed(signed, { ...c.settledTopics, removed }, (t) => t.id),
     );
+  }
   if (c.decisionFiles)
     out.decisionFiles = applyKeyed(out.decisionFiles ?? [], c.decisionFiles, (p) => p);
   if (c.annotations)
