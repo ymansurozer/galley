@@ -203,23 +203,30 @@ test("topics settled in an earlier round fold into one closed row under the grou
 test("the bar offers Settle Topic on a topic to do, and Settled with Reset once settled", () => {
   const page = host();
   const place = topicPlaces(STAGES)[0]!;
-  renderTopicPage(page, place, (s) => s, { settled: false, changed: false });
+  renderTopicPage(page, place, (s) => s, { settled: false });
   const settle = page.querySelector('.file-bar [data-act="settle"]');
   assert.match(settle?.textContent ?? "", /Settle Topic/);
   assert.equal(page.querySelector('.file-bar [data-act="reset"]'), null);
-  renderTopicPage(page, place, (s) => s, { settled: true, changed: false });
+  renderTopicPage(page, place, (s) => s, { settled: true });
   assert.equal(page.querySelector('.file-bar [data-act="settle"]'), null);
   assert.equal(page.querySelector(".file-bar .fb-state")?.textContent, "Settled");
   assert.equal(page.querySelector('.file-bar [data-act="reset"]')?.textContent, "Reset");
 });
 
-test("a topic whose lines changed since the last round says so above its title", () => {
+test("a reopened topic names what changed above its title", () => {
   const page = host();
-  renderTopicPage(page, topicPlaces(STAGES)[0]!, (s) => s, { settled: false, changed: true });
-  assert.equal(
-    page.querySelector(".topic-meta .topic-changed")?.textContent,
-    "Changed since your last round",
-  );
+  const place = topicPlaces(STAGES)[0]!;
+  for (const [changed, label] of [
+    ["text", "Topic text changed"],
+    ["code", "Covered code changed"],
+    ["both", "Topic text and covered code changed"],
+    [true, "Topic changed"],
+  ] as const) {
+    renderTopicPage(page, place, (s) => s, { settled: false, changed });
+    assert.equal(page.querySelector(".topic-meta .topic-changed")?.textContent, label);
+  }
+  renderTopicPage(page, place, (s) => s, { settled: false });
+  assert.equal(page.querySelector(".topic-changed"), null);
 });
 
 test("the Overview's way in reads Start, Continue, or Send once every topic is settled", () => {
@@ -260,7 +267,7 @@ test("coverage evidence shares the topic page with sign-off controls and the bod
     page,
     topicPlaces(STAGES)[1]!,
     (s) => `<p>${s}</p>`,
-    { settled: false, changed: false },
+    { settled: false },
     {
       share: '<span class="topic-share">6.7%</span>',
       points: '<details class="topic-points"><summary>Points to</summary></details>',
@@ -295,14 +302,14 @@ test("a topic whose diagram cannot be drawn is still settled, and its redraw kee
     while (!page.querySelector(".topic-diagram-notice") && Date.now() < until)
       await new Promise((resolve) => setTimeout(resolve, 5));
   };
-  renderTopicPage(page, place, md, { settled: false, changed: false });
+  renderTopicPage(page, place, md, { settled: false });
   await shown();
   assert.match(
     page.querySelector(".topic-diagram-notice")?.textContent ?? "",
     /could not be drawn/,
   );
   assert.ok(page.querySelector('.file-bar [data-act="settle"]'), "it can still be settled");
-  renderTopicPage(page, place, md, { settled: true, changed: false });
+  renderTopicPage(page, place, md, { settled: true });
   await shown();
   assert.equal(page.querySelector(".file-bar .fb-state")?.textContent, "Settled");
   assert.equal(

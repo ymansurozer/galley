@@ -37,6 +37,7 @@ import {
   resolvePortRange,
   stablePort,
   stableUiPort,
+  stampTopics,
   writeFileAtomic,
   topicSettled,
   writeGlobalSettings,
@@ -4533,10 +4534,16 @@ test("a line block keeps its lines across a reload that emptied the diff and one
     before.guide = guide;
     assert.ok(resolveGuide(before, guide).ok);
     const stamp = before.topics?.lines;
-    // The reload that found no diff clears the blocks and keeps the stamps (server.ts, `!base`);
-    // the desk holds the last diff that had blocks as the stamp source.
+    // The empty reload stamps against no blocks. The last nonempty diff supplies the spans when
+    // the blocks return.
     const emptied: ReviewState = { ...before, files: [], changes: [] };
-    const source = { files: before.files, changes: before.changes, stagedChangeKeys: [] };
+    stampTopics(emptied);
+    const source = {
+      files: before.files,
+      changes: before.changes,
+      topics: before.topics,
+      stagedChangeKeys: [],
+    };
     const back = await mergeReviewState(await build(), emptied, source);
     assert.deepEqual(back.topics?.lines?.lineSpans, [
       { fence: 3, path: "src/app.ts", blocks: ["src/app.ts:additions:10:1:2"], start: 9, end: 11 },
@@ -4638,9 +4645,10 @@ test("coverage refusals use navigable lines for deleted files and top-of-file de
 });
 
 // ── Settling topics across rounds ─────────────────────────────────────────────
-// The tab's sign-off on a topic: its cover hash now, and the round.
+// The tab's sign-off on a topic's current code and text.
 const settleTopic = (st: ReviewState, id: string, round = 1) => {
-  st.settledTopics = { ...st.settledTopics, [id]: { hash: st.topics![id]!.coverHash, round } };
+  const { coverHash: hash, textHash } = st.topics![id]!;
+  st.settledTopics = { ...st.settledTopics, [id]: { hash, textHash, round } };
 };
 const settledIds = (st: ReviewState) => guideTopicIds(st).filter((id) => topicSettled(st, id));
 const guideTopicIds = (st: ReviewState) =>
@@ -4675,7 +4683,7 @@ test("a settled topic stays settled when lines are inserted above its blocks", a
     const after = await mergeReviewState(await build(appLines(topicsTree, ["top"])), before);
     assert.deepEqual(settledIds(after), ["span"]);
     assert.deepEqual(after.settledTopics, {
-      span: { hash: before.topics!.span!.coverHash, round: 1 },
+      span: before.settledTopics!.span,
     });
     assert.equal(after.topics?.span?.changed, undefined);
   });
@@ -4692,14 +4700,14 @@ test("a settled topic whose block is edited is to do again and stamped as change
     );
     assert.deepEqual(settledIds(after), ["other"]);
     assert.equal(after.settledTopics?.span, undefined, "its sign-off is dropped");
-    assert.equal(after.topics?.span?.changed, true);
+    assert.equal(after.topics?.span?.changed, "code");
     assert.equal(after.topics?.other?.changed, undefined);
     // The mark outlasts a further reload while the topic is to do, and clears once it is settled.
     const again = await mergeReviewState(
       await build(appLines({ 3: ["A"], 10: ["C1", "C2 edited"] })),
       after,
     );
-    assert.equal(again.topics?.span?.changed, true);
+    assert.equal(again.topics?.span?.changed, "code");
     settleTopic(again, "span", 2);
     const settledAgain = await mergeReviewState(
       await build(appLines({ 3: ["A"], 10: ["C1", "C2 edited"] })),
@@ -4710,24 +4718,22 @@ test("a settled topic whose block is edited is to do again and stamped as change
   });
 });
 
-test("a new guide that only rewrites a topic's prose keeps it settled; one without the topic drops it", async () => {
+test("a new guide that rewrites a topic's prose reopens it; removing the topic drops its sign-off", async () => {
   await withTopicsRepo(async (build) => {
     const before = await attachTopics(build);
     settleTopic(before, "span");
-    const reworded: Guide = structuredClone(settleGuide);
-    const span = reworded.stages![0]!.groups[0]!.topics[0]!;
-    span.title = "A new title";
-    span.body = "Rewritten from scratch.";
-    span.recorded = "docs/adr/7.md";
-    const kept = await reloadWithGuide(await build(), before, reworded);
-    assert.deepEqual(settledIds(kept), ["span"]);
-    const without: Guide = structuredClone(settleGuide);
+    const reworded = structuredClone(settleGuide);
+    reworded.stages![0]!.groups[0]!.topics[0]!.title = "A new title";
+    const reopened = await reloadWithGuide(await build(), before, reworded);
+    assert.deepEqual(settledIds(reopened), []);
+    assert.equal(reopened.topics?.span?.changed, "text");
+    const without = structuredClone(settleGuide);
     without.stages![0]!.groups[0]!.topics.shift();
     without.skims!.push({
       reason: "Removed topic fixture",
       covers: [{ path: "src/app.ts", lines: [10] }],
     });
-    const gone = await reloadWithGuide(await build(), kept, without);
+    const gone = await reloadWithGuide(await build(), before, without);
     assert.deepEqual(gone.settledTopics, {});
     assert.equal(gone.topics?.span, undefined);
   });
@@ -4753,7 +4759,51 @@ test("a new guide is judged by its own stamps, not the old guide's on the rebuil
     // Under the old guide the same edit does move the topic's hash.
     const carried = await mergeReviewState(await build(appLines(topicsTree, ["top"])), before);
     assert.deepEqual(settledIds(carried), []);
-    assert.equal(carried.topics?.t?.changed, true);
+    assert.equal(carried.topics?.t?.changed, "code");
+  });
+});
+
+test("a revised topic can change both its text and its covered code", async () => {
+  await withTopicsRepo(async (build) => {
+    const before = await attachTopics(build);
+    settleTopic(before, "span");
+    const guide = structuredClone(settleGuide);
+    guide.stages![0]!.groups[0]!.topics[0]!.body = "New explanation.";
+    const base = await build(appLines({ 3: ["A"], 10: ["C1", "C2 edited"] }));
+    const after = await reloadWithGuide(base, before, guide);
+    assert.equal(topicSettled(after, "span"), false);
+    assert.equal(after.topics?.span?.changed, "both");
+  });
+});
+
+test("legacy sign-offs still check covered code and use available guide text", async () => {
+  await withTopicsRepo(async (build) => {
+    const guide = structuredClone(settleGuide);
+    const topic = guide.stages![0]!.groups[0]!.topics[0]!;
+    const options = '```options\n[{"label":"A","recommended":true},{"label":"B"}]\n```';
+    topic.body += `\n\n${options}`;
+    const legacy = await reloadWithGuide(await build(), await build(), guide);
+    const stamp = legacy.topics!.span!;
+    const blockHash = legacy.changes.find((c) => c.topics?.includes("span"))!.contentHash;
+    // The saved cover hash from before text hashes included the exact options source.
+    stamp.coverHash = hash(`${blockHash}\n${options}`);
+    delete stamp.textHash;
+    legacy.settledTopics = { span: { hash: stamp.coverHash, round: 1 } };
+
+    const unchanged = await mergeReviewState(await build(), legacy);
+    assert.deepEqual(settledIds(unchanged), ["span"]);
+    assert.equal(unchanged.settledTopics?.span?.textHash, unchanged.topics?.span?.textHash);
+    const code = await mergeReviewState(
+      await build(appLines({ 3: ["A"], 10: ["C1", "C2 edited"] })),
+      legacy,
+    );
+    assert.deepEqual(settledIds(code), []);
+    assert.equal(code.topics?.span?.changed, "code");
+    const revised = structuredClone(guide);
+    revised.stages![0]!.groups[0]!.topics[0]!.body = topic.body.replace('"A"', '"New A"');
+    const text = await reloadWithGuide(await build(), legacy, revised);
+    assert.deepEqual(settledIds(text), []);
+    assert.equal(text.topics?.span?.changed, "text");
   });
 });
 
@@ -4769,7 +4819,7 @@ test("the round carries across a reload, and a topic settled in round 1 still sa
     st.round = roundOf(st) + 1; // what a Send does (server.ts)
     const reloaded = await mergeReviewState(await build(), st);
     assert.equal(roundOf(reloaded), 2);
-    assert.deepEqual(reloaded.settledTopics?.span, { hash: st.topics!.span!.coverHash, round: 1 });
+    assert.deepEqual(reloaded.settledTopics?.span, st.settledTopics?.span);
     assert.deepEqual(buildReviewResult(reloaded, { resultJson: "r", sessionDir: "d" }).topics, {
       settled: ["span"],
       todo: ["other"],
@@ -4808,13 +4858,19 @@ test("two tabs settle different topics: both land, stamped with the desk's round
   // A reset of one (Reset in the bar) removes only that one.
   await mergeReviewerSave(live, {
     base: 2,
-    changes: { settledTopics: { changed: [], removed: ["a"] } },
+    changes: {
+      settledTopics: {
+        changed: [],
+        removed: ["a"],
+        removedSignOffs: [{ id: "a", hash: "HA", round: 2 }],
+      },
+    },
     seen: { token: null, reloadGeneration: 0, baseDiffHash: "base" },
   });
   assert.deepEqual(live.settledTopics, { b: { hash: "HB", round: 2 } });
 });
 
-test("a topic sign-off made on an older diff lands, but settles nothing its hash no longer names", async () => {
+test("a topic sign-off made on an older diff cannot be saved", async () => {
   const live = state({
     baseDiffHash: "new",
     topics: { a: { blocks: [], lines: 1, coverHash: "NEW" } },
@@ -4824,7 +4880,61 @@ test("a topic sign-off made on an older diff lands, but settles nothing its hash
     changes: { settledTopics: { changed: [{ id: "a", hash: "OLD", round: 1 }], removed: [] } },
     seen: { token: null, reloadGeneration: 0, baseDiffHash: "old" },
   });
-  assert.equal(topicSettled(live, "a"), false);
+  assert.deepEqual(live.settledTopics, {});
+});
+
+test("a topic reset must identify the desk's current sign-off", async () => {
+  const current = { hash: "code", textHash: "new text", round: 2, settlementId: "new-sign-off" };
+  const live = state({
+    topics: { a: { blocks: [], lines: 1, coverHash: "code", textHash: "new text" } },
+    settledTopics: { a: current },
+  });
+  for (const removedSignOffs of [
+    [],
+    [{ id: "a", ...current, textHash: "old text" }],
+    [{ id: "a", ...current, settlementId: "earlier-same-round" }],
+  ]) {
+    const answer = await mergeReviewerSave(live, {
+      base: live.saveNumber ?? 0,
+      changes: { settledTopics: { changed: [], removed: ["a"], removedSignOffs } },
+      seen: { token: null, reloadGeneration: 0, baseDiffHash: "base" },
+    });
+    assert.deepEqual(live.settledTopics, { a: current });
+    assert.deepEqual(answer.merged?.settledTopics, { a: current });
+  }
+  await mergeReviewerSave(live, {
+    base: live.saveNumber,
+    changes: {
+      settledTopics: { changed: [], removed: ["a"], removedSignOffs: [{ id: "a", ...current }] },
+    },
+    seen: { token: null, reloadGeneration: 0, baseDiffHash: "base" },
+  });
+  assert.deepEqual(live.settledTopics, {});
+});
+
+test("a full reviewer copy cannot promote a hash-only sign-off or erase another topic's sign-off", async () => {
+  await withTopicsRepo(async (build) => {
+    const live = await attachTopics(build);
+    settleTopic(live, "other");
+    const prior = structuredClone(live.settledTopics);
+    const legacy = { hash: live.topics!.span!.coverHash, round: 1 };
+    await mergeReviewerSave(live, {
+      settledTopics: { span: legacy },
+      reviewedFiles: ["src/app.ts"],
+    });
+    assert.deepEqual(live.reviewedFiles, ["src/app.ts"]);
+    const reloaded = await mergeReviewState(await build(), live);
+    assert.deepEqual(reloaded.settledTopics, prior);
+    // A saved topic stamp that already had a text identity cannot vouch for a hash-only record.
+    live.settledTopics = { ...prior, span: legacy };
+    assert.deepEqual((await mergeReviewState(await build(), live)).settledTopics, prior);
+    live.settledTopics = prior;
+    const textHash = live.topics!.span!.textHash!;
+    await mergeReviewerSave(live, { settledTopics: { span: { ...legacy, textHash } } });
+    const settlementId = live.settledTopics?.span?.settlementId;
+    assert.ok(settlementId);
+    assert.deepEqual(live.settledTopics, { ...prior, span: { ...legacy, textHash, settlementId } });
+  });
 });
 
 test("changing only topic options resets its sign-off, while topics without options keep their hash", async () => {
@@ -4844,6 +4954,6 @@ test("changing only topic options resets its sign-off, while topics without opti
     changed.stages![0]!.groups[0]!.topics[0]!.body = topic.body.replace('"B"', '"C"');
     const after = await reloadWithGuide(await build(), withOptions, changed);
     assert.equal(topicSettled(after, "span"), false);
-    assert.equal(after.topics!.span!.changed, true);
+    assert.equal(after.topics!.span!.changed, "text");
   });
 });

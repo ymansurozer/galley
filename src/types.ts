@@ -258,8 +258,9 @@ export type GuideLink = { from: string; to: string; label: string };
 // on every reload (state.ts stampTopics). `blocks` are the change blocks it claims, `path:stableKey`
 // in diff order; `lines` is their added plus removed lines; `coverHash` hashes the blocks' content in
 // order and no line number, so it holds while lines shift above them and moves when one is edited.
-// `changed`: the reviewer's sign-off on it was dropped because its cover hash moved (state.ts
-// carryTopicSignOffs); kept until the topic is settled again. `bodyParts`: the body's blocks a
+// `textHash` identifies the authored title and body, including options. `changed` records what
+// invalidated the sign-off until the topic is settled again; legacy true has no reason.
+// `bodyParts`: the body's blocks a
 // comment can sit on, each by its source line with its text (topicthreads.ts bodyBlocks), so the tab
 // places parts by the desk's own list and a new thread sends the text the desk quotes. `lineSpans`:
 // each entry of the body's line blocks, where its lines are now (LineSpan); absent when the body has
@@ -270,7 +271,10 @@ export type TopicStamp = {
   blocks: string[];
   lines: number;
   coverHash: string;
-  changed?: true;
+  textHash?: string;
+  // The last review topicRevision that changed this topic's identity.
+  revision?: number;
+  changed?: true | "text" | "code" | "both";
   bodyParts?: Array<{ line: number; text: string }>;
   lineSpans?: LineSpan[];
   options?: TopicOption[];
@@ -291,9 +295,20 @@ export type LineSpan = {
   end?: number;
 };
 
-// A settled topic (ReviewState.settledTopics): its cover hash when the reviewer settled it, and the
-// round it was settled in. Settled while `hash` is the topic's current coverHash (topicSettled).
-export type TopicSignOff = { hash: string; round: number };
+// A settled topic (ReviewState.settledTopics): the cover and text hashes the reviewer signed off,
+// and the round. Older saved reviews lack textHash; the desk checks and upgrades them on carry.
+// settlementId identifies an individual sign-off, even after another settle in the same round.
+// revision binds a submitted sign-off to the occurrence of the topic the tab saw.
+export type TopicSignOff = {
+  hash: string;
+  textHash?: string;
+  round: number;
+  settlementId?: string;
+  revision?: number;
+};
+
+// The desk's reasons for reopening topics, sent separately from reviewer-owned records.
+export type TopicWarnings = Record<string, NonNullable<TopicStamp["changed"]>>;
 
 // The guided review the coding agent attaches (the desk renders it, runs no model).
 // Absent on a ReviewState → no guide surfaces render and the desk works as today.
@@ -372,12 +387,13 @@ export type ReviewState = {
   // Each guide topic's resolution against this diff, by topic id (TopicStamp). Server-owned and
   // rebuilt whenever the guide is attached or the diff is rebuilt; absent when the guide has no topics.
   topics?: Record<string, TopicStamp>;
+  // Advances when a topic's code or text identity changes, even if it returns to an older value.
+  topicRevision?: number;
   // Server-owned split rebuilt on attach/reload; absent without stages. The tab displays it
   // rather than resolving possibly stale guide spans itself (TopicCoverage records the partition).
   coverage?: TopicCoverage;
   // The topics the reviewer settled, by topic id (TopicSignOff). Reviewer-owned, like
-  // signedOffBlocks: carried across a reload or restart only while the topic is in the guide and
-  // its cover hash is unchanged.
+  // signedOffBlocks: carried across a reload or restart only while the topic's code and text match.
   settledTopics?: Record<string, TopicSignOff>;
   // The reviewer's threads on the parts of topics (TopicThread). Reviewer-owned, like annotations,
   // and apart from `comments`, whose rows need a file in the diff.
@@ -442,11 +458,11 @@ export type SaveStamp = { token: string | null; reloadGeneration: number; baseDi
 
 // The desk's answer to a save (/api/save); Send's (/api/send) carries `sent` and `resultJson` in
 // place of `file`. A save has landed only on a 2xx answer whose `ok` is true. `unplaced`: the save
-// was made on a diff older than the one before the desk's current one, so the desk could not place
-// its decisions and sign-offs and kept its own (mergeReviewerSave); its comments still landed.
+// names an older version of the diff or a topic, so the desk could not place some decisions or
+// sign-offs (mergeReviewerSave). Its comments still landed.
 // `saveNumber`: the desk's number once it applied this save (ReviewState.saveNumber). `merged`: the
-// desk's reviewer-owned fields after the merge, when the save's `base` was not the desk's latest
-// number, so other saves landed since the tab's copy, and the tab is on the desk's current diff.
+// desk's reviewer-owned fields after the merge, for a save on the current diff that needs
+// reconciliation or confirmation of a topic sign-off's identity and round.
 // A tab on an older diff gets none: they're keyed to a diff it doesn't have. `round`: on a Send, the
 // round it started (ReviewState.round).
 export type SaveAnswer = {
@@ -458,11 +474,17 @@ export type SaveAnswer = {
   unplaced?: true;
   saveNumber?: number;
   merged?: ReviewerSave;
+  topicWarnings?: TopicWarnings;
 };
 
 // One reviewer-owned collection's difference: the records changed or added since the tab's
 // confirmed copy, each sent whole, and the keys of those removed.
 export type KeyedChanges<T> = { changed: T[]; removed: string[] };
+
+// Each topic removal must identify the sign-off held by the copy the reviewer reset.
+export type TopicSettlementChanges = KeyedChanges<{ id: string } & TopicSignOff> & {
+  removedSignOffs?: Array<{ id: string } & TopicSignOff>;
+};
 
 // What the page reported about an annotation by itself, with no action from the reviewer: where it
 // found it, and that its screenshot capture failed. Sent apart from the whole record, so a report
@@ -483,7 +505,7 @@ export type ReviewerChanges = {
   comments?: KeyedChanges<ReviewComment>;
   fileSignOffs?: KeyedChanges<{ path: string; hash?: string }>;
   signedOffBlocks?: KeyedChanges<{ key: string; hash: string }>;
-  settledTopics?: KeyedChanges<{ id: string } & TopicSignOff>;
+  settledTopics?: TopicSettlementChanges;
   decisionFiles?: KeyedChanges<string>;
   annotations?: KeyedChanges<UiAnnotationRecord>;
   annotationReports?: AnnotationReport[];
@@ -840,6 +862,7 @@ export type PollPayload = Pick<
   | "ui"
   | "annotations"
   | "topicThreads"
+  | "topicRevision"
   | "project"
   | "branch"
   | "round"
@@ -848,7 +871,12 @@ export type PollPayload = Pick<
 // The desk's reviewer-owned fields, the save number they're at, and the diff they're keyed to
 // (GET /api/review). What an idle tab takes when another tab's save landed: never the full state,
 // which carries every file's contents.
-export type ReviewRead = { saveNumber: number; baseDiffHash: string; review: ReviewerSave };
+export type ReviewRead = {
+  saveNumber: number;
+  baseDiffHash: string;
+  review: ReviewerSave;
+  topicWarnings?: TopicWarnings;
+};
 
 // The structured payload printed to stdout (and written to result.json) when
 // the reviewer clicks "Send Review". This is the handoff contract.

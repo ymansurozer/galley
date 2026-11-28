@@ -134,7 +134,6 @@ const ANCHORS = [
   "topics? — {settled[], todo[]}",
   "#### Settling and rounds",
   "each Send starts the next",
-  "the next reload drops the sign-off",
   "loses its sign-off",
   "duplicate id within a kind (stage/group/topic)",
   "file not in the diff; folder without changed files; lines touching no change; malformed `lines` entry",
@@ -153,7 +152,8 @@ const ANCHORS = [
   'the first 20, then "and N more"',
   "reason, and rule when given, are non-empty; covers select like a topic's",
   "removed lines included, and follows its blocks across reloads",
-  "line shifts, prose and cover rewrites claiming the same blocks don't count",
+  "reopens on reload if its authored title, body (including options), or covered code changes",
+  "Line shifts and cover rewrites claiming the same blocks preserve the sign-off",
   "Code mode shows files' walkthrough, else the plain tree",
   "raw HTML stripped",
   // a guide checks without a desk, and its sections reprint alone

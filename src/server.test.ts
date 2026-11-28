@@ -21,10 +21,19 @@ import {
   buildReviewState,
   hash,
   loadLatestReview,
+  mergeReviewState,
   reviewDir,
   writeGlobalSettings,
 } from "./state.js";
-import type { ReviewComment, ReviewFile, ReviewResult, ReviewState } from "./types.js";
+import type {
+  AwaitEvent,
+  Guide,
+  ReviewComment,
+  ReviewFile,
+  ReviewResult,
+  ReviewState,
+  SaveStamp,
+} from "./types.js";
 import { isGuideBaseStale } from "./ui/guide-derive.js";
 import { agentPresence, unansweredAsks } from "./ui/topbar-derive.js";
 import { pendingAnswer } from "./ui/thread-derive.js";
@@ -545,18 +554,22 @@ test("a Send reports settled and to-do topics and starts the next round; reset c
       ],
     };
     st.topics = {
-      t1: { blocks: [], lines: 1, coverHash: "H1" },
+      t1: { blocks: [], lines: 1, coverHash: "H1", changed: "text" },
       t2: { blocks: [], lines: 1, coverHash: "H2" },
     };
     const seen = { token: null, reloadGeneration: 0, baseDiffHash: "base" };
     const poll = async () =>
       (await fetch(`${handle.url}api/poll`).then((r) => r.json())) as { round?: number };
+    const read = async () => fetch(`${handle.url}api/review`).then((r) => r.json());
     assert.equal((await poll()).round, undefined, "a new review is in round 1");
-    await post(handle.url, "api/save", {
+    assert.deepEqual((await read()).topicWarnings, { t1: "text" });
+    const saved = await post(handle.url, "api/save", {
       base: 0,
       changes: { settledTopics: { changed: [{ id: "t1", hash: "H1", round: 1 }], removed: [] } },
       seen,
     });
+    assert.deepEqual((await saved.json()).topicWarnings, {});
+    assert.deepEqual((await read()).topicWarnings, {});
     const sent = (await post(handle.url, "api/send", {
       base: 1,
       changes: {},
@@ -1559,6 +1572,212 @@ async function withBlockDesk(
 }
 
 const lines30 = Array.from({ length: 30 }, (_, i) => `l${i + 1}`);
+
+test("guide edits reopen settled topics for Send and stale saves cannot settle the revision", async () => {
+  await withBlockDesk("before\n", "after\n", async ({ st, root, url, g }) => {
+    await writeFile(path.join(root, ".gitignore"), ".galley/\n");
+    g(["add", ".gitignore"]);
+    g(["commit", "-qm", "ignore desk output"]);
+    const topic = {
+      id: "call",
+      title: "Initial call",
+      recorded: "f.txt",
+      body: 'Initial explanation.\n\n```options\n[{"label":"A","recommended":true},{"label":"B"}]\n```',
+      covers: [{ path: "f.txt" }],
+    };
+    const guide: Guide = {
+      overview: "o",
+      stages: [{ id: "s", label: "S", groups: [{ id: "g", title: "G", topics: [topic] }] }],
+    };
+    const reload = async () => assert.equal((await post(url, "api/reload", { guide })).status, 200);
+    const seen = async (desk: string): Promise<SaveStamp> => {
+      const p = (await fetch(`${desk}api/poll`).then((r) => r.json())) as Omit<
+        SaveStamp,
+        "token"
+      > & {
+        uiProxy: { token: string } | null;
+      };
+      return {
+        token: p.uiProxy?.token ?? null,
+        reloadGeneration: p.reloadGeneration,
+        baseDiffHash: p.baseDiffHash,
+      };
+    };
+    const settleBody = async () => {
+      const { coverHash: hash, textHash, revision } = st.topics!.call!;
+      return {
+        base: st.saveNumber ?? 0,
+        changes: {
+          settledTopics: { changed: [{ id: "call", hash, textHash, revision }], removed: [] },
+        },
+        seen: await seen(url),
+      };
+    };
+    const settle = async () => {
+      assert.equal((await post(url, "api/save", await settleBody())).status, 200);
+      assert.equal(st.settledTopics?.call?.textHash, st.topics?.call?.textHash);
+      assert.equal(st.topics?.call?.changed, undefined);
+    };
+
+    await reload();
+    const cover = st.topics?.call?.coverHash;
+    const checkRevision = async () => {
+      const poll = await fetch(`${url}api/poll`).then((r) => r.json());
+      assert.equal(poll.topicRevision, st.topicRevision);
+      assert.equal(st.topics?.call?.revision, st.topicRevision);
+    };
+    const initialRevision = st.topicRevision!;
+    guide.overview = "Overview revised";
+    await reload();
+    assert.equal(st.topicRevision, initialRevision);
+    for (const edit of [
+      () => (topic.title = "Revised call"),
+      () => (topic.body = topic.body.replace("Initial explanation.", "New explanation.")),
+      () =>
+        (topic.body = topic.body.replace(
+          '"A","recommended":true},{"label":"B"',
+          '"A"},{"label":"B","recommended":true',
+        )),
+    ]) {
+      await settle();
+      const previousRevision: number = st.topicRevision!;
+      edit();
+      await reload();
+      assert.equal(st.topicRevision, previousRevision + 1);
+      await checkRevision();
+      assert.equal(st.topics?.call?.coverHash, cover);
+      assert.equal(st.topics?.call?.changed, "text");
+      assert.deepEqual(st.settledTopics, {});
+      const sent = await post(url, "api/send", {
+        base: st.saveNumber,
+        changes: {},
+        seen: await seen(url),
+        overallNote: "",
+      });
+      assert.equal(sent.status, 200);
+      const event = (await awaitEvent(url, "?timeout=1").then((r) => r.json())) as AwaitEvent;
+      assert.equal(event.kind, "review");
+      assert.deepEqual(event.result.topics, { settled: [], todo: ["call"] });
+    }
+    await settle();
+    const stale = await settleBody();
+    const saved = await loadLatestReview(root, st.session);
+    assert.ok(saved);
+    const base = await buildReviewState(root, { session: st.session });
+    assert.ok(base);
+    const restarted = await mergeReviewState(base, saved);
+    assert.deepEqual(restarted.settledTopics, st.settledTopics);
+    assert.equal(restarted.topicRevision, st.topicRevision);
+    const desk = await startServer({ state: restarted, open: false, idleTimeoutMs: 0 });
+    try {
+      topic.body += "\n\nA later revision.";
+      assert.equal((await post(desk.url, "api/reload", { guide })).status, 200);
+      assert.equal(restarted.topics?.call?.changed, "text");
+      // The diff and save number still match. The old text identity alone must refuse this.
+      const ack = await post(desk.url, "api/save", stale);
+      assert.equal(ack.status, 200);
+      assert.equal((await ack.json()).unplaced, true);
+      assert.deepEqual(restarted.settledTopics, {});
+      const { coverHash: hash, textHash, revision } = restarted.topics!.call!;
+      const current = {
+        base: restarted.saveNumber,
+        changes: {
+          settledTopics: { changed: [{ id: "call", hash, textHash, revision }], removed: [] },
+        },
+        seen: await seen(desk.url),
+      };
+      assert.equal((await post(desk.url, "api/save", current)).status, 200);
+      assert.equal((await post(desk.url, "api/save", stale)).status, 200);
+      assert.equal(restarted.settledTopics?.call?.textHash, textHash);
+      await writeFile(path.join(root, "f.txt"), "before\n");
+      assert.equal((await post(desk.url, "api/reload", {})).status, 200);
+      assert.equal(restarted.topics?.call?.changed, "code");
+      assert.deepEqual(restarted.settledTopics, {});
+    } finally {
+      desk.server.close();
+    }
+  });
+});
+
+test("the desk refuses a replayed topic save after the wording changes and returns", async () => {
+  await withBlockDesk("before\n", "after\n", async ({ st, url, root, g }) => {
+    await writeFile(path.join(root, ".gitignore"), ".galley/\n");
+    g(["add", ".gitignore"]);
+    g(["commit", "-qm", "ignore desk output"]);
+    const topic = {
+      id: "call",
+      title: "Original",
+      body: "Body",
+      recorded: "f.txt",
+      covers: [{ path: "f.txt" }],
+    };
+    const other = { ...topic, id: "other", title: "Another call" };
+    const guide = {
+      overview: "Overview",
+      stages: [{ id: "s", label: "S", groups: [{ id: "g", title: "G", topics: [topic, other] }] }],
+    };
+    const reload = async () => assert.equal((await post(url, "api/reload", { guide })).status, 200);
+    await reload();
+    const { coverHash: hash, textHash, revision } = st.topics!.call!;
+    const original = { id: "call", hash, textHash, revision, settlementId: "original" };
+    const comment = { id: "note", role: "user", path: "f.txt", body: "Keep this note" };
+    const seen = { token: null, reloadGeneration: 1, baseDiffHash: st.baseDiffHash };
+    const delta = {
+      base: st.saveNumber ?? 0,
+      seen,
+      changes: {
+        settledTopics: { changed: [original], removed: [] },
+        comments: { changed: [comment], removed: [] },
+      },
+    };
+    assert.equal((await post(url, "api/save", delta)).status, 200);
+    assert.equal(st.settledTopics?.call?.settlementId, "original");
+    topic.title = "Different wording";
+    await reload();
+    topic.title = "Original";
+    await reload();
+    assert.equal(st.topics?.call?.textHash, textHash);
+    assert.notEqual(st.topics?.call?.revision, revision);
+    assert.deepEqual(st.settledTopics, {});
+    for (const body of [
+      delta,
+      { seen, settledTopics: { call: original } },
+      {
+        ...delta,
+        changes: {
+          settledTopics: { removed: [], changed: [{ ...original, revision: undefined }] },
+        },
+      },
+      { seen, settledTopics: { call: { ...original, revision: undefined } } },
+    ]) {
+      const replay = await post(url, "api/save", body);
+      assert.equal(replay.status, 200);
+      assert.equal((await replay.json()).unplaced, true);
+      assert.deepEqual(st.settledTopics, {});
+      assert.equal(st.comments[0]?.id, "note");
+    }
+    const sent = await post(url, "api/send", {});
+    assert.equal(sent.status, 200);
+    const event = (await awaitEvent(url, "?timeout=1").then((r) => r.json())) as AwaitEvent;
+    assert.equal(event.kind, "review");
+    assert.deepEqual(event.result.topics, { settled: [], todo: ["call", "other"] });
+
+    const fresh = { ...original, revision: st.topics!.call!.revision, settlementId: "fresh" };
+    const beforeOtherEdit = st.topicRevision!;
+    other.title = "Another revised call";
+    await reload();
+    assert.equal(st.topicRevision, beforeOtherEdit + 1);
+    assert.equal(st.topics!.call!.revision, fresh.revision);
+    const saved = await post(url, "api/save", {
+      ...delta,
+      base: st.saveNumber,
+      changes: { settledTopics: { changed: [fresh], removed: [] } },
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(st.settledTopics?.call?.settlementId, "fresh");
+  });
+});
+
 // lines30 with the given edits made: lines inserted after a line, a line replaced, a line gone.
 const edit30 = (edits: { a?: true; ten?: string; x?: true; d?: true }, eol = "\n") =>
   lines30
