@@ -240,10 +240,12 @@ const settledWord = (id: string) =>
 // says so, under the offer to send the review (as Code mode offers it after the last sign-off).
 export function settleOpenTopic() {
   const id = S.topicAt;
-  if (id === null || topicSettled(S.state, id) || !settle(id)) return;
+  if (id === null) return;
+  const alreadySettled = topicSettled(S.state, id);
+  if (!alreadySettled && !settle(id)) return;
   const next = nextTodo(stages(), S.state, id);
   if (next) {
-    toast(settledWord(id));
+    if (!alreadySettled) toast(settledWord(id));
     openTopic(next);
   } else {
     openTopic(null);
